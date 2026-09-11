@@ -1,0 +1,8 @@
+{
+  "id": "local-qwen38-27b-q6",
+  "kind": "local",
+  "label": "Qwen3.8 27B local (Q6 baseline)",
+  "model": "minecraft-qwen3.8-27b-q6",
+  "url": "http://127.0.0.1:1235/v1/chat/completions",
+  "maxTokens": 4096
+}

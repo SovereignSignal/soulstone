@@ -1,0 +1,24 @@
+import { resourceCount, LOG_ITEMS } from '../resources.js'
+
+// Compile complete, unambiguous requests before invoking a language model.
+// Anchoring prevents partial execution of negations, conditions or compound jobs.
+const amounts = ['one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen']
+const quantity = `(?:\\d+|${amounts.join('|')}|some)`
+const species = LOG_ITEMS.map(n => n.replace('_log', '').replaceAll('_', '[ _]')).join('|')
+const woodRequest = new RegExp(`^(?:please )?(?:(?:can|could|would) you )?(?:go (?:and )?)?(?:chop(?: down)?|cut(?: down)?|gather|collect|get|fetch|harvest|mine|pick up) (?:me )?(?:(${quantity}) )?(?:(${species}) )?(?:wood|logs?|trees?|timber|lumber)(?: for me)?(?: please)?[.!?]*$`, 'i')
+export function directPlan(text, observation = {}) {
+  const request = text.trim()
+  const returnSuffix = / (?:and|then|and then) (?:come|go|walk|head) back(?: here| to me)?[.!?]*$| (?:and|then|and then) return(?: here| to me)?[.!?]*$/i
+  const back = returnSuffix.test(request)
+  const match = request.replace(returnSuffix, '').match(woodRequest)
+  if (!match) return null
+  const item = match[2] ? match[2].toLowerCase().replaceAll(' ', '_') + '_log' : 'logs'
+  const current = resourceCount(observation.inventory || {}, item)
+  // Unspecified amount means eight more logs, bounded by the current task limit.
+  const count = !match[1] || match[1].toLowerCase() === 'some' ? Math.min(32, current + 8)
+    : /^\d+$/.test(match[1]) ? Number(match[1]) : amounts.indexOf(match[1].toLowerCase()) + 1
+  if (count < 1 || count > 32) return { reply: 'I can gather 1 to 32 logs per task. Tell me an amount in that range.', steps: [] }
+  if (current >= count && !back) return { reply: `I already have ${current} ${item === 'logs' ? 'logs' : item.replaceAll('_', ' ') + 's'}.`, steps: [] }
+  const gather = { action: 'gather', name: '', count, item }
+  return { reply: 'On it.', steps: back ? [{action:'remember',name:'meeting',count:0}, gather, {action:'return',name:'meeting',count:0}] : [gather] }
+}

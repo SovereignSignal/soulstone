@@ -1,0 +1,28 @@
+.DS_Store
+**/node_modules/
+**/.env
+**/.env.*
+!**/.env.example
+**/.auth/
+**/state/
+**/results/
+**/baseline/
+harness/lab/data/
+*.log
+*.tar.gz
+*.zip
+*.pem
+*.key
+
+companion/build/
+
+# Machine-only history, assistant state and generated runtime artifacts.
+.local/
+**/.remember/
+**/__pycache__/
+*.pyc
+**/weights/
+harness/bridge/SoulStoneBridge*.jar
+harness/bridge/source/
+# Keep the matching upstream source beside its pinned binary and license.
+!harness/bridge/ViaProxy-3.4.12-source.zip

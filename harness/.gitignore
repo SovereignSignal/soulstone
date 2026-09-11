@@ -1,0 +1,7 @@
+node_modules/
+results/
+.env
+.auth/
+lab/data/
+baseline/
+state/

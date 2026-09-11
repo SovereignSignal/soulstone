@@ -1,0 +1,152 @@
+# Survival capability contract
+
+The existing Paper lab remains in Survival gamemode and Peaceful difficulty. No mob-combat or continuous hostile-survival acceptance is implied by these tests.
+
+## Actions
+
+- `harvest`: item `sweet_berries`, desired carried total 1–32. Finds ripe loaded bushes within 48 blocks, activates without breaking, checks reset age and inventory pickup, and leaves plants for regrowth. New berry drops can be followed to safe landing cells downhill. Unreachable bushes are skipped within a bounded action. This is wild harvesting, not crop planting or a managed farm.
+- `retreat`: target `base`. Checks the saved shell, actual centre approach, interior floor/headroom and a conservative block-light lower bound of at least eight. Enters through the wooden door and verifies closed-door interior arrival. No repair, demolition or new shelter construction occurs during recovery.
+- `leave_base`: verifies the same base, opens its door, exits and closes it again.
+- `eat`: ordinary safe carried food, at most eight portions. Stops at full hunger, requires both hunger increase and inventory decrement, preserves its cap across restart and blocks uncertain replay.
+
+Goal formulation and action planning share `src/companion/survival-capabilities.txt`. The `sheltered` completion criterion requires a fresh current-request retreat receipt plus live interior, door, shell and lighting checks. A review note cannot substitute for this executable requirement.
+
+## Supervisor
+
+Health events and one-second checks trigger recovery at health <=10, food <=6, or an observed potential hostile within six blocks outside Peaceful. Conditional mobs alone do not trigger proximity recovery. Coverage is limited to loaded entities; it does not prove aggression or line of sight.
+
+The provider-independent controller interrupts the request, stops current work, waits for the old skill to unwind and for connection/chunk readiness, attempts retreat and eats carried safe food if hungry after arrival. Work stays paused for explicit Resume. Stop cancels recovery and suppresses further recovery until a new request. Missing shelter, blocked access, timeout or death is a failure, never a safety claim. Restart does not silently replay recovery.
+
+Active-skill cancellation keeps the connection open. Stop clears movement, stops digging and item use, and marks the skill cancelled. The controller waits up to 20 seconds for the native operation and its cleanup to finish before dispatching another skill or follow command. Existing checks stop later skill steps and guarded crafting clicks; a native interaction already in flight can finish. Digging that starts late after an awaited turn is cancelled on the next physics tick. Ordinary movement settings are restored after cancellation. A stuck operation blocks the handoff explicitly rather than permitting overlapping work. This is cooperative cancellation, not rollback of an already sent action.
+
+The live snapshot includes a connection ID so a reconnect cannot hide between polling samples. Lifecycle and cancellation events are recorded in the backend log. Unexpected network loss still uses the existing reconnect behavior. Actual hungry eating and a separate food-replenishment request now have live acceptance below. A single active-husk avoidance case now passes below; broader hostile encounters and full day/night survival remain unverified.
+
+## Live evidence
+
+The bot naturally gathered a reserve, preserved bushes and demonstrated regrowth/reharvesting. A controlled 11-damage drill from full health interrupted an active harvesting request. The first drill exposed missing chunks immediately after reconnect; a bounded readiness wait fixed it. The repeated drill reached the lit base and closed its door. Explicit Resume retained the request ID, left the shelter, finished at 32 carried berries, and returned inside.
+
+No food grants, main-bot teleport, difficulty changes or new mobs were used. The two nonlethal damage injections were administrative test stimuli. Earlier acceptance attempts exposed a stale goal capability description, collision-raycast navigation that cannot reach non-colliding bushes, downhill pickup, excessive shelter clearance and door-close repositioning. These attempts and their failures remain in results rather than being counted as successes.
+
+Evidence: `results/food-retreat-tests.txt`, `results/food-retreat-live-after.json`, `results/safety-drill-unloaded-failure.json`, `results/safety-drill.json`, `results/food-recovery-live-after.json`, and `results/food-retreat-server-verified.json`. The Mac locked during testing; final backend/API state is verified independently of the native UI. The background backend is independent of native-app process ownership until relaunched by the app.
+
+
+## Connected recovery acceptance
+
+The follow-up live drill used the normal Astra subscription planner and the existing natural world. A single administrative 11-damage stimulus interrupted the walking phase of an active six-log gathering request. Cancellation settled before retreat dispatch, with a 23ms handoff and about 7.1 seconds to closed-door shelter arrival. Explicit Resume kept the original request ID. The bot gathered seven spruce logs and finished inside the base with health 20, 32 berries and two diamonds.
+
+A stable connection ID plus absence of connection lifecycle events establishes no reconnect during the request. No teleport, inventory grant, world reset, code reload during the request, difficulty change or additional mobs were used. The deployment reload happened before the drill. This acceptance covers walking interruption and resumed gathering; it does not independently establish interruption of every native crafting/transfer/placement operation. An already issued interaction can finish while cancellation unwinds. A stuck operation blocks further work after the bounded handoff wait.
+
+197 tests pass, including actual skill unwinding without a late completion, no overlapping handoff, handoff timeout, abort/Stop and preserved request recovery. Evidence: `results/connected-cancellation-tests.txt` and `results/connected-recovery-live.json`. General preservation requirements retain a `needs_review` controller verdict; independent server audit evidence is separate from the runtime goal checker.
+
+The independent follow-up audit passed 828 block conditions in 69 server batches, retained base chest contents, food and valuables, and separately confirmed seven logs. Evidence: `results/connected-recovery-server-verified.json` and `results/connected-recovery-server-logs.json`.
+
+
+## Actual hunger and food replenishment
+
+The hunger drill briefly used Easy with mob spawning disabled and daylight frozen, then restored Peaceful. This was necessary for ordinary hunger depletion: the pinned [Paper food implementation](https://github.com/PaperMC/Paper/blob/ver/1.21.4/paper-server/patches/sources/net/minecraft/world/food/FoodData.java.patch) excludes Peaceful from hunger loss. No plugin installation, server restart or world modification was needed.
+
+Only HarnessRunner received a bounded Hunger effect. The food bar reached zero before the clear command completed; health remained 20. The provider-independent supervisor verified shelter, then consumed eight existing berries. Every receipt showed one item removed and two food points gained, taking food from 0 to 16 and the reserve from 32 to 24. A temporary server consumption scoreboard independently counted eight uses. The portion cap stopped the action at eight; later restoration to 20 food occurred under Peaceful, so it is not attributed to extra eating. The effect and scoreboard were removed, and Peaceful was confirmed restored.
+
+The test driver then submitted a separate ordinary replenishment request to Astra. This tests model-directed replenishment after consumption, not an autonomous background food-maintenance policy. The existing harvesting and retreat capabilities were sufficient; no runtime source changes or item grants were used. Evidence: `results/hungry-eating-live.json`, `results/food-resupply-live.json` and `results/food-cycle-server-verified.json`.
+
+The replenishment request finished with 32 berries, full health/food, the same connection and a closed-base retreat receipt. The model recovered from one unconfirmed pickup without operator intervention. A 70-batch audit passed 831 block conditions, including three confirmed harvest sites, retained base chest contents, and server-verified food/log inventory. Both diamonds and tool durability matched the baseline.
+
+
+## Controlled hostile-avoidance method
+
+The live fixture uses one adult husk with normal AI on clear observed ground away from Sov. Natural mob spawning stays disabled and daylight remains frozen. The test briefly uses Easy, records the bot's threat observations and the witness's mob movement, then requires the interrupted request to remain resumable after a closed-base retreat. A short shelter hold checks continued survival while the hostile is still present. A health cutoff and 45-second encounter limit end the fixture early on failure. Restoring Peaceful removes the tagged test mob without dropping loot; the test confirms removal before resuming gathering.
+
+The spectator witness is only a test observer. Only the witness is positioned administratively; HarnessRunner uses normal movement. The driver observes the same connection ID across interruption, hold, cleanup and explicit Resume. This fixture tests proximity-triggered avoidance of one active mob, not combat, arbitrary threat targeting or continuous hostile survival. Source: `test/live-hostile-recovery.js`; recorded observation validation: `test/verify-hostile-observations.js`.
+
+
+The first case passed: the mob entered the six-block detection range, and the supervisor interrupted gathering for retreat without any health loss or reconnect. The spectator recorded the bot inside and the husk outside for 8.005 seconds. The mob's maximum horizontal displacement from its first observed point was 12.71 blocks; its closest approach to the sheltered bot during the hold was 6.48 blocks. These observations establish avoidance, not combat, targeting certainty or a door resisting direct attack. Explicit Resume after fixture cleanup completed the same request at 12 logs, 32 berries, two diamonds and health/food 20 inside the closed base.
+
+Evidence: `results/hostile-recovery-live.json`, `results/hostile-observations-verified.json`, `results/hostile-server-verified.json`. The existing runtime was unchanged. Repeat other approaches, obstructions and compromised shelter cases before treating this as broad escape reliability.
+
+The post-run server audit passed 828 block conditions in 69 batches and retained all base chest contents. Server queries confirmed 12 logs and 32 berries; both diamonds and all tool counts were retained. Gathering caused ordinary pickaxe wear, which is recorded separately from preservation of the tools themselves.
+
+### Approach and entrance obstruction fixtures
+
+The same live driver now accepts `MC_THREAT_CASE=front` or `blocked` and a carried-log target. A front candidate must be on the base-facing side of the bot; all prior ground, line-of-sight and player-clearance constraints remain. Each case writes separate evidence. The blocked case derives the central entrance cell from the saved shelter layout, requires observed air and player clearance, and places one temporary glass block only if the server still reports air. Cleanup removes only glass at that fixture cell and verifies air afterward.
+
+An obstruction case passes only when safety reports access obstructed, retains the interrupted request, offers Resume and produces no sheltered receipt. Cleanup and explicit Resume are test-driver interventions. This check establishes honest failure and recoverability; alternate shelters and autonomous repair remain unimplemented.
+
+Both new cases passed live. The front hold lasted 8.026 seconds with the mob outside and as close as 2.05 blocks; recorded health stayed 20. The blocked case reported access obstructed without claiming shelter, then completed the same request after fixture cleanup and explicit Resume. Final stock: 24 logs, 32 berries and both diamonds, health/food 20. The final idle-state audit passed 828 block conditions in 69 batches and retained chest contents and tools; gathering caused ordinary iron-pickaxe wear. Evidence: `results/hostile-front-observations-verified.json`, `results/hostile-blocked-observations-verified.json`, `results/hostile-expanded-server-verified.json`.
+
+### Verified alternate shelters
+
+Emergency recovery now tries the primary base, then up to three nearby completed named buildings within 48 blocks, sorted by distance. Each action is capped at 45 seconds, with a total selection budget of 120 seconds plus bounded cancellation settling. Attempts and rejection reasons are persisted. A failed attempt is stopped and allowed to settle before the next starts. No model call is required to choose the fallback.
+
+A fallback must have exactly one hand-operated door and match its saved blueprint. A bounded live flood checks enclosure, including unrecorded holes, supported door approaches and usable interior space. Only full collision cubes and the door count as enclosing barriers. Air, floor torches and beds are supported within the enclosed volume; unknown or hazardous interiors fail closed. Floor torch and glowstone sources provide a conservative light lower bound of at least eight at walkable feet/head cells. This is computed from observed blocks, not claimed as measured light.
+
+All loaded potential-hostile entities are checked against room and doorway cells using body bounds, separately from the truncated nearby-threat summary. Primary-base retreat and its sheltered goal check also reject hostile occupants. Entry rechecks after door interaction and arrival; no continuous shelter-occupancy guarantee is implied. The current implementation does not support multiple entrances or general cave refuges.
+
+Fallback tasks carry a named construction separately from the primary base, preserving storage and expedition state. Before movement-dependent work or following, the executor exits an occupied verified fallback and records the departure if the model omitted it. Explicit leave_base also resolves the occupied fallback. Questions and eating do not trigger departure. Returning to the same fallback does not force an unnecessary exit. Ordinary user-requested retreat still targets the primary base; emergency fallback selection does not silently reinterpret that goal.
+
+The first live fallback run exposed a continuation defect: the planner could request gathering while still behind the guesthouse's closed door. The executor now handles departure before movement-dependent work rather than relying on a model reminder. Follow-up attempts exposed the base check's old construction-width clearance and a historical failed station task being presented as current. Base checks now reuse retreat's actual central access layout; new requests omit old terminal non-construction tasks while preserving resumable construction. The failed attempts remain recorded, rather than being counted as completed recovery tests.
+
+Final live acceptance passed with the guesthouse as fallback: primary obstruction rejected, 8.124-second inside/outside hold, explicit Resume with verified guesthouse departure, 30 logs and final closed-primary retreat on the same connection/request. Minimum observed health was 17.5; final health/food were 20. The final model explicitly requested leave_base; omission handling is separately regression-tested. The post-run audit passed 828 block conditions in 69 batches and retained storage, food, diamonds and tool counts. Peaceful and the fixture cell were restored. Evidence: `results/fallback-observations-verified.json`, `results/fallback-server-verified.json`; 207 tests pass in `results/fallback-tests.txt`.
+
+
+### Live occupied-primary case
+
+The occupied-room fixture places its single active adult husk inside the closed primary room only after the bot is outside, within detection range and separated from the spawn point. It adds no block obstruction. The pass condition requires an occupant-specific primary rejection, another verified shelter, an eight-second hold with the mob still inside the primary room, fixture cleanup, and same-request Resume with verified fallback departure and final primary retreat.
+
+This case passed live: 8.025 seconds held in the guesthouse, health 20 throughout, and 32 logs on completion. Three baseline diamonds and 32 berries were retained. Peaceful removed the tagged mob before explicit Resume. The runtime was unchanged for this test. Evidence: `results/occupied-observations-verified.json` and `results/hostile-occupied-recovery-live.json`. Named fallback rooms share the occupant guard, but a hostile inside a named fallback has not separately been tested live.
+
+
+### Sustained work and food telemetry
+
+The first longer Easy-mode supply trip completed in 5 minutes 4 seconds, with roughly 226 sampled acting seconds and 77 planning seconds. It prepared an axe, mined four iron, returned to the verified closed base, and retained 32 logs, 32 berries and three diamonds. Health and hunger remained full. Natural spawning was disabled and daytime frozen; no effects or hostiles were injected.
+
+Server saturation readings fell from 20.2 during the trip to 19.2 on return before Peaceful restoration. Client saturation did not change. Treat the client field as its last reported value, not a continuously refreshed measurement. The safety supervisor uses health/hunger thresholds, not saturation. This trip needed no eating or refill, so those behaviors remain supported by the separate prior eating and replenishment tests rather than by this run. Evidence: `results/easy-work-observations-verified.json` and the two server food snapshots.
+
+
+## Consecutive Easy work and route failures
+
+The combined torch-resupply, wood and iron trial failed overall after gathering: the bot could not initially find its return route on changing tree terrain. Its controlled single-husk encounter passed separately, with an 8.094-second shelter hold, brief health minimum 17.5 and recovery to 20. The fixture had a verified empty loot table, was removed by its unique tag, and explicit Resume retained Easy and the request. No natural spawning, hunger injection or main-bot teleport was used.
+
+A fresh observation later found an ordinary path from a position two blocks lower; the exact cause of that terrain/position change was not captured. Continuation therefore counts as another intervention and a separate Easy window. The subsequent old camp waypoint exposed a navigation stall: plain setGoal navigation ignored path-search timeout results. It now reports both noPath and search timeout to the planner, preserving the distinction between no route found and exhausted search time. Partial search results, other task kinds, stale connections and cancelled tasks are unaffected. The live spectator timeout test passed in 3.078 seconds; 210 tests pass. This change does not establish automatic terrain repair.
+
+
+## Bounded observation-based walking recovery
+
+World skills now share a route-recovery wrapper for ordinary walking. Retreat bypasses the wait so emergency shelter selection can immediately try another candidate. An initial walking attempt retains its 15-second cap and the task's existing movement policy. After a no-path, search-timeout or unconfirmed-arrival failure, it clears movement and watches for up to 30 seconds. A nearby collision/hazard change within six blocks of the starting or current position, or a changed grounded feet cell, permits exactly one fresh walking attempt. No relevant change preserves the original failure; a failed retry stops. Other errors bypass recovery. It does not replay crafting, digging, transfers or consumption, widen drop limits, edit terrain or resume a paused user request. Existing task/safety deadlines still apply.
+
+The task persists its latest navigationRecovery status, reason, attempt count, trigger and times; successful results retain that evidence for request history and experience review. Cancellation is checked during the wait and every movement boundary; listeners are removed on completion or error. All 218 regression tests pass.
+
+A physical corridor fixture on the existing lab passed unchanged-obstruction failure, cleared-obstruction recovery and cancellation during the wait. The changed case reached its target after one retry in 3.317 seconds, with health 20 throughout. The unchanged case used a shorter 1.2-second observation window; cancellation was injected through the executor's normal cancellation callback. The witness was positioned administratively on the prepared platform in Survival. Fixture cleanup restored every initially empty cell; the main bot's connection, request, projects and inventory were unchanged. This validates the executor mechanism, not autonomous terrain repair or natural leaf-decay recovery.
+
+Test setup failures are retained: an early spawn-event race before fixture placement, then approach/placement checks exposing the witness falling below the elevated platform during setup. The final driver requires grounded placement before walking. Receipts: results/route-recovery-live.json and its failed predecessors; results/route-recovery-tests.txt.
+
+
+## Bounded automatic continuation after threat clearance
+
+An active request interrupted by its first nearby-threat event can continue automatically once, after reaching a verified closed lit shelter. The controller requires 20 continuous seconds of full health, known food at least 14, loaded surrounding chunks and no classified threat within 24 blocks, while retaining Survival difficulty, connection and request identity. It watches for at most 90 seconds; uncertainty or a repeated threat leaves the request paused for explicit Resume. The clearance radius does not establish safety along the destination route.
+
+Stop cancels the watch and request. Reconnection, restart, superseding instructions, review-required effects and previously used continuation quota cannot rearm it. Health- or hunger-triggered interruptions retain explicit Resume. A persisted receipt consumes the one-continuation quota before dispatch; automated messages are labeled as assistant actions. The model then re-observes and replans the same request through the shared executor. All 226 regression tests pass, including threat resets, missing chunks, cancellation, eligibility and message attribution. Live acceptance is recorded separately in the results summary.
+
+
+## First full-cycle trial and canopy recovery
+
+The stationary persistent-threat fixture passed the 90-second clearance expiry plus ten additional seconds without departure, at health 20. The husk was active during retreat and administratively immobilized once the bot sheltered. Its earlier wandering attempt and the above-limit target setup attempt remain failed/stopped evidence.
+
+The first natural-spawning Easy trial failed before night after 244.705 seconds: supply preparation succeeded, but ordinary one-block walking could not return from the gathered tree canopy. The monitor restored Peaceful, disabled natural spawning and froze daytime at 6000. A naturally observed zombie was 21.3 blocks away at the final blocked sample. No nighttime acceptance was established.
+
+World-skill walking now has a narrow canopy escape after route failure. Grounded player-footprint support must overlap a full leaf block. Preflight searches nearby clear non-leaf full solid landings up to six blocks below, within six horizontal Manhattan blocks. The route has at most 16 nodes, stays local, never climbs or edits blocks and permits no individual drop above three. The shared checked landing logic supplies full support, hazard and headroom checks. One bounded escape restores normal walking before the original goal is retried. This also applies to shelter retreat; urgent retreat still skips the separate 30-second terrain-change wait. No general terrain repair or global movement-limit change is introduced.
+
+The first implementation missed edge support and the next destination search was too shallow for a three-block then two-block descent. These development failures remain recorded. Final targeted retreat reached the primary base through the natural route after a 1.163-second descent to grass; health was 20 before and on inspection after return. This targeted recovery required a fresh operator request and service reloads, so the original day/night attempt remains failed. All 231 tests pass; a clean repeated full cycle is separate acceptance.
+
+
+### Superseded canopy experiment and consistent descents
+
+The narrow canopy-only escape above was removed after the next live cycle failed on a taller tree. That cycle stopped at 407.887 seconds, before night, with health 20. Its original gathering ended at 31 logs, and returning could not recover under the one-block policy or the narrow escape bounds. The prior successful targeted escape does not establish the removed approach as generally adequate.
+
+The final implementation reuses DoorAwareMovements and its existing checked three-block landing logic for both ordinary walking and gathering. It requires clear safe feet/head cells over full solid non-hazardous support. Ordinary travel still cannot dig or place blocks, and both policies disable sprinting, parkour and towers. Gathering retains its existing log/leaf-only break exclusions; mining-specific movement remains at its stricter prior policy. The construction-only movement clone and experimental canopy module have been removed. The one-block mode remains available for explicitly strict callers and its tests remain. All 226 regression tests pass.
+
+The second-site read-only probe found no route under the one-block policy and a 29-node route under checked three-block descents, including a two-block, three-block and two-block descent sequence to grass. The next live full-cycle trial starts from that retained position with unchanged inventory. Evidence: results/day-night-tree-return-failed.json, results/day-night-second-canopy-failed.json, results/tree-return-probe.json, results/consistent-descent-tests.txt.
+
+
+### Completed natural-cycle acceptance
+
+The final cycle passed 24,155 server ticks in 1216.487 seconds with no in-run operator intervention or failed action. All 471 night samples were inside the primary base at health 20; the daytime minimum was 16 during a seven-block descent, and hunger stayed 20. Periodic output missed the brief daytime dip, so full sampled evidence governs. The persistent-threat test likewise had a brief retreat minimum of 17.5, followed by health 20 throughout its hold. Natural hostiles were observed in the final cycle. This supports one prepared night under a roof, not continuous unsupervised activity. The initial fall and automatic morning-work lifecycle are the next priorities. See results/survival-cycle-observations-verified.json and results-summary.md for scope and preservation findings.

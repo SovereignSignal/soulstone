@@ -1,0 +1,24 @@
+{
+  "name": "minecraft-harness-lab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "probe": "node --env-file-if-exists=.env src/probe.js",
+    "start": "node --env-file-if-exists=.env src/cli.js",
+    "play": "node --env-file-if-exists=.env src/play.js",
+    "test": "node --test test/*.test.js eval/*.test.js",
+    "eval:planner": "node eval/run.js",
+    "test:lab": "node --env-file-if-exists=.env test/lab-integration.js",
+    "companion": "node --env-file-if-exists=.env src/companion/server.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "mineflayer": "4.38.0",
+    "mineflayer-collectblock": "1.6.0",
+    "mineflayer-pathfinder": "2.4.5",
+    "vec3": "0.1.10"
+  }
+}

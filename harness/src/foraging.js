@@ -1,0 +1,37 @@
+import pathfinding from 'mineflayer-pathfinder'
+import {Vec3} from 'vec3'
+const {goals}=pathfinding
+export function validateHarvest(goal){
+ if(goal?.item!=='sweet_berries'||!Number.isInteger(goal.count)||goal.count<1||goal.count>32)throw new Error('Harvest requires a total of 1–32 sweet_berries')
+ return {item:goal.item,count:goal.count}
+}
+export async function harvestBerries(bot,task,{check,walk,settle,progress,stage,persist}){
+ const {count}=validateHarvest(task.goal),total=()=>bot.inventory.items().filter(i=>i.name==='sweet_berries').reduce((n,i)=>n+i.count,0),id=bot.registry.blocksByName.sweet_berry_bush?.id
+ if(id===undefined)throw new Error('Sweet berry bushes are unavailable in this version')
+ const harvested=task.harvested??=[],rejected=task.harvestRejected??=[],visited=new Set(rejected.map(r=>new Vec3(r.position.x,r.position.y,r.position.z).toString()));let attempts=0
+ while(total()<count&&attempts++<16){
+  check();const p=bot.findBlocks({matching:id,maxDistance:48,count:64}).filter(p=>!visited.has(p.toString())).find(p=>bot.blockAt(p)?.getProperties().age>=2)
+  if(!p)throw new Error(`No more ripe berry bushes within 48 blocks; carrying ${total()}. Existing bushes are preserved for regrowth.`)
+  visited.add(p.toString());progress(`Harvesting renewable berries: ${total()}/${count}`)
+  // Berry bushes have no collision shape, so a collision-raycast look goal
+  // can never finish. Approach by distance without stepping into the bush.
+  const goal=new goals.GoalNear(p.x,p.y,p.z,2)
+  try{await walk(goal);check()}catch(error){check();rejected.push({position:{x:p.x,y:p.y,z:p.z},reason:error.message});persist();continue}
+  if(bot.entity.position.distanceTo(p.offset(.5,0,.5))>3.5)throw new Error('Berry bush is outside interaction reach')
+  const b=bot.blockAt(p);if(b?.name!=='sweet_berry_bush'||b.getProperties().age<2)continue
+  const priorDrops=new Set(Object.values(bot.entities||{}).map(e=>e.id))
+  const before=total();await bot.unequip('hand');check();stage('harvesting');await bot.activateBlock(b);check()
+  await settle(()=>bot.blockAt(p)?.name==='sweet_berry_bush'&&Number(bot.blockAt(p).getProperties().age)===1,'Berry harvest was not confirmed; do not destroy the bush')
+  // Drops can tumble downhill. Observe the new entities after their initial
+  // fall and walk to a supported landing cell, never into the damaging bush.
+  await bot.waitForTicks(10);check()
+  const drops=Object.values(bot.entities||{}).filter(e=>!priorDrops.has(e.id)&&e.getDroppedItem?.()?.name==='sweet_berries'&&e.position.distanceTo(p)<6).map(e=>e.position.floored())
+  const candidates=[...drops,...[[1,0],[-1,0],[0,1],[0,-1]].map(([x,z])=>p.offset(x,0,z))].filter(q=>bot.blockAt(q)?.name==='air'&&bot.blockAt(q.offset(0,1,0))?.name==='air'&&bot.blockAt(q.offset(0,-1,0))?.boundingBox==='block').sort((a,b)=>a.distanceTo(bot.entity.position)-b.distanceTo(bot.entity.position))
+  if(!candidates.length)throw new Error('Harvested berries have no safe adjacent pickup position')
+  for(const q of candidates){if(total()>before)break;try{await walk(new goals.GoalBlock(q.x,q.y,q.z))}catch(error){check();continue}check();await bot.waitForTicks(10);check()}
+  await settle(()=>total()>before,'Berry pickup not confirmed; crop remains planted')
+  harvested.push({position:{x:p.x,y:p.y,z:p.z},gained:total()-before,remainingAge:bot.blockAt(p).getProperties().age});persist()
+ }
+ if(total()<count)throw new Error('Bounded harvesting limit reached; inspect the food reserve')
+ return {item:'sweet_berries',count:total(),receipt:'renewable_berry_harvest',harvested}
+}

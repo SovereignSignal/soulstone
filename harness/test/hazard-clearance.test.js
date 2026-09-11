@@ -1,0 +1,62 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import {Vec3} from 'vec3'
+import {awaitClearance,clearanceObservation,departureThreatObservation} from '../src/companion/hazard-clearance.js'
+const run=options=>awaitClearance({check(){},observe:()=>({clear:true}),quietMs:15,limitMs:100,pollMs:2,...options})
+test('clearance requires a continuous quiet interval',async()=>{
+ let n=0;const updates=[];const r=await run({observe:()=>({clear:++n>3,reason:'Hostile remains'}),onUpdate:u=>updates.push(u)})
+ assert.equal(r.status,'cleared');assert.ok(r.clearedAt-r.startedAt>=15);assert.ok(updates.some(u=>u.reason==='Hostile remains'))
+})
+test('returning threat resets the quiet interval',async()=>{
+ const began=Date.now();let lastThreat=0
+ const r=await run({quietMs:20,limitMs:150,observe:()=>{const t=Date.now()-began,clear=t<12||t>25;if(!clear)lastThreat=Date.now();return {clear,reason:'Threat'}}})
+ assert.equal(r.status,'cleared');assert.ok(r.clearedAt-lastThreat>=20)
+})
+test('persistent uncertainty pauses at the deadline',async()=>{
+ const r=await run({limitMs:15,observe:()=>({clear:false,reason:'Unknown chunks'})});assert.equal(r.status,'paused')
+})
+test('cancellation overrides a clear observation',async()=>{
+ let cancelled=false;await assert.rejects(run({observe:()=>{cancelled=true;return {clear:true}},check(){if(cancelled)throw new Error('Cancelled')}}),/Cancelled/)
+})
+test('food maintenance restarts the quiet interval and cancellation during maintenance prevents continuation',async()=>{
+ let fed=false,fedAt
+ const result=await run({quietMs:20,limitMs:150,maintain:async()=>{if(!fed){fed=true;await new Promise(r=>setTimeout(r,10));fedAt=Date.now();return true}}})
+ assert.equal(result.status,'cleared');assert.ok(result.clearedAt-fedAt>=20)
+ let cancelled=false
+ await assert.rejects(run({maintain:async()=>{cancelled=true},check(){if(cancelled)throw new Error('Stopped while eating')}}),/Stopped/)
+})
+test('a slow maintenance action cannot continue past the observation deadline',async()=>{
+ const result=await run({quietMs:0,limitMs:5,maintain:async()=>{await new Promise(r=>setTimeout(r,10))}})
+ assert.equal(result.code,'clearance_timeout');assert.equal(result.status,'paused')
+})
+test('uncertain maintenance stops observation without retrying the action',async()=>{
+ let calls=0
+ await assert.rejects(run({maintain:async()=>{calls++;throw new Error('Consumption uncertain')}}),/uncertain/)
+ assert.equal(calls,1)
+})
+function bot(){return {entity:{position:new Vec3(0,65,0)},health:20,food:20,game:{gameMode:'survival',difficulty:'easy'},inventory:{items:()=>[]},entities:{},world:{getColumn:()=>({})}}}
+test('missing chunks, threats, poor health or food, changed mode and unknown shelter deny clearance',()=>{
+ let b=bot();b.world.getColumn=()=>null;assert.match(clearanceObservation(b,{},'base').reason,/chunks/)
+ b=bot();b.health=19;assert.match(clearanceObservation(b,{},'base').reason,/Health/)
+ b=bot();b.food=13;assert.match(clearanceObservation(b,{},'base').reason,/food/)
+ b=bot();b.entities.husk={name:'husk',position:new Vec3(20,65,0)};assert.match(clearanceObservation(b,{},'base').reason,/threat/)
+ b=bot();b.entities.husk={name:'husk'};assert.match(clearanceObservation(b,{},'base').reason,/threat/)
+ b=bot();assert.match(clearanceObservation(b,{},'base').reason,/shelter/)
+ b=bot();b.game.difficulty='peaceful';assert.equal(clearanceObservation(b,{},'base').clear,false)
+})
+test('departure threat observation blocks the exit corridor but records peripheral mobs separately',()=>{
+ const design=[]
+ for(let x=0;x<4;x++)for(let z=0;z<4;z++)for(let y=0;y<3;y++){
+  const edge=x===0||x===3||z===0||z===3,door=x===1&&z===0&&y<2
+  if(y===2||edge&&!door)design.push({x,y,z,block:'wood_planks'})
+ }
+ const project={build:{origin:{x:0,y:64,z:0},design},stations:{}}
+ const bot={entity:{position:{x:1.5,y:64,z:1.5}},entities:{
+  near:{name:'skeleton',position:{x:1.5,y:64,z:-1.5}},
+  side:{name:'creeper',position:{x:6.5,y:64,z:1.5}},
+  unknown:{name:'zombie'}
+ }}
+ const unknown=departureThreatObservation(bot,{base:project});assert.equal(unknown.blocking.length,2);assert.equal(unknown.peripheral.length,1)
+ delete bot.entities.unknown
+ const split=departureThreatObservation(bot,{base:project});assert.equal(split.blocking.length,1);assert.equal(split.blocking[0].name,'skeleton');assert.equal(split.peripheral[0].name,'creeper')
+})

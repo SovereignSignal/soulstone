@@ -1,0 +1,25 @@
+# Bounded resource expeditions
+
+`prospect` exposes one reusable resource goal to every configured planner. It accepts `name: base`, a total carried count of 1–16, and cobblestone, coal, raw iron/copper/gold or diamond. The model decides the prerequisites and sequence. The executor handles world interaction. `return_base` retraces an interrupted route without digging.
+
+Starter cobblestone/coal trips can run before torches exist. They remain within 24 horizontal blocks and eight blocks below the saved base, with at most 48 broken blocks, 32 new steps and 90 seconds of outbound work. These bounds apply to selected targets, path nodes and planned breaks. A deeper saved frontier is not replayed in starter mode. Usable tools, inventory space, protected return floors and all excavation safety checks still apply. This breaks the circular dependency between inaccessible stone, a furnace, charcoal and torches. Iron and diamond expeditions still require torches.
+
+The executor surveys loaded client chunks, including buried ore. This is richer information than a human's visible screen; it is not a visual-only benchmark and may behave differently on servers that obscure ore packets. No server console or privileged resource query is available to the planner or executor.
+
+Excavation uses the installed pathfinder to plan cardinal tunnels and one-block stairs. The runtime separately checks and performs each break, confirms block removal, walks without automatic digging and persists the route. It refuses unknown/fluid neighbours, falling overhead blocks, unsupported drops, protected base blocks, player support and insufficient tools. Tool durability includes an eight-use reserve. Carried torches are placed along supported trail cells. Bridging remains unavailable; general hostile mining has not been accepted.
+
+Trips are bounded by 180 breaks, 96 new steps and five minutes of outward work within the ten-minute skill deadline. A partial result retains the frontier and returns to base; it never claims the resource was acquired. Later prospecting re-observes the route and continues. Known waypoints whose support or headroom changed are skipped while navigation seeks a valid path to the next point. Unknown cells remain pending observation. Each planned dig is checked against the growing route; a conflicting switchback triggers replanning. The total trail is capped at 300 steps, and exploration at 16 sectors per resource. The executor searches additional sectors when the current client terrain contains no candidate. Unsafe or unreachable deposits remain explicit blockers.
+
+The saved base project retains current trail, frontier, survey history, rejected targets and pending break. Cancellation closes the bot connection so late digging cannot continue. A new instruction observes the actual blocks and returns over any interrupted trail before continuing. Process restart does not automatically replay the conversational request. Models receive concise route summaries and tool durability; full coordinates remain executor state.
+
+Acceptance requires actual inventory and a return receipt. Tests independently query server inventory and position. Seeded fixture results and live natural-world results must remain separately labeled. Broader world generation, fluids, combat and other protocol versions need further acceptance cases.
+
+The local movement adapter also corrects the pinned pathfinder's support-block measurement for one-block drops. Both excavation planning and ordinary no-dig walking enforce a one-block physical descent. Remove this adapter only after an upstream version passes the stair and reverse-route regressions.
+
+## Supplies and multi-trip goals
+
+`prepare` counts tools with at least half maximum durability and 32 uses left, crafts missing replacements/spares, and retains worn tools. `stow` deposits excavation rubble into the saved chest while keeping 32 cobblestone and all tools, fuel, wood, ores and valuables. Every transfer reopens the chest and verifies both inventory changes. A full chest is a blocker; no items are discarded.
+
+Before each cut, prospecting checks for a pickaxe with at least 16 uses, at least two free inventory slots and a carried torch. A failed check returns a partial result with specific resupply needs, preserving the frontier. The planner can repair those prerequisites and start another trip. Roughly every eight new route steps the executor places a supported torch when a valid nearby location is available, avoiding duplicate nearby lights. It verifies the torch block, not a light-level or mob-safety threshold.
+
+Request IDs, feedback and action receipts now survive interruption. Explicit Resume re-observes the goal with its existing delivery receipts and target. Stop stays cancelled. Limits are 24 planning rounds per explicit start/Resume, a 45-minute check at planning boundaries, two identical failures and three rounds without observed progress. This bounded continuation replaces the former six-round cutoff.

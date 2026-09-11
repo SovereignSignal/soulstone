@@ -1,0 +1,115 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import {EventEmitter} from 'node:events'
+import {mkdtempSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+import registry from 'prismarine-registry'
+import {Vec3} from 'vec3'
+import {defenseDecision,defendAgainstMob,clearStrike} from '../src/combat.js'
+import {validateTaskGoal} from '../src/task-store.js'
+import {Runner} from '../src/runner.js'
+import {Teammate} from '../src/companion/controller.js'
+import {THREAT_INTERRUPTION} from '../src/survival.js'
+
+const uuid='10000000-0000-0000-0000-000000000001',connection='20000000-0000-0000-0000-000000000002'
+function fixture(){
+ const bot=new EventEmitter(),target={id:7,uuid,...registry('1.21.4').entitiesByName.husk,position:new Vec3(2,64,0)}
+ target.id=7
+ const weapon={name:'iron_axe',count:1,maxDurability:250,durabilityUsed:0,slot:36},items=[weapon]
+ Object.assign(bot,{registry:registry('1.21.4'),health:20,food:20,game:{gameMode:'survival',difficulty:'easy'},entity:{id:1,type:'player',position:new Vec3(0,64,0),onGround:true},entities:{7:target},players:{},inventory:{items:()=>items,slots:[]},world:{raycast:()=>null,getColumn:()=>({})},blockAt:p=>({name:p.y<64?'stone':'air'}),equip:async i=>{bot.heldItem=i},getEquipmentDestSlot:()=>45,activateItem:()=>{},deactivateItem:()=>{},clearControlStates:()=>{},lookAt:async()=>{},pathfinder:{setGoal:()=>{},setMovements:()=>{}},attack:()=>{}})
+ const task={kind:'defend',goal:{targetId:7,targetUuid:uuid,targetName:'husk',connectionId:connection},deadline:Date.now()+30000}
+ const context={check(){},stage(){},progress(){},persist(){}}
+ return {bot,target,weapon,items,task,context}
+}
+test('defense engages a lone melee mob and rejects weak readiness, extra threats and obstructed sight',()=>{
+ const f=fixture();assert.equal(defenseDecision(f.bot).engage,true)
+ f.bot.health=13;assert.equal(defenseDecision(f.bot).engage,false);f.bot.health=20
+ f.bot.food=9;assert.equal(defenseDecision(f.bot).engage,false);f.bot.food=20
+ f.bot.entities[8]={id:8,uuid:connection,name:'creeper',position:new Vec3(7,64,0)};assert.equal(defenseDecision(f.bot).engage,false);delete f.bot.entities[8]
+ f.bot.world.raycast=()=>({name:'stone'});assert.equal(defenseDecision(f.bot).engage,false)
+ f.bot.world.raycast=()=>null;f.bot.blockAt=()=>null;assert.equal(clearStrike(f.bot,f.target),false)
+})
+test('players and neutral mobs are never valid targets; sword sweeping excludes bystanders',()=>{
+ const f=fixture();f.target.type='player';assert.equal(defenseDecision(f.bot).engage,false);f.target.type='hostile'
+ f.target.name='wolf';assert.equal(defenseDecision(f.bot).engage,false);f.target.name='husk'
+ f.weapon.name='iron_sword';assert.equal(defenseDecision(f.bot).engage,true)
+ f.bot.entities[8]={id:8,type:'player',position:new Vec3(1,64,1)};assert.equal(defenseDecision(f.bot).engage,false)
+ f.bot.entities[8]={id:8,name:'cow',type:'animal',position:new Vec3(1,64,1)};assert.equal(defenseDecision(f.bot).engage,false)
+ f.weapon.name='iron_axe';assert.equal(defenseDecision(f.bot).engage,true)
+ assert.throws(()=>validateTaskGoal('defend',{...f.task.goal,targetName:'player'}),/observed mob/)
+})
+test('combat respects weapon cadence and confirms server death with cleanup',async()=>{
+ const f=fixture(),times=[],controls=[];f.weapon.name='iron_sword'
+ f.bot.deactivateItem=()=>controls.push('release');f.bot.clearControlStates=()=>controls.push('clear')
+ f.bot.attack=e=>{times.push(Date.now());f.bot.emit('entityHurt',e);if(times.length===2)f.bot.emit('entityDead',e)}
+ const r=await defendAgainstMob(f.bot,f.task,f.context)
+ assert.equal(r.receipt,'target_death_observed');assert.equal(r.attacks,2);assert.equal(r.hurtEvents,2)
+ assert.ok(times[1]-times[0]>=700);assert.equal(f.bot.listenerCount('entityDead'),0);assert.ok(controls.includes('clear'));assert.ok(controls.includes('release'))
+})
+test('Stop during native equip prevents attacks and releases controls',async()=>{
+ const f=fixture();let cancelled=false,release,attacks=0,cleared=false
+ f.context.check=()=>{if(cancelled)throw new Error('Stopped')};f.bot.equip=()=>new Promise(r=>release=r)
+ f.bot.attack=()=>attacks++;f.bot.clearControlStates=()=>cleared=true
+ const pending=defendAgainstMob(f.bot,f.task,f.context);cancelled=true;release()
+ await assert.rejects(pending,/Stopped/);assert.equal(attacks,0);assert.equal(cleared,true)
+})
+test('shield use is released when Stop interrupts defense',async()=>{
+ const f=fixture();f.items.push({name:'shield',count:1,maxDurability:336,slot:37});let blocked=false,cancelled=false,attacks=0
+ f.bot.equip=async(i,d)=>{if(d==='hand')f.bot.heldItem=i;else f.bot.inventory.slots[45]=i}
+ f.bot.activateItem=off=>{assert.equal(off,true);blocked=true;cancelled=true}
+ f.bot.deactivateItem=()=>blocked=false;f.bot.attack=()=>attacks++
+ f.context.check=()=>{if(cancelled)throw new Error('Stopped')}
+ await assert.rejects(defendAgainstMob(f.bot,f.task,f.context),/Stopped/)
+ assert.equal(attacks,0);assert.equal(blocked,false);assert.equal(f.task.combat.shield,true)
+})
+test('target disappearance and ID reuse are not reported as kills',async()=>{
+ for(const reuse of [false,true]){
+  const f=fixture();let attacks=0
+  f.bot.lookAt=async()=>{if(reuse)f.bot.entities[7]={...f.target,uuid:connection};else delete f.bot.entities[7]}
+  f.bot.attack=()=>attacks++
+  await assert.rejects(defendAgainstMob(f.bot,f.task,f.context),/disappeared|identity changed/)
+  assert.equal(attacks,0);assert.equal(f.task.combat.deathObserved,false)
+ }
+})
+test('falling health or an arriving threat prevents the next attack',async()=>{
+ for(const threat of [false,true]){
+  const f=fixture();let attacks=0
+  f.bot.lookAt=async()=>{if(threat)f.bot.entities[8]={id:8,name:'creeper',position:new Vec3(3,64,0)};else f.bot.health=10}
+  f.bot.attack=()=>attacks++
+  await assert.rejects(defendAgainstMob(f.bot,f.task,f.context),/retreat/);assert.equal(attacks,0)
+ }
+})
+test('reconnected Runner refuses an old combat goal before dispatch',()=>{
+ let result;const runner={ready:true,task:{kind:'defend',status:'running',goal:{connectionId:connection},deadline:Date.now()+10000},connectionId:uuid,finish:(status,reason)=>result={status,reason},runSkill:()=>assert.fail('Old combat replayed')}
+ Runner.prototype.applyGoal.call(runner);assert.equal(result.status,'failed');assert.match(result.reason,/connection changed/)
+})
+function controllerFixture(){
+ const f=fixture(),runner=new EventEmitter()
+ Object.assign(runner,{bot:f.bot,ready:true,profile:'combat-test',owner:'Sov',connectionId:connection,position:()=>f.bot.entity.position,commands:[],waitForIdle:async()=>{}})
+ runner.command=cmd=>{runner.commands.push(cmd);runner.emit('operator_command',cmd);if(cmd.action==='follow')runner.task={id:'follow',kind:'follow',status:'running',goal:{player:cmd.player}}}
+ const c=new Teammate(runner,{model:'none',plan:()=>assert.fail('No model call during defense')},join(mkdtempSync(join(tmpdir(),'mc-combat-')),'teammate.json'))
+ c.execute=async cmd=>{runner.commands.push(cmd);assert.equal(cmd.action,'defend');delete f.bot.entities[7];runner.task={result:{receipt:'target_death_observed',attacks:2}}}
+ return {...f,runner,c}
+}
+test('supervisor chooses fighting, retains request and automatically continues after clearance',async()=>{
+ const f=controllerFixture();f.c.requestProgress={id:'original',request:'gather',status:'running',feedback:[]};let resumed=0
+ f.c.resume=async options=>{assert.equal(options.automatic,true);resumed++}
+ await f.c.seekSafety(THREAT_INTERRUPTION)
+ assert.equal(f.runner.commands.filter(c=>c.action==='defend').length,1);assert.equal(f.runner.commands.some(c=>c.action==='retreat'),false)
+ assert.equal(f.c.requestProgress.id,'original');assert.equal(f.c.requestProgress.feedback[0].action,'defend');assert.equal(resumed,1);assert.equal(f.c.requestProgress.combatContinuations.length,1)
+})
+test('self-defense resumes following and Stop prevents a pending combat handoff',async()=>{
+ const f=controllerFixture();f.runner.task={kind:'follow',status:'running',goal:{player:'Sov'}}
+ await f.c.seekSafety(THREAT_INTERRUPTION);assert.equal(f.runner.commands.at(-1).action,'follow');assert.equal(f.c.safety,null)
+ const g=controllerFixture();let release;g.runner.waitForIdle=()=>new Promise(r=>release=r)
+ const pending=g.c.seekSafety(THREAT_INTERRUPTION);g.c.stop();release();await pending
+ assert.equal(g.runner.commands.some(c=>c.action==='defend'),false);assert.equal(g.c.safety.status,'cancelled')
+})
+test('Stop while defending prevents retreat and resumption',async()=>{
+ const f=controllerFixture();let release
+ f.c.execute=()=>new Promise(r=>release=r)
+ const pending=f.c.seekSafety(THREAT_INTERRUPTION);await new Promise(r=>setImmediate(r))
+ assert.equal(f.c.phase,'defending');f.c.stop();release();await pending
+ assert.equal(f.c.safety.status,'cancelled');assert.equal(f.runner.commands.some(c=>c.action==='retreat'||c.action==='follow'),false)
+})
