@@ -17,7 +17,7 @@ app = (build / 'portable' if args.portable else build) / 'SoulStone.app'
 contents = app / 'Contents'
 (contents/'MacOS').mkdir(parents=True,exist_ok=True)
 (contents/'Resources').mkdir(exist_ok=True)
-plist = {'CFBundleIdentifier':'com.sovereignsignal.minecraft-teammate','CFBundleName':'SoulStone','CFBundleDisplayName':'SoulStone','CFBundleIconFile':'AppIcon','CFBundleExecutable':'MinecraftTeammate','CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.1.0','CFBundleVersion':'41','LSMinimumSystemVersion':minimum_macos,'NSMicrophoneUsageDescription':'Speak to SoulStone using push-to-talk.','NSSpeechRecognitionUsageDescription':'Transcribe your Minecraft requests on this Mac. Audio is not sent to a paid API.','NSAppTransportSecurity':{'NSAllowsLocalNetworking':True},'NSHighResolutionCapable':True}
+plist = {'CFBundleIdentifier':'com.sovereignsignal.minecraft-teammate','CFBundleName':'SoulStone','CFBundleDisplayName':'SoulStone','CFBundleIconFile':'AppIcon','CFBundleExecutable':'MinecraftTeammate','CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.1.0','CFBundleVersion':'42','LSMinimumSystemVersion':minimum_macos,'NSMicrophoneUsageDescription':'Speak to SoulStone using push-to-talk.','NSSpeechRecognitionUsageDescription':'Transcribe your Minecraft requests on this Mac. Audio is not sent to a paid API.','NSAppTransportSecurity':{'NSAllowsLocalNetworking':True},'NSHighResolutionCapable':True}
 resources = root/'companion'/'Resources'
 for asset in resources.glob('*.png'):
     shutil.copy2(asset, contents/'Resources'/asset.name)

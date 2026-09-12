@@ -11,18 +11,20 @@ import {requestPlan} from './providers.js'
 import { readFileSync } from 'node:fs'
 import { directPlan } from './direct-plan.js'
 import { validResource, LOG_ITEMS } from '../resources.js'
+import {validateHuntGoal} from '../hunt.js'
 import { guardIntent } from './intent.js'
 
 export const schema = { type: 'object', additionalProperties: false, required: ['reply', 'steps'], properties: {
   reply: { type: 'string' }, steps: { type: 'array', maxItems: 8, items: { type: 'object', additionalProperties: false,
-    required: ['action', 'name', 'count', 'item','design'], properties: { action: { type: 'string', enum: ['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS] },
+    required: ['action', 'name', 'count', 'item','design'], properties: { action: { type: 'string', enum: ['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest','hunt',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS] },
       name: { type: 'string' }, count: { type: 'integer' }, item: { type: 'string' }, design:{type:'array',items:{type:'object',additionalProperties:false,required:['x','y','z','x2','y2','z2','block'],properties:{x:{type:'integer'},y:{type:'integer'},z:{type:'integer'},x2:{type:'integer'},y2:{type:'integer'},z2:{type:'integer'},block:{type:'string'}}}} } } }
 } }
 export function validatePlan(value) {
   if (!value || typeof value.reply !== 'string' || value.reply.length > 1000 || !Array.isArray(value.steps) || value.steps.length > 8) throw new Error('Model returned an invalid plan')
   const steps = value.steps.flatMap((s, i) => {
-    if (!s || !['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action)) throw new Error('Unsupported model action')
+    if (!s || !['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest','hunt',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action)) throw new Error('Unsupported model action')
     if(s.action==='harvest')validateHarvest(s)
+    if(s.action==='hunt')validateHuntGoal(s)
     if(s.action==='eat')validateEatGoal(s)
     if(s.action==='revise'){if(!projectName(s.name))throw new Error('Invalid revision project name');validateArchitecturePatch(s.design)}
     if(s.action==='construct'){if(!projectName(s.name))throw new Error('Invalid construction project name');if(!Array.isArray(s.design))throw new Error('Construction design must be an array');if(s.design.length)compileArchitecture(s.design)}
@@ -37,7 +39,7 @@ export function validatePlan(value) {
     if(s.action==='acquire'&&(!/^[a-z0-9_]{1,64}$/.test(s.item||'')||!Number.isInteger(s.count)||s.count<1||s.count>128))throw new Error('Acquire requires an item ID and count 1–128')
     if(s.action==='prepare'&&(!toolName(s.item)||!Number.isInteger(s.count)||s.count<1||s.count>4))throw new Error('Prepare requires 1–4 serviceable tools')
     if(s.action==='give'&&(!/^[a-z0-9_]{1,64}$/.test(s.item||'')||!Number.isInteger(s.count)||s.count<1||s.count>64))throw new Error('Give requires an item ID and count 1–64')
-    if (!['acquire','give','eat','harvest',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action) && s.item !== undefined && s.item !== '' && (!['gather', 'gather_and_return'].includes(s.action) || !validResource(s.item))) throw new Error('Invalid gather resource')
+    if (!['acquire','give','eat','harvest','hunt',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action) && s.item !== undefined && s.item !== '' && (!['gather', 'gather_and_return'].includes(s.action) || !validResource(s.item))) throw new Error('Invalid gather resource')
     if (s.action === 'follow' && i !== value.steps.length - 1) throw new Error('Following must be the final step')
     if (!['remember', 'return', 'gather_and_return'].includes(s.action) && s.name && ![...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action) && !(s.action==='build'&&s.name==='shelter') && !['construct','revise'].includes(s.action)) throw new Error('Only location-saving or return actions accept a location name')
     if (['gather', 'gather_and_return'].includes(s.action) && (!Number.isInteger(s.count) || s.count < 1 || s.count > 32)) throw new Error('Gather target must be 1–32 logs')

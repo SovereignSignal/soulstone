@@ -2,6 +2,7 @@ import {validateHarvest} from './foraging.js'
 import {validateEatGoal} from './survival.js'
 import {validateDefenseGoal} from './combat.js'
 import {validateFleeGoal} from './flee.js'
+import {validateHuntGoal} from './hunt.js'
 import {compileArchitecture,projectName,architectureChanges} from './construction.js'
 import {PREPARE_ACTIONS,toolName} from './supplies.js'
 import {EXPEDITION_ACTIONS,ORE_SOURCES} from './prospecting.js'
@@ -20,6 +21,7 @@ export function validateGoal(goal) {
 export function validateTaskGoal(kind, goal) {
   if(['surface','burrow','hut','unhut'].includes(kind))return {}
   if(kind==='flee')return validateFleeGoal(goal)
+  if(kind==='hunt')return validateHuntGoal(goal)
   if(kind==='unburrow')return {surface:validateGoal(goal?.surface)}
   if(kind==='defend')return validateDefenseGoal(goal)
   if(['retreat','leave_base'].includes(kind)&&goal?.shelter){

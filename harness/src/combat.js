@@ -24,6 +24,10 @@ function weaponFor(bot,target){
  return bot.inventory.items().filter(i=>weapons[i.name]&&Number.isFinite(i.maxDurability)&&remainingDurability(i)>=16&&(!i.name.endsWith('_sword')||!swordBystander(bot,target)))
   .sort((a,b)=>weapons[b.name]-weapons[a.name]||remainingDurability(b)-remainingDurability(a))[0]
 }
+// The best carried melee weapon for any target, bystanders aside.
+export function meleeWeapon(bot){
+ return bot.inventory.items().filter(i=>weapons[i.name]&&Number.isFinite(i.maxDurability)&&remainingDurability(i)>=8).sort((a,b)=>weapons[b.name]-weapons[a.name])[0]||null
+}
 export function clearStrike(bot,target){
  if(!knownPoint(bot.entity?.position)||!knownPoint(target?.position)||typeof bot.world?.raycast!=='function')return false
  const eye=point(bot.entity.position).offset(0,bot.entity.eyeHeight||1.62,0)

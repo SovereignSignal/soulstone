@@ -104,7 +104,8 @@ The integration suite intentionally modifies the experimental world and injects 
 - `src/skills.js`: inventory-based gathering and wooden-pickaxe crafting.
 - `src/probe.js`: bounded connection-only smoke test.
 - `test/lab-integration.js`: independent server-side scoring and failure injection.
-- `src/burrow.js` and `src/quarry.js`: the emergency burrow (shelter of last resort) and the bounded quarry for cobblestone when no exposed stone is reachable.
+- `src/burrow.js`, `src/hut.js`, `src/flee.js` and `src/quarry.js`: the emergency burrow and wall-in hut (shelters of last resort), the sprint-away flee used against creepers, and the bounded quarry for cobblestone when no exposed stone is reachable.
+- `src/combat.js` and `src/hunt.js`: bounded self-defense against one melee mob with a carried weapon, and hunting farm animals for food or leather.
 - `test/live-request.py` and `test/live-sample.py`: drive one request against a running companion service and record before/after state; the sampler also logs five-second rows with health, threats, position and deadline headroom. Both spend model calls and act in the connected world.
 - `baseline/`: preserved original ControlBot source, ignored by Git.
 
