@@ -60,6 +60,7 @@ export function findBurrowColumn(bot){
  }
  return {site:null,reasons}
 }
+export const climbBlocks=bot=>bot.inventory.items().filter(i=>fullCube(bot.registry,i.name)&&!GRAVITY.has(i.name)).reduce((n,i)=>n+i.count,0)
 function capItem(bot){
  return bot.inventory.items().find(i=>fullCube(bot.registry,i.name)&&!GRAVITY.has(i.name))||null
 }

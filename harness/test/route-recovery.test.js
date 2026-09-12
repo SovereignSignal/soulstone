@@ -52,7 +52,7 @@ test('successful skill receipts retain a detached copy of recovery evidence for 
  await runner.runSkill();assert.equal(runner.task.status,'completed',runner.task.reason);assert.deepEqual(runner.task.result.navigationRecovery,recovery);assert.notEqual(runner.task.result.navigationRecovery,recovery)
 })
 
-import {stepFree} from '../src/route-recovery.js'
+import {stepFree,MAX_CLIMB} from '../src/route-recovery.js'
 test('a wedged bot steps toward an open neighbour before waiting on terrain, then retries at once',async()=>{
  const f=fixture();f.bot.entity.onGround=false
  f.bot.blockAt=p=>{const name=p.y<65?'stone':(p.x===1&&p.z===0)?'air':(p.y>=65&&p.x===0&&p.z===0)?'air':'stone';return {position:p,name,boundingBox:name==='air'?'empty':'block'}}
@@ -61,4 +61,38 @@ test('a wedged bot steps toward an open neighbour before waiting on terrain, the
  assert.equal(f.calls(),2);assert.equal(f.records.at(-1).status,'recovered');assert.equal(f.records.at(-1).trigger,'stepped_free')
  const g=fixture();g.bot.blockAt=()=>({name:'stone',boundingBox:'block'});g.bot.setControlState=()=>{}
  assert.equal(await stepFree(g.bot,{check(){},progress(){}}),false)
+})
+import {climbFree,pitExit} from '../src/route-recovery.js'
+const pit=(placed=new Set(),rim=70)=>p=>{const name=placed.has(p.toString())?'cobblestone':(p.y>=rim||(p.x===0&&p.z===0&&p.y>=65))?'air':'stone';return {position:p,name,boundingBox:name==='air'?'empty':'block'}}
+const carrying=(bot,count)=>{bot.inventory={items:()=>count?[{name:'cobblestone',count}]:[]};bot.registry={blocksByName:{cobblestone:{boundingBox:'block'}},blockCollisionShapes:{blocks:{cobblestone:1},shapes:{1:[[0,0,0,1,1,1]]}}}}
+test('a bot at the bottom of a pit judges the first ledge, climbs with carried blocks, then retries',async()=>{
+ const f=fixture();f.bot.blockAt=pit();carrying(f.bot,8)
+ assert.deepEqual(pitExit(f.bot),{height:5,cell:new Vec3(1,70,0)})
+ f.bot.lookAt=async()=>{};f.bot.setControlState=(k,v)=>{if(k==='forward'&&v)f.bot.entity.position=f.bot.entity.position.offset(.6,0,0)}
+ const climbs=[]
+ f.options.climb=async(bot,surface)=>{climbs.push(surface);bot.entity.position=new Vec3(bot.entity.position.x,surface.y,bot.entity.position.z)}
+ const messages=[];f.options.progress=m=>messages.push(m)
+ await walkWithTerrainRecovery(f.bot,f.goal,f.options)
+ assert.deepEqual(climbs,[{x:1,y:70,z:0}]);assert.equal(f.calls(),2)
+ assert.equal(f.records.at(-1).trigger,'climbed_free');assert.equal(f.records.at(-1).status,'recovered');assert.equal(f.records.at(-1).attempts,2)
+ assert.ok(messages.some(m=>/Climbing 5 blocks out of a pit toward 1,70,0/.test(m)))
+})
+test('pit judgement refuses roofed columns, ledges beyond the climb limit and empty hands',async()=>{
+ const f=fixture();carrying(f.bot,8);f.bot.setControlState=()=>{}
+ f.bot.blockAt=p=>(p.x===0&&p.z===0&&p.y===68)?{name:'stone',boundingBox:'block'}:pit()(p)
+ assert.equal(pitExit(f.bot),null)
+ f.bot.blockAt=pit(new Set(),65+MAX_CLIMB+1)
+ assert.equal(pitExit(f.bot),null)
+ f.bot.blockAt=pit();carrying(f.bot,3)
+ const messages=[]
+ assert.equal(await climbFree(f.bot,{check(){},stage(){},progress:m=>messages.push(m),climb:async()=>assert.fail('never climbs short')}),false)
+ assert.match(messages.at(-1),/5 deep with 3 carried blocks/)
+ f.bot.entity.onGround=false
+ assert.equal(await climbFree(f.bot,{check(){},stage(){},progress(){},climb:async()=>assert.fail('never climbs airborne')}),false)
+})
+test('a stalled climb falls through to terrain observation and keeps the original route error',async()=>{
+ const f=fixture();f.bot.blockAt=pit();carrying(f.bot,8);f.bot.setControlState=()=>{};f.bot.lookAt=async()=>{}
+ f.options.climb=async()=>{throw new Error('Climb stalled at 0,67,0')}
+ await assert.rejects(walkWithTerrainRecovery(f.bot,f.goal,f.options),/No path/)
+ assert.equal(f.calls(),1);assert.equal(f.records.at(-1).status,'unchanged');assert.equal(f.records.at(-1).trigger,undefined)
 })

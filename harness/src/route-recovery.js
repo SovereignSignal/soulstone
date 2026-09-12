@@ -1,5 +1,6 @@
 import {setTimeout as delay} from 'node:timers/promises'
 import {requireReachedGoal} from './navigation.js'
+import {climbOut,climbBlocks} from './burrow.js'
 
 const routeFailure=e=>['NoPath','Timeout'].includes(e.name)||e.code==='NAVIGATION_INCOMPLETE'
 const collision=(b,m)=>b?JSON.stringify([b.boundingBox,b.shapes,m.blocksToAvoid?.has(b.type),/^(water|lava)$/.test(b.name||'')?b.name:null]):null
@@ -8,12 +9,23 @@ const standing=bot=>bot.entity.onGround?bot.entity.position.floored().toString()
 const SIDES=[[1,0],[-1,0],[0,1],[0,-1]]
 const clear=b=>!b||b.name==='air'||b.boundingBox==='empty'
 const solid=b=>!!b&&b.boundingBox==='block'
+// Short forward pulses toward a neighbouring cell; the pathfinder is off.
+async function nudge(bot,cell,{check,jump=false,pulses=4}){
+ const start=bot.entity.position.floored().toString()
+ if(bot.lookAt)await bot.lookAt(cell.offset(.5,bot.entity.eyeHeight||1.62,.5),true)
+ for(let pulse=0;pulse<pulses;pulse++){
+  bot.setControlState('forward',true);if(jump)bot.setControlState('jump',true)
+  await delay(150);bot.setControlState('forward',false);bot.setControlState('jump',false);await delay(100);check()
+  if(bot.entity.position.floored().toString()!==start)return true
+ }
+ return false
+}
 // A bot wedged in a slot (its own refilled shaft, a one-block pit) reports
 // no ground and the pathfinder refuses every route. Before waiting on terrain,
 // step manually toward any open neighbour, flat or one block up.
 export async function stepFree(bot,{check,progress}){
  if(!bot.blockAt||!bot.setControlState)return false
- const feet=bot.entity.position.floored(),start=feet.toString()
+ const feet=bot.entity.position.floored()
  const options=[]
  for(const [dx,dz] of SIDES){
   const c=feet.offset(dx,0,dz)
@@ -22,18 +34,43 @@ export async function stepFree(bot,{check,progress}){
  }
  for(const {c,jump} of options){
   check();progress(`Stepping free toward ${c.x},${c.y},${c.z}`)
-  if(bot.lookAt)await bot.lookAt(c.offset(.5,bot.entity.eyeHeight||1.62,.5),true)
-  for(let pulse=0;pulse<4;pulse++){
-   bot.setControlState('forward',true);if(jump)bot.setControlState('jump',true)
-   await delay(150);bot.setControlState('forward',false);bot.setControlState('jump',false);await delay(100);check()
-   if(bot.entity.position.floored().toString()!==start)return true
-  }
+  if(await nudge(bot,c,{check,jump}))return true
  }
  return false
 }
-// One unchanged-policy retry, only after fresh evidence that the local route
-// may differ. No digging, larger drops, teleporting or resource-action replay.
-export async function walkWithTerrainRecovery(bot,goal,{movements,check,stage,progress,onRecovery=()=>{},attemptMs=15000,waitMs=30000,allowRecovery=true}){
+// A bot at the bottom of a pit (its own prospecting shaft, collapsed sand, a
+// creeper crater) has open sky but no walkable exit, and the walking policy
+// never towers or digs. Judge the pit by the open column above the bot and the
+// first height with a solid ledge beside it. Roofed columns are never dug.
+export const MAX_CLIMB=8
+export function pitExit(bot,feet=bot.entity.position.floored()){
+ if(!clear(bot.blockAt(feet.offset(0,2,0))))return null
+ for(let h=2;h<=MAX_CLIMB;h++){
+  if(!clear(bot.blockAt(feet.offset(0,h+1,0))))return null
+  for(const [dx,dz] of SIDES){
+   const c=feet.offset(dx,h,dz)
+   if(solid(bot.blockAt(c.offset(0,-1,0)))&&clear(bot.blockAt(c))&&clear(bot.blockAt(c.offset(0,1,0))))return {height:h,cell:c}
+  }
+ }
+ return null
+}
+export async function climbFree(bot,{check,stage,progress,climb=climbOut}){
+ if(!bot.blockAt||!bot.setControlState||bot.entity.onGround===false)return false
+ const feet=bot.entity.position.floored(),exit=pitExit(bot,feet)
+ if(!exit)return false
+ const blocks=climbBlocks(bot)
+ if(blocks<exit.height){progress(`In a pit ${exit.height} deep with ${blocks} carried blocks; too few to climb out`);return false}
+ progress(`Climbing ${exit.height} blocks out of a pit toward ${exit.cell.x},${exit.cell.y},${exit.cell.z}`)
+ try{await climb(bot,{x:exit.cell.x,y:feet.y+exit.height,z:exit.cell.z},{check,stage,progress})}
+ catch(error){check();progress(`Climb out of the pit failed: ${error.message}`);return false}
+ stage('walking');await nudge(bot,exit.cell,{check})
+ return Math.floor(bot.entity.position.y)>=feet.y+exit.height
+}
+const SELF_HELP=[[stepFree,'stepped_free'],[climbFree,'climbed_free']]
+// Self-help retries under the unchanged policy, then one retry only after
+// fresh evidence that the local route may differ. No larger drops, teleporting
+// or resource-action replay; the only blocks placed are the bot's own climb.
+export async function walkWithTerrainRecovery(bot,goal,{movements,check,stage,progress,onRecovery=()=>{},attemptMs=15000,waitMs=30000,allowRecovery=true,climb=climbOut}){
  let changed=false
  const start=bot.entity.position.clone(),initialStanding=standing(bot)
  const updated=(before,after)=>{
@@ -54,11 +91,16 @@ export async function walkWithTerrainRecovery(bot,goal,{movements,check,stage,pr
    check();if(!allowRecovery||!routeFailure(error))throw error
    bot.pathfinder.setGoal(null);bot.clearControlStates()
    const record={status:'waiting',reason:error.message,startedAt:Date.now(),attempts:1}
-   if(await stepFree(bot,{check,progress})){
-    record.status='retrying';record.attempts=2;record.trigger='stepped_free';onRecovery({...record});progress('Stepped free; checking the walking route again')
+   let last=error
+   for(const [free,trigger] of SELF_HELP){
+    if(!await free(bot,{check,stage,progress,climb}))continue
+    bot.pathfinder.setGoal(null);bot.clearControlStates()
+    record.status='retrying';record.attempts++;record.trigger=trigger;onRecovery({...record})
+    progress(`${trigger==='stepped_free'?'Stepped free':'Climbed out'}; checking the walking route again`)
     try{await attempt();onRecovery({...record,status:'recovered',endedAt:Date.now()});return}
-    catch(e){check();onRecovery({...record,status:'failed',reason:e.message,endedAt:Date.now()});throw e}
+    catch(e){check();onRecovery({...record,status:'failed',reason:e.message,endedAt:Date.now()});if(!routeFailure(e))throw e;last=e}
    }
+   if(record.trigger)throw last
    onRecovery({...record});stage('observing');progress('Route blocked; watching nearby terrain for up to 30 seconds before one retry')
    const deadline=Date.now()+waitMs
    while(!changed&&!(standing(bot)&&standing(bot)!==initialStanding)&&Date.now()<deadline){check();await delay(Math.min(100,Math.max(1,deadline-Date.now())))}
