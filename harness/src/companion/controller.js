@@ -242,7 +242,7 @@ export class Teammate extends EventEmitter {
     const continuing=interruptedActiveRequest&&canResume(request)&&canContinueAfterSafety(request)
     this.safety=null;this.activity='';this.phase=canResume(request)?'blocked':'ready'
     if(continuing){
-      ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,shelter:'open_ground',completedAt:request.completed?.length||0})
+      ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,shelter:'open_ground',resumeSerial:request.resumeSerial||0,completedAt:request.completed?.length||0})
       ;(request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations.at(-1)});this.persist()
       this.say('The threat stayed behind in daylight. I am continuing your saved request.')
       await this.resume({automatic:true})
@@ -320,7 +320,7 @@ export class Teammate extends EventEmitter {
       const continuing=(eligible||safety.resumeRequested)&&canResume(request)&&(safety.resumeRequested||canContinueAfterSafety(request))
       this.safety=null;this.activity='';this.phase=canResume(request)?'blocked':'ready'
       if(continuing){
-        ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,shelter:safety.retreat.shelterName,resumeRequested:!!safety.resumeRequested,completedAt:request.completed?.length||0})
+        ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,shelter:safety.retreat.shelterName,resumeRequested:!!safety.resumeRequested,resumeSerial:request.resumeSerial||0,completedAt:request.completed?.length||0})
         ;(request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations.at(-1)});this.persist()
         this.say('Back on the surface. I am continuing your saved request.')
         await this.resume({automatic:true})
@@ -345,7 +345,7 @@ export class Teammate extends EventEmitter {
       if(result.status!=='cleared'){this.say('I am staying sheltered. Resume is required because a clear area was not established in time.');return}
       // Record before dispatch so restart, Stop or a second threat cannot create
       // an unbounded continuation loop. submit() re-observes the saved request.
-      ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,completedAt:request.completed?.length||0});
+      ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,resumeSerial:request.resumeSerial||0,completedAt:request.completed?.length||0});
       (request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations.at(-1)});this.persist()
       this.say('The observed area has stayed clear for 20 seconds. I am continuing your saved request.')
       await this.resume({automatic:true})
@@ -402,7 +402,9 @@ export class Teammate extends EventEmitter {
     this.cancel(['thinking', 'acting','retreating','defending'].includes(this.phase)); this.safety=null; const epoch = this.epoch; const abort = this.abort = new AbortController()
     const history = this.messages.slice(-12); this.say(continuation?(automatic?'Automatically continuing the saved request: ':'Resume the saved request: ')+text:text, automatic?'assistant':'user'); this.phase = 'thinking'; this.emit('change')
     const episode = this.episode = this.recorder?.start({ request: text, model: this.planner.model, profile: this.runner.profile, minecraftVersion: this.runner.bot?.version || null })
-    this.requestProgress=continuation||{id:randomUUID(),request:text,completed:[],pending:[],feedback:[],rounds:0};this.requestProgress.status='running';this.requestProgress.blocker=null;this.persist()
+    this.requestProgress=continuation||{id:randomUUID(),request:text,completed:[],pending:[],feedback:[],rounds:0};this.requestProgress.status='running';this.requestProgress.blocker=null
+    if(continuation&&!automatic)this.requestProgress.resumeSerial=(continuation.resumeSerial||0)+1
+    this.persist()
     const requestTasks=new Set()
     const existingTask=structuredClone(this.runner.task?.kind==='build'?this.runner.task:(this.projects.base?{kind:'build',status:'completed',goal:this.projects.base.build}:this.runner.task))
     const feedback=this.requestProgress.feedback??=[],completedAtStart=this.requestProgress.completed?.length||0

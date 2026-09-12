@@ -660,6 +660,8 @@ test('a request continues after each safety episode while it keeps completing st
  assert.equal(canContinueAfterSafety(r),true)
  r.safetyContinuations.push({completedAt:1});assert.equal(canContinueAfterSafety(r),true,'one idle continuation is allowed when threats repeat before a step completes')
  r.safetyContinuations.push({completedAt:1});assert.equal(canContinueAfterSafety(r),false,'two idle continuations at the same step count require an explicit Resume')
+ r.resumeSerial=1;assert.equal(canContinueAfterSafety(r),true,'an explicit Resume starts a fresh idle allowance')
+ r.safetyContinuations.push({completedAt:1,resumeSerial:1},{completedAt:1,resumeSerial:1});assert.equal(canContinueAfterSafety(r),false)
  r.completed.push({step:{action:'build'}});assert.equal(canContinueAfterSafety(r),true)
  r.safetyContinuations=Array.from({length:SAFETY_CONTINUATIONS},(_,i)=>({completedAt:i}));r.completed=Array(20).fill({});assert.equal(canContinueAfterSafety(r),false)
 })

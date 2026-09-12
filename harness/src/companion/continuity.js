@@ -24,7 +24,9 @@ export function canContinueAfterSafety(request,limit=SAFETY_CONTINUATIONS){
  if(done>last.completedAt)return true
  // Threats can repeat before any step completes; allow a short run of idle
  // continuations at the same step count before requiring an explicit Resume.
- return list.filter(c=>c.completedAt===done).length<IDLE_CONTINUATIONS
+ // An explicit Resume starts a fresh run, since the user re-engaged.
+ const serial=request.resumeSerial||0
+ return list.filter(c=>c.completedAt===done&&(c.resumeSerial||0)===serial).length<IDLE_CONTINUATIONS
 }
 export function shouldContinueAfterBudget(request,completedAtStart,message){
  return /^(Active planning time limit|Planning limit reached)/.test(message||'')&&(request?.completed?.length||0)>completedAtStart&&(request?.budgetContinuations||0)<BUDGET_CONTINUATIONS
