@@ -82,7 +82,8 @@ export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
    try{await bot.pathfinder.goto(new goals.GoalBlock(c.x,c.y,c.z))}catch{}finally{clearTimeout(timer)}
    check()
   }
-  await settle(()=>Math.floor(bot.entity.position.y)<=c.y&&inColumn(),`Did not drop into the dug cell at ${key(c)}`,{check})
+  // Mining while airborne is five times slower: land before the next dig.
+  await settle(()=>Math.floor(bot.entity.position.y)<=c.y&&inColumn()&&bot.entity.onGround!==false,`Did not land in the dug cell at ${key(c)}`,{check})
   task.progress={cells:index+1,of:site.cells.length,health:bot.health};persist()
   progress(`Dug ${index+1}/${site.cells.length}; health ${bot.health}`)
  }

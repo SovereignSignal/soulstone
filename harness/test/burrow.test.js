@@ -57,6 +57,12 @@ test('a hit that knocks the bot off the shaft is answered by stepping back over 
  assert.deepEqual(walked,[[10,63,10]]);assert.equal(result.receipt,'burrowed_capped');assert.equal(w.bot.entity.position.y,61)
  assert.ok(messages.some(m=>/Dug 3\/3/.test(m)),messages.join(' | '))
 })
+test('each dig waits for the bot to land, since airborne mining is five times slower',async()=>{
+ const w=world();const digsWhileAirborne=[]
+ const dig=w.bot.dig;w.bot.dig=async block=>{digsWhileAirborne.push(w.bot.entity.onGround===false);await dig(block);w.bot.entity.onGround=false;setTimeout(()=>{w.bot.entity.onGround=true},120)}
+ const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ assert.equal(result.receipt,'burrowed_capped');assert.deepEqual(digsWhileAirborne,[false,false,false])
+})
 test('a gravity block never becomes the cap, so a sand burrow stays open and says so',async()=>{
  const w=world('sand');w.cells.set(new Vec3(10,63,10).toString(),'sand')
  const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
