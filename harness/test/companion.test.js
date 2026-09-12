@@ -627,3 +627,18 @@ test('a request that ran out of rounds or time while completing steps continues 
  assert.equal(shouldContinueAfterBudget(r,0,'No observed progress for three planning rounds.'),false)
  assert.equal(shouldContinueAfterBudget({...r,budgetContinuations:BUDGET_CONTINUATIONS},0,'Planning limit reached after 24 rounds.'),false)
 })
+
+test('a request interrupted only by a service restart continues once automatically after spawn',async()=>{
+ const path=join(mkdtempSync(join(tmpdir(),'mc-restart-')),'state.json')
+ const {writeFileSync}=await import('node:fs')
+ const saved={profile:'lab',places:{},messages:[],projects:{},safety:null,requestProgress:{id:'r',request:'build a shelter',status:'interrupted',blocker:'Service restarted. Resume to re-observe and continue.',completed:[],pending:[],feedback:[]}}
+ writeFileSync(path,JSON.stringify(saved))
+ const r=new FakeRunner();r.bot.health=20;r.bot.game={gameMode:'survival'}
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},path)
+ assert.equal(c.restoreRequest,true)
+ let resumed=0;c.resume=async()=>{resumed++}
+ r.emit('event',{type:'spawn'});await new Promise(res=>setTimeout(res,1700))
+ assert.equal(resumed,1);assert.equal(c.requestProgress.restartContinuations,1)
+ writeFileSync(path,JSON.stringify({...saved,requestProgress:{...saved.requestProgress,restartContinuations:1}}))
+ const d=new Teammate(new FakeRunner(),{model:'fake',plan:async()=>({reply:'',steps:[]})},path);assert.equal(d.restoreRequest,false)
+})

@@ -34,6 +34,9 @@ export class Teammate extends EventEmitter {
     if(this.safety?.continuation?.status==='watching')this.safety.continuation={status:'paused',reason:'Service restarted; explicit Resume is required'}
     // A restart while dug in must not strand the bot underground: resume the wait on spawn.
     this.restoreBurrow=this.safety?.retreat?.shelterName==='burrow'&&!!this.safety.retreat.surface&&!this.safety.exit
+    // A request interrupted only by a service restart continues once on its own
+    // after the bot is back in the world; a second restart needs a person.
+    this.restoreRequest=!this.restoreBurrow&&this.requestProgress?.status==='interrupted'&&/^Service restarted/.test(this.requestProgress.blocker||'')&&!this.requestProgress.reviewRequired&&!(this.requestProgress.restartContinuations>=1)
     if(this.requestProgress?.status==='interrupted'&&this.requestProgress.inFlight?.taskId&&this.requestProgress.inFlight.taskId===runner.task?.id&&runner.task.status==='completed'){
       const {step,taskId}=this.requestProgress.inFlight,result=structuredClone(runner.task.result||null)
       if(!(this.requestProgress.feedback||[]).some(f=>f.taskId===taskId)){
@@ -68,6 +71,7 @@ export class Teammate extends EventEmitter {
         this.say('I died. Use Respawn agent to return to the world. The saved request will stay paused; inventory may have been dropped.')
       }
       if(e.type==='spawn'&&this.restoreBurrow&&runner.ready){this.restoreBurrow=false;this.phase='blocked';const abort=this.abort=new AbortController();this.say('Service restarted while I was dug in. Waiting for daylight before digging out.');void this.waitInBurrow(this.epoch,abort.signal,runner.bot,this.requestProgress?.status==='interrupted')}
+      if(e.type==='spawn'&&this.restoreRequest&&runner.ready&&!this.snapshot().dead){this.restoreRequest=false;this.requestProgress.restartContinuations=(this.requestProgress.restartContinuations||0)+1;this.persist();this.say('Service restarted while a request was running. Continuing it automatically.');setTimeout(()=>{this.resume({automatic:true}).catch(error=>{this.requestProgress.blocker=error.message;this.persist()})},1500)}
       if(e.type==='spawn'&&this.respawning){this.respawning=false;this.safety=null;this.phase=canResume(this.requestProgress)?'blocked':'ready';if(canResume(this.requestProgress))this.requestProgress.blocker='Respawned. Review current inventory before resuming the saved task.';this.say('I respawned. Check my current inventory before resuming the saved request.')}
     })
   }
