@@ -16,17 +16,17 @@ export const BUDGET_CONTINUATIONS=2
 // its own while it keeps completing steps between episodes, at most six times.
 export const SAFETY_CONTINUATIONS=6,IDLE_CONTINUATIONS=2
 export function canContinueAfterSafety(request,limit=SAFETY_CONTINUATIONS){
- const list=request?.safetyContinuations||[];if(list.length>=limit)return false
+ // Both caps count the run since the last explicit Resume: the user re-engaged.
+ const serial=request?.resumeSerial||0,run=(request?.safetyContinuations||[]).filter(c=>(c.resumeSerial||0)===serial)
+ if(run.length>=limit)return false
  // An entry without a recorded step count predates this rule: stay one-shot for it.
- const last=list.at(-1);if(!last)return true
+ const last=run.at(-1);if(!last)return true
  if(!Number.isInteger(last.completedAt))return false
  const done=request.completed?.length||0
  if(done>last.completedAt)return true
  // Threats can repeat before any step completes; allow a short run of idle
  // continuations at the same step count before requiring an explicit Resume.
- // An explicit Resume starts a fresh run, since the user re-engaged.
- const serial=request.resumeSerial||0
- return list.filter(c=>c.completedAt===done&&(c.resumeSerial||0)===serial).length<IDLE_CONTINUATIONS
+ return run.filter(c=>c.completedAt===done).length<IDLE_CONTINUATIONS
 }
 export function shouldContinueAfterBudget(request,completedAtStart,message){
  return /^(Active planning time limit|Planning limit reached)/.test(message||'')&&(request?.completed?.length||0)>completedAtStart&&(request?.budgetContinuations||0)<BUDGET_CONTINUATIONS
