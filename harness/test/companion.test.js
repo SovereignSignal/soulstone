@@ -666,7 +666,7 @@ test('a request continues after each safety episode while it keeps completing st
  r.safetyContinuations.push({completedAt:1,resumeSerial:1});assert.equal(canContinueAfterSafety(r),true,'the six-episode cap also counts only the current run')
  r.safetyContinuations.push({completedAt:1,resumeSerial:1});assert.equal(canContinueAfterSafety(r),false,'two idle continuations in this run')
  r.completed.push({step:{action:'build'}});assert.equal(canContinueAfterSafety(r),true)
- r.safetyContinuations=Array.from({length:SAFETY_CONTINUATIONS},(_,i)=>({completedAt:i}));r.completed=Array(20).fill({});assert.equal(canContinueAfterSafety(r),false)
+ r.resumeSerial=0;r.safetyContinuations=Array.from({length:SAFETY_CONTINUATIONS},(_,i)=>({completedAt:i}));r.completed=Array(20).fill({});assert.equal(canContinueAfterSafety(r),false,'six episodes in one run')
 })
 
 test('a built base counts as shelter for the dusk rule only once it has a torch station',()=>{
