@@ -53,7 +53,9 @@ with (out/'samples.jsonl').open('w') as f:
         m=row['t']//60
         if key!=last or m!=minute:print(json.dumps(row),flush=True);last=key;minute=m
         if rid and p.get('id')!=rid and p.get('id'):print('request changed; observer stops',flush=True);break
-        settled=p.get('status') not in (None,'running') and s.get('phase') not in ('thinking','acting','retreating','defending')
+        # Keep following while safety is dug in or fighting: the request continues on its own afterwards.
+        sheltering=(s.get('safety') or {}).get('status') in ('burrowed','retreating','defending')
+        settled=p.get('status') not in (None,'running') and s.get('phase') not in ('thinking','acting','retreating','defending') and not sheltering
         if settled and time.monotonic()-t0>10:break
         time.sleep(args.interval)
     else:
