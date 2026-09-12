@@ -117,3 +117,12 @@ test('current construction checks also reject an obstruction in a recorded air c
  assert.equal(evaluateGoal(c,snapshot,bot,f).verdict,'passed');obstructed=true
  assert.equal(evaluateGoal(c,snapshot,bot,f).verdict,'needs_work')
 })
+
+test('lessons carry the executor revision; older ones retrieve as stale and rank last',()=>{
+ const path=join(mkdtempSync(join(tmpdir(),'mc-experience-')),'experience.json'),store=new ExperienceStore(path,'lab')
+ const evidence=[{action:'gather',status:'failed',item:'logs',partial:false,reason:'no logs within 48 blocks'}]
+ store.record({requestId:'old',summary:'Gather logs for a shelter',criteria:[criterion('inventory','')],version:'1.21.4',evidence,verdict:'needs_work',reflection:{lessons:[]},executor:'bundle-24'})
+ store.record({requestId:'new',summary:'Gather logs for a house',criteria:[criterion('inventory','')],version:'1.21.4',evidence,verdict:'passed',reflection:{lessons:[]},executor:'bundle-31'})
+ const found=store.retrieve('Gather logs and build',contract([criterion('inventory','')]),'1.21.4',{executor:'bundle-31'})
+ assert.equal(found.length,2);assert.equal(found[0].executor,'bundle-31');assert.equal(found[0].stale,false);assert.equal(found[1].executor,'bundle-24');assert.equal(found[1].stale,true)
+})

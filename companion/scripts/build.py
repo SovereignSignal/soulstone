@@ -7,13 +7,17 @@ parser.add_argument("--portable", action="store_true")
 args = parser.parse_args()
 minimum_macos = "14.0"
 root = Path(__file__).resolve().parents[2]
+# Stamp the harness revision so lessons can be tied to the executor that produced them.
+import datetime
+try: commit = subprocess.check_output(['git','rev-parse','--short','HEAD'],cwd=root,text=True,stderr=subprocess.DEVNULL).strip()
+except Exception: commit = 'unknown'
 build = root / 'companion' / 'build'
 subprocess.run([sys.executable,str(root/'companion/scripts/build-bridge.py')],check=True)
 app = (build / 'portable' if args.portable else build) / 'SoulStone.app'
 contents = app / 'Contents'
 (contents/'MacOS').mkdir(parents=True,exist_ok=True)
 (contents/'Resources').mkdir(exist_ok=True)
-plist = {'CFBundleIdentifier':'com.sovereignsignal.minecraft-teammate','CFBundleName':'SoulStone','CFBundleDisplayName':'SoulStone','CFBundleIconFile':'AppIcon','CFBundleExecutable':'MinecraftTeammate','CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.1.0','CFBundleVersion':'34','LSMinimumSystemVersion':minimum_macos,'NSMicrophoneUsageDescription':'Speak to SoulStone using push-to-talk.','NSSpeechRecognitionUsageDescription':'Transcribe your Minecraft requests on this Mac. Audio is not sent to a paid API.','NSAppTransportSecurity':{'NSAllowsLocalNetworking':True},'NSHighResolutionCapable':True}
+plist = {'CFBundleIdentifier':'com.sovereignsignal.minecraft-teammate','CFBundleName':'SoulStone','CFBundleDisplayName':'SoulStone','CFBundleIconFile':'AppIcon','CFBundleExecutable':'MinecraftTeammate','CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.1.0','CFBundleVersion':'35','LSMinimumSystemVersion':minimum_macos,'NSMicrophoneUsageDescription':'Speak to SoulStone using push-to-talk.','NSSpeechRecognitionUsageDescription':'Transcribe your Minecraft requests on this Mac. Audio is not sent to a paid API.','NSAppTransportSecurity':{'NSAllowsLocalNetworking':True},'NSHighResolutionCapable':True}
 resources = root/'companion'/'Resources'
 for asset in resources.glob('*.png'):
     shutil.copy2(asset, contents/'Resources'/asset.name)
@@ -25,6 +29,7 @@ for size in [16, 32, 128, 256, 512]:
         subprocess.run(['sips','-z',str(size*scale),str(size*scale),str(resources/'SoulLantern.png'),'--out',str(iconset/f'icon_{size}x{size}{suffix}.png')],check=True,stdout=subprocess.DEVNULL)
 subprocess.run(['iconutil','-c','icns',str(iconset),'-o',str(contents/'Resources'/'AppIcon.icns')],check=True)
 (contents/'Info.plist').write_bytes(plistlib.dumps(plist))
+(root/'harness'/'src'/'revision.json').write_text(json.dumps({'revision':f"bundle-{plist['CFBundleVersion']}-{commit}",'bundle':plist['CFBundleVersion'],'commit':commit,'builtAt':datetime.datetime.now(datetime.timezone.utc).isoformat()}))
 if args.portable:
     # Explicit source allowlist: never package .env, state, results or local profiles.
     runtime = contents/'Resources'/'runtime'

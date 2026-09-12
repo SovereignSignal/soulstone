@@ -7,7 +7,9 @@ import {DoorAwareMovements} from './navigation.js'
 import {fullCube} from './construction.js'
 import {survivalObservation} from './survival.js'
 const {goals}=pathfinding
-export const BURROW_DEPTH=3
+// Four deep keeps a creeper standing on the rim outside its three-block
+// trigger distance; the cap goes on the top cell so nothing can drop in.
+export const BURROW_DEPTH=4
 const SOFT=new Set(['grass_block','dirt','coarse_dirt','podzol','rooted_dirt','mud','sand','red_sand','gravel','clay','moss_block','snow_block','mycelium'])
 const HARD=new Set(['stone','andesite','diorite','granite','tuff','deepslate','sandstone','red_sandstone','cobblestone','cobbled_deepslate','terracotta','netherrack'])
 const LIQUID=new Set(['water','lava','bubble_column'])
@@ -109,13 +111,18 @@ export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
  let receipt='burrowed_open'
  const cap=capItem(bot)
  if(cap){
-  const ref=SIDES.map(([dx,dy,dz])=>bot.blockAt(site.cap.offset(dx,dy,dz))).find(b=>solid(bot,b))
-  if(ref){
-   await bot.equip(cap,'hand');check()
-   await bot.placeBlock(ref,site.cap.minus(ref.position));check()
-   await settle(()=>solid(bot,bot.blockAt(site.cap)),'Burrow cap placement was not confirmed',{check})
-   receipt='burrowed_capped'
+  // The block-update event can be missed through the version bridge; judge the
+  // cap by the block being there, and try each solid side as the reference.
+  const capped=()=>solid(bot,bot.blockAt(site.cap))
+  await bot.equip(cap,'hand');check()
+  for(const ref of SIDES.map(([dx,dy,dz])=>bot.blockAt(site.cap.offset(dx,dy,dz))).filter(b=>solid(bot,b))){
+   if(capped())break
+   try{await bot.placeBlock(ref,site.cap.minus(ref.position))}catch(error){check();progress(`Cap placement unconfirmed: ${error.message.slice(0,60)}`)}
+   check()
+   try{await settle(capped,'cap',{check,ms:1500})}catch{}
+   if(capped())break
   }
+  if(capped())receipt='burrowed_capped'
  }
  progress(receipt==='burrowed_capped'?'Dug in and capped; waiting for daylight':'Dug in without a cap block; waiting for daylight')
  const s=survivalObservation(bot),p=bot.entity.position
