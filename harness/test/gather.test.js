@@ -37,3 +37,24 @@ test('grounded trunks outrank nearby floating remnants and failed columns are sk
  assert.equal(candidates.length,2);assert.equal(candidates[0].position.x,12)
  assert.deepEqual(gatherCandidates(bot,positions,{skippedColumns:new Set(['1,1'])}).map(b=>b.position.x),[12])
 })
+
+test('gathering walks toward a trunk sighted beyond the collection radius before giving up',async()=>{
+ let inventory=[],walked=[],messages=[]
+ const trunk=new Vec3(90,64,0)
+ const bot={registry:{blocksByName:{spruce_log:{id:1}}},inventory:{items:()=>inventory},entity:{position:new Vec3(0,64,0)},
+  findBlocks:({maxDistance})=>bot.entity.position.distanceTo(trunk)<=maxDistance?[trunk]:[],
+  blockAt:position=>({position,name:position.equals(trunk)?'spruce_log':'grass_block'}),
+  pathfinder:{setGoal(){},setMovements(){},async goto(goal){walked.push([goal.x,goal.z]);bot.entity.position=new Vec3(goal.x,64,goal.z)}},
+  canDigBlock:()=>true,tool:{async equipForBlock(){}},dig:async()=>{inventory=[{name:'spruce_log',count:1}]}}
+ const result=await executeSkill(bot,{kind:'gather',goal:{item:'logs',count:1}},{check(){},progress:m=>messages.push(m),stage(){},movements:{}})
+ assert.equal(result.count,1)
+ assert.deepEqual(walked[0],[32,0])
+ assert.ok(messages.some(m=>/sighted 90 blocks away/.test(m)),messages.join(' | '))
+})
+test('exploration for trunks is bounded and ends with an explicit blocker',async()=>{
+ const walked=[]
+ const bot={registry:{blocksByName:{spruce_log:{id:1}}},inventory:{items:()=>[]},entity:{position:new Vec3(0,64,0)},findBlocks:()=>[],blockAt:()=>null,
+  pathfinder:{setGoal(){},setMovements(){},async goto(goal){walked.push([goal.x,goal.z]);bot.entity.position=new Vec3(goal.x,64,goal.z)}},canDigBlock:()=>true,tool:{async equipForBlock(){}},dig:async()=>{}}
+ await assert.rejects(executeSkill(bot,{kind:'gather',goal:{item:'logs',count:1}},{check(){},progress(){},stage(){},movements:{}}),/no logs within 48 blocks after exploring 8 legs/)
+ assert.deepEqual(walked,[[32,0],[0,32],[-32,0],[0,-32],[64,0],[0,64],[-64,0],[0,-64]])
+})

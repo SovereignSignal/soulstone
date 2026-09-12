@@ -39,25 +39,54 @@ export async function executeSkill(bot, task, context) {
     const total = () => names.reduce((n, name) => n + countItem(bot, name), 0)
     const ids = names.map(n => bot.registry.blocksByName[n]?.id).filter(id => id !== undefined)
     if (!ids.length) throw new Error(`${resourceLabel(item)} unavailable in this version`)
-    let stalled = 0
+    let stalled = 0, legs = 0
     const skipped = new Set(), skippedColumns = new Set()
+    const scan = (maxDistance, limit) => gatherCandidates(bot,bot.findBlocks({ matching: ids, maxDistance, count: limit }),{skipped,skippedColumns})
+    async function walk(goal, ms = 15000) {
+      check()
+      let timedOut = false
+      const timer = setTimeout(() => { timedOut = true; bot.pathfinder.setGoal(null) }, ms)
+      try { await bot.pathfinder.goto(goal) } catch (error) {
+        if (timedOut) throw Object.assign(new Error('Movement timed out'), {name:'Timeout'})
+        throw error
+      } finally { clearTimeout(timer) }
+      check()
+    }
+    // A fresh spawn can have no trunk within the 48-block collection radius.
+    // Walk toward one sighted in the loaded area, otherwise probe cardinal legs
+    // from the start, re-scanning after each leg; at most eight legs per job.
+    async function explore() {
+      const origin = bot.entity.position.clone()
+      while (legs < 8) {
+        check(); legs++
+        const far = scan(128, 64)[0]; let target
+        if (far) {
+          const p = bot.entity.position, dx = far.position.x - p.x, dz = far.position.z - p.z, dist = Math.hypot(dx, dz)
+          if (dist <= 40) return
+          const step = Math.min(32, dist) / dist; target = { x: p.x + dx * step, z: p.z + dz * step }
+          progress(`Walking toward ${resourceLabel(item)} sighted ${Math.round(dist)} blocks away`)
+        } else {
+          const [dx, dz] = [[32, 0], [0, 32], [-32, 0], [0, -32]][(legs - 1) % 4], ring = Math.ceil(legs / 4)
+          target = { x: origin.x + dx * ring, z: origin.z + dz * ring }
+          progress(`Exploring for ${resourceLabel(item)}: leg ${legs} of 8`)
+        }
+        stage('walking'); bot.pathfinder.setMovements(context.movements)
+        try { await walk(new goals.GoalXZ(Math.round(target.x), Math.round(target.z)), 20000) }
+        catch (error) { check(); if (!['NoPath', 'Timeout'].includes(error.name)) throw error }
+        bot.pathfinder.setGoal(null); check()
+        if (scan(48, 512).length) return
+      }
+      throw new Error(`no ${resourceLabel(item)} within 48 blocks after exploring 8 legs from the start; move me near trees`)
+    }
     while (total() < count) {
       check()
-      const block = await observeStable(() => gatherCandidates(bot,bot.findBlocks({ matching: ids, maxDistance: 48, count: 512 }),{skipped,skippedColumns})[0], `no ${resourceLabel(item)} within 48 blocks`)
+      let block
+      try { block = await observeStable(() => scan(48, 512)[0], `no ${resourceLabel(item)} within 48 blocks`) }
+      catch (error) { check(); if (!error.message.startsWith('no ') || legs >= 8) throw error; await explore(); continue }
       const before = total()
       progress(`Collecting ${resourceLabel(item)}: ${before}/${count}`)
       stage('gathering')
       let pathError
-      async function walk(goal) {
-        check()
-        let timedOut = false
-        const timer = setTimeout(() => { timedOut = true; bot.pathfinder.setGoal(null) }, 15000)
-        try { await bot.pathfinder.goto(goal) } catch (error) {
-          if (timedOut) throw Object.assign(new Error('Movement timed out'), {name:'Timeout'})
-          throw error
-        } finally { clearTimeout(timer) }
-        check()
-      }
       try {
         bot.pathfinder.setMovements(context.gatheringMovements)
         stage('walking')
