@@ -141,10 +141,13 @@ export async function unburrow(bot,task,{check,stage,progress}){
  stage('surfacing');progress('Digging back out to the surface')
  bot.pathfinder.setMovements(movement)
  const goal=new goals.GoalBlock(surface.x,surface.y,surface.z)
+ // The pathfinder can reject after the bot is already out ("Took to long to
+ // decide path"). Judge the exit by where the bot stands, not by the promise.
  const timer=setTimeout(()=>bot.pathfinder.setGoal(null),60000)
- try{await bot.pathfinder.goto(goal)}finally{clearTimeout(timer)}
+ let pathError=null
+ try{await bot.pathfinder.goto(goal)}catch(error){pathError=error}finally{clearTimeout(timer)}
  check()
  const p=bot.entity.position.floored()
- if(p.y<surface.y||p.distanceTo(surface)>2)throw new Error(`Did not reach the surface cell at ${key(surface)}; now at ${key(p)}`)
+ if(p.y<surface.y||p.distanceTo(surface)>2)throw new Error(`Did not reach the surface cell at ${key(surface)}; now at ${key(p)}${pathError?` (${pathError.message})`:''}`)
  return {item:'safety',count:1,receipt:'surfaced',position:{x:bot.entity.position.x,y:bot.entity.position.y,z:bot.entity.position.z}}
 }

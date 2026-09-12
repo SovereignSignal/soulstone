@@ -89,10 +89,11 @@ export async function quarryStone(bot,{name='cobblestone',total,path=[]},{check,
     scafoldingBlocks:[...new Set(bot.inventory.items().filter(i=>fullCube(bot.registry,i.name)&&!GRAVITY.has(i.name)).map(i=>bot.registry.blocksByName[i.name]?.id).filter(Number.isInteger))]})
    bot.pathfinder.setMovements(movement)
    const timer=setTimeout(()=>bot.pathfinder.setGoal(null),60000)
-   try{await bot.pathfinder.goto(new goals.GoalBlock(surface.x,surface.y,surface.z))}finally{clearTimeout(timer)}
+   let pathError=null
+   try{await bot.pathfinder.goto(new goals.GoalBlock(surface.x,surface.y,surface.z))}catch(error){pathError=error}finally{clearTimeout(timer)}
    check()
    const p=bot.entity.position.floored()
-   if(p.y<surface.y||p.distanceTo(surface)>2)throw new Error(`Did not climb out of the quarry to ${key(surface)}; now at ${key(p)}`)
+   if(p.y<surface.y||p.distanceTo(surface)>2)throw new Error(`Did not climb out of the quarry to ${key(surface)}; now at ${key(p)}${pathError?` (${pathError.message})`:''}`)
   }
  }
  return {item:name,mined:count(name)-mined0,count:count(name),depth,surface:{x:surface.x,y:surface.y,z:surface.z}}

@@ -53,8 +53,12 @@ export async function eatFood(bot,task,{check,stage,progress,persist}) {
 export function emergencyReason(observation){
  if(observation.gameMode!=='survival'||!Number.isFinite(observation.health)||observation.health<=0)return null
  if(observation.headSubmerged===true||observation.headSubmerged!==false&&Number.isFinite(observation.oxygen)&&observation.oxygen<=15)return WATER_EMERGENCY
- if(observation.health<=10)return 'Health is at or below half'
- if(Number.isFinite(observation.food)&&observation.food<=6)return 'Food is critically low'
+ // An emergency is something safety can act on. Low health matters when a
+ // hostile is near or a base exists to retreat to; low food matters when there
+ // is food to eat. Otherwise the planner keeps working and forages itself.
+ const hostileNear=!!observation.difficulty&&observation.difficulty!=='peaceful'&&(observation.nearbyThreats||[]).some(t=>t.risk==='potential_hostile'&&t.distance<=16)
+ if(observation.health<=10&&(hostileNear||observation.shelterAvailable===true))return 'Health is at or below half'
+ if(Number.isFinite(observation.food)&&observation.food<=6&&(observation.carriedFood||[]).length)return 'Food is critically low'
  if(observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=(t.name==='creeper'?16:10)))return THREAT_INTERRUPTION
  return null
 }

@@ -33,7 +33,7 @@ export class Teammate extends EventEmitter {
     catch (e) { if (e.code !== 'ENOENT') throw e }
     if(this.safety?.continuation?.status==='watching')this.safety.continuation={status:'paused',reason:'Service restarted; explicit Resume is required'}
     // A restart while dug in must not strand the bot underground: resume the wait on spawn.
-    this.restoreBurrow=this.safety?.status==='burrowed'&&!!this.safety.retreat?.surface
+    this.restoreBurrow=this.safety?.retreat?.shelterName==='burrow'&&!!this.safety.retreat.surface&&!this.safety.exit
     if(this.requestProgress?.status==='interrupted'&&this.requestProgress.inFlight?.taskId&&this.requestProgress.inFlight.taskId===runner.task?.id&&runner.task.status==='completed'){
       const {step,taskId}=this.requestProgress.inFlight,result=structuredClone(runner.task.result||null)
       if(!(this.requestProgress.feedback||[]).some(f=>f.taskId===taskId)){
@@ -49,7 +49,7 @@ export class Teammate extends EventEmitter {
     runner.on('operator_command', c => { if (!this.dispatching && c.action !== 'status') { this.cancel(false);if(c.action==='stop'){this.safety={status:'cancelled',reason:'Operator stop'};if(canResume(this.requestProgress))this.requestProgress.status='cancelled';this.persist()} } })
     runner.on('event', e => {
       if(e.type==='survival_tick'&&runner.ready){
-        const observation=survivalObservation(runner.bot),reason=emergencyReason(observation)
+        const observation=survivalObservation(runner.bot),reason=emergencyReason({...observation,shelterAvailable:!!this.projects.base})
         if(this.safety?.reason===WATER_EMERGENCY&&['failed','afloat'].includes(this.safety.status)&&observation.headSubmerged===false&&observation.inWater===false&&runner.bot.entity.onGround){
           this.safety=null;this.activity='';runner.bot.clearControlStates();this.phase=canResume(this.requestProgress)?'blocked':'ready'
           if(canResume(this.requestProgress))this.requestProgress.blocker='On dry ground. Review current inventory before resuming the saved task.'

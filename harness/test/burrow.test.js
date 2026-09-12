@@ -138,3 +138,32 @@ test('a restart while dug in resumes the burrow wait on spawn',async()=>{
  runner.emit('event',{type:'spawn'});await new Promise(r=>setImmediate(r))
  assert.deepEqual(calls,[true]);assert.equal(c.restoreBurrow,false)
 })
+
+test('a late pathfinder rejection does not fail an exit the bot has already made',async()=>{
+ const w=world();w.bot.entity.position=new Vec3(10.5,61,10.5);w.inventory.push({name:'dirt',count:2})
+ w.bot.pathfinder={setMovements(){},setGoal(){},async goto(g){w.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+1.5);throw new Error('Took to long to decide path to goal!')}}
+ const result=await unburrow(w.bot,{kind:'unburrow',goal:{surface:{x:10,y:64,z:10}}},api)
+ assert.equal(result.receipt,'surfaced')
+ w.bot.pathfinder.goto=async()=>{throw new Error('Took to long to decide path to goal!')};w.bot.entity.position=new Vec3(10.5,61,10.5)
+ await assert.rejects(unburrow(w.bot,{kind:'unburrow',goal:{surface:{x:10,y:64,z:10}}},api),/Did not reach the surface cell.*Took to long/)
+})
+
+test('low health is an emergency only near a hostile; low food only with food to eat',()=>{
+ const base={gameMode:'survival',difficulty:'normal',headSubmerged:false,oxygen:20,nearbyThreats:[],carriedFood:[]}
+ assert.equal(emergencyReason({...base,health:6,food:17}),null)
+ assert.equal(emergencyReason({...base,health:6,food:17,nearbyThreats:[{name:'zombie',risk:'potential_hostile',distance:14}]}),'Health is at or below half')
+ assert.equal(emergencyReason({...base,health:20,food:4}),null)
+ assert.equal(emergencyReason({...base,health:20,food:4,carriedFood:[{name:'bread',count:1}]}),'Food is critically low')
+})
+test('a restart after a failed burrow exit still resumes the exit on spawn',async()=>{
+ const {mkdtempSync,writeFileSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join}=await import('node:path')
+ const path=join(mkdtempSync(join(tmpdir(),'mc-burrow-')),'state.json')
+ writeFileSync(path,JSON.stringify({profile:'p',places:{},messages:[],projects:{},requestProgress:null,safety:{status:'failed',error:'Took to long to decide path to goal!',reason:THREAT_INTERRUPTION,retreat:{shelterName:'burrow',surface:{x:1,y:64,z:1},capped:true}}}))
+ const runner=new EventEmitter();runner.profile='p';runner.ready=true;runner.owner='Sov';runner.task=null;runner.bot=world().bot;runner.position=()=>({x:1,y:61,z:1})
+ const c=new Teammate(runner,{model:'fake',plan:async()=>({reply:'',steps:[]})},path)
+ const calls=[];c.waitInBurrow=async(epoch,signal,bot,eligible)=>{calls.push(eligible)}
+ runner.emit('event',{type:'spawn'});await new Promise(r=>setImmediate(r))
+ assert.deepEqual(calls,[false])
+ writeFileSync(path,JSON.stringify({profile:'p',places:{},messages:[],projects:{},requestProgress:null,safety:{status:'failed',retreat:{shelterName:'burrow',surface:{x:1,y:64,z:1}},exit:{receipt:'surfaced'}}}))
+ const d=new Teammate(runner,{model:'fake',plan:async()=>({reply:'',steps:[]})},path);assert.equal(d.restoreBurrow,false)
+})
