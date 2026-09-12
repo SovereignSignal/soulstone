@@ -1,5 +1,6 @@
 import {eatFood} from './survival.js'
 import {surfaceForAir} from './water-safety.js'
+import {burrowIn,unburrow} from './burrow.js'
 import {defendAgainstMob} from './combat.js'
 import {EXPEDITION_ACTIONS} from './prospecting.js'
 import {PREPARE_ACTIONS} from './supplies.js'
@@ -18,6 +19,8 @@ export const countItem = (bot, name) => bot.inventory.items().filter(i => i.name
 // so reconnects re-observe rather than blindly repeat a resource-consuming step.
 export async function executeSkill(bot, task, context) {
   if(task.kind==='surface')return surfaceForAir(bot,task,context)
+  if(task.kind==='burrow')return burrowIn(bot,task,context)
+  if(task.kind==='unburrow')return unburrow(bot,task,context)
   if(task.kind==='defend')return defendAgainstMob(bot,task,context)
   if(task.kind==='eat')return eatFood(bot,task,context)
   if(task.kind==='give')return deliverItem(bot,task,context)

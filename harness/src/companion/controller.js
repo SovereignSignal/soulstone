@@ -2,6 +2,7 @@ import {THREAT_INTERRUPTION,clearanceObservation,awaitClearance} from './hazard-
 import {alternativeShelters,occupiedAlternative} from '../alternate-shelter.js'
 import {setTimeout as delay} from 'node:timers/promises'
 import {survivalObservation,emergencyReason,WATER_EMERGENCY} from '../survival.js'
+import {burrowClearance} from '../burrow.js'
 import {defenseDecision,combatClearance} from '../combat.js'
 import {projectFootprints} from '../site-survey.js'
 import {reviseArchitecture} from '../construction.js'
@@ -168,7 +169,27 @@ export class Teammate extends EventEmitter {
           this.say(candidate.name+' is unavailable: '+error.message+'. Checking another saved shelter.')
         }
       }
+      // Last resort with no base and no weapon: dig in, wait for daylight, dig out.
+      if(!this.safety.retreat){
+        const attempt={name:'burrow',status:'trying'};this.safety.attempts.push(attempt);this.persist()
+        this.say('No verified shelter is reachable. I am digging in to wait out the danger.')
+        try{
+          await this.execute({action:'burrow',goal:{},timeoutMs:60000},abort.signal)
+          if(epoch!==this.epoch||abort.signal.aborted)return
+          this.safety.retreat=structuredClone(this.runner.task.result);attempt.status='sheltered';this.persist()
+        }catch(error){
+          if(epoch!==this.epoch||abort.signal.aborted)return
+          attempt.status='rejected';attempt.reason=error.message;this.persist()
+          this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)
+        }
+      }
       if(!this.safety.retreat)throw new Error('No verified shelter reached. '+this.safety.attempts.map(a=>a.name+': '+a.reason).join('; '))
+      if(this.safety.retreat.shelterName==='burrow'){
+        this.safety.status='burrowed';this.phase='blocked';this.persist()
+        this.say((this.safety.retreat.capped?'I am dug in below the surface with the shaft capped.':'I am dug in below the surface; no cap block was available.')+' I will wait for daylight and a clear area before digging out.')
+        await this.waitInBurrow(epoch,abort.signal,recoveryBot,interruptedActiveRequest&&reason===THREAT_INTERRUPTION)
+        return
+      }
       const food=survivalObservation(this.runner.bot).carriedFood[0]
       if(this.runner.bot.food<20&&food){await this.execute({action:'eat',goal:{item:food.name,count:Math.min(8,food.count)},timeoutMs:30000},abort.signal);if(epoch!==this.epoch)return;this.safety.eating=structuredClone(this.runner.task.result)}
       this.safety.status='sheltered';this.phase=this.requestProgress?.status==='interrupted'?'blocked':'ready'
@@ -178,6 +199,34 @@ export class Teammate extends EventEmitter {
 
     }catch(error){if(epoch!==this.epoch)return;this.safety.status='failed';this.safety.error=error.message;this.phase='blocked';this.activity='';this.say('Safety recovery failed: '+error.message+'. I have stopped; safety is not established.')}
     finally{if(epoch===this.epoch){this.abort=null;this.persist();this.emit('change')}}
+  }
+  async waitInBurrow(epoch,signal,bot,eligible) {
+    const request=this.requestProgress,safety=this.safety,connection=this.runner.connectionId
+    const {quietMs=20000,limitMs=14*60*1000}=this.burrowWait||{}
+    const check=()=>{
+      if(signal.aborted||epoch!==this.epoch||this.safety!==safety)throw new Error('Burrow wait cancelled')
+      if(!this.runner.ready||this.runner.bot!==bot||this.runner.connectionId!==connection)throw new Error('Connection changed while burrowed')
+    }
+    try{
+      const result=await awaitClearance({check,observe:()=>burrowClearance(bot),quietMs,limitMs,onUpdate:record=>{safety.continuation=record;this.persist();this.emit('change')}})
+      check();safety.continuation=result;this.persist()
+      if(result.status!=='cleared'){this.say('I am staying dug in. Resume is required because daylight and a clear area were not established in time.');return}
+      this.say('Daylight with no hostile nearby. Digging back out.')
+      await this.execute({action:'unburrow',goal:{surface:safety.retreat.surface},timeoutMs:90000},signal);check()
+      safety.exit=structuredClone(this.runner.task.result);this.persist()
+      const continuing=eligible&&canResume(request)&&!(request.safetyContinuations?.length)
+      this.safety=null;this.activity='';this.phase=canResume(request)?'blocked':'ready'
+      if(continuing){
+        request.safetyContinuations=[{...result,requestId:request.id,connectionId:connection,shelter:'burrow'}]
+        ;(request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations[0]});this.persist()
+        this.say('Back on the surface. I am continuing your saved request.')
+        await this.resume({automatic:true})
+      }else this.say('Back on the surface. '+(canResume(request)?'Resume is available if the saved request can safely continue.':'Ready for your next instruction.'))
+    }catch(error){
+      if(epoch!==this.epoch)return
+      safety.status='failed';safety.error=error.message;this.phase='blocked';this.activity='';this.persist()
+      this.say('Burrow recovery failed: '+error.message+'. I have stopped; safety is not established.')
+    }finally{if(epoch===this.epoch){this.abort=null;this.persist();this.emit('change')}}
   }
   async continueAfterClearance(epoch,signal,bot,recovery={}) {
     const request=this.requestProgress,safety=this.safety,connection=this.runner.connectionId
@@ -418,7 +467,7 @@ export class Teammate extends EventEmitter {
   }
   async execute(command, signal, started = () => {}) {
     await this.runner.waitForIdle?.(signal)
-    if(!['defend','eat','craft','stop','leave_base'].includes(command.action))await this.leaveOccupiedShelter(signal,command.action==='retreat'?command.goal?.shelter?.name:null)
+    if(!['defend','eat','craft','stop','leave_base','burrow','unburrow'].includes(command.action))await this.leaveOccupiedShelter(signal,command.action==='retreat'?command.goal?.shelter?.name:null)
     return new Promise((resolve, reject) => {
       let taskId
       const cleanup = () => { this.runner.off('event', handler); signal.removeEventListener('abort', onAbort) }

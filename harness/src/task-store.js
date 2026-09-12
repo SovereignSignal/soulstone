@@ -17,7 +17,8 @@ export function validateGoal(goal) {
   return { x: goal.x, y: goal.y, z: goal.z }
 }
 export function validateTaskGoal(kind, goal) {
-  if(kind==='surface')return {}
+  if(kind==='surface'||kind==='burrow')return {}
+  if(kind==='unburrow')return {surface:validateGoal(goal?.surface)}
   if(kind==='defend')return validateDefenseGoal(goal)
   if(['retreat','leave_base'].includes(kind)&&goal?.shelter){
     const s=goal.shelter;if(goal.project||!projectName(s.name))throw new Error('Invalid fallback shelter name or ambiguous goal')
