@@ -3,6 +3,7 @@
 // with the dug earth, wait for daylight, then tunnel and pillar back out.
 import {setTimeout as delay} from 'node:timers/promises'
 import pathfinding from 'mineflayer-pathfinder'
+import {Vec3} from 'vec3'
 import {DoorAwareMovements} from './navigation.js'
 import {fullCube} from './construction.js'
 import {survivalObservation} from './survival.js'
@@ -162,6 +163,39 @@ export function burrowClearance(bot){
  if(near.length)return {clear:false,reason:'A potential hostile remains within 16 blocks',threats:near}
  return {clear:true,health:s.health,timeOfDay:s.timeOfDay,scope:'Loaded entities within 16 blocks and the world clock; not proof of a safe surface'}
 }
+// Manual climb for when the pathfinder will not tower out of a capped shaft:
+// dig whatever sits two above the feet, jump, place a carried full cube
+// beneath at the apex, and repeat until standing at the surface level.
+export async function climbOut(bot,surface,{check,stage,progress},{attempts=16}={}){
+ const material=()=>bot.inventory.items().find(i=>fullCube(bot.registry,i.name)&&!GRAVITY.has(i.name))
+ stage('climbing');progress('Climbing out by jumping and placing blocks beneath')
+ let stalls=0
+ for(let tries=0;Math.floor(bot.entity.position.y)<surface.y&&tries<attempts;tries++){
+  check();bot.pathfinder?.setGoal(null)
+  const feet=bot.entity.position.floored()
+  const above=bot.blockAt(feet.offset(0,2,0))
+  if(above&&above.name!=='air'&&!LIQUID.has(above.name)){
+   if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(above,{requireHarvest:false,getFromChest:false})
+   check();await bot.dig(above);check()
+  }
+  const block=material();if(!block)throw new Error('No carried block to climb with')
+  await bot.equip(block,'hand');check()
+  const floor=bot.blockAt(feet.offset(0,-1,0))
+  if(bot.lookAt)await bot.lookAt(feet.offset(.5,-.5,.5),true)
+  bot.setControlState('jump',true)
+  const end=Date.now()+1500;let placed=false
+  while(Date.now()<end&&!placed){
+   check()
+   if(bot.entity.position.y-feet.y>=0.9){try{await bot.placeBlock(floor,new Vec3(0,1,0))}catch{}placed=solid(bot,bot.blockAt(feet))}
+   if(!placed)await delay(30)
+  }
+  bot.setControlState('jump',false)
+  try{await settle(()=>Math.floor(bot.entity.position.y)>=feet.y+1&&bot.entity.onGround!==false,'Did not land on the placed block',{check,ms:2000})}catch{}
+  // Two attempts in a row without rising means the jump or the placement is not working here.
+  if(Math.floor(bot.entity.position.y)<feet.y+1){if(++stalls>=2)break;await delay(200)}else stalls=0
+ }
+ if(Math.floor(bot.entity.position.y)<surface.y)throw new Error(`Climb stalled at ${key(bot.entity.position.floored())}`)
+}
 export async function unburrow(bot,task,{check,stage,progress}){
  check();const {surface}=task.goal
  const movement=new DoorAwareMovements(bot)
@@ -176,7 +210,11 @@ export async function unburrow(bot,task,{check,stage,progress}){
  let pathError=null
  try{await bot.pathfinder.goto(goal)}catch(error){pathError=error}finally{clearTimeout(timer)}
  check()
- const p=bot.entity.position.floored()
+ let p=bot.entity.position.floored(),climbed=false
+ if(p.y<surface.y){
+  progress(`Pathfinder did not climb out${pathError?` (${pathError.message.slice(0,50)})`:''}; climbing manually`)
+  await climbOut(bot,surface,{check,stage,progress});climbed=true;p=bot.entity.position.floored()
+ }
  if(p.y<surface.y||p.distanceTo(surface)>2)throw new Error(`Did not reach the surface cell at ${key(surface)}; now at ${key(p)}${pathError?` (${pathError.message})`:''}`)
- return {item:'safety',count:1,receipt:'surfaced',position:{x:bot.entity.position.x,y:bot.entity.position.y,z:bot.entity.position.z}}
+ return {item:'safety',count:1,receipt:'surfaced',climbed,position:{x:bot.entity.position.x,y:bot.entity.position.y,z:bot.entity.position.z}}
 }

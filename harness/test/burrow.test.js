@@ -145,8 +145,10 @@ test('a late pathfinder rejection does not fail an exit the bot has already made
  w.bot.pathfinder={setMovements(){},setGoal(){},async goto(g){w.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+1.5);throw new Error('Took to long to decide path to goal!')}}
  const result=await unburrow(w.bot,{kind:'unburrow',goal:{surface:{x:10,y:64,z:10}}},api)
  assert.equal(result.receipt,'surfaced')
+ // Never reaching the surface now triggers the manual climb; with no jump or placement it stalls and says so.
  w.bot.pathfinder.goto=async()=>{throw new Error('Took to long to decide path to goal!')};w.bot.entity.position=new Vec3(10.5,61,10.5)
- await assert.rejects(unburrow(w.bot,{kind:'unburrow',goal:{surface:{x:10,y:64,z:10}}},api),/Did not reach the surface cell.*Took to long/)
+ w.bot.setControlState=()=>{};w.bot.lookAt=async()=>{};w.bot.placeBlock=async()=>{}
+ await assert.rejects(unburrow(w.bot,{kind:'unburrow',goal:{surface:{x:10,y:64,z:10}}},api),/Climb stalled/)
 })
 
 test('low health is an emergency only near a hostile; low food only with food to eat',()=>{
@@ -194,4 +196,18 @@ test('dusk with no built base is an emergency; a built base, daylight or peacefu
  assert.equal(emergencyReason({...base,timeOfDay:6000,shelterAvailable:false}),null)
  assert.equal(emergencyReason({...base,timeOfDay:13000,shelterAvailable:false,difficulty:'peaceful'}),null)
  assert.equal(emergencyReason({...base,timeOfDay:13000,shelterAvailable:false,nearbyThreats:[{name:'zombie',risk:'potential_hostile',distance:8}]}),THREAT_INTERRUPTION)
+})
+
+test('when the pathfinder will not climb out, the exit jumps and places blocks beneath until at the surface',async()=>{
+ const w=world();w.bot.entity.position=new Vec3(10.5,60,10.5);w.cells.set(new Vec3(10,63,10).toString(),'dirt')
+ for(const y of [60,61,62])w.cells.set(new Vec3(10,y,10).toString(),'air')
+ w.inventory.push({name:'cobblestone',count:2},{name:'dirt',count:3})
+ w.bot.pathfinder={setMovements(){},setGoal(){},async goto(){throw new Error('Took to long to decide path to goal!')}}
+ const placedAt=[]
+ w.bot.setControlState=(k,v)=>{if(k==='jump'&&v)w.bot.entity.position=new Vec3(10.5,Math.floor(w.bot.entity.position.y)+1.1,10.5)}
+ w.bot.lookAt=async()=>{}
+ w.bot.placeBlock=async(ref,face)=>{const p=ref.position.plus(face);placedAt.push(p.y);w.cells.set(p.toString(),'dirt');w.bot.entity.position=new Vec3(10.5,p.y+1,10.5);w.bot.entity.onGround=true}
+ const result=await unburrow(w.bot,{kind:'unburrow',goal:{surface:{x:10,y:64,z:10}}},api)
+ assert.equal(result.receipt,'surfaced');assert.equal(result.climbed,true);assert.equal(w.bot.entity.position.y,64)
+ assert.deepEqual(placedAt,[60,61,62,63]);assert.ok(w.dug.includes(new Vec3(10,63,10).toString()),'dug the cap on the way up')
 })

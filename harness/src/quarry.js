@@ -5,6 +5,7 @@ import {setTimeout as delay} from 'node:timers/promises'
 import pathfinding from 'mineflayer-pathfinder'
 import {DoorAwareMovements} from './navigation.js'
 import {fullCube} from './construction.js'
+import {climbOut} from './burrow.js'
 const {goals}=pathfinding
 export const QUARRY_DEPTH=12
 const DIGGABLE=new Set(['grass_block','dirt','coarse_dirt','podzol','rooted_dirt','mud','clay','moss_block','stone','andesite','diorite','granite','tuff','deepslate','gravel','sand','red_sand'])
@@ -92,7 +93,8 @@ export async function quarryStone(bot,{name='cobblestone',total,path=[]},{check,
    let pathError=null
    try{await bot.pathfinder.goto(new goals.GoalBlock(surface.x,surface.y,surface.z))}catch(error){pathError=error}finally{clearTimeout(timer)}
    check()
-   const p=bot.entity.position.floored()
+   let p=bot.entity.position.floored()
+   if(p.y<surface.y){progress('Pathfinder did not climb out of the quarry; climbing manually');await climbOut(bot,surface,{check,stage,progress});p=bot.entity.position.floored()}
    if(p.y<surface.y||p.distanceTo(surface)>2)throw new Error(`Did not climb out of the quarry to ${key(surface)}; now at ${key(p)}${pathError?` (${pathError.message})`:''}`)
   }
  }

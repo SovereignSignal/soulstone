@@ -179,8 +179,8 @@ export async function executeWorldSkill(bot,task,context,gather) {
   try{await mineExposed(name,total,path)}
   catch(error){
    check()
-   // Surface stone can be absent or unreachable without digging: quarry for it.
-   if(name!=='cobblestone'||!/^No (reachable|accessible) /.test(error.message))throw error
+   // Surface stone can be absent, unreachable, or lost to a failed walk: quarry for it.
+   if(name!=='cobblestone')throw error
    progress(error.message)
    await quarryStone(bot,{name,total,path},{check,stage,progress,persist:context.persist,acquire,count})
    if(count(name)<total)throw new Error(`Quarry ended with ${count(name)}/${total} ${name}: ${error.message}`)
