@@ -11,6 +11,7 @@ import {Vec3} from 'vec3'
 import pathfinding from 'mineflayer-pathfinder'
 import {setTimeout as delay} from 'node:timers/promises'
 import {LOG_ITEMS,isLog} from './resources.js'
+import {quarryStone} from './quarry.js'
 import {shelterLayout,inspectShelterSite,finishShelter} from './shelter.js'
 import {craftWithWindowState} from './crafting.js'
 import {supportsPlayer} from './navigation.js'
@@ -34,15 +35,18 @@ export function playerIntersectsSite(position,origin,bounds) {
 }
 export function findBuildSite(bot,design,near,{layout=null,protectedSites=[]}={}) {
  const bounds={minX:Math.min(...design.map(b=>b.x)),maxX:Math.max(...design.map(b=>b.x)),minZ:Math.min(...design.map(b=>b.z)),maxZ:Math.max(...design.map(b=>b.z)),height:Math.max(...design.map(b=>b.y))}
- const survey=surveyGround(bot,near,{protectedSites})
  const players=Object.values(bot.players||{}).map(p=>p.entity?.position).filter(Boolean)
  // Reuse the ground survey rather than treating the owner's feet as ground
  // level. Inspect every candidate: a closer pad may lack a usable doorway.
- for(const site of candidateSites(survey,bounds,{maxRise:0,limit:Infinity,players})){
-  const p=new Vec3(site.origin.x,site.origin.y,site.origin.z)
-  if(Math.hypot(p.x-near.x,p.z-near.z)<4)continue
-  if(layout){try{inspectShelterSite(bot,p,layout)}catch{continue}}
-  return p
+ // Forests and hills rarely offer a flat pad close by, so widen once.
+ for(const radius of [24,48]){
+  const survey=surveyGround(bot,near,{radius,protectedSites})
+  for(const site of candidateSites(survey,bounds,{maxRise:0,limit:Infinity,players})){
+   const p=new Vec3(site.origin.x,site.origin.y,site.origin.z)
+   if(Math.hypot(p.x-near.x,p.z-near.z)<4)continue
+   if(layout){try{inspectShelterSite(bot,p,layout)}catch{continue}}
+   return p
+  }
  }
  return null
 }
@@ -172,6 +176,17 @@ export async function executeWorldSkill(bot,task,context,gather) {
  }
  const sources={cobblestone:['stone'],cobbled_deepslate:['deepslate'],coal:['coal_ore','deepslate_coal_ore'],raw_iron:['iron_ore','deepslate_iron_ore'],raw_copper:['copper_ore','deepslate_copper_ore'],diamond:['diamond_ore','deepslate_diamond_ore']}
  async function mine(name,total,path) {
+  try{await mineExposed(name,total,path)}
+  catch(error){
+   check()
+   // Surface stone can be absent or unreachable without digging: quarry for it.
+   if(name!=='cobblestone'||!/^No (reachable|accessible) /.test(error.message))throw error
+   progress(error.message)
+   await quarryStone(bot,{name,total,path},{check,stage,progress,persist:context.persist,acquire,count})
+   if(count(name)<total)throw new Error(`Quarry ended with ${count(name)}/${total} ${name}: ${error.message}`)
+  }
+ }
+ async function mineExposed(name,total,path) {
   const names=sources[name]||[name],ids=names.map(n=>bot.registry.blocksByName[n]?.id).filter(Number.isInteger)
   if(!ids.length)throw new Error(`No mining source for ${name}`)
   const skipped=new Set()
@@ -275,7 +290,7 @@ export async function executeWorldSkill(bot,task,context,gather) {
  let origin=task.goal.origin?new Vec3(task.goal.origin.x,task.goal.origin.y,task.goal.origin.z):null
  if(!origin){
   origin=findBuildSite(bot,design,near,{layout,protectedSites:task.goal.protectedSites||[]})
-  if(!origin)throw new Error('No clear supported natural building site within 24 horizontal blocks, including lower ground and doorway access; choose another footprint or meeting point')
+  if(!origin)throw new Error('No clear supported natural building site within 48 horizontal blocks, including lower ground and doorway access; choose another footprint or meeting point')
   task.goal.origin={x:origin.x,y:origin.y,z:origin.z};context.persist()
  }
  if(layout)inspectShelterSite(bot,origin,layout,{repair:true})

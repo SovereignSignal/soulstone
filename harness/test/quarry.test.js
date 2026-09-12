@@ -1,0 +1,42 @@
+import {test} from 'node:test'
+import assert from 'node:assert/strict'
+import minecraftData from 'minecraft-data'
+import {Vec3} from 'vec3'
+import {quarryStone,quarryColumn} from '../src/quarry.js'
+const registry=minecraftData('1.21.4')
+function world({stoneFrom=60,pickaxe=true}={}){
+ const cells=new Map(),inventory=pickaxe?[{name:'wooden_pickaxe',count:1,type:registry.itemsByName.wooden_pickaxe.id}]:[],dug=[]
+ const bot={registry,entity:{position:new Vec3(10.5,64,10.5),onGround:true},inventory:{items:()=>inventory},
+  blockAt(p){const name=cells.get(p.toString())??(p.y>=64?'air':p.y===63?'grass_block':p.y>stoneFrom?'dirt':'stone');return {name,position:p.clone(),boundingBox:registry.blocksByName[name]?.boundingBox,harvestTools:name==='stone'?{[registry.itemsByName.wooden_pickaxe.id]:true}:undefined}},
+  pathfinder:{setGoal(){},setMovements(){},async goto(g){bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}},clearControlStates(){},
+  tool:{async equipForBlock(){}},
+  async dig(block){dug.push(block.position.toString());cells.set(block.position.toString(),'air');const drop=block.name==='stone'?'cobblestone':block.name==='grass_block'?'dirt':block.name;const slot=inventory.find(i=>i.name===drop);slot?slot.count++:inventory.push({name:drop,count:1});const p=bot.entity.position;if(block.position.x===Math.floor(p.x)&&block.position.z===Math.floor(p.z)&&block.position.y<p.y)bot.entity.position=block.position.offset(.5,0,.5)}}
+ const count=n=>inventory.filter(i=>i.name===n).reduce((a,i)=>a+i.count,0)
+ return {bot,cells,inventory,dug,count}
+}
+const api=w=>({check(){},stage(){},progress(){},persist(){},count:w.count,async acquire(){throw new Error('no crafting in this test')}})
+test('a quarry column is refused over liquid, an open side or without a pickaxe',()=>{
+ const ok=world();assert.equal(quarryColumn(ok.bot,new Vec3(10,63,10)).ok,true)
+ const lake=world();lake.cells.set(new Vec3(10,60,10).toString(),'water');assert.match(quarryColumn(lake.bot,new Vec3(10,61,10)).reason,/liquid|Liquid/)
+ const cave=world();cave.cells.set(new Vec3(11,62,10).toString(),'air');assert.match(quarryColumn(cave.bot,new Vec3(10,62,10)).reason,/open/)
+})
+test('the quarry digs down to stone, mines the walls for cobblestone and climbs back out',async()=>{
+ const w=world();let climbed
+ w.bot.pathfinder.goto=async g=>{climbed=[g.x,g.y,g.z];w.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}
+ const result=await quarryStone(w.bot,{name:'cobblestone',total:8,path:[]},api(w))
+ assert.ok(w.count('cobblestone')>=8,'cobblestone '+w.count('cobblestone'))
+ assert.ok(w.dug.some(k=>k===new Vec3(11,60,10).toString()||k===new Vec3(9,60,10).toString()),'mined a wall at the stone layer')
+ assert.deepEqual(climbed,[10,64,10]);assert.equal(result.mined>=8,true);assert.equal(w.bot.entity.position.y,64)
+})
+test('the quarry stops at its depth bound and still climbs out with what it has',async()=>{
+ const w=world({stoneFrom:40});let climbed=false
+ w.bot.pathfinder.goto=async g=>{climbed=true;w.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}
+ const result=await quarryStone(w.bot,{name:'cobblestone',total:8,path:[]},api(w))
+ assert.equal(result.mined,0);assert.ok(result.depth<=12);assert.equal(climbed,true);assert.equal(w.bot.entity.position.y,64)
+})
+test('the quarry prepares a pickaxe through the acquisition callback when none is carried',async()=>{
+ const w=world({pickaxe:false});const wanted=[]
+ const a={...api(w),async acquire(name){wanted.push(name);w.inventory.push({name:'wooden_pickaxe',count:1,type:registry.itemsByName.wooden_pickaxe.id})}}
+ await quarryStone(w.bot,{name:'cobblestone',total:3,path:[]},a)
+ assert.deepEqual(wanted,['wooden_pickaxe']);assert.ok(w.count('cobblestone')>=3)
+})

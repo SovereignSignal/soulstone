@@ -56,6 +56,9 @@ test('starter house finds lower ground beyond the old radius and verifies door a
  const bot={players:{},blockAt:p=>{const solid=p.y<=63&&p.x>=14&&p.x<=23&&p.z>=-5&&p.z<=8;return {position:p,name:solid?'grass_block':'air',boundingBox:solid?'block':'empty'}}}
  const origin=findBuildSite(bot,design,near,{layout})
  assert.ok(origin);assert.equal(origin.y,64);assert.ok(origin.x>=14)
+ // Nothing flat within 24 blocks: the search widens to 48 before giving up.
+ const far={players:{},blockAt:p=>{const solid=p.y<=63&&p.x>=30&&p.x<=39&&p.z>=-5&&p.z<=8;return {position:p,name:solid?'grass_block':'air',boundingBox:solid?'block':'empty'}}}
+ const distant=findBuildSite(far,design,near,{layout});assert.ok(distant);assert.ok(distant.x>=30)
  assert.doesNotThrow(()=>inspectShelterSite(bot,origin,layout))
  assert.equal(findBuildSite(bot,design,near,{layout,protectedSites:[{minX:14,maxX:23,minZ:-5,maxZ:8}]}),null)
  bot.players.visitor={entity:{position:origin.offset(1,0,1)}}
