@@ -8,7 +8,7 @@ import {projectFootprints} from '../site-survey.js'
 import {reviseArchitecture} from '../construction.js'
 import {evaluateGoal,enforceProjectIntent,validateContract,constructionLimits} from './goal-contract.js'
 import {ExperienceStore,experienceEvidence} from './experience.js'
-import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,shouldContinueAfterBudget} from './continuity.js'
+import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,shouldContinueAfterBudget,canContinueAfterSafety} from './continuity.js'
 import {PREPARE_ACTIONS} from '../supplies.js'
 import {EXPEDITION_ACTIONS,remainingDurability,expeditionObservation} from '../prospecting.js'
 import {STATION_ACTIONS} from '../stations.js'
@@ -224,7 +224,7 @@ export class Teammate extends EventEmitter {
       const food=survivalObservation(this.runner.bot).carriedFood[0]
       if(this.runner.bot.food<20&&food){await this.execute({action:'eat',goal:{item:food.name,count:Math.min(8,food.count)},timeoutMs:30000},abort.signal);if(epoch!==this.epoch)return;this.safety.eating=structuredClone(this.runner.task.result)}
       this.safety.status='sheltered';this.phase=this.requestProgress?.status==='interrupted'?'blocked':'ready'
-      const eligible=interruptedActiveRequest&&reason===THREAT_INTERRUPTION&&canResume(this.requestProgress)&&!(this.requestProgress.safetyContinuations?.length)
+      const eligible=interruptedActiveRequest&&reason===THREAT_INTERRUPTION&&canResume(this.requestProgress)&&canContinueAfterSafety(this.requestProgress)
       this.say('I reached '+(this.safety.retreat.shelterName||'the lit base')+' and closed the door. '+(eligible?'I will watch for a clear area before continuing your request.':this.requestProgress?.status==='interrupted'?'Your request is paused; Resume will re-observe and continue.':'Waiting for your next instruction.'))
       if(eligible)await this.continueAfterClearance(epoch,abort.signal,recoveryBot)
 
@@ -245,11 +245,11 @@ export class Teammate extends EventEmitter {
       this.say('Daylight with no hostile nearby. Opening up.')
       await this.execute(safety.retreat.shelterName==='hut'?{action:'unhut',goal:{},timeoutMs:60000}:{action:'unburrow',goal:{surface:safety.retreat.surface},timeoutMs:90000},signal);check()
       safety.exit=structuredClone(this.runner.task.result);this.persist()
-      const continuing=eligible&&canResume(request)&&!(request.safetyContinuations?.length)
+      const continuing=eligible&&canResume(request)&&canContinueAfterSafety(request)
       this.safety=null;this.activity='';this.phase=canResume(request)?'blocked':'ready'
       if(continuing){
-        request.safetyContinuations=[{...result,requestId:request.id,connectionId:connection,shelter:safety.retreat.shelterName}]
-        ;(request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations[0]});this.persist()
+        ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,shelter:safety.retreat.shelterName,completedAt:request.completed?.length||0})
+        ;(request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations.at(-1)});this.persist()
         this.say('Back on the surface. I am continuing your saved request.')
         await this.resume({automatic:true})
       }else this.say('Back on the surface. '+(canResume(request)?'Resume is available if the saved request can safely continue.':'Ready for your next instruction.'))
@@ -264,7 +264,7 @@ export class Teammate extends EventEmitter {
     const check=()=>{
       if(signal.aborted||epoch!==this.epoch||this.requestProgress!==request||this.safety!==safety)throw new Error('Clearance observation cancelled')
       if(!this.runner.ready||this.runner.bot!==bot||this.runner.connectionId!==connection)throw new Error('Connection changed during clearance observation')
-      if(request.status!=='interrupted'||request.reviewRequired||request.safetyContinuations?.length)throw new Error('Request needs explicit review or continuation')
+      if(request.status!=='interrupted'||request.reviewRequired||!canContinueAfterSafety(request))throw new Error('Request needs explicit review or continuation')
       recovery.check?.()
     }
     try{
@@ -273,8 +273,8 @@ export class Teammate extends EventEmitter {
       if(result.status!=='cleared'){this.say('I am staying sheltered. Resume is required because a clear area was not established in time.');return}
       // Record before dispatch so restart, Stop or a second threat cannot create
       // an unbounded continuation loop. submit() re-observes the saved request.
-      request.safetyContinuations=[{...result,requestId:request.id,connectionId:connection}];
-      (request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations[0]});this.persist()
+      ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,completedAt:request.completed?.length||0});
+      (request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations.at(-1)});this.persist()
       this.say('The observed area has stayed clear for 20 seconds. I am continuing your saved request.')
       await this.resume({automatic:true})
     }catch(error){

@@ -12,6 +12,15 @@ export const ACTIVE_BUDGET_MS=45*60*1000
 // A request that runs out of rounds or time while still completing steps
 // continues on its own, at most twice, instead of waiting for a manual Resume.
 export const BUDGET_CONTINUATIONS=2
+// After a safety episode (shelter, burrow, hut, combat) the request continues on
+// its own while it keeps completing steps between episodes, at most six times.
+export const SAFETY_CONTINUATIONS=6
+export function canContinueAfterSafety(request,limit=SAFETY_CONTINUATIONS){
+ const list=request?.safetyContinuations||[];if(list.length>=limit)return false
+ // An entry without a recorded step count predates this rule: stay one-shot for it.
+ const last=list.at(-1);if(!last)return true
+ return Number.isInteger(last.completedAt)&&(request.completed?.length||0)>last.completedAt
+}
 export function shouldContinueAfterBudget(request,completedAtStart,message){
  return /^(Active planning time limit|Planning limit reached)/.test(message||'')&&(request?.completed?.length||0)>completedAtStart&&(request?.budgetContinuations||0)<BUDGET_CONTINUATIONS
 }

@@ -653,3 +653,12 @@ test('a base counts as shelter only once its build task completed',()=>{
  r.emit('event',{type:'task_finished',task:{id:'b3',kind:'build',status:'failed',goal}})
  assert.equal(c.projects.base.built,true,'a later failed repair on the same site does not unbuild it')
 })
+
+import {canContinueAfterSafety,SAFETY_CONTINUATIONS} from '../src/companion/continuity.js'
+test('a request continues after each safety episode while it keeps completing steps, at most six times',()=>{
+ const r={completed:[{step:{action:'gather'}}],safetyContinuations:[]}
+ assert.equal(canContinueAfterSafety(r),true)
+ r.safetyContinuations.push({completedAt:1});assert.equal(canContinueAfterSafety(r),false,'no new step since the last continuation')
+ r.completed.push({step:{action:'build'}});assert.equal(canContinueAfterSafety(r),true)
+ r.safetyContinuations=Array.from({length:SAFETY_CONTINUATIONS},(_,i)=>({completedAt:i}));r.completed=Array(20).fill({});assert.equal(canContinueAfterSafety(r),false)
+})
