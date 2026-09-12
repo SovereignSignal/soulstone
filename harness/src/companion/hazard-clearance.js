@@ -52,6 +52,16 @@ export function clearanceObservation(bot,projects,shelterName){
  if(!sheltered)return {clear:false,reason:'Closed lit shelter is no longer verified'}
  return {clear:true,health:s.health,food:s.food,peripheralThreats:threats.peripheral,scope:'Loaded chunks and classified entities within 24 blocks; departure corridor checked for the first three approach blocks; not proof of a safe destination route'}
 }
+// After a daylight flight from a lone mob the bot could not strike: clear when
+// it is still day and no potential hostile has followed within 16 blocks.
+export function openGroundClearance(bot){
+ const s=survivalObservation(bot)
+ if(!(s.timeOfDay>=1000&&s.timeOfDay<12000))return {clear:false,reason:'Daylight is ending'}
+ if(!(s.health>=12))return {clear:false,reason:'Health is too low for open ground'}
+ const near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=16)
+ if(near.length)return {clear:false,reason:'A potential hostile followed within 16 blocks',threats:near}
+ return {clear:true,health:s.health,timeOfDay:s.timeOfDay,scope:'Loaded entities within 16 blocks and the world clock; open ground, not a shelter'}
+}
 export async function awaitClearance({check,observe,maintain,onUpdate=()=>{},quietMs=20000,limitMs=90000,pollMs=500}){
  const startedAt=Date.now();let clearSince=null,lastReason=null
  while(Date.now()-startedAt<limitMs){

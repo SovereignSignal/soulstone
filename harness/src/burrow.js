@@ -7,6 +7,7 @@ import {Vec3} from 'vec3'
 import {DoorAwareMovements} from './navigation.js'
 import {fullCube} from './construction.js'
 import {survivalObservation} from './survival.js'
+import {DEFENDABLE_MOBS,DEFENSE_HEALTH} from './combat.js'
 const {goals}=pathfinding
 // Four deep keeps a creeper standing on the rim outside its three-block
 // trigger distance; the cap goes on the top cell so nothing can drop in.
@@ -154,15 +155,25 @@ export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
   surface:{x:site.surface.x,y:site.surface.y,z:site.surface.z},cap:{x:site.cap.x,y:site.cap.y,z:site.cap.z},health:s.health,timeOfDay:s.timeOfDay}
 }
 // Daylight is 1000–12000 ticks: undead burn and nothing new spawns on the surface.
-export function burrowClearance(bot){
+// Daylight judgement: a lone zombie, husk, spider or skeleton that lingers
+// near the shaft in full daylight, with the bot at fighting health and food,
+// is confronted after a patience window rather than waited out. It may be
+// roofed or stuck and would otherwise hold the bot underground all day.
+export const CONFRONT_PATIENCE_MS=60000
+export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_MS}={}){
  const s=survivalObservation(bot)
  if(!Number.isFinite(s.timeOfDay))return {clear:false,reason:'Time of day is unknown'}
  if(s.timeOfDay<1000||s.timeOfDay>=12000)return {clear:false,reason:'Waiting for daylight'}
  // Without food there is no regeneration, so a low floor beats waiting forever.
  if(!Number.isFinite(s.health)||s.health<4)return {clear:false,reason:'Health is too low to leave the burrow'}
  const near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=16)
- if(near.length)return {clear:false,reason:'A potential hostile remains within 16 blocks',threats:near}
- return {clear:true,health:s.health,timeOfDay:s.timeOfDay,scope:'Loaded entities within 16 blocks and the world clock; not proof of a safe surface'}
+ const scope='Loaded entities within 16 blocks and the world clock; not proof of a safe surface'
+ if(!near.length)return {clear:true,health:s.health,timeOfDay:s.timeOfDay,scope}
+ const lone=near.length===1?near[0]:null
+ const ready=!!lone&&DEFENDABLE_MOBS.has(lone.name)&&s.health>=DEFENSE_HEALTH[lone.name]&&Number.isFinite(s.food)&&s.food>=10
+ if(!ready)return {clear:false,reason:'A potential hostile remains within 16 blocks',threats:near}
+ if(lingeredMs<patienceMs)return {clear:false,lingering:true,reason:`A lone ${lone.name} lingers within 16 blocks in daylight; confronting it after ${Math.round(patienceMs/1000)} seconds`,threats:near}
+ return {clear:true,confront:lone,health:s.health,timeOfDay:s.timeOfDay,reason:`A lone ${lone.name} has lingered ${Math.round(lingeredMs/1000)} seconds into daylight; surfacing to confront it`,scope}
 }
 // Manual climb for when the pathfinder will not tower out of a capped shaft:
 // dig whatever sits two above the feet, jump, place a carried full cube

@@ -1,9 +1,9 @@
-import {THREAT_INTERRUPTION,clearanceObservation,awaitClearance} from './hazard-clearance.js'
+import {THREAT_INTERRUPTION,clearanceObservation,awaitClearance,openGroundClearance} from './hazard-clearance.js'
 import {alternativeShelters,occupiedAlternative} from '../alternate-shelter.js'
 import {setTimeout as delay} from 'node:timers/promises'
 import {survivalObservation,emergencyReason,WATER_EMERGENCY,NIGHT_EXPOSURE} from '../survival.js'
 import {burrowClearance} from '../burrow.js'
-import {defenseDecision,combatClearance} from '../combat.js'
+import {defenseDecision,combatClearance,DEFENDABLE_MOBS} from '../combat.js'
 import {projectFootprints} from '../site-survey.js'
 import {reviseArchitecture} from '../construction.js'
 import {evaluateGoal,enforceProjectIntent,validateContract,constructionLimits} from './goal-contract.js'
@@ -167,6 +167,12 @@ export class Teammate extends EventEmitter {
           try{await this.execute({action:'flee',goal:{from:creeper.position,distance:24},timeoutMs:15000},abort.signal);if(epoch!==this.epoch||abort.signal.aborted)return;(this.safety.flights??=[]).push(structuredClone(this.runner.task.result));this.persist()}
           catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;(this.safety.flights??=[]).push({failed:error.message});this.persist();break}
         }
+        // Daylight judgement: a lone zombie, husk, spider or skeleton the bot
+        // cannot strike (roofed, behind a wall, kiting) is left behind on open
+        // ground rather than waited out underground. Undead burn in the sun
+        // when they follow; a mob that stays put is no longer a threat.
+        const open=await this.leaveOnOpenGround(epoch,abort.signal,recoveryBot,interruptedActiveRequest)
+        if(open!=='skipped'||epoch!==this.epoch||abort.signal.aborted)return
         this.safety.status='retreating';this.phase='retreating'
       }
       const candidates=[...(this.projects.base?[{name:'base',goal:{project:structuredClone(this.projects.base)}}]:[]),...alternativeShelters(recoveryBot,this.projects).slice(0,3).map(shelter=>({name:shelter.name,goal:{shelter:structuredClone(shelter)}}))]
@@ -233,18 +239,49 @@ export class Teammate extends EventEmitter {
     }catch(error){if(epoch!==this.epoch)return;this.safety.status='failed';this.safety.error=error.message;this.phase='blocked';this.activity='';this.say('Safety recovery failed: '+error.message+'. I have stopped; safety is not established.')}
     finally{if(epoch===this.epoch){this.abort=null;this.persist();this.emit('change')}}
   }
+  async leaveOnOpenGround(epoch,signal,bot,interruptedActiveRequest) {
+    const s=survivalObservation(bot),near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=16),lone=near.length===1?near[0]:null
+    if(!lone||!DEFENDABLE_MOBS.has(lone.name)||!(s.timeOfDay>=1000&&s.timeOfDay<12000)||!(s.health>=12)||(this.safety.flights||[]).length>=2)return 'skipped'
+    this.safety.status='fleeing';this.phase='retreating'
+    this.say(`Daylight, with a lone ${lone.name} ${lone.distance} blocks away that I cannot strike. Moving to open ground instead of digging in.`)
+    try{await this.execute({action:'flee',goal:{from:lone.position,distance:24},timeoutMs:15000},signal);if(epoch!==this.epoch||signal.aborted)return 'cancelled';(this.safety.flights??=[]).push(structuredClone(this.runner.task.result));this.persist()}
+    catch(error){if(epoch!==this.epoch||signal.aborted)return 'cancelled';(this.safety.flights??=[]).push({failed:error.message});this.persist();return 'skipped'}
+    const request=this.requestProgress,safety=this.safety,connection=this.runner.connectionId
+    const check=()=>{
+      if(signal.aborted||epoch!==this.epoch||this.safety!==safety)throw new Error('Open-ground watch cancelled')
+      if(!this.runner.ready||this.runner.bot!==bot||this.runner.connectionId!==connection)throw new Error('Connection changed on open ground')
+    }
+    const {quietMs=10000,limitMs=45000}=this.openGroundWait||{}
+    let result
+    try{result=await awaitClearance({check,observe:()=>openGroundClearance(bot),quietMs,limitMs,onUpdate:record=>{safety.continuation=record;this.persist();this.emit('change')}})}
+    catch(error){if(epoch!==this.epoch||signal.aborted)return 'cancelled';safety.continuation={status:'paused',reason:error.message};this.persist();return 'skipped'}
+    if(result.status!=='cleared'){safety.continuation=result;this.persist();this.say('The threat followed me into the open. Sheltering instead.');return 'skipped'}
+    safety.continuation=result;safety.status='clear';this.persist()
+    const continuing=interruptedActiveRequest&&canResume(request)&&canContinueAfterSafety(request)
+    this.safety=null;this.activity='';this.phase=canResume(request)?'blocked':'ready'
+    if(continuing){
+      ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,shelter:'open_ground',completedAt:request.completed?.length||0})
+      ;(request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations.at(-1)});this.persist()
+      this.say('The threat stayed behind in daylight. I am continuing your saved request.')
+      await this.resume({automatic:true})
+    }else this.say('The threat stayed behind in daylight. '+(canResume(request)?'Resume is available if the saved request can safely continue.':'Ready for your next instruction.'))
+    return 'continued'
+  }
   async waitInBurrow(epoch,signal,bot,eligible) {
     const request=this.requestProgress,safety=this.safety,connection=this.runner.connectionId
-    const {quietMs=20000,limitMs=14*60*1000}=this.burrowWait||{}
+    const {quietMs=20000,limitMs=14*60*1000,patienceMs}=this.burrowWait||{}
+    let lingerSince=null
+    const observe=()=>{const r=burrowClearance(bot,{lingeredMs:lingerSince?Date.now()-lingerSince:0,patienceMs});if(r.lingering||r.confront)lingerSince??=Date.now();else lingerSince=null;return r}
     const check=()=>{
       if(signal.aborted||epoch!==this.epoch||this.safety!==safety)throw new Error('Burrow wait cancelled')
       if(!this.runner.ready||this.runner.bot!==bot||this.runner.connectionId!==connection)throw new Error('Connection changed while burrowed')
     }
     try{
-      const result=await awaitClearance({check,observe:()=>burrowClearance(bot),quietMs,limitMs,onUpdate:record=>{safety.continuation=record;this.persist();this.emit('change')}})
+      const result=await awaitClearance({check,observe,quietMs,limitMs,onUpdate:record=>{safety.continuation=record;this.persist();this.emit('change')}})
       check();safety.continuation=result;this.persist()
       if(result.status!=='cleared'){this.say('I am staying dug in. Resume is required because daylight and a clear area were not established in time.');return}
-      this.say('Daylight with no hostile nearby. Opening up.')
+      const confront=result.observation?.confront
+      this.say(confront?`Daylight, and a lone ${confront.name} has lingered ${confront.distance} blocks away. Opening up to confront it.`:'Daylight with no hostile nearby. Opening up.')
       await this.execute(safety.retreat.shelterName==='hut'?{action:'unhut',goal:{},timeoutMs:60000}:{action:'unburrow',goal:{surface:safety.retreat.surface},timeoutMs:90000},signal);check()
       safety.exit=structuredClone(this.runner.task.result);this.persist()
       const continuing=eligible&&canResume(request)&&canContinueAfterSafety(request)

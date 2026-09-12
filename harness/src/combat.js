@@ -99,7 +99,7 @@ export async function defendAgainstMob(bot,task,{check,stage,progress,persist,mo
   if(shield&&offHand!==undefined){await bot.equip(shield,'off-hand');guard();record.shield=true}
   const combatMovement=new DoorAwareMovements(bot)
   combatMovement.canDig=false;combatMovement.allow1by1towers=false;combatMovement.scafoldingBlocks=[]
-  combatMovement.allowParkour=false;combatMovement.allowFreeMotion=false;combatMovement.allowSprinting=false;combatMovement.maxDropDown=1
+  combatMovement.allowParkour=false;combatMovement.allowFreeMotion=false;combatMovement.allowSprinting=true;combatMovement.maxDropDown=1
   combatMovement.exclusionAreasStep.push(b=>!knownPoint(b.position)||distance(b.position,anchor)>ENGAGE_RANGE-1?100:0)
   bot.pathfinder.setMovements(combatMovement)
   stage('defending');progress('Defending against '+goal.targetName+' with '+weapon.name.replaceAll('_',' '));persist()
@@ -124,7 +124,8 @@ export async function defendAgainstMob(bot,task,{check,stage,progress,persist,mo
     blockingState(false)
     if(!following){bot.pathfinder.setGoal(new pathfinding.goals.GoalFollow(target,2),true);following=true}
    }
-   if(Date.now()-lastContact>8000)throw new Error('Cannot reach a clear melee strike; retreat required')
+   // Twelve seconds without a strike covers a doorway detour or a kiting skeleton inside the boundary.
+   if(Date.now()-lastContact>12000)throw new Error('Cannot reach a clear melee strike; retreat required')
    await delay(50)
   }
   record.endedAt=Date.now();persist()

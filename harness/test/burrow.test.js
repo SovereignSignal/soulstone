@@ -72,7 +72,7 @@ test('a gravity block never becomes the cap, so a sand burrow stays open and say
 test('burrow clearance waits for daylight, health and an empty neighbourhood',()=>{
  const w=world();assert.match(burrowClearance(w.bot).reason,/daylight/)
  w.bot.time.timeOfDay=6000;w.bot.health=3;assert.match(burrowClearance(w.bot).reason,/Health/)
- w.bot.health=16;w.bot.entities={1:{name:'zombie',position:new Vec3(14.5,64,10.5)}};assert.match(burrowClearance(w.bot).reason,/hostile/)
+ w.bot.health=16;w.bot.entities={1:{name:'zombie',position:new Vec3(14.5,64,10.5)}};assert.match(burrowClearance(w.bot).reason,/lone zombie lingers/)
  w.bot.entities={1:{name:'zombie',position:new Vec3(40.5,64,10.5)},2:{name:'cow',position:new Vec3(11.5,64,10.5)}};assert.equal(burrowClearance(w.bot).clear,true)
 })
 test('digging out lets the pathfinder tunnel and pillar back to the recorded surface cell',async()=>{
@@ -94,7 +94,7 @@ test('with no shelter to retreat to, safety digs in, waits for day, digs out and
  const said=[];let resumed=0
  const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,burrowWait:{quietMs:20,limitMs:2000},
   say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
-  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,waitInBurrow:Teammate.prototype.waitInBurrow,
+  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
   async resume(){resumed++;this.requestProgress.status='running'}}
  const started=c.seekSafety(THREAT_INTERRUPTION)
  await new Promise(r=>setTimeout(r,300));w.bot.time.timeOfDay=6000;w.bot.health=20
@@ -210,4 +210,36 @@ test('when the pathfinder will not climb out, the exit jumps and places blocks b
  const result=await unburrow(w.bot,{kind:'unburrow',goal:{surface:{x:10,y:64,z:10}}},api)
  assert.equal(result.receipt,'surfaced');assert.equal(result.climbed,true);assert.equal(w.bot.entity.position.y,64)
  assert.deepEqual(placedAt,[60,61,62,63]);assert.ok(w.dug.includes(new Vec3(10,63,10).toString()),'dug the cap on the way up')
+})
+
+test('daylight judgement: a lone defendable mob that lingers is confronted after the patience window; creepers, pairs, low health and hunger keep the bot dug in',()=>{
+ const w=world();w.bot.time.timeOfDay=6000;w.bot.health=20;w.bot.food=20
+ w.bot.entities={1:{name:'skeleton',position:new Vec3(14.5,64,10.5)}}
+ let r=burrowClearance(w.bot);assert.equal(r.clear,false);assert.equal(r.lingering,true);assert.match(r.reason,/lone skeleton .* 60 seconds/)
+ r=burrowClearance(w.bot,{lingeredMs:61000});assert.equal(r.clear,true);assert.equal(r.confront.name,'skeleton');assert.match(r.reason,/surfacing to confront/)
+ w.bot.health=14;r=burrowClearance(w.bot,{lingeredMs:61000});assert.equal(r.clear,false);assert.equal(r.lingering,undefined)
+ w.bot.health=20;w.bot.entities={1:{name:'creeper',position:new Vec3(14.5,64,10.5)}};r=burrowClearance(w.bot,{lingeredMs:61000});assert.equal(r.clear,false);assert.equal(r.lingering,undefined)
+ w.bot.entities={1:{name:'zombie',position:new Vec3(14.5,64,10.5)},2:{name:'zombie',position:new Vec3(12.5,64,10.5)}};assert.equal(burrowClearance(w.bot,{lingeredMs:61000}).clear,false)
+ w.bot.entities={1:{name:'zombie',position:new Vec3(14.5,64,10.5)}};w.bot.food=8;assert.equal(burrowClearance(w.bot,{lingeredMs:61000}).clear,false)
+ w.bot.food=20;w.bot.time.timeOfDay=13000;assert.match(burrowClearance(w.bot,{lingeredMs:61000}).reason,/daylight/)
+})
+test('a burrowed bot surfaces to confront a lone zombie that lingers through the daylight patience window, then continues the request',async()=>{
+ const w=world();w.bot.entities={1:{name:'zombie',position:new Vec3(14.5,64,10.5)}}
+ const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov'
+ const commands=[]
+ runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'}
+  const result=c.action==='burrow'?{receipt:'burrowed_capped',shelterName:'burrow',surface:{x:10,y:64,z:10}}:c.action==='unburrow'?{receipt:'surfaced'}:{}
+  setTimeout(()=>{runner.task={...runner.task,status:'completed',result};runner.emit('event',{type:'task_finished',task:runner.task})},1)}
+ runner.waitForIdle=async()=>{};runner.position=()=>({x:10,y:64,z:10})
+ const said=[];let resumed=0
+ const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,burrowWait:{quietMs:20,limitMs:3000,patienceMs:100},
+  say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
+  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
+  async resume(){resumed++;this.requestProgress.status='running'}}
+ const started=c.seekSafety(THREAT_INTERRUPTION)
+ await new Promise(r=>setTimeout(r,300));w.bot.time.timeOfDay=6000;w.bot.health=20
+ await started
+ assert.deepEqual(commands.filter(a=>a!=='stop'),['burrow','unburrow'])
+ assert.equal(resumed,1);assert.equal(c.requestProgress.safetyContinuations.length,1);assert.equal(c.safety,null)
+ assert.ok(said.some(t=>/lone zombie has lingered 4 blocks away. Opening up to confront it/.test(t)),said.join(' | '))
 })

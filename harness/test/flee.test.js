@@ -37,8 +37,37 @@ test('an unarmed bot sprints clear of a creeper before digging in',async()=>{
  const said=[]
  const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,burrowWait:{quietMs:20,limitMs:2000},
   say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
-  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,waitInBurrow:Teammate.prototype.waitInBurrow,async resume(){this.requestProgress.status='running'}}
+  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,async resume(){this.requestProgress.status='running'}}
  const started=c.seekSafety(THREAT_INTERRUPTION);await new Promise(r=>setTimeout(r,300));bot.time.timeOfDay=6000;await started
  assert.deepEqual(commands.filter(a=>a!=='stop'),['flee','burrow','unburrow'])
  assert.ok(said.some(t=>/creeper is 12 blocks away/i.test(t)),said.join(' | '))
+})
+test('in daylight a lone zombie the bot cannot strike is left behind on open ground, and the request continues without digging in',async()=>{
+ const bot={registry,game:{gameMode:'survival',difficulty:'normal'},time:{timeOfDay:6000},health:20,food:20,players:{},entity:{position:new Vec3(10.5,64,10.5),onGround:true},inventory:{items:()=>[]},
+  entities:{1:{id:1,name:'zombie',type:'hostile',position:new Vec3(16.5,64,10.5)}},blockAt:()=>({name:'dirt',boundingBox:'block'})}
+ const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov'
+ const commands=[]
+ runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'}
+  if(c.action==='flee')bot.entities={}
+  const result=c.action==='flee'?{receipt:'fled',gained:24}:{}
+  setTimeout(()=>{runner.task={...runner.task,status:'completed',result};runner.emit('event',{type:'task_finished',task:runner.task})},1)}
+ runner.waitForIdle=async()=>{};runner.position=()=>({x:10,y:64,z:10})
+ const said=[];let resumed=0
+ const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,openGroundWait:{quietMs:20,limitMs:2000},
+  say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
+  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,async resume(){resumed++;this.requestProgress.status='running'}}
+ await c.seekSafety(THREAT_INTERRUPTION)
+ assert.deepEqual(commands.filter(a=>a!=='stop'),['flee'])
+ assert.equal(resumed,1);assert.equal(c.requestProgress.safetyContinuations[0].shelter,'open_ground');assert.equal(c.safety,null)
+ assert.ok(said.some(t=>/lone zombie 6 blocks away that I cannot strike. Moving to open ground/.test(t)),said.join(' | '))
+ assert.ok(said.some(t=>/stayed behind in daylight. I am continuing/.test(t)),said.join(' | '))
+ // The same zombie following into the open sends the bot to shelter instead.
+ const followed=[];bot.time.timeOfDay=6000;bot.entities={1:{id:1,name:'zombie',type:'hostile',position:new Vec3(16.5,64,10.5)}}
+ runner.command=c=>{followed.push(c.action);if(c.action==='stop')return;runner.task={id:String(followed.length),kind:c.action,status:'running'}
+  const result=c.action==='flee'?{receipt:'fled',gained:24}:c.action==='burrow'?{receipt:'burrowed_capped',shelterName:'burrow',surface:{x:10,y:64,z:10}}:c.action==='unburrow'?{receipt:'surfaced'}:{}
+  setTimeout(()=>{runner.task={...runner.task,status:'completed',result};runner.emit('event',{type:'task_finished',task:runner.task})},1)}
+ c.requestProgress={id:'r2',status:'running',feedback:[],completed:[]};c.safety=null;c.burrowWait={quietMs:20,limitMs:1500,patienceMs:100}
+ const started=c.seekSafety(THREAT_INTERRUPTION);await new Promise(r=>setTimeout(r,2500));bot.entities={};await started
+ assert.deepEqual(followed.filter(a=>a!=='stop'),['flee','burrow','unburrow'],followed.join(','))
+ assert.ok(said.some(t=>/followed me into the open/.test(t)),said.join(' | '))
 })
