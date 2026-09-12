@@ -48,8 +48,9 @@ export function defenseDecision(bot){
  if(threats.length!==1||threats[0].distance>ENGAGE_RANGE||!DEFENDABLE_MOBS.has(threats[0].name))return reject('Threat type or nearby numbers exceed basic melee defense')
  if(s.health<DEFENSE_HEALTH[threats[0].name])return reject(`Health is too low to engage a ${threats[0].name}`)
  const target=Object.values(bot.entities||{}).find(e=>identified(e)&&e.name===threats[0].name&&distance(e.position,bot.entity.position)<=ENGAGE_RANGE)
- // Within strike reach the line must be clear now; farther out the bot closes in first.
- if(!target||(distance(target.position,bot.entity.position)<=7&&!clearStrike(bot,target)))return reject('Target identity or clear sight is unavailable')
+ // A blocked line (wall, doorway, roof) is not a reason to hide: the defense
+ // loop closes in through doors and gives up after twelve seconds without a strike.
+ if(!target)return reject('Target identity is unavailable')
  const weapon=weaponFor(bot,target)
  if(!weapon)return reject('No serviceable melee weapon safe to use near bystanders')
  return {engage:true,target:{targetId:target.id,targetUuid:target.uuid,targetName:target.name},weapon:weapon.name}

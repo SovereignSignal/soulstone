@@ -14,12 +14,17 @@ export const ACTIVE_BUDGET_MS=45*60*1000
 export const BUDGET_CONTINUATIONS=2
 // After a safety episode (shelter, burrow, hut, combat) the request continues on
 // its own while it keeps completing steps between episodes, at most six times.
-export const SAFETY_CONTINUATIONS=6
+export const SAFETY_CONTINUATIONS=6,IDLE_CONTINUATIONS=2
 export function canContinueAfterSafety(request,limit=SAFETY_CONTINUATIONS){
  const list=request?.safetyContinuations||[];if(list.length>=limit)return false
  // An entry without a recorded step count predates this rule: stay one-shot for it.
  const last=list.at(-1);if(!last)return true
- return Number.isInteger(last.completedAt)&&(request.completed?.length||0)>last.completedAt
+ if(!Number.isInteger(last.completedAt))return false
+ const done=request.completed?.length||0
+ if(done>last.completedAt)return true
+ // Threats can repeat before any step completes; allow a short run of idle
+ // continuations at the same step count before requiring an explicit Resume.
+ return list.filter(c=>c.completedAt===done).length<IDLE_CONTINUATIONS
 }
 export function shouldContinueAfterBudget(request,completedAtStart,message){
  return /^(Active planning time limit|Planning limit reached)/.test(message||'')&&(request?.completed?.length||0)>completedAtStart&&(request?.budgetContinuations||0)<BUDGET_CONTINUATIONS

@@ -17,7 +17,9 @@ test('excavation rejects fluids, unknown neighbours, falling ceilings, builds an
  const f=fixture(),p=new Vec3(0,64,0)
  assert.equal(f.movement.safeToBreak(f.bot.blockAt(p)),true)
  for(const name of ['water','lava','unknown']){f.cells.set(p.offset(0,-1,0).toString(),name);assert.equal(f.movement.safeToBreak(f.bot.blockAt(p)),false)}
- f.cells.clear();f.cells.set(p.offset(0,1,0).toString(),'gravel');assert.equal(f.movement.safeToBreak(f.bot.blockAt(p)),false)
+ f.cells.clear();f.cells.set(p.offset(0,1,0).toString(),'gravel');assert.equal(f.movement.safeToBreak(f.bot.blockAt(p)),true,'gravel above a cell beside the bot drops into the cut and is cut again')
+ const overhead=new Vec3(-3,65,0);f.cells.set(overhead.offset(0,1,0).toString(),'gravel');assert.equal(f.movement.safeToBreak(f.bot.blockAt(overhead)),false,'never cut under gravel in the bot\'s own column')
+ f.cells.clear();f.cells.set(p.toString(),'sandstone');assert.equal(f.movement.safeToBreak(f.bot.blockAt(p)),true,'sandstone is natural terrain')
  f.cells.clear();assert.equal(f.movement.safeToBreak(f.bot.blockAt(new Vec3(30,63,30))),false)
  f.cells.set(p.toString(),'oak_planks');assert.equal(f.movement.safeToBreak(f.bot.blockAt(p)),false)
  f.cells.set(p.toString(),'diamond_ore');assert.equal(f.movement.safeToBreak(f.bot.blockAt(p)),false)
@@ -150,4 +152,21 @@ test('the trip clock starts at new excavation, not during the walk back out to t
   assert.equal(result.acquired,true);assert.equal(result.partial,false);assert.equal(result.steps,1)
   assert.equal(result.returned,true);assert.equal(p.expedition.trail.length,0)
  }finally{mock.timers.reset()}
+})
+
+test('a sand cell that refills after the cut is cut again and counted, and a sandy start explains the planner refusal',async()=>{
+ const {bot,cells,stoneTool}=fixture()
+ const p=structuredClone(project);p.expedition={trail:[],frontier:[],surveys:[],rejected:[]}
+ const cut=new Vec3(-1,63,0);cells.set(cut.offset(0,1,0).toString(),'air');cells.set(new Vec3(-1,64,0).toString(),'air')
+ let found=false,digs=0;bot.inventory.items=()=>[stoneTool,{name:'torch',count:4},...(found?[{name:'diamond',count:1}]:[])]
+ bot.findBlocks=()=>[new Vec3(6,58,0)]
+ bot.equip=async()=>{};bot.dig=async block=>{digs++;cells.set(block.position.toString(),'air');if(digs===1)setTimeout(()=>cells.set(cut.toString(),'sand'),120)}
+ bot.pathfinder.getPathFromTo=function*(){yield {result:{status:'success',path:[{x:-1,y:63,z:0,toPlace:[],toBreak:[cut]}]}}}
+ const messages=[]
+ const api={check(){},progress:m=>messages.push(m),stage(){},persist(){},async settle(){},async walk(g){bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5);if(g.x===-1)found=true}}
+ const result=await executeExpedition(bot,{kind:'prospect',goal:{project:p,item:'diamond',count:1}},api)
+ assert.equal(digs,2);assert.equal(result.broken,2);assert.equal(result.acquired,true)
+ assert.ok(messages.some(m=>/Fallen sand refilled -1,63,0; cutting it again/.test(m)),messages.join(' | '))
+ const sandy={blockAt:()=>({name:'water'}),pathfinder:{*getPathFromTo(){yield {result:{status:'noPath',path:[]}}}}}
+ await assert.rejects(excavationPath(sandy,{},new Vec3(0,64,0),{},()=>{}),/standing on water, which the planner never cuts/)
 })

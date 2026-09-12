@@ -15,7 +15,8 @@ export function starterBounds(bot,item,origin){
  return {x:[origin.x-24,origin.x+24],y:[origin.y-8,origin.y+3],z:[origin.z-24,origin.z+24]}
 }
 export const insideBounds=(p,bounds)=>!bounds||['x','y','z'].every(k=>Number.isFinite(p[k])&&p[k]>=bounds[k][0]&&p[k]<=bounds[k][1])
-const terrain=new Set(['stone','deepslate','tuff','granite','diorite','andesite','dirt','grass_block','sand','gravel',...Object.values(ORE_SOURCES).flat()])
+const terrain=new Set(['stone','deepslate','tuff','granite','diorite','andesite','calcite','dripstone_block','basalt','smooth_basalt','dirt','grass_block','coarse_dirt','podzol','rooted_dirt','mud','clay','sand','red_sand','gravel','sandstone','red_sandstone','terracotta',...Object.values(ORE_SOURCES).flat()])
+const GRAVITY=new Set(['sand','red_sand','gravel','suspicious_sand','suspicious_gravel'])
 const adjacent=[[0,1,0],[0,-1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]
 const vec=p=>new Vec3(p.x,p.y,p.z)
 const point=p=>({x:Math.floor(p.x),y:Math.floor(p.y),z:Math.floor(p.z)})
@@ -40,7 +41,14 @@ export class ExcavationMovements extends DoorAwareMovements {
  getMoveUp(){}
  getMoveDiagonal(){}
  safeToBreak(block){
-  if(!block?.position||!insideBounds(block.position,this.limits)||!terrain.has(block.name)||protectedBase(block.position,this.project)||!super.safeToBreak(block))return false
+  if(!block?.position||!insideBounds(block.position,this.limits)||!terrain.has(block.name)||protectedBase(block.position,this.project))return false
+  // Sand or gravel above a stair cell drops into the cut and is cut again; the
+  // executor confirms each cell. Only a cell in the bot's own column above its
+  // feet is refused, where the fall would land on the bot.
+  const above=this.bot.blockAt(block.position.offset(0,1,0)),feet=this.bot.entity?.position?.floored?.()
+  if(above&&GRAVITY.has(above.name)&&feet&&block.position.x===feet.x&&block.position.z===feet.z&&block.position.y>=feet.y)return false
+  const upstream=this.dontMineUnderFallingBlock;this.dontMineUnderFallingBlock=false
+  try{if(!super.safeToBreak(block))return false}finally{this.dontMineUnderFallingBlock=upstream}
   if(this.trail.some(p=>p.x===block.position.x&&p.z===block.position.z&&p.y-1===block.position.y))return false
   if(Object.values(this.bot.players||{}).some(p=>p.entity&&supportsPlayer(block.position,p.entity.position)))return false
   for(const d of adjacent){const b=this.bot.blockAt(block.position.offset(...d));if(!b||this.liquids.has(b.type))return false}
@@ -60,7 +68,10 @@ export async function excavationPath(bot,movements,start,goal,check){
  let result
  do{check();result=iterator.next().value?.result;if(result?.status==='partial')await delay(0)}while(result?.status==='partial')
  check()
- if(result?.status!=='success')throw new Error(`No bounded excavation route (${result?.status||'unknown'})`)
+ if(result?.status!=='success'){
+  const under=bot.blockAt?.(start.floored().offset(0,-1,0))?.name
+  throw new Error(`No bounded excavation route (${result?.status||'unknown'})${under&&!terrain.has(under)?`; standing on ${under}, which the planner never cuts; start from exposed stone or soil`:''}`)
+ }
  if(result.path.some(p=>p.toPlace?.length))throw new Error('Excavation route would require bridging')
  if(result.path.some(p=>!insideBounds(p,movements.limits)||(p.toBreak||[]).some(b=>!insideBounds(b,movements.limits))))throw new Error('Starter mining route exceeds shallow access bounds; try another nearby source')
  return result.path
@@ -121,9 +132,27 @@ export async function executeExpedition(bot,task,api){
   if(harvest.length&&!tool)throw new Error('Tool durability reserve reached; acquire an additional pickaxe at base')
   state.pending={position:point(p),block:block.name};state.phase='excavating';save()
   if(tool){await bot.equip(tool,'hand');check()}
+  const fallRisk=GRAVITY.has(bot.blockAt(vec(p).offset(0,1,0))?.name)
   stage('excavating');await bot.dig(block);check()
-  await settle(()=>bot.blockAt(vec(p))?.boundingBox==='empty',`Server did not confirm excavation at ${key(p)}`)
+  await confirmCut(p,fallRisk)
   broken++;state.pending=null;save()
+ }
+ // Sand or gravel above a cut lands in it a few ticks later; cut it again,
+ // bounded, counting every cut. The bot never stands in or under the cell.
+ async function confirmCut(p,fallRisk){
+  for(let refills=0;;){
+   let stable=0,refilled=null
+   for(let i=0;i<80&&stable<(fallRisk?10:5)&&!refilled;i++){
+    check();const b=bot.blockAt(vec(p))
+    if(b?.boundingBox==='empty')stable++;else{stable=0;if(b&&GRAVITY.has(b.name))refilled=b}
+    if(!refilled&&stable<(fallRisk?10:5))await delay(100)
+   }
+   if(!refilled)break
+   if(++refills>8)throw new Error(`Falling blocks keep refilling ${key(p)}`)
+   progress(`Fallen ${refilled.name} refilled ${key(p)}; cutting it again`)
+   await bot.dig(refilled);check();broken++;fallRisk=true
+  }
+  if(bot.blockAt(vec(p))?.boundingBox!=='empty')throw new Error(`Server did not confirm excavation at ${key(p)}`)
  }
  async function lightTrail(){
   const torch=bot.inventory.items().find(i=>i.name==='torch');if(!torch)return

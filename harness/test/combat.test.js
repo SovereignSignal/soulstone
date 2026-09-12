@@ -27,7 +27,7 @@ test('defense engages a lone melee mob and rejects weak readiness, extra threats
  f.bot.health=11;assert.equal(defenseDecision(f.bot).engage,false);f.bot.health=13;assert.equal(defenseDecision(f.bot).engage,true);f.bot.health=20
  f.bot.food=9;assert.equal(defenseDecision(f.bot).engage,false);f.bot.food=20
  f.bot.entities[8]={id:8,uuid:connection,name:'creeper',position:new Vec3(7,64,0)};assert.equal(defenseDecision(f.bot).engage,false);delete f.bot.entities[8]
- f.bot.world.raycast=()=>({name:'stone'});assert.equal(defenseDecision(f.bot).engage,false)
+ f.bot.world.raycast=()=>({name:'stone'});assert.equal(defenseDecision(f.bot).engage,true)
  f.bot.world.raycast=()=>null;f.bot.blockAt=()=>null;assert.equal(clearStrike(f.bot,f.target),false)
 })
 test('players and neutral mobs are never valid targets; sword sweeping excludes bystanders',()=>{

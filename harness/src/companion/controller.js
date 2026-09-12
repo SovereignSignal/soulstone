@@ -128,7 +128,9 @@ export class Teammate extends EventEmitter {
       if(epoch!==this.epoch||abort.signal.aborted)return
       if(this.runner.bot!==recoveryBot||!this.runner.ready)throw new Error('Connection changed before retreat')
       if(reason===THREAT_INTERRUPTION){
-        const decision=defenseDecision(recoveryBot)
+        let decision=defenseDecision(recoveryBot)
+        // Landing from a jump or closing a window takes a moment; re-judge briefly before choosing shelter.
+        for(let i=0;i<4&&!decision.engage&&/^Not ready/.test(decision.reason);i++){await delay(250);if(epoch!==this.epoch||abort.signal.aborted)return;decision=defenseDecision(recoveryBot)}
         if(decision.engage){
           this.safety.status='defending';this.phase='defending'
           this.say('I can defend against this '+decision.target.targetName+'. I am equipping '+decision.weapon.replaceAll('_',' ')+'.')
