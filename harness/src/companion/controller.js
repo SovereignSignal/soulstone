@@ -33,7 +33,7 @@ export class Teammate extends EventEmitter {
     catch (e) { if (e.code !== 'ENOENT') throw e }
     if(this.safety?.continuation?.status==='watching')this.safety.continuation={status:'paused',reason:'Service restarted; explicit Resume is required'}
     // A restart while dug in must not strand the bot underground: resume the wait on spawn.
-    this.restoreBurrow=this.safety?.retreat?.shelterName==='burrow'&&!!this.safety.retreat.surface&&!this.safety.exit
+    this.restoreBurrow=['burrow','hut'].includes(this.safety?.retreat?.shelterName)&&!!this.safety.retreat.surface&&!this.safety.exit
     // A request interrupted only by a service restart continues once on its own
     // after the bot is back in the world; a second restart needs a person.
     this.restoreRequest=!this.restoreBurrow&&this.requestProgress?.status==='interrupted'&&/^Service restarted/.test(this.requestProgress.blocker||'')&&!this.requestProgress.reviewRequired&&!(this.requestProgress.restartContinuations>=1)
@@ -190,10 +190,24 @@ export class Teammate extends EventEmitter {
           this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)
         }
       }
+      // Ground that cannot be dug: wall in with carried blocks instead.
+      if(!this.safety.retreat){
+        const attempt={name:'hut',status:'trying'};this.safety.attempts.push(attempt);this.persist()
+        this.say('The ground here cannot be dug. I am walling myself in with carried blocks.')
+        try{
+          await this.execute({action:'hut',goal:{},timeoutMs:60000},abort.signal)
+          if(epoch!==this.epoch||abort.signal.aborted)return
+          this.safety.retreat=structuredClone(this.runner.task.result);attempt.status='sheltered';this.persist()
+        }catch(error){
+          if(epoch!==this.epoch||abort.signal.aborted)return
+          attempt.status='rejected';attempt.reason=error.message;this.persist()
+          this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)
+        }
+      }
       if(!this.safety.retreat)throw new Error('No verified shelter reached. '+this.safety.attempts.map(a=>a.name+': '+a.reason).join('; '))
-      if(this.safety.retreat.shelterName==='burrow'){
+      if(['burrow','hut'].includes(this.safety.retreat.shelterName)){
         this.safety.status='burrowed';this.phase='blocked';this.persist()
-        this.say((this.safety.retreat.capped?'I am dug in below the surface with the shaft capped.':'I am dug in below the surface; no cap block was available.')+' I will wait for daylight and a clear area before digging out.')
+        this.say((this.safety.retreat.shelterName==='hut'?'I am walled in.':this.safety.retreat.capped?'I am dug in below the surface with the shaft capped.':'I am dug in below the surface; no cap block was available.')+' I will wait for daylight and a clear area before opening up.')
         await this.waitInBurrow(epoch,abort.signal,recoveryBot,interruptedActiveRequest&&reason===THREAT_INTERRUPTION)
         return
       }
@@ -218,13 +232,13 @@ export class Teammate extends EventEmitter {
       const result=await awaitClearance({check,observe:()=>burrowClearance(bot),quietMs,limitMs,onUpdate:record=>{safety.continuation=record;this.persist();this.emit('change')}})
       check();safety.continuation=result;this.persist()
       if(result.status!=='cleared'){this.say('I am staying dug in. Resume is required because daylight and a clear area were not established in time.');return}
-      this.say('Daylight with no hostile nearby. Digging back out.')
-      await this.execute({action:'unburrow',goal:{surface:safety.retreat.surface},timeoutMs:90000},signal);check()
+      this.say('Daylight with no hostile nearby. Opening up.')
+      await this.execute(safety.retreat.shelterName==='hut'?{action:'unhut',goal:{},timeoutMs:60000}:{action:'unburrow',goal:{surface:safety.retreat.surface},timeoutMs:90000},signal);check()
       safety.exit=structuredClone(this.runner.task.result);this.persist()
       const continuing=eligible&&canResume(request)&&!(request.safetyContinuations?.length)
       this.safety=null;this.activity='';this.phase=canResume(request)?'blocked':'ready'
       if(continuing){
-        request.safetyContinuations=[{...result,requestId:request.id,connectionId:connection,shelter:'burrow'}]
+        request.safetyContinuations=[{...result,requestId:request.id,connectionId:connection,shelter:safety.retreat.shelterName}]
         ;(request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations[0]});this.persist()
         this.say('Back on the surface. I am continuing your saved request.')
         await this.resume({automatic:true})

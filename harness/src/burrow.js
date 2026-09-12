@@ -10,6 +10,7 @@ const {goals}=pathfinding
 // Four deep keeps a creeper standing on the rim outside its three-block
 // trigger distance; the cap goes on the top cell so nothing can drop in.
 export const BURROW_DEPTH=4
+export const BURROW_MIN_DEPTH=3
 const SOFT=new Set(['grass_block','dirt','coarse_dirt','podzol','rooted_dirt','mud','sand','red_sand','gravel','clay','moss_block','snow_block','mycelium'])
 const HARD=new Set(['stone','andesite','diorite','granite','tuff','deepslate','sandstone','red_sandstone','cobblestone','cobbled_deepslate','terracotta','netherrack'])
 const LIQUID=new Set(['water','lava','bubble_column'])
@@ -23,17 +24,24 @@ export function burrowSite(bot,origin=bot.entity?.position?.floored()){
  if(!p||!bot.entity.onGround)return {ok:false,reason:'Not standing on solid ground'}
  const feet=origin,pickaxe=bot.inventory.items().some(i=>/_pickaxe$/.test(i.name))
  if(!feet)return {ok:false,reason:'Position is unknown'}
- const cells=[];for(let d=1;d<=BURROW_DEPTH;d++)cells.push(feet.offset(0,-d,0))
+ // Take four cells when the soft layer allows, three at least: a capped shaft
+ // three deep already breaks a creeper's line of sight.
+ const cells=[];let stopped=null
+ for(let d=1;d<=BURROW_DEPTH;d++){
+  const c=feet.offset(0,-d,0),b=bot.blockAt(c)
+  if(!b)return {ok:false,reason:'Ground below is not observed'}
+  if(!(SOFT.has(b.name)||pickaxe&&HARD.has(b.name))){stopped=`Cannot dig ${b.name} quickly at ${key(c)}`;break}
+  cells.push(c)
+ }
+ if(cells.length<BURROW_MIN_DEPTH)return {ok:false,reason:`Only ${cells.length} diggable cells below; at least ${BURROW_MIN_DEPTH} needed (${stopped||'shallow'})`}
  for(const [index,c] of cells.entries()){
-  const b=bot.blockAt(c);if(!b)return {ok:false,reason:'Ground below is not observed'}
-  if(!(SOFT.has(b.name)||pickaxe&&HARD.has(b.name)))return {ok:false,reason:`Cannot dig ${b.name} quickly at ${key(c)}`}
   const walls=SIDES.map(([dx,dy,dz])=>({at:c.offset(dx,dy,dz),block:bot.blockAt(c.offset(dx,dy,dz))}))
   if(walls.some(w=>LIQUID.has(w.block?.name)))return {ok:false,reason:`Liquid beside the burrow at ${key(c)}`}
   // The top cell is refilled by the cap and only needs one wall to place against.
   if(index===0){if(!walls.some(w=>solid(bot,w.block)))return {ok:false,reason:`No solid wall to place the cap against at ${key(c)}`};continue}
   const open=walls.find(w=>!solid(bot,w.block));if(open)return {ok:false,reason:`Burrow wall at ${key(open.at)} is not solid`}
  }
- const floor=feet.offset(0,-BURROW_DEPTH-1,0)
+ const floor=feet.offset(0,-cells.length-1,0)
  if(!solid(bot,bot.blockAt(floor)))return {ok:false,reason:'No solid floor below the burrow'}
  return {ok:true,surface:feet,cells,cap:cells[0]}
 }

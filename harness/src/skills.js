@@ -1,6 +1,7 @@
 import {eatFood} from './survival.js'
 import {surfaceForAir} from './water-safety.js'
 import {burrowIn,unburrow} from './burrow.js'
+import {wallIn,unwall} from './hut.js'
 import {defendAgainstMob} from './combat.js'
 import {EXPEDITION_ACTIONS} from './prospecting.js'
 import {PREPARE_ACTIONS} from './supplies.js'
@@ -21,6 +22,8 @@ export async function executeSkill(bot, task, context) {
   if(task.kind==='surface')return surfaceForAir(bot,task,context)
   if(task.kind==='burrow')return burrowIn(bot,task,context)
   if(task.kind==='unburrow')return unburrow(bot,task,context)
+  if(task.kind==='hut')return wallIn(bot,task,context)
+  if(task.kind==='unhut')return unwall(bot,task,context)
   if(task.kind==='defend')return defendAgainstMob(bot,task,context)
   if(task.kind==='eat')return eatFood(bot,task,context)
   if(task.kind==='give')return deliverItem(bot,task,context)
