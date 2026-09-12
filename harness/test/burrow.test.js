@@ -71,7 +71,7 @@ test('a gravity block never becomes the cap, so a sand burrow stays open and say
 })
 test('burrow clearance waits for daylight, health and an empty neighbourhood',()=>{
  const w=world();assert.match(burrowClearance(w.bot).reason,/daylight/)
- w.bot.time.timeOfDay=6000;w.bot.health=8;assert.match(burrowClearance(w.bot).reason,/Health/)
+ w.bot.time.timeOfDay=6000;w.bot.health=3;assert.match(burrowClearance(w.bot).reason,/Health/)
  w.bot.health=16;w.bot.entities={1:{name:'zombie',position:new Vec3(14.5,64,10.5)}};assert.match(burrowClearance(w.bot).reason,/hostile/)
  w.bot.entities={1:{name:'zombie',position:new Vec3(40.5,64,10.5)},2:{name:'cow',position:new Vec3(11.5,64,10.5)}};assert.equal(burrowClearance(w.bot).clear,true)
 })
@@ -107,11 +107,34 @@ test('with no shelter to retreat to, safety digs in, waits for day, digs out and
 test('a hostile within ten blocks interrupts work, one at eleven does not',()=>{
  const base={gameMode:'survival',health:20,food:20,difficulty:'normal',headSubmerged:false,oxygen:20}
  assert.equal(emergencyReason({...base,nearbyThreats:[{name:'creeper',risk:'potential_hostile',distance:9.5}]}),THREAT_INTERRUPTION)
- assert.equal(emergencyReason({...base,nearbyThreats:[{name:'creeper',risk:'potential_hostile',distance:11}]}),null)
+ assert.equal(emergencyReason({...base,nearbyThreats:[{name:'zombie',risk:'potential_hostile',distance:11}]}),null)
 })
 test('the burrow centres itself on the column before the first dig',async()=>{
  const w=world();w.bot.entity.position=new Vec3(10.95,64,10.5);const walked=[]
  w.bot.pathfinder.goto=async g=>{walked.push([g.x,g.y,g.z]);w.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}
  const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
  assert.deepEqual(walked[0],[10,64,10]);assert.equal(result.receipt,'burrowed_capped')
+})
+
+test('creepers trigger the interruption at sixteen blocks, other hostiles at ten',()=>{
+ const base={gameMode:'survival',health:20,food:20,difficulty:'normal',headSubmerged:false,oxygen:20}
+ assert.equal(emergencyReason({...base,nearbyThreats:[{name:'creeper',risk:'potential_hostile',distance:15}]}),THREAT_INTERRUPTION)
+ assert.equal(emergencyReason({...base,nearbyThreats:[{name:'zombie',risk:'potential_hostile',distance:15}]}),null)
+})
+test('when the blast destroyed the dug earth, the burrow takes a cap block from the bottom wall',async()=>{
+ const w=world();const dig=w.bot.dig
+ w.bot.dig=async block=>{const column=block.position.x===10&&block.position.z===10;await dig(block);if(column){const i=w.inventory.findIndex(x=>x.name==='dirt');if(i>=0)w.inventory.splice(i,1)}}
+ const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ assert.equal(result.receipt,'burrowed_capped')
+ assert.ok(w.dug.some(k=>[new Vec3(11,61,10),new Vec3(9,61,10),new Vec3(10,61,11),new Vec3(10,61,9)].map(String).includes(k)),'took a wall block at the bottom level')
+})
+test('a restart while dug in resumes the burrow wait on spawn',async()=>{
+ const {mkdtempSync,writeFileSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join}=await import('node:path')
+ const path=join(mkdtempSync(join(tmpdir(),'mc-burrow-')),'state.json')
+ writeFileSync(path,JSON.stringify({profile:'p',places:{},messages:[],projects:{},requestProgress:{id:'r',request:'x',status:'interrupted',completed:[],pending:[],feedback:[]},safety:{status:'burrowed',reason:THREAT_INTERRUPTION,retreat:{shelterName:'burrow',surface:{x:1,y:64,z:1},capped:true}}}))
+ const runner=new EventEmitter();runner.profile='p';runner.ready=true;runner.owner='Sov';runner.task=null;runner.bot=world().bot;runner.position=()=>({x:1,y:61,z:1})
+ const c=new Teammate(runner,{model:'fake',plan:async()=>({reply:'',steps:[]})},path)
+ const calls=[];c.waitInBurrow=async(epoch,signal,bot,eligible)=>{calls.push(eligible)}
+ runner.emit('event',{type:'spawn'});await new Promise(r=>setImmediate(r))
+ assert.deepEqual(calls,[true]);assert.equal(c.restoreBurrow,false)
 })

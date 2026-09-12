@@ -95,6 +95,17 @@ export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
   progress(`Dug ${index+1}/${site.cells.length}; health ${bot.health}`)
  }
  await delay(250);check()
+ // An explosion can destroy the dug earth. Take one block from the bottom wall
+ // where a solid block stands behind it; that level is out of any mob's reach.
+ if(!capItem(bot)){
+  const bottom=site.cells.at(-1)
+  for(const [dx,dy,dz] of SIDES){
+   const s=bottom.offset(dx,dy,dz),sb=bot.blockAt(s)
+   if(!sb||!SOFT.has(sb.name)||GRAVITY.has(sb.name)||!solid(bot,bot.blockAt(s.offset(dx,0,dz)))||!solid(bot,bot.blockAt(s.offset(0,1,0))))continue
+   check();await bot.dig(sb);check();await delay(400);check()
+   if(capItem(bot))break
+  }
+ }
  let receipt='burrowed_open'
  const cap=capItem(bot)
  if(cap){
@@ -116,10 +127,11 @@ export function burrowClearance(bot){
  const s=survivalObservation(bot)
  if(!Number.isFinite(s.timeOfDay))return {clear:false,reason:'Time of day is unknown'}
  if(s.timeOfDay<1000||s.timeOfDay>=12000)return {clear:false,reason:'Waiting for daylight'}
- if(!Number.isFinite(s.health)||s.health<10)return {clear:false,reason:'Health is too low to leave the burrow'}
- const near=(s.nearbyThreats||[]).filter(t=>t.distance<=12)
- if(near.length)return {clear:false,reason:'A potential hostile remains within 12 blocks',threats:near}
- return {clear:true,health:s.health,timeOfDay:s.timeOfDay,scope:'Loaded entities within 12 blocks and the world clock; not proof of a safe surface'}
+ // Without food there is no regeneration, so a low floor beats waiting forever.
+ if(!Number.isFinite(s.health)||s.health<4)return {clear:false,reason:'Health is too low to leave the burrow'}
+ const near=(s.nearbyThreats||[]).filter(t=>t.distance<=16)
+ if(near.length)return {clear:false,reason:'A potential hostile remains within 16 blocks',threats:near}
+ return {clear:true,health:s.health,timeOfDay:s.timeOfDay,scope:'Loaded entities within 16 blocks and the world clock; not proof of a safe surface'}
 }
 export async function unburrow(bot,task,{check,stage,progress}){
  check();const {surface}=task.goal

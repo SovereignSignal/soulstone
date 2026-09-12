@@ -55,6 +55,6 @@ export function emergencyReason(observation){
  if(observation.headSubmerged===true||observation.headSubmerged!==false&&Number.isFinite(observation.oxygen)&&observation.oxygen<=15)return WATER_EMERGENCY
  if(observation.health<=10)return 'Health is at or below half'
  if(Number.isFinite(observation.food)&&observation.food<=6)return 'Food is critically low'
- if(observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=10))return THREAT_INTERRUPTION
+ if(observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=(t.name==='creeper'?16:10)))return THREAT_INTERRUPTION
  return null
 }
