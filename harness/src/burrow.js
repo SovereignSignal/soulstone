@@ -57,7 +57,7 @@ async function settle(predicate,message,{check,ms=3000,poll=50}){
  while(Date.now()<end){check();if(predicate())return;await delay(poll)}
  throw new Error(message)
 }
-export async function burrowIn(bot,task,{check,stage,progress}){
+export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
  check();const found=findBurrowColumn(bot)
  if(!found.site)throw new Error('No safe burrow here: '+found.reasons[0])
  let site=found.site
@@ -69,12 +69,22 @@ export async function burrowIn(bot,task,{check,stage,progress}){
  }
  bot.pathfinder?.setGoal(null);bot.clearControlStates?.()
  stage('burrowing');progress('Digging in to wait out the danger')
- for(const c of site.cells){
+ const inColumn=()=>{const p=bot.entity.position;return Math.floor(p.x)===site.surface.x&&Math.floor(p.z)===site.surface.z}
+ for(const [index,c] of site.cells.entries()){
   check();const block=bot.blockAt(c)
-  if(!block||block.name==='air')continue
-  if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(block,{requireHarvest:false,getFromChest:false})
-  check();await bot.dig(block);check()
-  await settle(()=>Math.floor(bot.entity.position.y)<=c.y,`Did not drop into the dug cell at ${key(c)}`,{check})
+  if(block&&block.name!=='air'){
+   if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(block,{requireHarvest:false,getFromChest:false})
+   check();await bot.dig(block);check()
+  }
+  // A hit can knock the bot off the shaft; step back over it before dropping.
+  if(!inColumn()){
+   const timer=setTimeout(()=>bot.pathfinder.setGoal(null),4000)
+   try{await bot.pathfinder.goto(new goals.GoalBlock(c.x,c.y,c.z))}catch{}finally{clearTimeout(timer)}
+   check()
+  }
+  await settle(()=>Math.floor(bot.entity.position.y)<=c.y&&inColumn(),`Did not drop into the dug cell at ${key(c)}`,{check})
+  task.progress={cells:index+1,of:site.cells.length,health:bot.health};persist()
+  progress(`Dug ${index+1}/${site.cells.length}; health ${bot.health}`)
  }
  await delay(250);check()
  let receipt='burrowed_open'

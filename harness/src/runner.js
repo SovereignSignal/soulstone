@@ -278,7 +278,7 @@ export class Runner extends EventEmitter {
   respawn() {
     if(this.closed||!this.bot)throw new Error('Connect to Minecraft before respawning')
     if(this.bot.isAlive!==false||this.bot.health!==0)throw new Error('The agent is not dead')
-    if(this.respawnPending)return false
+    if(this.respawnPending){this.log('respawn_ignored',{reason:'respawn already pending'});return false}
     this.stop();this.respawnPending=true
     try{
       this.bot.respawn();this.log('respawn_requested')

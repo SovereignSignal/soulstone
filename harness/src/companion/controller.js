@@ -261,7 +261,7 @@ export class Teammate extends EventEmitter {
   }
   respawn() {
     if(!this.snapshot().dead)throw new Error('The agent is not dead')
-    if(this.runner.respawnPending)return
+    if(this.runner.respawnPending){this.runner.log?.('respawn_ignored',{reason:'controller: respawn already pending'});return}
     this.interrupt('Respawning. Review inventory before resuming the saved request.')
     this.respawning=true
     try{this.runner.respawn();this.say('Respawning at the world spawn or the account\'s saved spawn point. Your previous task stays paused.')}

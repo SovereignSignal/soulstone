@@ -49,6 +49,14 @@ test('digging in goes three deep, caps the shaft with dug earth and reports the 
  assert.equal(result.receipt,'burrowed_capped');assert.equal(result.shelterName,'burrow');assert.deepEqual(result.surface,{x:10,y:64,z:10})
  assert.equal(w.inventory.find(i=>i.name==='dirt').count,2)
 })
+test('a hit that knocks the bot off the shaft is answered by stepping back over it',async()=>{
+ const w=world();let knocked=false,walked=[]
+ const dig=w.bot.dig;w.bot.dig=async block=>{await dig(block);if(!knocked){knocked=true;w.bot.entity.position=new Vec3(11.5,64,10.5)}}
+ w.bot.pathfinder.goto=async g=>{walked.push([g.x,g.y,g.z]);w.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}
+ const messages=[];const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},{...api,progress:m=>messages.push(m)})
+ assert.deepEqual(walked,[[10,63,10]]);assert.equal(result.receipt,'burrowed_capped');assert.equal(w.bot.entity.position.y,61)
+ assert.ok(messages.some(m=>/Dug 3\/3/.test(m)),messages.join(' | '))
+})
 test('a gravity block never becomes the cap, so a sand burrow stays open and says so',async()=>{
  const w=world('sand');w.cells.set(new Vec3(10,63,10).toString(),'sand')
  const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
