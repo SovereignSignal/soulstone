@@ -155,6 +155,16 @@ export class Teammate extends EventEmitter {
             if(epoch!==this.epoch||abort.signal.aborted)return
           }
         }else this.say('I am choosing shelter: '+decision.reason)
+        // A creeper cannot be fought unarmed or waited out at close range: it
+        // starts swelling within three blocks. Sprint out of its reach first.
+        for(let attempt=0;attempt<2;attempt++){
+          const creeper=survivalObservation(recoveryBot).nearbyThreats.find(t=>t.name==='creeper'&&t.risk==='potential_hostile'&&t.distance<=16)
+          if(!creeper||!decision.engage===false&&decision.engage)break
+          if(!creeper)break
+          this.safety.status='fleeing';this.phase='retreating';this.say('A creeper is '+creeper.distance+' blocks away. Sprinting clear before sheltering.')
+          try{await this.execute({action:'flee',goal:{from:creeper.position,distance:24},timeoutMs:15000},abort.signal);if(epoch!==this.epoch||abort.signal.aborted)return;(this.safety.flights??=[]).push(structuredClone(this.runner.task.result));this.persist()}
+          catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;(this.safety.flights??=[]).push({failed:error.message});this.persist();break}
+        }
         this.safety.status='retreating';this.phase='retreating'
       }
       const candidates=[...(this.projects.base?[{name:'base',goal:{project:structuredClone(this.projects.base)}}]:[]),...alternativeShelters(recoveryBot,this.projects).slice(0,3).map(shelter=>({name:shelter.name,goal:{shelter:structuredClone(shelter)}}))]
