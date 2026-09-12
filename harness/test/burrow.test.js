@@ -23,11 +23,22 @@ const api={check(){},stage(){},progress(){},persist(){},movements:{}}
 test('a burrow needs diggable ground, solid walls on every level and a solid floor',()=>{
  assert.equal(world().bot&&burrowSite(world().bot).ok,true)
  const cave=world();cave.cells.set(new Vec3(11,62,10).toString(),'air');assert.match(burrowSite(cave.bot).reason,/wall/)
- const lake=world();lake.cells.set(new Vec3(9,61,10).toString(),'water');assert.match(burrowSite(lake.bot).reason,/wall/)
+ const lake=world();lake.cells.set(new Vec3(9,61,10).toString(),'water');assert.match(burrowSite(lake.bot).reason,/Liquid/)
  const hollow=world();hollow.cells.set(new Vec3(10,60,10).toString(),'air');assert.match(burrowSite(hollow.bot).reason,/floor/)
  const rock=world('stone');assert.match(burrowSite(rock.bot).reason,/stone/)
  rock.inventory.push({name:'wooden_pickaxe',count:1});assert.equal(burrowSite(rock.bot).ok,true)
  const airborne=world();airborne.bot.entity.onGround=false;assert.match(burrowSite(airborne.bot).reason,/ground/)
+ // The cap level is refilled, so a hillside with one open side there still works; the deeper cells need every wall.
+ const slope=world();slope.cells.set(new Vec3(11,63,10).toString(),'air');assert.equal(burrowSite(slope.bot).ok,true)
+ const bare=world();for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]])bare.cells.set(new Vec3(10+dx,63,10+dz).toString(),'short_grass');assert.match(burrowSite(bare.bot).reason,/cap/)
+})
+test('a rejected column steps to a sound neighbouring column before digging',async()=>{
+ const w=world();w.cells.set(new Vec3(11,62,10).toString(),'air')
+ let walked
+ w.bot.pathfinder.goto=async g=>{walked=[g.x,g.y,g.z];w.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}
+ const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ assert.ok(walked,'should have moved');assert.notDeepEqual([walked[0],walked[2]],[10,10]);assert.equal(walked[1],64)
+ assert.equal(result.receipt,'burrowed_capped');assert.deepEqual(result.surface,{x:walked[0],y:64,z:walked[2]})
 })
 test('digging in goes three deep, caps the shaft with dug earth and reports the surface cell',async()=>{
  const w=world()

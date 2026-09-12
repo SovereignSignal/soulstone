@@ -16,19 +16,38 @@ const SIDES=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]
 const solid=(bot,b)=>!!b&&fullCube(bot.registry,b.name)&&!LIQUID.has(b.name)
 const key=p=>`${p.x},${p.y},${p.z}`
 
-export function burrowSite(bot){
+export function burrowSite(bot,origin=bot.entity?.position?.floored()){
  const p=bot.entity?.position
  if(!p||!bot.entity.onGround)return {ok:false,reason:'Not standing on solid ground'}
- const feet=p.floored(),pickaxe=bot.inventory.items().some(i=>/_pickaxe$/.test(i.name))
+ const feet=origin,pickaxe=bot.inventory.items().some(i=>/_pickaxe$/.test(i.name))
+ if(!feet)return {ok:false,reason:'Position is unknown'}
  const cells=[];for(let d=1;d<=BURROW_DEPTH;d++)cells.push(feet.offset(0,-d,0))
- for(const c of cells){
+ for(const [index,c] of cells.entries()){
   const b=bot.blockAt(c);if(!b)return {ok:false,reason:'Ground below is not observed'}
   if(!(SOFT.has(b.name)||pickaxe&&HARD.has(b.name)))return {ok:false,reason:`Cannot dig ${b.name} quickly at ${key(c)}`}
-  for(const [dx,dy,dz] of SIDES){const s=c.offset(dx,dy,dz);if(!solid(bot,bot.blockAt(s)))return {ok:false,reason:`Burrow wall at ${key(s)} is not solid`}}
+  const walls=SIDES.map(([dx,dy,dz])=>({at:c.offset(dx,dy,dz),block:bot.blockAt(c.offset(dx,dy,dz))}))
+  if(walls.some(w=>LIQUID.has(w.block?.name)))return {ok:false,reason:`Liquid beside the burrow at ${key(c)}`}
+  // The top cell is refilled by the cap and only needs one wall to place against.
+  if(index===0){if(!walls.some(w=>solid(bot,w.block)))return {ok:false,reason:`No solid wall to place the cap against at ${key(c)}`};continue}
+  const open=walls.find(w=>!solid(bot,w.block));if(open)return {ok:false,reason:`Burrow wall at ${key(open.at)} is not solid`}
  }
  const floor=feet.offset(0,-BURROW_DEPTH-1,0)
  if(!solid(bot,bot.blockAt(floor)))return {ok:false,reason:'No solid floor below the burrow'}
  return {ok:true,surface:feet,cells,cap:cells[0]}
+}
+// Spawn points sit on uneven ground: when the column underfoot fails, try the
+// eight neighbouring standable columns before giving up.
+export function findBurrowColumn(bot){
+ const here=burrowSite(bot);if(here.ok)return {site:here,move:null}
+ const feet=bot.entity.position.floored(),reasons=[here.reason]
+ for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]]){
+  const o=feet.offset(dx,0,dz)
+  const standable=bot.blockAt(o)?.name==='air'&&bot.blockAt(o.offset(0,1,0))?.name==='air'&&solid(bot,bot.blockAt(o.offset(0,-1,0)))
+  if(!standable)continue
+  const site=burrowSite(bot,o);if(site.ok)return {site,move:o}
+  reasons.push(site.reason)
+ }
+ return {site:null,reasons}
 }
 function capItem(bot){
  return bot.inventory.items().find(i=>fullCube(bot.registry,i.name)&&!GRAVITY.has(i.name))||null
@@ -39,8 +58,15 @@ async function settle(predicate,message,{check,ms=3000,poll=50}){
  throw new Error(message)
 }
 export async function burrowIn(bot,task,{check,stage,progress}){
- check();const site=burrowSite(bot)
- if(!site.ok)throw new Error('No safe burrow here: '+site.reason)
+ check();const found=findBurrowColumn(bot)
+ if(!found.site)throw new Error('No safe burrow here: '+found.reasons[0])
+ let site=found.site
+ if(found.move){
+  progress('Stepping to a sound column to dig in');stage('walking')
+  const timer=setTimeout(()=>bot.pathfinder.setGoal(null),6000)
+  try{await bot.pathfinder.goto(new goals.GoalBlock(found.move.x,found.move.y,found.move.z))}finally{clearTimeout(timer)}
+  check();site=burrowSite(bot,found.move);if(!site.ok)throw new Error('No safe burrow here: '+site.reason)
+ }
  bot.pathfinder?.setGoal(null);bot.clearControlStates?.()
  stage('burrowing');progress('Digging in to wait out the danger')
  for(const c of site.cells){
