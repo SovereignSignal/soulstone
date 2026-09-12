@@ -61,11 +61,18 @@ test('when the burrow is refused, safety walls in, waits, opens up and continues
  const said=[];let resumed=0
  const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,burrowWait:{quietMs:20,limitMs:2000},
   say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
-  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
+  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
   async resume(){resumed++;this.requestProgress.status='running'}}
  const started=c.seekSafety(THREAT_INTERRUPTION)
  await new Promise(r=>setTimeout(r,300));w.bot.time.timeOfDay=6000
  await started
  assert.deepEqual(commands.filter(a=>a!=='stop'),['burrow','hut','unhut'])
  assert.equal(resumed,1);assert.equal(c.safety,null);assert.ok(said.some(t=>/walling myself in/i.test(t)),said.join(' | '))
+})
+test('walls that already stand, as in a one-block shaft, need no ground beneath them; only the roof is placed',()=>{
+ const registry=minecraftData('1.21.4')
+ const inventory=[{name:'cobblestone',count:10}]
+ const bot={registry,entity:{position:new Vec3(10.5,63,10.5),onGround:true},inventory:{items:()=>inventory},
+  blockAt(p){const name=(p.x===10&&p.z===10)?(p.y<=62?'stone':'air'):(p.y<=65?'stone':'air');const b={name,position:p.clone(),boundingBox:name==='air'?'empty':'block'};if(p.x===9&&p.z===10&&p.y===62)b.name='air',b.boundingBox='empty';return b}}
+ const site=hutSite(bot);assert.equal(site.ok,true,site.reason)
 })

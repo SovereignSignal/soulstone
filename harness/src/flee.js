@@ -31,5 +31,6 @@ export async function fleeFrom(bot,task,{check,stage,progress,movements}){
  try{await bot.pathfinder.goto(new goals.GoalXZ(target.x,target.z))}catch{}finally{clearTimeout(timer);bot.setControlState('sprint',false);bot.pathfinder.setGoal(null);if(movements)bot.pathfinder.setMovements(movements)}
  check()
  const p=bot.entity.position,gained=Math.hypot(p.x-from.x,p.z-from.z)-Math.hypot(start.x-from.x,start.z-from.z)
+ if(p.distanceTo(start)<2)throw new Error('No route away from here')
  return {item:'safety',count:1,receipt:'fled',moved:Math.round(p.distanceTo(start)),gained:Math.round(gained),position:{x:p.x,y:p.y,z:p.z}}
 }

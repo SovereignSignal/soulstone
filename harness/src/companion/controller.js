@@ -196,33 +196,12 @@ export class Teammate extends EventEmitter {
           this.say(candidate.name+' is unavailable: '+error.message+'. Checking another saved shelter.')
         }
       }
-      // Last resort with no base and no weapon: dig in, wait for daylight, dig out.
-      if(!this.safety.retreat){
-        const attempt={name:'burrow',status:'trying'};this.safety.attempts.push(attempt);this.persist()
-        this.say('No verified shelter is reachable. I am digging in to wait out the danger.')
-        try{
-          await this.execute({action:'burrow',goal:{},timeoutMs:60000},abort.signal)
-          if(epoch!==this.epoch||abort.signal.aborted)return
-          this.safety.retreat=structuredClone(this.runner.task.result);attempt.status='sheltered';this.persist()
-        }catch(error){
-          if(epoch!==this.epoch||abort.signal.aborted)return
-          attempt.status='rejected';attempt.reason=error.message;this.persist()
-          this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)
-        }
-      }
-      // Ground that cannot be dug: wall in with carried blocks instead.
-      if(!this.safety.retreat){
-        const attempt={name:'hut',status:'trying'};this.safety.attempts.push(attempt);this.persist()
-        this.say('The ground here cannot be dug. I am walling myself in with carried blocks.')
-        try{
-          await this.execute({action:'hut',goal:{},timeoutMs:60000},abort.signal)
-          if(epoch!==this.epoch||abort.signal.aborted)return
-          this.safety.retreat=structuredClone(this.runner.task.result);attempt.status='sheltered';this.persist()
-        }catch(error){
-          if(epoch!==this.epoch||abort.signal.aborted)return
-          attempt.status='rejected';attempt.reason=error.message;this.persist()
-          this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)
-        }
+      if(!this.safety.retreat)await this.lastResortShelter(epoch,abort.signal)
+      if(epoch!==this.epoch||abort.signal.aborted)return
+      if(!this.safety.retreat&&await this.moveOutOfDanger(epoch,abort.signal,recoveryBot)){
+        if(epoch!==this.epoch||abort.signal.aborted)return
+        await this.lastResortShelter(epoch,abort.signal)
+        if(epoch!==this.epoch||abort.signal.aborted)return
       }
       if(!this.safety.retreat)throw new Error('No verified shelter reached. '+this.safety.attempts.map(a=>a.name+': '+a.reason).join('; '))
       if(['burrow','hut'].includes(this.safety.retreat.shelterName)){
@@ -268,6 +247,57 @@ export class Teammate extends EventEmitter {
       await this.resume({automatic:true})
     }else this.say('The threat stayed behind in daylight. '+(canResume(request)?'Resume is available if the saved request can safely continue.':'Ready for your next instruction.'))
     return 'continued'
+  }
+  // Last resort with no base and no weapon: dig in, or wall in where the
+  // ground cannot be dug. Returns whether a shelter was reached.
+  async lastResortShelter(epoch,signal) {
+    if(!this.safety.retreat){
+      const attempt={name:'burrow',status:'trying'};this.safety.attempts.push(attempt);this.persist()
+      this.say('No verified shelter is reachable. I am digging in to wait out the danger.')
+      try{
+        await this.execute({action:'burrow',goal:{},timeoutMs:60000},signal)
+        if(epoch!==this.epoch||signal.aborted)return false
+        this.safety.retreat=structuredClone(this.runner.task.result);attempt.status='sheltered';this.persist()
+      }catch(error){
+        if(epoch!==this.epoch||signal.aborted)return false
+        attempt.status='rejected';attempt.reason=error.message;this.persist()
+        this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal)
+      }
+    }
+    // Ground that cannot be dug: wall in with carried blocks instead.
+    if(!this.safety.retreat){
+      const attempt={name:'hut',status:'trying'};this.safety.attempts.push(attempt);this.persist()
+      this.say('The ground here cannot be dug. I am walling myself in with carried blocks.')
+      try{
+        await this.execute({action:'hut',goal:{},timeoutMs:60000},signal)
+        if(epoch!==this.epoch||signal.aborted)return false
+        this.safety.retreat=structuredClone(this.runner.task.result);attempt.status='sheltered';this.persist()
+      }catch(error){
+        if(epoch!==this.epoch||signal.aborted)return false
+        attempt.status='rejected';attempt.reason=error.message;this.persist()
+        this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal)
+      }
+    }
+    return !!this.safety.retreat
+  }
+  // Never stand still when every shelter is refused and a threat is near:
+  // leave a pit, sprint from the nearest hostile and try the ground there.
+  async moveOutOfDanger(epoch,signal,bot) {
+    const s=survivalObservation(bot),threat=(s.nearbyThreats||[]).find(t=>t.risk==='potential_hostile')
+    const attempt={name:'move',status:'trying'};this.safety.attempts.push(attempt);this.persist()
+    this.say('No shelter here. Moving away'+(threat?` from the ${threat.name}`:'')+' before trying again.')
+    let climbed=false
+    try{await this.execute({action:'climb',goal:{},timeoutMs:45000},signal);if(epoch!==this.epoch||signal.aborted)return false;climbed=true;attempt.climbed=structuredClone(this.runner.task.result)}
+    catch(error){if(epoch!==this.epoch||signal.aborted)return false;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);if(epoch!==this.epoch||signal.aborted)return false}
+    if(!threat){attempt.status=climbed?'moved':'rejected';attempt.reason=climbed?undefined:'No pit exit and no threat to sprint from';this.persist();return climbed}
+    try{
+      await this.execute({action:'flee',goal:{from:threat.position,distance:24},timeoutMs:15000},signal);if(epoch!==this.epoch||signal.aborted)return false
+      const result=structuredClone(this.runner.task.result);(this.safety.flights??=[]).push(result);attempt.status='moved';attempt.moved=result.moved;this.persist();return true
+    }catch(error){
+      if(epoch!==this.epoch||signal.aborted)return false
+      attempt.status=climbed?'moved':'rejected';attempt.reason=error.message;this.persist();this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal)
+      return climbed
+    }
   }
   async waitInBurrow(epoch,signal,bot,eligible) {
     const request=this.requestProgress,safety=this.safety,connection=this.runner.connectionId

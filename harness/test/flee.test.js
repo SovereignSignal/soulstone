@@ -37,7 +37,7 @@ test('an unarmed bot sprints clear of a creeper before digging in',async()=>{
  const said=[]
  const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,burrowWait:{quietMs:20,limitMs:2000},
   say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
-  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,async resume(){this.requestProgress.status='running'}}
+  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,async resume(){this.requestProgress.status='running'}}
  const started=c.seekSafety(THREAT_INTERRUPTION);await new Promise(r=>setTimeout(r,300));bot.time.timeOfDay=6000;await started
  assert.deepEqual(commands.filter(a=>a!=='stop'),['flee','burrow','unburrow'])
  assert.ok(said.some(t=>/creeper is 12 blocks away/i.test(t)),said.join(' | '))
@@ -55,7 +55,7 @@ test('in daylight a lone zombie the bot cannot strike is left behind on open gro
  const said=[];let resumed=0
  const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,openGroundWait:{quietMs:20,limitMs:2000},
   say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
-  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,async resume(){resumed++;this.requestProgress.status='running'}}
+  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,async resume(){resumed++;this.requestProgress.status='running'}}
  await c.seekSafety(THREAT_INTERRUPTION)
  assert.deepEqual(commands.filter(a=>a!=='stop'),['flee'])
  assert.equal(resumed,1);assert.equal(c.requestProgress.safetyContinuations[0].shelter,'open_ground');assert.equal(c.safety,null)

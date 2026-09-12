@@ -76,6 +76,14 @@ export async function climbFree(bot,{check,stage,progress,climb=climbOut}){
  stage('walking');await nudge(bot,exit.cell,{check})
  return Math.floor(bot.entity.position.y)>=feet.y+exit.height
 }
+// Safety action: leave a pit before sprinting from a threat. Fails plainly
+// when no exit is judged so the caller can choose the next step.
+export async function climbSkill(bot,task,{check,stage,progress}){
+ check();const start=bot.entity.position.clone()
+ if(!await climbFree(bot,{check,stage,progress}))throw new Error('No pit exit judged from here')
+ const p=bot.entity.position
+ return {item:'safety',count:1,receipt:'climbed',rise:Math.round(p.y-start.y),position:{x:p.x,y:p.y,z:p.z}}
+}
 const SELF_HELP=[[stepFree,'stepped_free'],[climbFree,'climbed_free']]
 // Self-help retries under the unchanged policy, then one retry only after
 // fresh evidence that the local route may differ. No larger drops, teleporting

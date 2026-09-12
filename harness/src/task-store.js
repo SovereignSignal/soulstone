@@ -20,6 +20,7 @@ export function validateGoal(goal) {
 }
 export function validateTaskGoal(kind, goal) {
   if(['surface','burrow','hut','unhut'].includes(kind))return {}
+  if(kind==='climb')return {}
   if(kind==='flee')return validateFleeGoal(goal)
   if(kind==='hunt')return validateHuntGoal(goal)
   if(kind==='unburrow')return {surface:validateGoal(goal?.surface)}

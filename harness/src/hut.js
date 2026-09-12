@@ -21,7 +21,8 @@ export function hutSite(bot){
  if(!solid(bot,bot.blockAt(feet.offset(0,-1,0))))return {ok:false,reason:'No solid floor under the bot'}
  for(const [dx,dy,dz] of SIDES){
   for(const level of [0,1]){const c=feet.offset(dx,level,dz),b=bot.blockAt(c);if(!b)return {ok:false,reason:`Cell ${key(c)} is not observed`};if(!REPLACEABLE.has(b.name)&&!solid(bot,b))return {ok:false,reason:`Cannot wall through ${b.name} at ${key(c)}`}}
-  const ground=bot.blockAt(feet.offset(dx,-1,dz));if(!solid(bot,ground))return {ok:false,reason:`No ground to build the wall on at ${key(feet.offset(dx,-1,dz))}`}
+  // A wall that already stands (a shaft, a cave nook) needs no ground under it.
+  const ground=bot.blockAt(feet.offset(dx,-1,dz));if(!solid(bot,bot.blockAt(feet.offset(dx,0,dz)))&&!solid(bot,ground))return {ok:false,reason:`No ground to build the wall on at ${key(feet.offset(dx,-1,dz))}`}
  }
  const roof=bot.blockAt(feet.offset(0,2,0)),helper=bot.blockAt(feet.offset(1,2,0))
  if(!roof||!helper||!(REPLACEABLE.has(roof.name)||solid(bot,roof))||!(REPLACEABLE.has(helper.name)||solid(bot,helper)))return {ok:false,reason:'No room for the roof'}
