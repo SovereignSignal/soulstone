@@ -51,3 +51,14 @@ test('successful skill receipts retain a detached copy of recovery evidence for 
  const runner=Object.assign(Object.create(Runner.prototype),{bot,ready:true,closed:false,movements:{},task:{id:'prepare',kind:'prepare',status:'running',goal:{item:'stone_shovel',count:1},navigationRecovery:recovery},persist(){},log(){},say(){}})
  await runner.runSkill();assert.equal(runner.task.status,'completed',runner.task.reason);assert.deepEqual(runner.task.result.navigationRecovery,recovery);assert.notEqual(runner.task.result.navigationRecovery,recovery)
 })
+
+import {stepFree} from '../src/route-recovery.js'
+test('a wedged bot steps toward an open neighbour before waiting on terrain, then retries at once',async()=>{
+ const f=fixture();f.bot.entity.onGround=false
+ f.bot.blockAt=p=>{const name=p.y<65?'stone':(p.x===1&&p.z===0)?'air':(p.y>=65&&p.x===0&&p.z===0)?'air':'stone';return {position:p,name,boundingBox:name==='air'?'empty':'block'}}
+ f.bot.lookAt=async()=>{};f.bot.setControlState=(k,v)=>{if(k==='forward'&&v)f.bot.entity.position=f.bot.entity.position.offset(.6,0,0)}
+ await walkWithTerrainRecovery(f.bot,f.goal,f.options)
+ assert.equal(f.calls(),2);assert.equal(f.records.at(-1).status,'recovered');assert.equal(f.records.at(-1).trigger,'stepped_free')
+ const g=fixture();g.bot.blockAt=()=>({name:'stone',boundingBox:'block'});g.bot.setControlState=()=>{}
+ assert.equal(await stepFree(g.bot,{check(){},progress(){}}),false)
+})
