@@ -24,7 +24,7 @@ function fixture(){
 }
 test('defense engages a lone melee mob and rejects weak readiness, extra threats and obstructed sight',()=>{
  const f=fixture();assert.equal(defenseDecision(f.bot).engage,true)
- f.bot.health=13;assert.equal(defenseDecision(f.bot).engage,false);f.bot.health=20
+ f.bot.health=11;assert.equal(defenseDecision(f.bot).engage,false);f.bot.health=13;assert.equal(defenseDecision(f.bot).engage,true);f.bot.health=20
  f.bot.food=9;assert.equal(defenseDecision(f.bot).engage,false);f.bot.food=20
  f.bot.entities[8]={id:8,uuid:connection,name:'creeper',position:new Vec3(7,64,0)};assert.equal(defenseDecision(f.bot).engage,false);delete f.bot.entities[8]
  f.bot.world.raycast=()=>({name:'stone'});assert.equal(defenseDecision(f.bot).engage,false)
@@ -112,4 +112,13 @@ test('Stop while defending prevents retreat and resumption',async()=>{
  const pending=f.c.seekSafety(THREAT_INTERRUPTION);await new Promise(r=>setImmediate(r))
  assert.equal(f.c.phase,'defending');f.c.stop();release();await pending
  assert.equal(f.c.safety.status,'cancelled');assert.equal(f.runner.commands.some(c=>c.action==='retreat'||c.action==='follow'),false)
+})
+
+test('an armed bot engages from ten blocks, rushes skeletons only with a health margin, and counts a wooden axe',()=>{
+ const f=fixture();f.target.position=new Vec3(9,64,0);assert.equal(defenseDecision(f.bot).engage,true)
+ f.target.position=new Vec3(11,64,0);assert.equal(defenseDecision(f.bot).engage,false);f.target.position=new Vec3(2,64,0)
+ Object.assign(f.target,f.bot.registry.entitiesByName.skeleton,{id:7,uuid});f.bot.health=15;assert.match(defenseDecision(f.bot).reason,/skeleton/)
+ f.bot.health=16;assert.equal(defenseDecision(f.bot).engage,true)
+ f.weapon.name='wooden_axe';f.weapon.maxDurability=59;assert.equal(defenseDecision(f.bot).weapon,'wooden_axe')
+ f.weapon.name='stick';assert.match(defenseDecision(f.bot).reason,/weapon/)
 })
