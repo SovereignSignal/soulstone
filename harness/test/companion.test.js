@@ -1,3 +1,4 @@
+import {readFileSync} from 'node:fs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
@@ -676,4 +677,11 @@ test('a built base counts as shelter for the dusk rule only once it has a torch 
  r.emit('event',{type:'survival_tick'});assert.deepEqual(reasons,['Night with no shelter','Night with no shelter'],'a torch station recorded before placement is not a light')
  c.projects.base.stations.torch.confirmed=true;c.safety=null
  r.emit('event',{type:'survival_tick'});assert.deepEqual(reasons,['Night with no shelter','Night with no shelter'],'a confirmed torch suppresses the dusk rule')
+})
+
+test('every planner action has a spoken label, and an unknown one falls back instead of ending the round',()=>{
+ const src=readFileSync(new URL('../src/companion/controller.js',import.meta.url),'utf8')
+ const line=src.split('\n').find(l=>l.includes('const labels={'))
+ for(const action of ['hunt','harvest','eat','prospect','return_base','place','gather','acquire','build','construct','revise','give','inspect','remember','return','come','follow','retreat','leave_base','stow','prepare','deposit','withdraw','smelt','check_base'])assert.ok(line.includes(action+':'),action+' label')
+ assert.ok(src.includes('labels[s.action]||'),'fallback label')
 })
