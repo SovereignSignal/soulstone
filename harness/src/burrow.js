@@ -136,7 +136,7 @@ export function burrowClearance(bot){
  if(s.timeOfDay<1000||s.timeOfDay>=12000)return {clear:false,reason:'Waiting for daylight'}
  // Without food there is no regeneration, so a low floor beats waiting forever.
  if(!Number.isFinite(s.health)||s.health<4)return {clear:false,reason:'Health is too low to leave the burrow'}
- const near=(s.nearbyThreats||[]).filter(t=>t.distance<=16)
+ const near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=16)
  if(near.length)return {clear:false,reason:'A potential hostile remains within 16 blocks',threats:near}
  return {clear:true,health:s.health,timeOfDay:s.timeOfDay,scope:'Loaded entities within 16 blocks and the world clock; not proof of a safe surface'}
 }

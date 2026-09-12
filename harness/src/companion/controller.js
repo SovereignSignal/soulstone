@@ -8,7 +8,7 @@ import {projectFootprints} from '../site-survey.js'
 import {reviseArchitecture} from '../construction.js'
 import {evaluateGoal,enforceProjectIntent,validateContract,constructionLimits} from './goal-contract.js'
 import {ExperienceStore,experienceEvidence} from './experience.js'
-import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor} from './continuity.js'
+import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,shouldContinueAfterBudget} from './continuity.js'
 import {PREPARE_ACTIONS} from '../supplies.js'
 import {EXPEDITION_ACTIONS,remainingDurability,expeditionObservation} from '../prospecting.js'
 import {STATION_ACTIONS} from '../stations.js'
@@ -296,7 +296,7 @@ export class Teammate extends EventEmitter {
     this.requestProgress=continuation||{id:randomUUID(),request:text,completed:[],pending:[],feedback:[],rounds:0};this.requestProgress.status='running';this.requestProgress.blocker=null;this.persist()
     const requestTasks=new Set()
     const existingTask=structuredClone(this.runner.task?.kind==='build'?this.runner.task:(this.projects.base?{kind:'build',status:'completed',goal:this.projects.base.build}:this.runner.task))
-    const feedback=this.requestProgress.feedback??=[]
+    const feedback=this.requestProgress.feedback??=[],completedAtStart=this.requestProgress.completed?.length||0
     // Failures recorded before a pause describe the world as it was. Mark them
     // so the planner retries the prerequisite once instead of asking for help.
     if(continuation&&feedback.length){
@@ -462,6 +462,11 @@ export class Teammate extends EventEmitter {
       await this.rememberExperience(epoch,abort.signal);if(epoch!==this.epoch)return
       this.phase='blocked';this.activity='';this.say(`I could not finish: ${e.message==='fetch failed'?'The selected model could not be reached. Check its connection in Models.':e.message}`)
       episode?.end('blocked', { reason: e.message, feedback })
+      if(shouldContinueAfterBudget(this.requestProgress,completedAtStart,e.message)&&canResume(this.requestProgress)){
+        this.requestProgress.budgetContinuations=(this.requestProgress.budgetContinuations||0)+1;this.persist()
+        this.say('Steps were still completing when the budget ran out. Continuing the saved request automatically.')
+        try{await this.resume({automatic:true})}catch(error){if(epoch!==this.epoch)return;this.requestProgress.blocker=error.message;this.persist()}
+      }
     }
   }
 

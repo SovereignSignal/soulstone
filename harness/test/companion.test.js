@@ -617,3 +617,13 @@ test('Resume marks earlier failures as pre-resume and tells the planner to retry
  assert.ok(seen.some(f=>f.action==='resume'),'planner saw the resume marker')
  await c.submit('build a shelter');assert.equal(c.requestProgress.feedback.some(f=>f.action==='resume'),false)
 })
+
+import {shouldContinueAfterBudget,BUDGET_CONTINUATIONS} from '../src/companion/continuity.js'
+test('a request that ran out of rounds or time while completing steps continues automatically, at most twice',()=>{
+ const r={completed:[{step:{action:'gather'}}],budgetContinuations:0}
+ assert.equal(shouldContinueAfterBudget(r,0,'Planning limit reached after 24 rounds. Progress is saved; use Resume to continue.'),true)
+ assert.equal(shouldContinueAfterBudget(r,0,'Active planning time limit reached. Progress is saved; use Resume to continue.'),true)
+ assert.equal(shouldContinueAfterBudget(r,1,'Planning limit reached after 24 rounds.'),false)
+ assert.equal(shouldContinueAfterBudget(r,0,'No observed progress for three planning rounds.'),false)
+ assert.equal(shouldContinueAfterBudget({...r,budgetContinuations:BUDGET_CONTINUATIONS},0,'Planning limit reached after 24 rounds.'),false)
+})

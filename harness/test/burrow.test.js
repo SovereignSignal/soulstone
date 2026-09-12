@@ -7,7 +7,7 @@ import {burrowSite,burrowIn,burrowClearance,unburrow} from '../src/burrow.js'
 import {executeSkill} from '../src/skills.js'
 import {validateTaskGoal} from '../src/task-store.js'
 import {Teammate} from '../src/companion/controller.js'
-import {THREAT_INTERRUPTION,emergencyReason} from '../src/survival.js'
+import {THREAT_INTERRUPTION,emergencyReason,survivalObservation} from '../src/survival.js'
 const registry=minecraftData('1.21.4')
 function world(ground='dirt'){
  const cells=new Map(),inventory=[],placed=[],dug=[],equipped=[]
@@ -176,4 +176,11 @@ test('a missed block-update event does not fail a cap that is actually there',as
  const v=world();let tries=0;v.bot.placeBlock=async()=>{tries++;throw new Error('rejected')}
  const open=await burrowIn(v.bot,{kind:'burrow',goal:{}},api)
  assert.equal(open.receipt,'burrowed_open');assert.equal(tries,4)
+})
+
+test('a spider in daylight is conditional, not a trigger, and does not hold the burrow closed',()=>{
+ const w=world();w.bot.time.timeOfDay=6000;w.bot.entities={1:{name:'spider',position:new Vec3(14.5,64,10.5)}}
+ const day=survivalObservation(w.bot);assert.equal(day.nearbyThreats[0].risk,'conditional');assert.equal(emergencyReason(day),null)
+ w.bot.health=16;assert.equal(burrowClearance(w.bot).clear,true)
+ w.bot.time.timeOfDay=15000;const night=survivalObservation(w.bot);assert.equal(night.nearbyThreats[0].risk,'potential_hostile');assert.equal(emergencyReason(night),THREAT_INTERRUPTION)
 })

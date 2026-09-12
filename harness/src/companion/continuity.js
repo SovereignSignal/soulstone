@@ -9,6 +9,12 @@ export function buildSiteAnchor(runner){
  return null
 }
 export const ACTIVE_BUDGET_MS=45*60*1000
+// A request that runs out of rounds or time while still completing steps
+// continues on its own, at most twice, instead of waiting for a manual Resume.
+export const BUDGET_CONTINUATIONS=2
+export function shouldContinueAfterBudget(request,completedAtStart,message){
+ return /^(Active planning time limit|Planning limit reached)/.test(message||'')&&(request?.completed?.length||0)>completedAtStart&&(request?.budgetContinuations||0)<BUDGET_CONTINUATIONS
+}
 export const canResume=request=>!!request&&['blocked','interrupted','paused'].includes(request.status)&&!request.reviewRequired
 export function progressFingerprint(snapshot){
  const e=snapshot.projects?.base?.expedition
