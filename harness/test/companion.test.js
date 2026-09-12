@@ -477,7 +477,7 @@ test('missing or damaged shelter produces an explicit failed safety state',async
 })
 
 test('health event invokes the provider-independent supervisor without a model call',async()=>{
- const [runner,c]=setup(async()=>{throw new Error('Model must not be called')});runner.bot.health=9;runner.bot.food=20;runner.bot.game={gameMode:'survival',difficulty:'peaceful'};c.projects.base={build:{}}
+ const [runner,c]=setup(async()=>{throw new Error('Model must not be called')});runner.bot.health=9;runner.bot.food=20;runner.bot.game={gameMode:'survival',difficulty:'peaceful'};c.projects.base={build:{},stations:{torch:{position:{x:0,y:65,z:0}}},built:true}
  let called=0;c.execute=async cmd=>{assert.equal(cmd.action,'retreat');called++;runner.task={result:{receipt:'sheltered_door_closed'}}}
  runner.emit('event',{type:'survival_tick'});await new Promise(resolve=>setImmediate(resolve));assert.equal(called,1);assert.equal(c.safety.status,'sheltered')
 })
@@ -661,4 +661,14 @@ test('a request continues after each safety episode while it keeps completing st
  r.safetyContinuations.push({completedAt:1});assert.equal(canContinueAfterSafety(r),false,'no new step since the last continuation')
  r.completed.push({step:{action:'build'}});assert.equal(canContinueAfterSafety(r),true)
  r.safetyContinuations=Array.from({length:SAFETY_CONTINUATIONS},(_,i)=>({completedAt:i}));r.completed=Array(20).fill({});assert.equal(canContinueAfterSafety(r),false)
+})
+
+test('a built base counts as shelter for the dusk rule only once it has a torch station',()=>{
+ const [r,c]=setup(async()=>({reply:'',steps:[]}))
+ r.bot.game={gameMode:'survival',difficulty:'normal'};r.bot.time={timeOfDay:13000};r.bot.health=20;r.bot.food=20;r.bot.entity={position:{x:0,y:64,z:0},onGround:true};r.bot.entities={}
+ let reasons=[];c.seekSafety=async reason=>{reasons.push(reason)}
+ c.projects.base={build:{origin:{x:4,y:64,z:5}},stations:{},built:true}
+ r.emit('event',{type:'survival_tick'});assert.deepEqual(reasons,['Night with no shelter'])
+ c.projects.base.stations.torch={position:{x:5,y:65,z:5}};c.safety=null
+ r.emit('event',{type:'survival_tick'});assert.deepEqual(reasons,['Night with no shelter'],'a lit base suppresses the dusk rule')
 })

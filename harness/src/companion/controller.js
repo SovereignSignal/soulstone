@@ -52,7 +52,9 @@ export class Teammate extends EventEmitter {
     runner.on('operator_command', c => { if (!this.dispatching && c.action !== 'status') { this.cancel(false);if(c.action==='stop'){this.safety={status:'cancelled',reason:'Operator stop'};if(canResume(this.requestProgress))this.requestProgress.status='cancelled';this.persist()} } })
     runner.on('event', e => {
       if(e.type==='survival_tick'&&runner.ready){
-        const observation=survivalObservation(runner.bot),reason=emergencyReason({...observation,shelterAvailable:!!this.projects.base&&this.projects.base.built!==false})
+        // Shelter means a built base with a recorded light: the retreat refuses an unlit one.
+        const base=this.projects.base,shelterAvailable=!!base&&base.built!==false&&!!base.stations?.torch
+        const observation=survivalObservation(runner.bot),reason=emergencyReason({...observation,shelterAvailable})
         if(this.safety?.reason===WATER_EMERGENCY&&['failed','afloat'].includes(this.safety.status)&&observation.headSubmerged===false&&observation.inWater===false&&runner.bot.entity.onGround){
           this.safety=null;this.activity='';runner.bot.clearControlStates();this.phase=canResume(this.requestProgress)?'blocked':'ready'
           if(canResume(this.requestProgress))this.requestProgress.blocker='On dry ground. Review current inventory before resuming the saved task.'
