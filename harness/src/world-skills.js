@@ -125,7 +125,8 @@ export async function executeWorldSkill(bot,task,context,gather) {
  let operations=0
  const budget=()=>{check();if(++operations>256)throw new Error('Action budget exhausted; inspect progress before continuing')}
  async function walk(goal,recover=true) {
-  await walkWithTerrainRecovery(bot,goal,{movements:walking,check,stage,progress,allowRecovery:recover&&task.kind!=='retreat',onRecovery:record=>{task.navigationRecovery=record;context.persist?.()}})
+  // A retreat walk to the lit base may cross thirty blocks of night terrain: give it the task's own window.
+  await walkWithTerrainRecovery(bot,goal,{movements:walking,check,stage,progress,attemptMs:task.kind==='retreat'?40000:15000,allowRecovery:recover&&task.kind!=='retreat',onRecovery:record=>{task.navigationRecovery=record;context.persist?.()}})
  }
 
  async function settle(predicate,message) {

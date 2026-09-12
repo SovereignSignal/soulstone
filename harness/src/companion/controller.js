@@ -1,6 +1,7 @@
 import {THREAT_INTERRUPTION,clearanceObservation,awaitClearance,openGroundClearance} from './hazard-clearance.js'
 import {alternativeShelters,occupiedAlternative} from '../alternate-shelter.js'
 import {setTimeout as delay} from 'node:timers/promises'
+const SAFETY_RETRIES=3
 import {survivalObservation,emergencyReason,WATER_EMERGENCY,NIGHT_EXPOSURE} from '../survival.js'
 import {burrowClearance} from '../burrow.js'
 import {defenseDecision,combatClearance,DEFENDABLE_MOBS} from '../combat.js'
@@ -62,6 +63,9 @@ export class Teammate extends EventEmitter {
           this.say('I am on dry ground and can breathe. The saved task remains paused.')
         }
         if(reason&&(!this.safety||reason===WATER_EMERGENCY&&this.safety.reason!==WATER_EMERGENCY&&this.safety.status!=='cancelled'))void this.seekSafety(reason)
+        // A failed recovery never leaves the bot standing still while the danger
+        // persists: after a short pause the chain runs again, a bounded number of times.
+        else if(reason&&this.safety?.status==='failed'&&this.safety.error!=='Agent died'&&!this.snapshot().dead&&(this.safety.retries||0)<SAFETY_RETRIES&&Date.now()-(this.safety.failedAt||0)>=3000){const retries=(this.safety.retries||0)+1;this.safety=null;void this.seekSafety(reason,{retries})}
       }
       if(['task_started','task_finished'].includes(e.type)&&e.task?.goal?.project){this.projects.base=structuredClone(e.task.goal.project);this.persist()}
       if(['task_started','task_finished'].includes(e.type)&&e.task?.kind==='construct'&&e.task.goal?.name){this.projects[e.task.goal.name]={construction:structuredClone(e.task.goal),progress:structuredClone(e.task.progress||null),result:structuredClone(e.task.result||null),status:e.task.status};this.persist()}
@@ -96,13 +100,13 @@ export class Teammate extends EventEmitter {
     const active=this.requestProgress?.status==='running';this.cancel(false,'interrupted')
     if(active){this.requestProgress.status='interrupted';this.requestProgress.reviewRequired=interruptedEffect(this.runner.task);this.requestProgress.blocker=this.requestProgress.reviewRequired||reason;this.persist()}
   }
-  async seekSafety(reason) {
+  async seekSafety(reason,{retries=0}={}) {
     if(this.safety&&(reason!==WATER_EMERGENCY||this.safety.reason===WATER_EMERGENCY||this.safety.status==='cancelled'))return
     const interruptedActiveRequest=this.requestProgress?.status==='running'
     const previousFollow=this.runner.task?.kind==='follow'&&this.runner.task.status==='running'?this.runner.task.goal.player:null
     this.interrupt('Safety interruption: '+reason)
     const epoch=this.epoch,abort=this.abort=new AbortController()
-    this.safety={status:'retreating',reason,startedAt:new Date().toISOString()};this.phase='retreating'
+    this.safety={status:'retreating',reason,startedAt:new Date().toISOString(),retries};this.phase='retreating'
     this.say(reason+'. '+(reason===WATER_EMERGENCY?'I am stopping work and swimming up for air.':reason===THREAT_INTERRUPTION?'I am pausing work and assessing self-defense.':'I am pausing work and looking for a verified lit shelter.'))
     try{
       this.dispatch({action:'stop'})
@@ -218,7 +222,7 @@ export class Teammate extends EventEmitter {
       this.say('I reached '+(this.safety.retreat.shelterName||'the lit base')+' and closed the door. '+(eligible?'I will watch for a clear area before continuing your request.':this.requestProgress?.status==='interrupted'?'Your request is paused; Resume will re-observe and continue.':'Waiting for your next instruction.'))
       if(eligible)await this.continueAfterClearance(epoch,abort.signal,recoveryBot)
 
-    }catch(error){if(epoch!==this.epoch)return;this.safety.status='failed';this.safety.error=error.message;this.phase='blocked';this.activity='';this.say('Safety recovery failed: '+error.message+'. I have stopped; safety is not established.')}
+    }catch(error){if(epoch!==this.epoch)return;this.safety.status='failed';this.safety.error=error.message;this.safety.failedAt=Date.now();this.phase='blocked';this.activity='';this.say('Safety recovery failed: '+error.message+(this.safety.retries<SAFETY_RETRIES?'. I will try again in a few seconds if the danger persists.':'. I have stopped; safety is not established.'))}
     finally{if(epoch===this.epoch){this.abort=null;this.persist();this.emit('change')}}
   }
   async leaveOnOpenGround(epoch,signal,bot,interruptedActiveRequest) {
@@ -252,6 +256,8 @@ export class Teammate extends EventEmitter {
   // Last resort with no base and no weapon: dig in, or wall in where the
   // ground cannot be dug. Returns whether a shelter was reached.
   async lastResortShelter(epoch,signal) {
+    // Burrow and hut judge the ground under the bot; a sprint or jump leaves it airborne for a moment.
+    for(let i=0;i<15&&this.runner.bot?.entity?.onGround===false;i++){await delay(100);if(epoch!==this.epoch||signal.aborted)return false}
     if(!this.safety.retreat){
       const attempt={name:'burrow',status:'trying'};this.safety.attempts.push(attempt);this.persist()
       this.say('No verified shelter is reachable. I am digging in to wait out the danger.')

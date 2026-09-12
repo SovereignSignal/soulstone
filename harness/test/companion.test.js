@@ -1,3 +1,4 @@
+import {Vec3} from 'vec3'
 import {readFileSync} from 'node:fs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -474,7 +475,7 @@ test('operator stop cancels a pending safety continuation and prevents later mov
  assert.equal(commands,0);assert.equal(c.safety.status,'cancelled');assert.equal(c.phase,'ready')
 })
 test('missing or damaged shelter produces an explicit failed safety state',async()=>{
- const [runner,c]=setup(async()=>({reply:'',steps:[]}));await c.seekSafety('test hazard');assert.equal(c.safety.status,'failed');assert.match(c.messages.at(-1).text,/safety is not established/)
+ const [runner,c]=setup(async()=>({reply:'',steps:[]}));await c.seekSafety('test hazard');assert.equal(c.safety.status,'failed');assert.match(c.messages.at(-1).text,/Safety recovery failed/)
 })
 
 test('health event invokes the provider-independent supervisor without a model call',async()=>{
@@ -684,4 +685,19 @@ test('every planner action has a spoken label, and an unknown one falls back ins
  const line=src.split('\n').find(l=>l.includes('const labels={'))
  for(const action of ['hunt','harvest','eat','prospect','return_base','place','gather','acquire','build','construct','revise','give','inspect','remember','return','come','follow','retreat','leave_base','stow','prepare','deposit','withdraw','smelt','check_base'])assert.ok(line.includes(action+':'),action+' label')
  assert.ok(src.includes('labels[s.action]||'),'fallback label')
+})
+
+test('a failed safety recovery runs again after a short pause while the emergency persists, at most three times',()=>{
+ const [r,c]=setup(async()=>({reply:'',steps:[]}))
+ r.bot.game={gameMode:'survival',difficulty:'normal'};r.bot.time={timeOfDay:6000};r.bot.health=20;r.bot.food=20;r.bot.entity={position:{x:0,y:64,z:0},onGround:true}
+ r.bot.entities={1:{name:'zombie',position:new Vec3(5,64,0)}}
+ const calls=[];c.seekSafety=async(reason,options)=>{calls.push([reason,options?.retries])}
+ c.safety={status:'failed',error:'No verified shelter reached',failedAt:Date.now()-4000,retries:0}
+ r.emit('event',{type:'survival_tick'});assert.deepEqual(calls,[['A potential hostile is within ten blocks',1]])
+ c.safety={status:'failed',error:'No verified shelter reached',failedAt:Date.now(),retries:1}
+ r.emit('event',{type:'survival_tick'});assert.equal(calls.length,1,'no retry inside the pause')
+ c.safety={status:'failed',error:'No verified shelter reached',failedAt:Date.now()-4000,retries:3}
+ r.emit('event',{type:'survival_tick'});assert.equal(calls.length,1,'bounded')
+ c.safety={status:'failed',error:'Agent died',failedAt:Date.now()-4000,retries:0}
+ r.emit('event',{type:'survival_tick'});assert.equal(calls.length,1,'never after death')
 })
