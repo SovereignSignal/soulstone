@@ -101,6 +101,19 @@ export async function jumpPlacement(bot,goal,{walk,check,place}) {
  }
  return false
 }
+// A crafting table needs air on a full solid block within placing reach. Forest
+// floors and slopes rarely offer that on the bot's own level, so scan a small
+// volume nearest-first instead of six fixed cells.
+export function tableSite(bot,{radius=3}={}){
+ const p=bot.entity.position.floored(),found=[]
+ for(let dx=-radius;dx<=radius;dx++)for(let dz=-radius;dz<=radius;dz++)for(let dy=-1;dy<=1;dy++){
+  if(!dx&&!dz)continue
+  const pos=p.offset(dx,dy,dz)
+  if(bot.blockAt(pos)?.name!=='air'||bot.blockAt(pos.offset(0,1,0))?.name!=='air'||bot.blockAt(pos.offset(0,-1,0))?.boundingBox!=='block')continue
+  found.push(pos)
+ }
+ return found.sort((a,b)=>a.distanceSquared(p)-b.distanceSquared(p))[0]||null
+}
 export async function executeWorldSkill(bot,task,context,gather) {
  const {check,progress,stage,movements}=context
  const walking=movements
@@ -153,12 +166,9 @@ export async function executeWorldSkill(bot,task,context,gather) {
   let table=bot.findBlock({matching:bot.registry.blocksByName.crafting_table.id,maxDistance:32})
   if(table){await walk(new goals.GoalLookAtBlock(table.position,bot.world,{reach:3}));return table}
   await acquire('crafting_table',1,path)
-  const p=bot.entity.position.floored()
-  for(const [x,z] of [[2,0],[-2,0],[0,2],[0,-2],[1,1],[-1,-1]]){
-   const pos=p.offset(x,0,z)
-   if(bot.blockAt(pos)?.name==='air'&&bot.blockAt(pos.offset(0,-1,0))?.boundingBox==='block') {await place(pos,'crafting_table');return bot.blockAt(pos)}
-  }
-  throw new Error('No clear place for a crafting table')
+  const pos=tableSite(bot)
+  if(!pos)throw new Error('No clear place for a crafting table within three blocks')
+  await place(pos,'crafting_table');return bot.blockAt(pos)
  }
  const sources={cobblestone:['stone'],cobbled_deepslate:['deepslate'],coal:['coal_ore','deepslate_coal_ore'],raw_iron:['iron_ore','deepslate_iron_ore'],raw_copper:['copper_ore','deepslate_copper_ore'],diamond:['diamond_ore','deepslate_diamond_ore']}
  async function mine(name,total,path) {

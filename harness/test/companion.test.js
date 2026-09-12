@@ -598,3 +598,11 @@ test('playing as the owner still allows ordinary gathering through the app',asyn
  assert.equal(r.commands.some(x=>x.action==='gather'),true)
  assert.equal(c.phase,'ready')
 })
+
+import {buildSiteAnchor} from '../src/companion/continuity.js'
+test('a shelter site anchors to the owner in view, else to the agent itself',()=>{
+ const runner={owner:'Sov',bot:{players:{Sov:{entity:{position:{x:1,y:64,z:2}}}}},position:()=>({x:9,y:70,z:9})}
+ assert.deepEqual(buildSiteAnchor(runner),{near:{x:1,y:64,z:2},anchor:'owner'})
+ runner.bot.players={};assert.deepEqual(buildSiteAnchor(runner),{near:{x:9,y:70,z:9},anchor:'agent'})
+ assert.equal(buildSiteAnchor({owner:'Sov',bot:{players:{}},position:()=>null}),null)
+})

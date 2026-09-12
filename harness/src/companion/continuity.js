@@ -1,4 +1,13 @@
 export const PLANNING_ROUNDS=24
+// A starter shelter goes near the owner when they are in view; a bot working
+// alone in a fresh world anchors the site to its own position instead.
+export function buildSiteAnchor(runner){
+ const owner=runner.bot?.players?.[runner.owner]?.entity?.position
+ if(owner)return {near:{x:owner.x,y:owner.y,z:owner.z},anchor:'owner'}
+ const self=runner.position?.()
+ if(self)return {near:{x:self.x,y:self.y,z:self.z},anchor:'agent'}
+ return null
+}
 export const ACTIVE_BUDGET_MS=45*60*1000
 export const canResume=request=>!!request&&['blocked','interrupted','paused'].includes(request.status)&&!request.reviewRequired
 export function progressFingerprint(snapshot){

@@ -118,6 +118,18 @@ test('log acquisition bounds the per-trip shortfall, not the carry target',async
  await assert.rejects(executeWorldSkill(empty.bot,{kind:'acquire',goal:{item:'spruce_log',count:40}},context,async()=>{throw new Error('must not gather')}),/32 logs per trip: carrying 0 spruce_log, 40 more needed/)
 })
 
+import {tableSite} from '../src/world-skills.js'
+test('a crafting table site is found nearest-first in a small volume, not six fixed cells',()=>{
+ const solid=new Set(),air=new Set(),p=new Vec3(0,64,0)
+ const bot={entity:{position:new Vec3(.5,64,.5)},blockAt(q){if(air.has(q.toString()))return {name:'air'};if(solid.has(q.toString()))return {name:'stone',boundingBox:'block'};return {name:'oak_leaves',boundingBox:'block'}}}
+ assert.equal(tableSite(bot),null)
+ // A ledge one block down and two away: air at the cell and above it, stone under it.
+ for(const q of [new Vec3(2,63,0),new Vec3(2,64,0)])air.add(q.toString());solid.add(new Vec3(2,62,0).toString())
+ assert.deepEqual(tableSite(bot),new Vec3(2,63,0))
+ // A closer valid cell wins.
+ for(const q of [new Vec3(0,64,1),new Vec3(0,65,1)])air.add(q.toString());solid.add(new Vec3(0,63,1).toString())
+ assert.deepEqual(tableSite(bot),new Vec3(0,64,1))
+})
 import {requireReachedGoal,supportsPlayer} from '../src/navigation.js'
 import pathfinding from 'mineflayer-pathfinder'
 test('navigation cannot report arrival for an empty failed path and mining excludes foot support',()=>{

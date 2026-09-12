@@ -8,7 +8,7 @@ import {projectFootprints} from '../site-survey.js'
 import {reviseArchitecture} from '../construction.js'
 import {evaluateGoal,enforceProjectIntent,validateContract,constructionLimits} from './goal-contract.js'
 import {ExperienceStore,experienceEvidence} from './experience.js'
-import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect} from './continuity.js'
+import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor} from './continuity.js'
 import {PREPARE_ACTIONS} from '../supplies.js'
 import {EXPEDITION_ACTIONS,remainingDurability,expeditionObservation} from '../prospecting.js'
 import {STATION_ACTIONS} from '../stations.js'
@@ -397,8 +397,10 @@ export class Teammate extends EventEmitter {
                 }
                 command={action:'construct',goal:{name:step.name,design,...(previousDesign?{previousDesign}:{}),near:{x:near.x,y:near.y,z:near.z},...(saved?.origin?{origin:saved.origin}:{protectedSites:projectFootprints(this.projects),constructionLimits:constructionLimits(this.requestProgress.goal,step.name)})},timeoutMs:600000}
               } else if(step.action==='build') {
-                const near=this.runner.bot?.players[this.runner.owner]?.entity?.position
-                if(!near)throw new Error('Owner must be in view to choose a nearby build site')
+                const site=buildSiteAnchor(this.runner)
+                if(!site)throw new Error('Position is unknown; cannot choose a build site')
+                const near=site.near
+                if(site.anchor==='agent')this.say('You are not in view, so I am choosing a shelter site near me.')
                 const shelter=step.name==='shelter'||/\b(?:build|make|construct|repair|fix|finish|improve|upgrade)\s+(?:(?:me|a|an|the|this|my|our|existing|small|wooden|starter|usable)\s+){0,6}(?:house|home|shelter|hut|cabin)\b/i.test(text)
                 const repairExisting=/\b(repair|improve|fix|finish|this|existing)\b/i.test(text)
                 const prior=feedback.findLast(f=>f.action==='build'&&f.status==='failed'&&f.task?.goal?.origin&&designKey(f.task?.goal?.design)===designKey(step.design)) || (existingTask?.kind==='build'&&(['failed','paused','running','cancelled'].includes(existingTask.status)||repairExisting)&&designKey(existingTask.goal.design)===designKey(step.design)?{task:existingTask}:null)
