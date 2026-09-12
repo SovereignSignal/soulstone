@@ -72,6 +72,7 @@ export function loadTask(path, profile, now = Date.now()) {
   const task = value.task
   if (task === null) return null
   if (!task || !statuses.has(task.status) || !Number.isFinite(task.deadline) || typeof task.id !== 'string') throw new Error('invalid task state')
+  if (['idleMs', 'hardDeadline'].some(k => task[k] !== undefined && !Number.isFinite(task[k]))) throw new Error('invalid task state')
   validateTaskGoal(task.kind || 'navigate', task.goal)
   if (['running', 'paused'].includes(task.status) && task.deadline <= now) {
     task.status = 'failed'; task.reason = 'deadline expired while offline'

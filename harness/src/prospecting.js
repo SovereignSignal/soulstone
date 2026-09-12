@@ -71,7 +71,9 @@ export async function executeExpedition(bot,task,api){
  const toolSignature=[...new Set(bot.inventory.items().filter(i=>i.maxDurability&&remainingDurability(i)>8).map(i=>i.name))].sort().join(',')
  if(state.toolSignature!==toolSignature){state.rejected=[];state.toolSignature=toolSignature}
  const count=n=>bot.inventory.items().filter(i=>i.name===n).reduce((a,i)=>a+i.count,0)
- let broken=0,steps=0;const started=Date.now()
+ // The outbound trip clock starts at the first new excavation step, so the
+ // walk home or back out along a saved route never spends the trip's budget.
+ let broken=0,steps=0,started=null;const tripElapsed=()=>Date.now()-(started??=Date.now())
  const save=()=>{task.progress={item:task.goal.item,count:count(task.goal.item),broken,steps,position:point(bot.entity.position),phase:state.phase};persist()}
  async function home(){
   state.phase='returning';save();progress('Retracing the cleared route to base')
@@ -164,7 +166,7 @@ export async function executeExpedition(bot,task,api){
     // Leave time for the reverse journey; progress remains usable next trip.
     const needs=needsNow()
     if(needs.length){state.needs=needs;partial=true;break}
-    if(broken+(node.toBreak?.length||0)>(bootstrap?48:180)||steps>=(bootstrap?32:96)||Date.now()-started>(bootstrap?90000:300000)||state.trail.length>=300){partial=true;break}
+    if(broken+(node.toBreak?.length||0)>(bootstrap?48:180)||steps>=(bootstrap?32:96)||tripElapsed()>(bootstrap?90000:300000)||state.trail.length>=300){partial=true;break}
     if(!excavationStepSafe(bot,movement,node)){
      reroute=true;progress('Replanning around the protected return route or changed terrain');break
     }

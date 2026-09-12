@@ -68,7 +68,7 @@ To disconnect while retaining the current task for the next launch:
 {"action":"quit"}
 ```
 
-`stop` cancels durably; `quit`, Ctrl-C and process termination preserve unfinished work. A cancelled task requires a new navigate command. A deadline continues while offline. State belongs to the exact endpoint, username and requested protocol; a different profile cannot silently resume it. Run only one process per state file. Set MC_STATE for a separate agent.
+`stop` cancels durably; `quit`, Ctrl-C and process termination preserve unfinished work. A cancelled task requires a new navigate command. A skill deadline is an idle window that slides on progress up to a hard ceiling; it continues while offline. State belongs to the exact endpoint, username and requested protocol; a different profile cannot silently resume it. Run only one process per state file. Set MC_STATE for a separate agent.
 
 Connection failure uses bounded backoff. The JSON CLI ignores in-game chat by default; companion mode accepts configured-owner commands. Navigation cannot dig or place blocks. Commands and results are local JSON lines; the runner is intended for this private lab, not direct 2b2t operation.
 

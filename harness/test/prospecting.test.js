@@ -127,3 +127,27 @@ test('checked three-block descents accept full safe landings while an explicit o
   f.cells.set(new Vec3(1,60,0).toString(),floor);const rejected=[];construction.getMoveDropDown(node,{x:1,z:0},rejected);assert.equal(rejected.length,0,floor)
  }
 })
+
+test('the trip clock starts at new excavation, not during the walk back out to the saved frontier',async()=>{
+ const {mock}=await import('node:test')
+ mock.timers.enable({apis:['Date'],now:5_000_000})
+ try{
+  const {bot,cells,stoneTool}=fixture()
+  const p=structuredClone(project);p.expedition={trail:[],frontier:[{x:0,y:63,z:0},{x:1,y:62,z:0},{x:2,y:61,z:0}],surveys:[],rejected:[]}
+  for(const w of [...p.expedition.frontier,{x:3,y:60,z:0}]){cells.set(new Vec3(w.x,w.y,w.z).toString(),'air');cells.set(new Vec3(w.x,w.y+1,w.z).toString(),'air')}
+  let found=false;bot.inventory.items=()=>[stoneTool,{name:'torch',count:4},...(found?[{name:'diamond',count:1}]:[])]
+  bot.findBlocks=()=>[new Vec3(6,58,0)]
+  bot.pathfinder.getPathFromTo=function*(){yield {result:{status:'success',path:[{x:3,y:60,z:0,toPlace:[],toBreak:[]}]}}}
+  bot.entity.position=new Vec3(28.5,64,28.5)
+  const walks=[]
+  const api={check(){},progress(){},stage(){},persist(){},async settle(){},async walk(g){
+   walks.push([g.x,g.y,g.z]);bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)
+   if(walks.length<=3)mock.timers.tick(200_000)
+   if(g.x===3&&g.y===60)found=true
+  }}
+  const result=await executeExpedition(bot,{kind:'prospect',goal:{project:p,item:'diamond',count:1}},api)
+  assert.deepEqual(walks.slice(0,3),[[0,63,0],[1,62,0],[2,61,0]])
+  assert.equal(result.acquired,true);assert.equal(result.partial,false);assert.equal(result.steps,1)
+  assert.equal(result.returned,true);assert.equal(p.expedition.trail.length,0)
+ }finally{mock.timers.reset()}
+})

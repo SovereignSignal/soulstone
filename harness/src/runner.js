@@ -15,6 +15,9 @@ import { executeSkill } from './skills.js'
 import { attachChatControl } from './chat-control.js'
 
 const { pathfinder, goals } = pathfinding
+// A skill's deadline is an idle window: real progress slides it forward, up
+// to a hard ceiling of three idle windows or thirty minutes, whichever is less.
+export const MAX_TASK_MS = 30 * 60 * 1000
 export class Runner extends EventEmitter {
   constructor({ host, port = 25565, username = 'HarnessRunner', version = '1.21.4', statePath, chatControl = false, owner = '', auth = 'offline', profilesFolder, onMsaCode, worldId, profileIdentity, authenticate }) {
     super()
@@ -189,6 +192,11 @@ export class Runner extends EventEmitter {
     this.task = { id: randomUUID(), goal, status: 'running', deadline: Date.now() + timeoutMs }
     this.persist(); this.log('task_started', { task: this.task }); this.applyGoal()
   }
+  extend() {
+    const t = this.task
+    if (t?.status !== 'running' || !Number.isFinite(t.idleMs) || !Number.isFinite(t.hardDeadline)) return
+    t.deadline = Math.min(t.hardDeadline, Date.now() + t.idleMs)
+  }
   finish(status, reason, extra = {}) {
     const returnTo = this.task?.returnTo
     this.halt()
@@ -226,7 +234,7 @@ export class Runner extends EventEmitter {
     this.assertAvailable()
     const returnTo = this.task?.kind === 'follow' && this.task.status === 'running' ? this.task.goal.player : undefined
     this.halt()
-    this.task = { id: randomUUID(), kind, goal, returnTo, status: 'running', deadline: Date.now() + timeoutMs }
+    this.task = { id: randomUUID(), kind, goal, returnTo, status: 'running', deadline: Date.now() + timeoutMs, idleMs: timeoutMs, hardDeadline: Date.now() + Math.min(3 * timeoutMs, MAX_TASK_MS) }
     this.persist(); this.log('task_started', { task: this.task }); this.applyGoal()
   }
   async runSkill() {
@@ -238,9 +246,9 @@ export class Runner extends EventEmitter {
     }
     try {
       const result = await executeSkill(bot, task, { check, movements: this.movements, gatheringMovements: bot.collectBlock.movements,
-        persist: () => this.persist(),
-        stage: value => { work.stage = value },
-        progress: message => { check(); this.log('skill_progress', { message }); this.say(message) } })
+        persist: () => { this.extend(); this.persist() },
+        stage: value => { work.stage = value; this.extend() },
+        progress: message => { check(); this.extend(); this.log('skill_progress', { message }); this.say(message) } })
       check(); work.finished = true
       task.result=task.navigationRecovery?{...result,navigationRecovery:structuredClone(task.navigationRecovery)}:result;this.finish('completed', task.kind==='construct'?`${result.verifiedBlocks}/${result.totalBlocks} blocks${result.partial?' (more to build)':''}`:`${result.count} ${result.item}`, result)
     } catch (error) {
@@ -263,7 +271,7 @@ export class Runner extends EventEmitter {
   resume() {
     if (this.task?.status !== 'paused') throw new Error('only a paused task can resume; cancelled tasks need a new goal')
     if (Date.now() >= this.task.deadline) { this.finish('failed', 'task deadline exceeded'); return }
-    this.task.status = 'running'; delete this.task.reason; this.persist()
+    this.task.status = 'running'; delete this.task.reason; this.extend(); this.persist()
     if (this.bot && !this.bot.isAlive) this.bot.respawn()
     else this.applyGoal()
   }
