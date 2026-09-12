@@ -33,7 +33,10 @@ export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},move
   while(count()<total){
    guard()
    const target=Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&animals.includes(e.name)&&e.position&&distance(e.position,bot.entity.position)<=32).sort((a,b)=>distance(a.position,bot.entity.position)-distance(b.position,bot.entity.position))[0]
-   if(!target){progress(`No ${animals.join(' or ')} within 32 blocks; carrying ${count()}/${total} ${item}`);break}
+   if(!target){
+    const others=[...new Set(Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&e.position&&['cow','pig','sheep','chicken','rabbit'].includes(e.name)&&distance(e.position,bot.entity.position)<=32).map(e=>e.name))]
+    progress(`No ${animals.join(' or ')} within 32 blocks${others.length?` (nearby animals: ${others.join(', ')})`:' and no other farm animals either'}; carrying ${count()}/${total} ${item}`);break
+   }
    const weapon=meleeWeapon(bot)
    if(weapon)await bot.equip(weapon,'hand');check()
    const cooldown=weapon?.name.endsWith('_axe')?1300:weapon?700:500

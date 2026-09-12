@@ -75,3 +75,9 @@ test('resumed eating retains its original portion cap and refuses uncertain repl
  task.consumption.uncertain=true
  await assert.rejects(eatFood(bot,task,api),/Previous consumption is uncertain/)
 })
+
+test('the observation lists farm animals within 32 blocks for the planner to hunt',()=>{
+ const bot={entity:{position:new Vec3(0,64,0)},entities:{1:{name:'cow',position:new Vec3(10,64,0)},2:{name:'pig',position:new Vec3(40,64,0)},3:{name:'zombie',position:new Vec3(5,64,0)},4:{name:'chicken',position:new Vec3(0,64,-3)}},inventory:{items:()=>[]},game:{gameMode:'survival',difficulty:'normal'},time:{timeOfDay:1000},health:20,food:20}
+ const o=survivalObservation(bot)
+ assert.deepEqual(o.nearbyAnimals,[{name:'chicken',distance:3},{name:'cow',distance:10}])
+})
