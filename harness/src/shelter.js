@@ -34,7 +34,7 @@ export function inspectShelterSite(bot,origin,layout,{repair=false}={}) {
   for(let y=0;y<2;y++){
    const b=bot.blockAt(p.offset(0,y,0))
    if(!b)throw new Error('Shelter inspection needs loaded terrain')
-   if(b.name==='air'||b.name==='torch'||rel===layout.door&&/_door$/.test(b.name)&&!b.name.startsWith('iron'))continue
+   if(b.name==='air'||b.name==='torch'||b.name==='wall_torch'||b.name==='wall_torch'||rel===layout.door&&/_door$/.test(b.name)&&!b.name.startsWith('iron'))continue
    if(repair&&layout.approach.includes(rel)&&clearable.has(b.name))remove.push(b.position.clone())
    else throw new Error(`Shelter access obstructed by ${b.name} at ${key(b.position)}`)
   }

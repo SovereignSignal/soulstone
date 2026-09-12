@@ -1,3 +1,4 @@
+import {Vec3} from 'vec3'
 import {DayRoutine} from './day-routine.js'
 import {loadSetup} from './setup.js'
 import {MinecraftAccounts,linkedAccountAuth} from './minecraft-accounts.js'
@@ -64,6 +65,12 @@ const server = http.createServer(async (req,res) => {
   const send = (code,data) => { res.writeHead(code); res.end(JSON.stringify(data)) }
   // No browser origins or cross-origin mutation. Only the native client receives the token.
   if (req.headers.origin || !authorized(req)) return send(403,{error:'Unauthorized'})
+  if (req.method === 'GET' && req.url.split('?')[0] === '/block') {
+    const q=new URL(req.url,'http://x').searchParams,c=['x','y','z'].map(k=>Number(q.get(k)))
+    if(!c.every(Number.isFinite))return send(400,{error:'x, y and z are required'})
+    const b=runner.bot?.blockAt?.(new Vec3(...c.map(Math.floor)))
+    return send(200, b?{name:b.name,box:b.boundingBox,position:b.position,light:b.light,skyLight:b.skyLight,properties:b.getProperties?.()}:{name:null,loaded:false})
+  }
   if (req.method === 'GET' && req.url.split('?')[0] === '/surroundings') {
     const q=new URL(req.url,'http://x').searchParams,n=(k,d,max)=>Math.min(max,Math.max(0,Number(q.get(k))||d))
     return send(200, surroundings(runner.bot,{radius:n('radius',1,6),below:n('below',1,6),above:n('above',2,6)}))

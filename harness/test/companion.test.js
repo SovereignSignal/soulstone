@@ -477,7 +477,7 @@ test('missing or damaged shelter produces an explicit failed safety state',async
 })
 
 test('health event invokes the provider-independent supervisor without a model call',async()=>{
- const [runner,c]=setup(async()=>{throw new Error('Model must not be called')});runner.bot.health=9;runner.bot.food=20;runner.bot.game={gameMode:'survival',difficulty:'peaceful'};c.projects.base={build:{},stations:{torch:{position:{x:0,y:65,z:0}}},built:true}
+ const [runner,c]=setup(async()=>{throw new Error('Model must not be called')});runner.bot.health=9;runner.bot.food=20;runner.bot.game={gameMode:'survival',difficulty:'peaceful'};c.projects.base={build:{},stations:{torch:{position:{x:0,y:65,z:0},confirmed:true}},built:true}
  let called=0;c.execute=async cmd=>{assert.equal(cmd.action,'retreat');called++;runner.task={result:{receipt:'sheltered_door_closed'}}}
  runner.emit('event',{type:'survival_tick'});await new Promise(resolve=>setImmediate(resolve));assert.equal(called,1);assert.equal(c.safety.status,'sheltered')
 })
@@ -671,5 +671,7 @@ test('a built base counts as shelter for the dusk rule only once it has a torch 
  c.projects.base={build:{origin:{x:4,y:64,z:5}},stations:{},built:true}
  r.emit('event',{type:'survival_tick'});assert.deepEqual(reasons,['Night with no shelter'])
  c.projects.base.stations.torch={position:{x:5,y:65,z:5}};c.safety=null
- r.emit('event',{type:'survival_tick'});assert.deepEqual(reasons,['Night with no shelter'],'a lit base suppresses the dusk rule')
+ r.emit('event',{type:'survival_tick'});assert.deepEqual(reasons,['Night with no shelter','Night with no shelter'],'a torch station recorded before placement is not a light')
+ c.projects.base.stations.torch.confirmed=true;c.safety=null
+ r.emit('event',{type:'survival_tick'});assert.deepEqual(reasons,['Night with no shelter','Night with no shelter'],'a confirmed torch suppresses the dusk rule')
 })

@@ -53,7 +53,8 @@ export class Teammate extends EventEmitter {
     runner.on('event', e => {
       if(e.type==='survival_tick'&&runner.ready){
         // Shelter means a built base with a recorded light: the retreat refuses an unlit one.
-        const base=this.projects.base,shelterAvailable=!!base&&base.built!==false&&!!base.stations?.torch
+        // A torch station is recorded before placement; only a confirmed one lights the base.
+        const base=this.projects.base,shelterAvailable=!!base&&base.built!==false&&base.stations?.torch?.confirmed===true
         const observation=survivalObservation(runner.bot),reason=emergencyReason({...observation,shelterAvailable})
         if(this.safety?.reason===WATER_EMERGENCY&&['failed','afloat'].includes(this.safety.status)&&observation.headSubmerged===false&&observation.inWater===false&&runner.bot.entity.onGround){
           this.safety=null;this.activity='';runner.bot.clearControlStates();this.phase=canResume(this.requestProgress)?'blocked':'ready'

@@ -37,13 +37,13 @@ export function installLightReader(bot) {
 export function shelterLightBounds(bot,source,cells) {
  const allowed=new Map(cells.map(p=>[p.toString(),p])),levels=new Map()
  const emission=bot.registry.blocksByName.torch?.emitLight
- if(bot.blockAt(source)?.name!=='torch'||!Number.isInteger(emission))throw new Error('Torch light source not confirmed')
+ if(!['torch','wall_torch'].includes(bot.blockAt(source)?.name)||!Number.isInteger(emission))throw new Error('Torch light source not confirmed')
  const queue=[source];levels.set(source.toString(),emission)
  for(let i=0;i<queue.length;i++){
   const p=queue[i],next=levels.get(p.toString())-1;if(next<=0)continue
   for(const [x,y,z] of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]){
    const q=p.offset(x,y,z),key=q.toString()
-   if(!allowed.has(key)||levels.has(key)||!['air','cave_air','torch'].includes(bot.blockAt(q)?.name))continue
+   if(!allowed.has(key)||levels.has(key)||!['air','cave_air','torch','wall_torch'].includes(bot.blockAt(q)?.name))continue
    levels.set(key,next);queue.push(q)
   }
  }
