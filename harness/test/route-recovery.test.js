@@ -67,7 +67,7 @@ const pit=(placed=new Set(),rim=70)=>p=>{const name=placed.has(p.toString())?'co
 const carrying=(bot,count)=>{bot.inventory={items:()=>count?[{name:'cobblestone',count}]:[]};bot.registry={blocksByName:{cobblestone:{boundingBox:'block'}},blockCollisionShapes:{blocks:{cobblestone:1},shapes:{1:[[0,0,0,1,1,1]]}}}}
 test('a bot at the bottom of a pit judges the first ledge, climbs with carried blocks, then retries',async()=>{
  const f=fixture();f.bot.blockAt=pit();carrying(f.bot,8)
- assert.deepEqual(pitExit(f.bot),{height:5,cell:new Vec3(1,70,0)})
+ assert.deepEqual(pitExit(f.bot),{height:5,cell:new Vec3(1,70,0),roof:null})
  f.bot.lookAt=async()=>{};f.bot.setControlState=(k,v)=>{if(k==='forward'&&v)f.bot.entity.position=f.bot.entity.position.offset(.6,0,0)}
  const climbs=[]
  f.options.climb=async(bot,surface)=>{climbs.push(surface);bot.entity.position=new Vec3(bot.entity.position.x,surface.y,bot.entity.position.z)}
@@ -79,7 +79,7 @@ test('a bot at the bottom of a pit judges the first ledge, climbs with carried b
 })
 test('pit judgement refuses roofed columns, ledges beyond the climb limit and empty hands',async()=>{
  const f=fixture();carrying(f.bot,8);f.bot.setControlState=()=>{}
- f.bot.blockAt=p=>(p.x===0&&p.z===0&&p.y===68)?{name:'stone',boundingBox:'block'}:pit()(p)
+ f.bot.blockAt=p=>(p.x===0&&p.z===0&&(p.y===68||p.y===69))?{name:'stone',boundingBox:'block'}:pit()(p)
  assert.equal(pitExit(f.bot),null)
  f.bot.blockAt=pit(new Set(),65+MAX_CLIMB+1)
  assert.equal(pitExit(f.bot),null)
@@ -95,4 +95,14 @@ test('a stalled climb falls through to terrain observation and keeps the origina
  f.options.climb=async()=>{throw new Error('Climb stalled at 0,67,0')}
  await assert.rejects(walkWithTerrainRecovery(f.bot,f.goal,f.options),/No path/)
  assert.equal(f.calls(),1);assert.equal(f.records.at(-1).status,'unchanged');assert.equal(f.records.at(-1).trigger,undefined)
+})
+
+test('one capped burrow ceiling with open air above is dug through on the climb; gravel, thick or wet ceilings end the column',()=>{
+ const f=fixture();carrying(f.bot,8)
+ const capped=(cap,over='air')=>p=>{if(p.x===0&&p.z===0&&p.y===68)return {position:p,name:cap,boundingBox:cap==='air'?'empty':'block'};if(p.x===0&&p.z===0&&p.y===69)return {position:p,name:over,boundingBox:over==='air'||over==='water'?'empty':'block'};return pit()(p)}
+ f.bot.blockAt=capped('cobblestone')
+ assert.deepEqual(pitExit(f.bot),{height:5,cell:new Vec3(1,70,0),roof:new Vec3(0,68,0)})
+ f.bot.blockAt=capped('gravel');assert.equal(pitExit(f.bot),null)
+ f.bot.blockAt=capped('cobblestone','stone');assert.equal(pitExit(f.bot),null)
+ f.bot.blockAt=capped('cobblestone','water');assert.equal(pitExit(f.bot),null)
 })

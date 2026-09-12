@@ -286,10 +286,10 @@ export class Teammate extends EventEmitter {
       this.say(confront?`Daylight, and a lone ${confront.name} has lingered ${confront.distance} blocks away. Opening up to confront it.`:'Daylight with no hostile nearby. Opening up.')
       await this.execute(safety.retreat.shelterName==='hut'?{action:'unhut',goal:{},timeoutMs:60000}:{action:'unburrow',goal:{surface:safety.retreat.surface},timeoutMs:90000},signal);check()
       safety.exit=structuredClone(this.runner.task.result);this.persist()
-      const continuing=eligible&&canResume(request)&&canContinueAfterSafety(request)
+      const continuing=(eligible||safety.resumeRequested)&&canResume(request)&&(safety.resumeRequested||canContinueAfterSafety(request))
       this.safety=null;this.activity='';this.phase=canResume(request)?'blocked':'ready'
       if(continuing){
-        ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,shelter:safety.retreat.shelterName,completedAt:request.completed?.length||0})
+        ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,shelter:safety.retreat.shelterName,resumeRequested:!!safety.resumeRequested,completedAt:request.completed?.length||0})
         ;(request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations.at(-1)});this.persist()
         this.say('Back on the surface. I am continuing your saved request.')
         await this.resume({automatic:true})
@@ -328,6 +328,15 @@ export class Teammate extends EventEmitter {
   async resume({automatic=false}={}) {
     if(this.snapshot().dead||this.runner.respawnPending)throw new Error('Respawn the agent before resuming a task')
     if(!canResume(this.requestProgress))throw new Error(this.requestProgress?.reviewRequired||'No interrupted request can be resumed. Stop cancels a request; enter a new instruction.')
+    // Dug in or walled in: the shelter wait continues the request at daylight
+    // with a clear area. An explicit Resume makes that continuation eligible,
+    // or re-arms a wait that timed out, instead of planning from underground.
+    if(!automatic&&['burrow','hut'].includes(this.safety?.retreat?.shelterName)&&!this.safety.exit&&this.safety.status!=='cancelled'){
+      const safety=this.safety;safety.resumeRequested=true;this.phase='blocked';this.persist()
+      this.say('I am still dug in. I will continue your request once it is daylight and the area is clear.')
+      if(!this.abort){safety.status='burrowed';delete safety.error;const abort=this.abort=new AbortController();void this.waitInBurrow(this.epoch,abort.signal,this.runner.bot,true)}
+      return
+    }
     const saved=structuredClone(this.requestProgress)
     return this.submit(saved.request,saved,{automatic})
   }

@@ -7,8 +7,13 @@ const collision=(b,m)=>b?JSON.stringify([b.boundingBox,b.shapes,m.blocksToAvoid?
 const standing=bot=>bot.entity.onGround?bot.entity.position.floored().toString():null
 
 const SIDES=[[1,0],[-1,0],[0,1],[0,-1]]
-const clear=b=>!b||b.name==='air'||b.boundingBox==='empty'
+const LIQUID=new Set(['water','lava','bubble_column'])
+const GRAVITY=new Set(['sand','red_sand','gravel','suspicious_sand','suspicious_gravel'])
+const clear=b=>!b||b.name==='air'||(b.boundingBox==='empty'&&!LIQUID.has(b.name))
 const solid=b=>!!b&&b.boundingBox==='block'
+// A single full block with open air above it (a burrow cap, a thin cave roof)
+// is dug through on the way up; sand, gravel, liquid or a thicker roof is not.
+const thinRoof=(bot,b,aboveCell)=>solid(b)&&!GRAVITY.has(b.name)&&clear(bot.blockAt(aboveCell))
 // Short forward pulses toward a neighbouring cell; the pathfinder is off.
 async function nudge(bot,cell,{check,jump=false,pulses=4}){
  const start=bot.entity.position.floored().toString()
@@ -45,11 +50,16 @@ export async function stepFree(bot,{check,progress}){
 export const MAX_CLIMB=8
 export function pitExit(bot,feet=bot.entity.position.floored()){
  if(!clear(bot.blockAt(feet.offset(0,2,0))))return null
+ let roof=null
  for(let h=2;h<=MAX_CLIMB;h++){
-  if(!clear(bot.blockAt(feet.offset(0,h+1,0))))return null
+  const above=feet.offset(0,h+1,0)
+  if(!clear(bot.blockAt(above))){
+   if(roof||!thinRoof(bot,bot.blockAt(above),above.offset(0,1,0)))return null
+   roof=above
+  }
   for(const [dx,dz] of SIDES){
    const c=feet.offset(dx,h,dz)
-   if(solid(bot.blockAt(c.offset(0,-1,0)))&&clear(bot.blockAt(c))&&clear(bot.blockAt(c.offset(0,1,0))))return {height:h,cell:c}
+   if(solid(bot.blockAt(c.offset(0,-1,0)))&&clear(bot.blockAt(c))&&clear(bot.blockAt(c.offset(0,1,0))))return {height:h,cell:c,roof}
   }
  }
  return null
@@ -60,7 +70,7 @@ export async function climbFree(bot,{check,stage,progress,climb=climbOut}){
  if(!exit)return false
  const blocks=climbBlocks(bot)
  if(blocks<exit.height){progress(`In a pit ${exit.height} deep with ${blocks} carried blocks; too few to climb out`);return false}
- progress(`Climbing ${exit.height} blocks out of a pit toward ${exit.cell.x},${exit.cell.y},${exit.cell.z}`)
+ progress(`Climbing ${exit.height} blocks out of a pit toward ${exit.cell.x},${exit.cell.y},${exit.cell.z}${exit.roof?`, digging through the ceiling at ${exit.roof.y}`:''}`)
  try{await climb(bot,{x:exit.cell.x,y:feet.y+exit.height,z:exit.cell.z},{check,stage,progress})}
  catch(error){check();progress(`Climb out of the pit failed: ${error.message}`);return false}
  stage('walking');await nudge(bot,exit.cell,{check})

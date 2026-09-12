@@ -243,3 +243,26 @@ test('a burrowed bot surfaces to confront a lone zombie that lingers through the
  assert.equal(resumed,1);assert.equal(c.requestProgress.safetyContinuations.length,1);assert.equal(c.safety,null)
  assert.ok(said.some(t=>/lone zombie has lingered 4 blocks away. Opening up to confront it/.test(t)),said.join(' | '))
 })
+
+test('Resume while dug in defers to the burrow wait, then continues the request at daylight even without new progress',async()=>{
+ const w=world();const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov';runner.respawnPending=false
+ const commands=[]
+ runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'}
+  const result=c.action==='burrow'?{receipt:'burrowed_capped',shelterName:'burrow',surface:{x:10,y:64,z:10}}:c.action==='unburrow'?{receipt:'surfaced'}:{}
+  setTimeout(()=>{runner.task={...runner.task,status:'completed',result};runner.emit('event',{type:'task_finished',task:runner.task})},1)}
+ runner.waitForIdle=async()=>{};runner.position=()=>({x:10,y:64,z:10})
+ const said=[];let submitted=0
+ const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',request:'mine a diamond',status:'running',feedback:[],completed:[],safetyContinuations:[{completedAt:0},{completedAt:0}]},safety:null,burrowWait:{quietMs:20,limitMs:3000},
+  say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},snapshot(){return {dead:false}},
+  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
+  resume:Teammate.prototype.resume,async submit(){submitted++;this.requestProgress.status='running'}}
+ const started=c.seekSafety(THREAT_INTERRUPTION)
+ await new Promise(r=>setTimeout(r,300))
+ await c.resume()
+ assert.equal(submitted,0,'no planning from underground');assert.equal(c.safety.resumeRequested,true)
+ assert.ok(said.some(t=>/still dug in/.test(t)),said.join(' | '))
+ w.bot.time.timeOfDay=6000;w.bot.health=20
+ await started
+ assert.deepEqual(commands.filter(a=>a!=='stop'),['burrow','unburrow'])
+ assert.equal(submitted,1,'the explicit Resume carries through the exit despite two idle continuations');assert.equal(c.safety,null)
+})
