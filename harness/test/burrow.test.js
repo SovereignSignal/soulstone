@@ -7,6 +7,7 @@ import {burrowSite,burrowIn,burrowClearance,unburrow} from '../src/burrow.js'
 import {executeSkill} from '../src/skills.js'
 import {validateTaskGoal} from '../src/task-store.js'
 import {Teammate} from '../src/companion/controller.js'
+import {THREAT_INTERRUPTION,emergencyReason} from '../src/survival.js'
 const registry=minecraftData('1.21.4')
 function world(ground='dirt'){
  const cells=new Map(),inventory=[],placed=[],dug=[],equipped=[]
@@ -95,10 +96,22 @@ test('with no shelter to retreat to, safety digs in, waits for day, digs out and
   say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
   execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,waitInBurrow:Teammate.prototype.waitInBurrow,
   async resume(){resumed++;this.requestProgress.status='running'}}
- const started=c.seekSafety('A potential hostile is within six blocks')
+ const started=c.seekSafety(THREAT_INTERRUPTION)
  await new Promise(r=>setTimeout(r,300));w.bot.time.timeOfDay=6000;w.bot.health=20
  await started
  assert.deepEqual(commands.filter(a=>a!=='stop'),['burrow','unburrow'])
  assert.equal(resumed,1);assert.equal(c.requestProgress.safetyContinuations.length,1);assert.equal(c.safety,null)
  assert.ok(said.some(t=>/digging in/i.test(t)),said.join(' | '))
+})
+
+test('a hostile within ten blocks interrupts work, one at eleven does not',()=>{
+ const base={gameMode:'survival',health:20,food:20,difficulty:'normal',headSubmerged:false,oxygen:20}
+ assert.equal(emergencyReason({...base,nearbyThreats:[{name:'creeper',risk:'potential_hostile',distance:9.5}]}),THREAT_INTERRUPTION)
+ assert.equal(emergencyReason({...base,nearbyThreats:[{name:'creeper',risk:'potential_hostile',distance:11}]}),null)
+})
+test('the burrow centres itself on the column before the first dig',async()=>{
+ const w=world();w.bot.entity.position=new Vec3(10.95,64,10.5);const walked=[]
+ w.bot.pathfinder.goto=async g=>{walked.push([g.x,g.y,g.z]);w.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}
+ const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ assert.deepEqual(walked[0],[10,64,10]);assert.equal(result.receipt,'burrowed_capped')
 })

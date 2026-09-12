@@ -14,12 +14,13 @@ const SIDES=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]
 const solid=(bot,b)=>!!b&&fullCube(bot.registry,b.name)&&!LIQUID.has(b.name)
 const key=p=>`${p.x},${p.y},${p.z}`
 
-export function quarryColumn(bot,cell){
+export function quarryColumn(bot,cell,{top=false}={}){
  const b=bot.blockAt(cell)
  if(!b)return {ok:false,reason:'Ground below is not observed'}
  if(LIQUID.has(b.name))return {ok:false,reason:`Liquid at ${key(cell)}`}
  if(!DIGGABLE.has(b.name))return {ok:false,reason:`Cannot quarry through ${b.name} at ${key(cell)}`}
- for(const [dx,dy,dz] of SIDES){const s=cell.offset(dx,dy,dz),sb=bot.blockAt(s);if(LIQUID.has(sb?.name))return {ok:false,reason:`Liquid beside the shaft at ${key(s)}`};if(!solid(bot,sb))return {ok:false,reason:`Shaft side is open at ${key(s)}`}}
+ // The surface cell often has an open side on a slope; below it every wall must stand.
+ for(const [dx,dy,dz] of SIDES){const s=cell.offset(dx,dy,dz),sb=bot.blockAt(s);if(LIQUID.has(sb?.name))return {ok:false,reason:`Liquid beside the shaft at ${key(s)}`};if(!top&&!solid(bot,sb))return {ok:false,reason:`Shaft side is open at ${key(s)}`}}
  const below=bot.blockAt(cell.offset(0,-1,0))
  if(LIQUID.has(below?.name))return {ok:false,reason:`Liquid below ${key(cell)}`}
  if(!solid(bot,below))return {ok:false,reason:`No solid floor below ${key(cell)}`}
@@ -34,17 +35,35 @@ async function digBlock(bot,block,check){
  if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(block,{requireHarvest:true,getFromChest:false})
  check();await bot.dig(block);check()
 }
+export function findQuarryColumn(bot){
+ const feet=bot.entity.position.floored()
+ const usable=o=>quarryColumn(bot,o.offset(0,-1,0),{top:true}).ok&&quarryColumn(bot,o.offset(0,-2,0)).ok
+ if(usable(feet))return {surface:feet,move:null}
+ for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]]){
+  const o=feet.offset(dx,0,dz)
+  const standable=bot.blockAt(o)?.name==='air'&&bot.blockAt(o.offset(0,1,0))?.name==='air'&&solid(bot,bot.blockAt(o.offset(0,-1,0)))
+  if(standable&&usable(o))return {surface:o,move:o}
+ }
+ return null
+}
 export async function quarryStone(bot,{name='cobblestone',total,path=[]},{check,stage,progress,persist=()=>{},acquire,count}){
  check()
  if(!bot.inventory.items().some(i=>/_pickaxe$/.test(i.name)))await acquire('wooden_pickaxe',1,path)
- const surface=bot.entity.position.floored()
+ const found=findQuarryColumn(bot)
+ if(!found)throw new Error('No sound quarry column here or beside it')
+ if(found.move){
+  const timer=setTimeout(()=>bot.pathfinder.setGoal(null),6000)
+  try{await bot.pathfinder.goto(new goals.GoalBlock(found.move.x,found.move.y,found.move.z))}finally{clearTimeout(timer)}
+  check()
+ }
+ const surface=found.surface
  bot.pathfinder?.setGoal(null);bot.clearControlStates?.()
  stage('quarrying');progress(`No reachable exposed stone; quarrying straight down for ${name}`)
  let depth=0,mined0=count(name)
  try{
   for(let d=1;d<=QUARRY_DEPTH&&count(name)<total;d++){
    check()
-   const cell=surface.offset(0,-d,0),column=quarryColumn(bot,cell)
+   const cell=surface.offset(0,-d,0),column=quarryColumn(bot,cell,{top:d===1})
    if(!column.ok){progress(`Quarry stopped: ${column.reason}`);break}
    const block=bot.blockAt(cell)
    await digBlock(bot,block,check)

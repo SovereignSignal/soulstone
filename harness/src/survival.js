@@ -6,7 +6,8 @@ export const SAFE_FOODS=new Set(['apple','baked_potato','beetroot','beetroot_sou
 const hostile=new Set(['zombie','husk','drowned','skeleton','stray','bogged','wither_skeleton','creeper','spider','cave_spider','witch','slime','magma_cube','phantom','pillager','vindicator','evoker','vex','ravager','silverfish','endermite','blaze','ghast','hoglin','zoglin','piglin_brute','warden','wither','ender_dragon'])
 const conditional=new Set(['enderman','piglin','zombified_piglin','wolf','bee','polar_bear','iron_golem'])
 export const isPotentialHostile=name=>hostile.has(name)
-export const THREAT_INTERRUPTION='A potential hostile is within six blocks'
+export const THREAT_INTERRUPTION='A potential hostile is within ten blocks'
+// Ten blocks buys the three to four seconds a burrow needs; a creeper covers six in two.
 export const WATER_EMERGENCY='Underwater or running low on air'
 export const WATER_BLOCKS=new Set(['water','kelp','kelp_plant','seagrass','tall_seagrass','bubble_column'])
 export function survivalObservation(bot) {
@@ -54,6 +55,6 @@ export function emergencyReason(observation){
  if(observation.headSubmerged===true||observation.headSubmerged!==false&&Number.isFinite(observation.oxygen)&&observation.oxygen<=15)return WATER_EMERGENCY
  if(observation.health<=10)return 'Health is at or below half'
  if(Number.isFinite(observation.food)&&observation.food<=6)return 'Food is critically low'
- if(observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=6))return THREAT_INTERRUPTION
+ if(observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=10))return THREAT_INTERRUPTION
  return null
 }

@@ -67,6 +67,13 @@ export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
   try{await bot.pathfinder.goto(new goals.GoalBlock(found.move.x,found.move.y,found.move.z))}finally{clearTimeout(timer)}
   check();site=burrowSite(bot,found.move);if(!site.ok)throw new Error('No safe burrow here: '+site.reason)
  }
+ // Stand squarely over the column: a bot straddling the edge does not drop.
+ const centre=site.surface.offset(.5,0,.5)
+ if(Math.abs(bot.entity.position.x-centre.x)>.3||Math.abs(bot.entity.position.z-centre.z)>.3){
+  const timer=setTimeout(()=>bot.pathfinder.setGoal(null),3000)
+  try{await bot.pathfinder.goto(new goals.GoalBlock(site.surface.x,site.surface.y,site.surface.z))}catch{}finally{clearTimeout(timer)}
+  check()
+ }
  bot.pathfinder?.setGoal(null);bot.clearControlStates?.()
  stage('burrowing');progress('Digging in to wait out the danger')
  const inColumn=()=>{const p=bot.entity.position;return Math.floor(p.x)===site.surface.x&&Math.floor(p.z)===site.surface.z}

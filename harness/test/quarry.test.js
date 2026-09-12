@@ -2,7 +2,7 @@ import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import minecraftData from 'minecraft-data'
 import {Vec3} from 'vec3'
-import {quarryStone,quarryColumn} from '../src/quarry.js'
+import {quarryStone,quarryColumn,findQuarryColumn} from '../src/quarry.js'
 const registry=minecraftData('1.21.4')
 function world({stoneFrom=60,pickaxe=true}={}){
  const cells=new Map(),inventory=pickaxe?[{name:'wooden_pickaxe',count:1,type:registry.itemsByName.wooden_pickaxe.id}]:[],dug=[]
@@ -39,4 +39,14 @@ test('the quarry prepares a pickaxe through the acquisition callback when none i
  const a={...api(w),async acquire(name){wanted.push(name);w.inventory.push({name:'wooden_pickaxe',count:1,type:registry.itemsByName.wooden_pickaxe.id})}}
  await quarryStone(w.bot,{name:'cobblestone',total:3,path:[]},a)
  assert.deepEqual(wanted,['wooden_pickaxe']);assert.ok(w.count('cobblestone')>=3)
+})
+
+test('an open side at the surface cell is tolerated; deeper open sides move the shaft to a neighbour',async()=>{
+ const slope=world();slope.cells.set(new Vec3(11,63,10).toString(),'air')
+ assert.equal(quarryColumn(slope.bot,new Vec3(10,63,10),{top:true}).ok,true);assert.equal(findQuarryColumn(slope.bot).move,null)
+ const cave=world();cave.cells.set(new Vec3(11,62,10).toString(),'air');const walked=[]
+ cave.bot.pathfinder.goto=async g=>{walked.push([g.x,g.y,g.z]);cave.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}
+ const found=findQuarryColumn(cave.bot);assert.ok(found.move);assert.notDeepEqual([found.surface.x,found.surface.z],[10,10])
+ const result=await quarryStone(cave.bot,{name:'cobblestone',total:4,path:[]},api(cave))
+ assert.ok(result.mined>=4);assert.equal(walked[0][1],64)
 })

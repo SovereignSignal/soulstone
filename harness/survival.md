@@ -13,7 +13,7 @@ Goal formulation and action planning share `src/companion/survival-capabilities.
 
 ## Supervisor
 
-Health events and one-second checks trigger recovery at health <=10, food <=6, or an observed potential hostile within six blocks outside Peaceful. Conditional mobs alone do not trigger proximity recovery. Coverage is limited to loaded entities; it does not prove aggression or line of sight.
+Health events and one-second checks trigger recovery at health <=10, food <=6, or an observed potential hostile within ten blocks outside Peaceful. Conditional mobs alone do not trigger proximity recovery. Coverage is limited to loaded entities; it does not prove aggression or line of sight.
 
 The provider-independent controller interrupts the request, stops current work, waits for the old skill to unwind and for connection/chunk readiness, attempts retreat and eats carried safe food if hungry after arrival. Work stays paused for explicit Resume. Stop cancels recovery and suppresses further recovery until a new request. Missing shelter, blocked access, timeout or death is a failure, never a safety claim. Restart does not silently replay recovery.
 
@@ -111,7 +111,7 @@ A fresh observation later found an ordinary path from a position two blocks lowe
 
 ## Bounded observation-based walking recovery
 
-World skills now share a route-recovery wrapper for ordinary walking. Retreat bypasses the wait so emergency shelter selection can immediately try another candidate. An initial walking attempt retains its 15-second cap and the task's existing movement policy. After a no-path, search-timeout or unconfirmed-arrival failure, it clears movement and watches for up to 30 seconds. A nearby collision/hazard change within six blocks of the starting or current position, or a changed grounded feet cell, permits exactly one fresh walking attempt. No relevant change preserves the original failure; a failed retry stops. Other errors bypass recovery. It does not replay crafting, digging, transfers or consumption, widen drop limits, edit terrain or resume a paused user request. Existing task/safety deadlines still apply.
+World skills now share a route-recovery wrapper for ordinary walking. Retreat bypasses the wait so emergency shelter selection can immediately try another candidate. An initial walking attempt retains its 15-second cap and the task's existing movement policy. After a no-path, search-timeout or unconfirmed-arrival failure, it clears movement and watches for up to 30 seconds. A nearby collision/hazard change within ten blocks of the starting or current position, or a changed grounded feet cell, permits exactly one fresh walking attempt. No relevant change preserves the original failure; a failed retry stops. Other errors bypass recovery. It does not replay crafting, digging, transfers or consumption, widen drop limits, edit terrain or resume a paused user request. Existing task/safety deadlines still apply.
 
 The task persists its latest navigationRecovery status, reason, attempt count, trigger and times; successful results retain that evidence for request history and experience review. Cancellation is checked during the wait and every movement boundary; listeners are removed on completion or error. All 218 regression tests pass.
 
