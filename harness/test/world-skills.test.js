@@ -100,6 +100,24 @@ test('acquisition replenishes shared ingredients consumed by a prerequisite reci
  assert.equal(client.listenerCount('packet'),0)
 })
 
+test('log acquisition bounds the per-trip shortfall, not the carry target',async()=>{
+ function fixture(carried){
+  const items=[{id:0,name:'spruce_log'}],inventory=new Map([[0,carried]])
+  const bot={registry:{items,itemsByName:{spruce_log:items[0]},blocksByName:{spruce_log:{id:0}}},_client:new EventEmitter(),
+   inventory:{items:()=>[...inventory].filter(([,count])=>count>0).map(([id,count])=>({type:id,name:'spruce_log',count}))},
+   findBlocks:()=>[],findBlock:()=>null,entity:{position:new Vec3(0.5,64,0.5)},pathfinder:{setMovements(){},setGoal(){},async goto(){}},recipesAll:()=>[],recipesFor:()=>[]}
+  Object.setPrototypeOf(bot,new EventEmitter())
+  return {bot,inventory}
+ }
+ const context={check(){},stage(){},persist(){},progress(){},movements:{}}
+ const calls=[]
+ const partial=fixture(32)
+ const result=await executeWorldSkill(partial.bot,{kind:'acquire',goal:{item:'spruce_log',count:40}},context,async(total,name)=>{calls.push([total,name]);partial.inventory.set(0,total)})
+ assert.deepEqual(calls,[[40,'spruce_log']]);assert.equal(result.count,40)
+ const empty=fixture(0)
+ await assert.rejects(executeWorldSkill(empty.bot,{kind:'acquire',goal:{item:'spruce_log',count:40}},context,async()=>{throw new Error('must not gather')}),/32 logs per trip: carrying 0 spruce_log, 40 more needed/)
+})
+
 import {requireReachedGoal,supportsPlayer} from '../src/navigation.js'
 import pathfinding from 'mineflayer-pathfinder'
 test('navigation cannot report arrival for an empty failed path and mining excludes foot support',()=>{

@@ -226,7 +226,9 @@ export async function executeWorldSkill(bot,task,context,gather) {
   const next=[...path,name]
   const item=bot.registry.itemsByName[name]
   if(!item)throw new Error(`This Minecraft version has no item ${name}`)
-  if(isLog(name)){if(total>32)throw new Error('Gather at most 32 logs at once');await gather(total,name);return}
+  // The per-trip bound applies to the shortfall, never the carry target: a
+  // request to hold 40 logs while carrying 32 is an eight-log trip.
+  if(isLog(name)){const missing=total-count(name);if(missing>32)throw new Error(`Gather at most 32 logs per trip: carrying ${count(name)} ${name}, ${missing} more needed`);await gather(total,name);return}
   if(sources[name]&&findSource(name)){await mine(name,total,next);return}
   const recipes=bot.recipesAll(item.id,null,true).filter(r=>r.delta.some(d=>d.count<0))
   const memo=new Map(),scores=new Map(recipes.map(r=>[r,score(r)]))
