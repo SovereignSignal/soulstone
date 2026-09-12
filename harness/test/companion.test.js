@@ -642,3 +642,14 @@ test('a request interrupted only by a service restart continues once automatical
  writeFileSync(path,JSON.stringify({...saved,requestProgress:{...saved.requestProgress,restartContinuations:1}}))
  const d=new Teammate(new FakeRunner(),{model:'fake',plan:async()=>({reply:'',steps:[]})},path);assert.equal(d.restoreRequest,false)
 })
+
+test('a base counts as shelter only once its build task completed',()=>{
+ const [r,c]=setup(async()=>({reply:'',steps:[]}))
+ const goal={design:[{x:0,y:0,z:0,block:'wood_planks'}],origin:{x:4,y:64,z:5},near:{x:1,y:64,z:2},wood:'oak_log'}
+ r.emit('event',{type:'task_finished',task:{id:'b1',kind:'build',status:'failed',goal}})
+ assert.equal(c.projects.base.built,false)
+ r.emit('event',{type:'task_finished',task:{id:'b2',kind:'build',status:'completed',goal}})
+ assert.equal(c.projects.base.built,true)
+ r.emit('event',{type:'task_finished',task:{id:'b3',kind:'build',status:'failed',goal}})
+ assert.equal(c.projects.base.built,true,'a later failed repair on the same site does not unbuild it')
+})

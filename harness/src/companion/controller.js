@@ -1,7 +1,7 @@
 import {THREAT_INTERRUPTION,clearanceObservation,awaitClearance} from './hazard-clearance.js'
 import {alternativeShelters,occupiedAlternative} from '../alternate-shelter.js'
 import {setTimeout as delay} from 'node:timers/promises'
-import {survivalObservation,emergencyReason,WATER_EMERGENCY} from '../survival.js'
+import {survivalObservation,emergencyReason,WATER_EMERGENCY,NIGHT_EXPOSURE} from '../survival.js'
 import {burrowClearance} from '../burrow.js'
 import {defenseDecision,combatClearance} from '../combat.js'
 import {projectFootprints} from '../site-survey.js'
@@ -46,13 +46,13 @@ export class Teammate extends EventEmitter {
       this.requestProgress.inFlight=null
     }
     if(this.requestProgress?.status==='interrupted'){this.requestProgress.reviewRequired=interruptedEffect(runner.task);this.requestProgress.blocker=this.requestProgress.reviewRequired||'Service restarted. Resume to re-observe and continue.';this.phase='blocked'}
-    if(runner.task?.kind==='build'&&runner.task.goal?.origin&&!this.projects.base)this.projects.base={build:structuredClone(runner.task.goal),stations:{}}
+    if(runner.task?.kind==='build'&&runner.task.goal?.origin&&!this.projects.base)this.projects.base={build:structuredClone(runner.task.goal),stations:{},built:runner.task.status==='completed'}
     if(runner.task?.kind==='construct'&&runner.task.goal?.name)this.projects[runner.task.goal.name]={construction:structuredClone(runner.task.goal),progress:runner.task.progress,result:runner.task.result,status:runner.task.status}
     if(runner.task?.goal?.project)this.projects.base=structuredClone(runner.task.goal.project)
     runner.on('operator_command', c => { if (!this.dispatching && c.action !== 'status') { this.cancel(false);if(c.action==='stop'){this.safety={status:'cancelled',reason:'Operator stop'};if(canResume(this.requestProgress))this.requestProgress.status='cancelled';this.persist()} } })
     runner.on('event', e => {
       if(e.type==='survival_tick'&&runner.ready){
-        const observation=survivalObservation(runner.bot),reason=emergencyReason({...observation,shelterAvailable:!!this.projects.base})
+        const observation=survivalObservation(runner.bot),reason=emergencyReason({...observation,shelterAvailable:!!this.projects.base&&this.projects.base.built!==false})
         if(this.safety?.reason===WATER_EMERGENCY&&['failed','afloat'].includes(this.safety.status)&&observation.headSubmerged===false&&observation.inWater===false&&runner.bot.entity.onGround){
           this.safety=null;this.activity='';runner.bot.clearControlStates();this.phase=canResume(this.requestProgress)?'blocked':'ready'
           if(canResume(this.requestProgress))this.requestProgress.blocker='On dry ground. Review current inventory before resuming the saved task.'
@@ -62,7 +62,7 @@ export class Teammate extends EventEmitter {
       }
       if(['task_started','task_finished'].includes(e.type)&&e.task?.goal?.project){this.projects.base=structuredClone(e.task.goal.project);this.persist()}
       if(['task_started','task_finished'].includes(e.type)&&e.task?.kind==='construct'&&e.task.goal?.name){this.projects[e.task.goal.name]={construction:structuredClone(e.task.goal),progress:structuredClone(e.task.progress||null),result:structuredClone(e.task.result||null),status:e.task.status};this.persist()}
-      if(e.type==='task_finished'&&e.task?.kind==='build'&&e.task.goal?.origin){const sameSite=JSON.stringify(this.projects.base?.build?.origin)===JSON.stringify(e.task.goal.origin);this.projects.base={...(sameSite?this.projects.base:{}),build:structuredClone(e.task.goal),stations:sameSite?(this.projects.base?.stations||{}):{}};this.persist()}
+      if(e.type==='task_finished'&&e.task?.kind==='build'&&e.task.goal?.origin){const sameSite=JSON.stringify(this.projects.base?.build?.origin)===JSON.stringify(e.task.goal.origin);this.projects.base={...(sameSite?this.projects.base:{}),build:structuredClone(e.task.goal),stations:sameSite?(this.projects.base?.stations||{}):{},built:e.task.status==='completed'||(sameSite&&this.projects.base?.built===true)};this.persist()}
       if (e.type === 'skill_progress') { this.activity = e.message; this.emit('change') }
       if (e.type === 'death') {
         const recovery=['retreating','defending'].includes(this.phase),action=this.phase==='defending'?'defense':'retreat'
@@ -208,7 +208,7 @@ export class Teammate extends EventEmitter {
       if(['burrow','hut'].includes(this.safety.retreat.shelterName)){
         this.safety.status='burrowed';this.phase='blocked';this.persist()
         this.say((this.safety.retreat.shelterName==='hut'?'I am walled in.':this.safety.retreat.capped?'I am dug in below the surface with the shaft capped.':'I am dug in below the surface; no cap block was available.')+' I will wait for daylight and a clear area before opening up.')
-        await this.waitInBurrow(epoch,abort.signal,recoveryBot,interruptedActiveRequest&&reason===THREAT_INTERRUPTION)
+        await this.waitInBurrow(epoch,abort.signal,recoveryBot,interruptedActiveRequest&&[THREAT_INTERRUPTION,NIGHT_EXPOSURE].includes(reason))
         return
       }
       const food=survivalObservation(this.runner.bot).carriedFood[0]

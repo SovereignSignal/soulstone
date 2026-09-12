@@ -7,6 +7,7 @@ const hostile=new Set(['zombie','husk','drowned','skeleton','stray','bogged','wi
 const conditional=new Set(['enderman','piglin','zombified_piglin','wolf','bee','polar_bear','iron_golem'])
 export const isPotentialHostile=name=>hostile.has(name)
 export const THREAT_INTERRUPTION='A potential hostile is within ten blocks'
+export const NIGHT_EXPOSURE='Night with no shelter'
 // Ten blocks buys the three to four seconds a burrow needs; a creeper covers six in two.
 export const WATER_EMERGENCY='Underwater or running low on air'
 export const WATER_BLOCKS=new Set(['water','kelp','kelp_plant','seagrass','tall_seagrass','bubble_column'])
@@ -62,5 +63,7 @@ export function emergencyReason(observation){
  if(observation.health<=10&&(hostileNear||observation.shelterAvailable===true))return 'Health is at or below half'
  if(Number.isFinite(observation.food)&&observation.food<=6&&(observation.carriedFood||[]).length)return 'Food is critically low'
  if(observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=(t.name==='creeper'?16:10)))return THREAT_INTERRUPTION
+ // Out in the open after dusk with no built base: dig in before the crowd arrives.
+ if(observation.shelterAvailable===false&&observation.difficulty&&observation.difficulty!=='peaceful'&&Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500))return NIGHT_EXPOSURE
  return null
 }

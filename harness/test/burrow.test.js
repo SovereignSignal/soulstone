@@ -7,7 +7,7 @@ import {burrowSite,burrowIn,burrowClearance,unburrow} from '../src/burrow.js'
 import {executeSkill} from '../src/skills.js'
 import {validateTaskGoal} from '../src/task-store.js'
 import {Teammate} from '../src/companion/controller.js'
-import {THREAT_INTERRUPTION,emergencyReason,survivalObservation} from '../src/survival.js'
+import {THREAT_INTERRUPTION,NIGHT_EXPOSURE,emergencyReason,survivalObservation} from '../src/survival.js'
 const registry=minecraftData('1.21.4')
 function world(ground='dirt'){
  const cells=new Map(),inventory=[],placed=[],dug=[],equipped=[]
@@ -183,4 +183,14 @@ test('a spider in daylight is conditional, not a trigger, and does not hold the 
  const day=survivalObservation(w.bot);assert.equal(day.nearbyThreats[0].risk,'conditional');assert.equal(emergencyReason(day),null)
  w.bot.health=16;assert.equal(burrowClearance(w.bot).clear,true)
  w.bot.time.timeOfDay=15000;const night=survivalObservation(w.bot);assert.equal(night.nearbyThreats[0].risk,'potential_hostile');assert.equal(emergencyReason(night),THREAT_INTERRUPTION)
+})
+
+test('dusk with no built base is an emergency; a built base, daylight or peaceful is not',()=>{
+ const base={gameMode:'survival',health:20,food:20,difficulty:'normal',headSubmerged:false,oxygen:20,nearbyThreats:[],carriedFood:[]}
+ assert.equal(emergencyReason({...base,timeOfDay:13000,shelterAvailable:false}),NIGHT_EXPOSURE)
+ assert.equal(emergencyReason({...base,timeOfDay:23900,shelterAvailable:false}),NIGHT_EXPOSURE)
+ assert.equal(emergencyReason({...base,timeOfDay:13000,shelterAvailable:true}),null)
+ assert.equal(emergencyReason({...base,timeOfDay:6000,shelterAvailable:false}),null)
+ assert.equal(emergencyReason({...base,timeOfDay:13000,shelterAvailable:false,difficulty:'peaceful'}),null)
+ assert.equal(emergencyReason({...base,timeOfDay:13000,shelterAvailable:false,nearbyThreats:[{name:'zombie',risk:'potential_hostile',distance:8}]}),THREAT_INTERRUPTION)
 })
