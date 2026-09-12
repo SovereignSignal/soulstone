@@ -294,6 +294,13 @@ export class Teammate extends EventEmitter {
     const requestTasks=new Set()
     const existingTask=structuredClone(this.runner.task?.kind==='build'?this.runner.task:(this.projects.base?{kind:'build',status:'completed',goal:this.projects.base.build}:this.runner.task))
     const feedback=this.requestProgress.feedback??=[]
+    // Failures recorded before a pause describe the world as it was. Mark them
+    // so the planner retries the prerequisite once instead of asking for help.
+    if(continuation&&feedback.length){
+      for(const f of feedback)if(f.status==='failed'&&!f.beforeResume)f.beforeResume=true
+      feedback.push({action:'resume',status:'completed',automatic,reason:'Resumed after a pause. Earlier failures are marked beforeResume and may no longer apply; retry that prerequisite once before treating it as blocked or asking for help.'})
+      this.persist()
+    }
     const activeStarted=Date.now();let stagnant=0,lastFingerprint=progressFingerprint(this.snapshot())
     let repeatFailure='',failureCount=0,lastRejection='',rejections=0,invalidPlans=0
     try {

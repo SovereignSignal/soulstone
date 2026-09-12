@@ -606,3 +606,14 @@ test('a shelter site anchors to the owner in view, else to the agent itself',()=
  runner.bot.players={};assert.deepEqual(buildSiteAnchor(runner),{near:{x:9,y:70,z:9},anchor:'agent'})
  assert.equal(buildSiteAnchor({owner:'Sov',bot:{players:{}},position:()=>null}),null)
 })
+
+test('Resume marks earlier failures as pre-resume and tells the planner to retry once',async()=>{
+ let seen
+ const [r,c]=setup(async(text,observation)=>{seen=observation.feedback;return {reply:'Checked.',steps:[]}})
+ const saved={id:'saved',request:'build a shelter',completed:[],pending:[],rounds:2,feedback:[{action:'build',status:'failed',reason:'Owner must be in view'},{action:'inspect',status:'completed'}]}
+ await c.submit('build a shelter',saved)
+ assert.equal(c.requestProgress.feedback[0].beforeResume,true);assert.equal(c.requestProgress.feedback[1].beforeResume,undefined)
+ const marker=c.requestProgress.feedback.find(f=>f.action==='resume');assert.ok(marker);assert.match(marker.reason,/retry that prerequisite once/)
+ assert.ok(seen.some(f=>f.action==='resume'),'planner saw the resume marker')
+ await c.submit('build a shelter');assert.equal(c.requestProgress.feedback.some(f=>f.action==='resume'),false)
+})
