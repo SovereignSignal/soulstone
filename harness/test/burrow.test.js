@@ -109,11 +109,12 @@ test('a hostile within ten blocks interrupts work, one at eleven does not',()=>{
  assert.equal(emergencyReason({...base,nearbyThreats:[{name:'creeper',risk:'potential_hostile',distance:9.5}]}),THREAT_INTERRUPTION)
  assert.equal(emergencyReason({...base,nearbyThreats:[{name:'zombie',risk:'potential_hostile',distance:11}]}),null)
 })
-test('the burrow centres itself on the column before the first dig',async()=>{
- const w=world();w.bot.entity.position=new Vec3(10.95,64,10.5);const walked=[]
- w.bot.pathfinder.goto=async g=>{walked.push([g.x,g.y,g.z]);w.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}
+test('the burrow nudges itself onto the column centre before the first dig, without the pathfinder',async()=>{
+ const w=world();w.bot.entity.position=new Vec3(10.97,64,10.5);let looked=null,pulses=0
+ w.bot.lookAt=async p=>{looked=p};w.bot.setControlState=(k,v)=>{if(k==='forward'&&v&&looked){pulses++;const p=w.bot.entity.position,dx=looked.x-p.x,dz=looked.z-p.z,d=Math.hypot(dx,dz)||1;const step=Math.min(.2,d);w.bot.entity.position=new Vec3(p.x+dx/d*step,p.y,p.z+dz/d*step)}}
+ w.bot.pathfinder.goto=async()=>{throw new Error('pathfinder must not be used to centre')}
  const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
- assert.deepEqual(walked[0],[10,64,10]);assert.equal(result.receipt,'burrowed_capped')
+ assert.ok(pulses>=2,'nudged');assert.ok(Math.abs(w.bot.entity.position.x-10.5)<=.15);assert.equal(result.receipt,'burrowed_capped')
 })
 
 test('creepers trigger the interruption at sixteen blocks, other hostiles at ten',()=>{

@@ -67,6 +67,17 @@ async function settle(predicate,message,{check,ms=3000,poll=50}){
  while(Date.now()<end){check();if(predicate())return;await delay(poll)}
  throw new Error(message)
 }
+async function centreOn(bot,cell,check,{tolerance=.15,pulses=12}={}){
+ const centre=cell.offset(.5,0,.5)
+ const off=()=>Math.hypot(bot.entity.position.x-centre.x,bot.entity.position.z-centre.z)
+ for(let i=0;i<pulses&&off()>tolerance;i++){
+  check()
+  if(bot.lookAt)await bot.lookAt(centre.offset(0,bot.entity.eyeHeight||1.62,0),true)
+  bot.setControlState?.('forward',true);await delay(Math.min(120,Math.max(40,off()*250)));bot.setControlState?.('forward',false)
+  await delay(80)
+ }
+ return off()<=tolerance
+}
 export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
  check();const found=findBurrowColumn(bot)
  if(!found.site)throw new Error('No safe burrow here: '+found.reasons[0])
@@ -77,14 +88,11 @@ export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
   try{await bot.pathfinder.goto(new goals.GoalBlock(found.move.x,found.move.y,found.move.z))}finally{clearTimeout(timer)}
   check();site=burrowSite(bot,found.move);if(!site.ok)throw new Error('No safe burrow here: '+site.reason)
  }
- // Stand squarely over the column: a bot straddling the edge does not drop.
- const centre=site.surface.offset(.5,0,.5)
- if(Math.abs(bot.entity.position.x-centre.x)>.3||Math.abs(bot.entity.position.z-centre.z)>.3){
-  const timer=setTimeout(()=>bot.pathfinder.setGoal(null),3000)
-  try{await bot.pathfinder.goto(new goals.GoalBlock(site.surface.x,site.surface.y,site.surface.z))}catch{}finally{clearTimeout(timer)}
-  check()
- }
+ // Stand squarely over the column: the body is 0.6 wide, so more than 0.2 off
+ // centre leaves an edge on the neighbouring block and the bot never drops.
+ // The pathfinder already considers the bot "at" its own cell, so nudge directly.
  bot.pathfinder?.setGoal(null);bot.clearControlStates?.()
+ await centreOn(bot,site.surface,check)
  stage('burrowing');progress('Digging in to wait out the danger')
  const inColumn=()=>{const p=bot.entity.position;return Math.floor(p.x)===site.surface.x&&Math.floor(p.z)===site.surface.z}
  for(const [index,c] of site.cells.entries()){
@@ -100,7 +108,13 @@ export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
    check()
   }
   // Mining while airborne is five times slower: land before the next dig.
-  await settle(()=>Math.floor(bot.entity.position.y)<=c.y&&inColumn()&&bot.entity.onGround!==false,`Did not land in the dug cell at ${key(c)}`,{check})
+  try{await settle(()=>Math.floor(bot.entity.position.y)<=c.y&&inColumn()&&bot.entity.onGround!==false,`Did not land in the dug cell at ${key(c)}`,{check})}
+  catch(error){
+   check();if(index>0)throw error
+   // Still on the rim after the first dig: re-centre over the open cell and step in.
+   progress('Re-centring over the shaft');await centreOn(bot,c,check);check()
+   await settle(()=>Math.floor(bot.entity.position.y)<=c.y&&inColumn()&&bot.entity.onGround!==false,`Did not land in the dug cell at ${key(c)}`,{check})
+  }
   task.progress={cells:index+1,of:site.cells.length,health:bot.health};persist()
   progress(`Dug ${index+1}/${site.cells.length}; health ${bot.health}`)
  }
