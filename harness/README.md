@@ -104,6 +104,8 @@ The integration suite intentionally modifies the experimental world and injects 
 - `src/skills.js`: inventory-based gathering and wooden-pickaxe crafting.
 - `src/probe.js`: bounded connection-only smoke test.
 - `test/lab-integration.js`: independent server-side scoring and failure injection.
+- `src/burrow.js` and `src/quarry.js`: the emergency burrow (shelter of last resort) and the bounded quarry for cobblestone when no exposed stone is reachable.
+- `test/live-request.py` and `test/live-sample.py`: drive one request against a running companion service and record before/after state; the sampler also logs five-second rows with health, threats, position and deadline headroom. Both spend model calls and act in the connected world.
 - `baseline/`: preserved original ControlBot source, ignored by Git.
 
 The current server is disposable by explicit instruction. It is left in peaceful mode with the fixed platform and internal-only RCON enabled. World/config backup is on the VM. No second server was deployed. Keep baseline capability tests peaceful; later survival tests explicitly enable hard mode and mobs and receive separate scores.
