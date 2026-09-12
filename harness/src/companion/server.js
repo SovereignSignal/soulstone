@@ -64,7 +64,10 @@ const server = http.createServer(async (req,res) => {
   const send = (code,data) => { res.writeHead(code); res.end(JSON.stringify(data)) }
   // No browser origins or cross-origin mutation. Only the native client receives the token.
   if (req.headers.origin || !authorized(req)) return send(403,{error:'Unauthorized'})
-  if (req.method === 'GET' && req.url === '/surroundings') return send(200, surroundings(runner.bot))
+  if (req.method === 'GET' && req.url.split('?')[0] === '/surroundings') {
+    const q=new URL(req.url,'http://x').searchParams,n=(k,d,max)=>Math.min(max,Math.max(0,Number(q.get(k))||d))
+    return send(200, surroundings(runner.bot,{radius:n('radius',1,6),below:n('below',1,6),above:n('above',2,6)}))
+  }
   if (req.method === 'GET' && req.url === '/state') return send(200,{ ...teammate.snapshot(), worldId:setup?.id??null, survivalSession:routine.snapshot(), botName:runner.bot?.username??null, minecraftVersion:versionBridge?.serverVersion||runner.bot?.version||null, translation:versionBridge?`Compatibility mode · client ${versionBridge.version}`:null, connectionIssue, authentication:authentication && authentication.expiresAt>Date.now()?authentication:null, modelReady, providerKind:profiles.current.kind, modelLabel:profiles.current.label })
   if (req.method === 'GET' && req.url === '/models') return send(200,profiles.snapshot())
   if (req.method !== 'POST' || !['/message','/resume','/respawn','/stop','/reconnect','/shutdown','/models','/credentials','/survival-session'].includes(req.url)) return send(404,{error:'Not found'})
