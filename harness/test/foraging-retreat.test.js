@@ -29,7 +29,7 @@ test('emergency thresholds exclude neutral mobs and Peaceful proximity, preserve
  const o={health:20,food:20,gameMode:'survival',difficulty:'peaceful',nearbyThreats:[{risk:'potential_hostile',distance:2}]}
  assert.equal(emergencyReason(o),null);assert.match(emergencyReason({...o,difficulty:'easy'}),/hostile/)
  assert.equal(emergencyReason({...o,difficulty:'easy',nearbyThreats:[{risk:'conditional',distance:1}]}),null)
- assert.match(emergencyReason({...o,health:9,shelterAvailable:true}),/Health/);assert.equal(emergencyReason({...o,health:9}),null)
+ assert.match(emergencyReason({...o,health:9,shelterAvailable:true,timeOfDay:13000}),/Health/);assert.equal(emergencyReason({...o,health:9,shelterAvailable:true,timeOfDay:6000}),null,'daylight low health is the planner\'s problem, not an emergency');assert.equal(emergencyReason({...o,health:9}),null)
  assert.match(emergencyReason({...o,food:6,carriedFood:[{name:'bread',count:1}]}),/Food/);assert.equal(emergencyReason({...o,food:6}),null)
  assert.equal(emergencyReason({...o,health:0}),null);assert.equal(emergencyReason({...o,health:1,gameMode:'creative'}),null)
 })

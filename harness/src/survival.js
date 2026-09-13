@@ -64,10 +64,12 @@ export function emergencyReason(observation){
  // is food to eat. Otherwise the planner keeps working and forages itself.
  const hostileNear=!!observation.difficulty&&observation.difficulty!=='peaceful'&&(observation.nearbyThreats||[]).some(t=>t.risk==='potential_hostile'&&t.distance<=16)
  // Low health is an emergency only when something can be done about it: a threat
- // to escape, or a shelter to reach that the bot is not already sitting in.
- // Hunger under eighteen stops natural regeneration, so a bot resting in its own
- // lit base with no food never heals; interrupting it there traps it forever.
- if(observation.health<=10&&(hostileNear||observation.shelterAvailable===true&&observation.sheltered!==true))return 'Health is at or below half'
+ // to escape, or nightfall with a lit base to reach that the bot is not already
+ // sitting in. Hunger under eighteen stops natural regeneration, so a hurt bot
+ // with no food must be free to go and find some in daylight; interrupting it
+ // every time it steps outside its own base traps it there at five health.
+ const darkness=Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500)
+ if(observation.health<=10&&(hostileNear||observation.shelterAvailable===true&&observation.sheltered!==true&&darkness))return 'Health is at or below half'
  if(Number.isFinite(observation.food)&&observation.food<=6&&(observation.carriedFood||[]).length)return 'Food is critically low'
  if(observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=(t.name==='creeper'?16:10)))return THREAT_INTERRUPTION
  // Out in the open after dusk with no built base: dig in before the crowd arrives.

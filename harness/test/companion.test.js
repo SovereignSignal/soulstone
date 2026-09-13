@@ -479,7 +479,7 @@ test('missing or damaged shelter produces an explicit failed safety state',async
 })
 
 test('health event invokes the provider-independent supervisor without a model call',async()=>{
- const [runner,c]=setup(async()=>{throw new Error('Model must not be called')});runner.bot.health=9;runner.bot.food=20;runner.bot.game={gameMode:'survival',difficulty:'peaceful'};c.projects.base={build:{},stations:{torch:{position:{x:0,y:65,z:0},confirmed:true}},built:true}
+ const [runner,c]=setup(async()=>{throw new Error('Model must not be called')});runner.bot.health=9;runner.bot.food=20;runner.bot.game={gameMode:'survival',difficulty:'peaceful'};runner.bot.time={timeOfDay:13000};c.projects.base={build:{},stations:{torch:{position:{x:0,y:65,z:0},confirmed:true}},built:true}
  let called=0;c.execute=async cmd=>{assert.equal(cmd.action,'retreat');called++;runner.task={result:{receipt:'sheltered_door_closed'}}}
  runner.emit('event',{type:'survival_tick'});await new Promise(resolve=>setImmediate(resolve));assert.equal(called,1);assert.equal(c.safety.status,'sheltered')
 })

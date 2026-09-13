@@ -297,10 +297,12 @@ test('when every shelter is refused with a threat near, the bot climbs out, spri
  assert.ok(said.some(t=>/No shelter here. Moving away from the creeper/.test(t)),said.join(' | '))
 })
 
-test('low health interrupts work only when there is something to do about it, never while resting in the lit base',()=>{
+test('low health interrupts work only when there is something to do about it, never in safe daylight',()=>{
  const base={gameMode:'survival',health:5,food:15,difficulty:'normal',headSubmerged:false,oxygen:20,nearbyThreats:[],carriedFood:[],timeOfDay:6000}
- assert.equal(emergencyReason({...base,shelterAvailable:true,sheltered:false}),'Health is at or below half','an unoccupied lit base is worth reaching')
- assert.equal(emergencyReason({...base,shelterAvailable:true,sheltered:true}),null,'already inside it with no food: healing needs food, not another retreat')
- assert.equal(emergencyReason({...base,shelterAvailable:true,sheltered:true,nearbyThreats:[{name:'zombie',risk:'potential_hostile',distance:6}]}),'Health is at or below half','a threat still interrupts')
+ assert.equal(emergencyReason({...base,shelterAvailable:true,sheltered:false}),null,'daylight outside the base: the bot needs to go and find food')
+ assert.equal(emergencyReason({...base,shelterAvailable:true,sheltered:true}),null,'resting inside with no food: healing needs food, not another retreat')
+ assert.equal(emergencyReason({...base,timeOfDay:13000,shelterAvailable:true,sheltered:false}),'Health is at or below half','night outside a lit base is worth going home for')
+ assert.equal(emergencyReason({...base,timeOfDay:13000,shelterAvailable:true,sheltered:true}),null,'already home for the night')
+ assert.equal(emergencyReason({...base,shelterAvailable:true,sheltered:true,nearbyThreats:[{name:'zombie',risk:'potential_hostile',distance:6}]}),'Health is at or below half','a threat still interrupts, day or night')
  assert.equal(emergencyReason({...base,shelterAvailable:false,sheltered:false}),null,'no shelter and no threat: the planner keeps working')
 })
