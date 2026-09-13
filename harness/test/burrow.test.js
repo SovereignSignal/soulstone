@@ -1,6 +1,7 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {EventEmitter} from 'node:events'
+import {readFileSync} from 'node:fs'
 import minecraftData from 'minecraft-data'
 import {Vec3} from 'vec3'
 import {burrowSite,burrowIn,burrowClearance,unburrow} from '../src/burrow.js'
@@ -374,4 +375,10 @@ test('when safety is unachievable the tick lets the paused request carry on, bec
  await tick();assert.equal(resumed,1,'the instruction is not consumed by an impossible recovery')
  await tick();assert.equal(resumed,1,'and a running request is not resumed again')
  assert.ok(String(T.prototype.seekSafety).includes('carrying on with the work'),'the standoff still says so plainly')
+})
+
+test('a standoff survives the automatic resume it triggers, and only an operator instruction clears it',()=>{
+ const source=readFileSync(new URL('../src/companion/controller.js',import.meta.url),'utf8')
+ assert.match(source,/if\(!automatic\)this\.unsafeSignature=null/,'automatic resume keeps the standoff')
+ assert.match(source,/this\.unsafeSignature=null\n/,'seekSafety clears it when a real attempt begins')
 })

@@ -480,7 +480,10 @@ export class Teammate extends EventEmitter {
       this.say(text,'user');const r=this.requestProgress,check=r?.verification
       this.say(r?.status==='running'?`${r.goal?.summary||r.request}. ${this.activity||'Planning the next step'}.${check?` ${check.checks.filter(c=>c.passed).length}/${check.checks.length} goal checks passed.`:''}`:this.phase==='blocked'?`Blocked: ${r?.blocker||'Waiting for a new instruction'}`:'Ready for your next instruction.');return
     }
-    this.cancel(['thinking', 'acting','retreating','defending'].includes(this.phase)); this.safety=null; this.unsafeSignature=null; const epoch = this.epoch; const abort = this.abort = new AbortController()
+    // An operator instruction may well have changed the world, so it clears a
+    // standoff. An automatic resume has changed nothing, and clearing it there
+    // restarts the very recovery cycle the standoff exists to stop.
+    this.cancel(['thinking', 'acting','retreating','defending'].includes(this.phase)); this.safety=null; if(!automatic)this.unsafeSignature=null; const epoch = this.epoch; const abort = this.abort = new AbortController()
     const history = this.messages.slice(-12); this.say(continuation?(automatic?'Automatically continuing the saved request: ':'Resume the saved request: ')+text:text, automatic?'assistant':'user'); this.phase = 'thinking'; this.emit('change')
     const episode = this.episode = this.recorder?.start({ request: text, model: this.planner.model, profile: this.runner.profile, minecraftVersion: this.runner.bot?.version || null })
     this.requestProgress=continuation||{id:randomUUID(),request:text,completed:[],pending:[],feedback:[],rounds:0};this.requestProgress.status='running';this.requestProgress.blocker=null
