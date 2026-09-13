@@ -8,6 +8,11 @@ export const SAFE_FOODS=new Set(['beef','porkchop','mutton','rabbit','cod','salm
 const hostile=new Set(['zombie','zombie_villager','husk','drowned','skeleton','stray','bogged','wither_skeleton','creeper','spider','cave_spider','witch','slime','magma_cube','phantom','pillager','vindicator','evoker','vex','ravager','silverfish','endermite','blaze','ghast','hoglin','zoglin','piglin_brute','warden','breeze','creaking','guardian','elder_guardian','shulker','wither','ender_dragon'])
 const conditional=new Set(['enderman','piglin','zombified_piglin','wolf','bee','polar_bear','iron_golem'])
 export const isPotentialHostile=name=>hostile.has(name)
+// Mobs that attack from a distance. A pillager opens fire at about sixteen
+// blocks, so a ten-block interruption radius let it shoot the bot for six
+// blocks of approach without any response; one killed the agent that way.
+export const RANGED=new Set(['skeleton','stray','bogged','wither_skeleton','pillager','witch','ghast','blaze','illusioner','breeze','drowned'])
+export const threatRadius=name=>name==='creeper'||RANGED.has(name)?16:10
 export const THREAT_INTERRUPTION='A potential hostile is within ten blocks'
 export const NIGHT_EXPOSURE='Night with no shelter'
 export const HEALTH_EMERGENCY='Health is at or below half'
@@ -76,7 +81,7 @@ export function emergencyReason(observation){
  if(Number.isFinite(observation.food)&&observation.food<=6&&(observation.carriedFood||[]).length)return 'Food is critically low'
  // Inside a verified closed lit shelter the answer to a nearby hostile is already
  // in place; interrupting there only retreats into the room the bot is standing in.
- if(observation.sheltered!==true&&observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=(t.name==='creeper'?16:10)))return THREAT_INTERRUPTION
+ if(observation.sheltered!==true&&observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name)))return THREAT_INTERRUPTION
  // Out in the open after dusk with no built base: dig in before the crowd arrives.
  if(observation.shelterAvailable===false&&observation.difficulty&&observation.difficulty!=='peaceful'&&Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500))return NIGHT_EXPOSURE
  return null

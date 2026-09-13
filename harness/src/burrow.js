@@ -6,7 +6,7 @@ import pathfinding from 'mineflayer-pathfinder'
 import {Vec3} from 'vec3'
 import {DoorAwareMovements} from './navigation.js'
 import {fullCube} from './construction.js'
-import {survivalObservation} from './survival.js'
+import {survivalObservation,RANGED} from './survival.js'
 import {DEFENDABLE_MOBS,DEFENSE_HEALTH} from './combat.js'
 const {goals}=pathfinding
 // Four deep keeps a creeper standing on the rim outside its three-block
@@ -178,7 +178,9 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  const canHeal=(s.carriedFood||[]).length>0||Number.isFinite(s.food)&&s.food>=18
  if(!Number.isFinite(s.health))return {clear:false,reason:'Health is unknown'}
  if(s.health<4&&canHeal)return {clear:false,reason:'Health is too low to leave the burrow'}
- const near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=16)
+ // Leave a margin beyond a ranged mob's reach: surfacing with a pillager at
+ // seventeen blocks is surfacing into its firing line.
+ const near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=(RANGED.has(t.name)?24:16))
  const scope='Loaded entities within 16 blocks and the world clock; not proof of a safe surface'
  if(!near.length)return {clear:true,health:s.health,timeOfDay:s.timeOfDay,scope}
  const lone=near.length===1?near[0]:null

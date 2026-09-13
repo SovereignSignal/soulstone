@@ -407,3 +407,19 @@ test('the audit findings hold: threat list, hut underground, navigation arrival,
  assert.doesNotMatch(controller,/\/\^Service restarted\/\.test/,'the restart continuation no longer tests a string written later')
  assert.match(controller,/step\.action==='sleep'\)command=\{action:'sleep'/,'a planned sleep step dispatches')
 })
+
+test('ranged mobs are answered at their firing range, not at melee range',async()=>{
+ const {threatRadius,RANGED}=await import('../src/survival.js')
+ assert.equal(threatRadius('zombie'),10)
+ assert.equal(threatRadius('creeper'),16)
+ for(const mob of ['pillager','skeleton','stray','bogged','witch','ghast','blaze'])assert.equal(threatRadius(mob),16,`${mob} shoots from a distance`)
+ const base={gameMode:'survival',health:20,food:20,difficulty:'normal',headSubmerged:false,oxygen:20,carriedFood:[],timeOfDay:6000}
+ assert.equal(emergencyReason({...base,nearbyThreats:[{name:'pillager',risk:'potential_hostile',distance:14}]}),THREAT_INTERRUPTION,'a crossbow at fourteen blocks is a threat')
+ assert.equal(emergencyReason({...base,nearbyThreats:[{name:'zombie',risk:'potential_hostile',distance:14}]}),null,'a zombie at fourteen is not')
+ // And the burrow keeps a wider margin before surfacing into a firing line.
+ const w=world();w.bot.time.timeOfDay=6000;w.bot.health=20;w.bot.food=20
+ w.bot.entities={1:{name:'pillager',position:new Vec3(30.5,64,10.5)}}
+ assert.equal(burrowClearance(w.bot).clear,false,'a pillager twenty blocks off still keeps it underground')
+ w.bot.entities={1:{name:'zombie',position:new Vec3(30.5,64,10.5)}}
+ assert.equal(burrowClearance(w.bot).clear,true,'a zombie at the same distance does not')
+})

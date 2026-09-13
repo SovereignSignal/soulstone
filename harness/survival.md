@@ -211,3 +211,7 @@ Four more findings from the same audit, dropped by the verification cap and chec
 - **A standable neighbouring column had to be the literal block `air`**, so cave air, grass and flowers disqualified every cave and meadow cell the burrow could otherwise have moved to.
 - **The bed was placed into the cell the bot was standing on.** `GoalNear` with range one is already satisfied while standing on the target, and a block cannot be placed into the space you occupy; the agent now steps aside first.
 - **A torch inside a fallback shelter disqualified it.** The interior check rejected anything that was neither a full cube nor air, which is every furnishing that makes the room usable. Only real hazards disqualify it now.
+
+## Threat radius matches the mob's reach
+
+A pillager killed the agent thirteen seconds after it surfaced at dawn into what the clearance check called a clear area. Crossbows reach about sixteen blocks, so a pillager could fire for six blocks of approach before the ten-block threat interruption noticed it, and the sixteen-block burrow clearance let the agent surface with one just outside the line. Ranged mobs (skeleton, stray, bogged, wither skeleton, pillager, witch, ghast, blaze, illusioner, breeze, drowned) now interrupt work at sixteen blocks like creepers, and the burrow keeps a twenty-four block margin before opening up on one. Melee mobs are unchanged at ten.
