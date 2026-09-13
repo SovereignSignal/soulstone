@@ -49,3 +49,11 @@ test('the runner wears armour before ordinary work and never before a fight or a
  assert.ok(guard,'the skip list guards it')
  for(const kind of ['defend','flee','surface','climb'])assert.match(guard[1],new RegExp(`'${kind}'`),`${kind} is skipped`)
 })
+
+test('the capabilities brief tells the planner to acquire armour, since wearing it is automatic but getting it is not',()=>{
+ const brief=readFileSync(new URL('../src/companion/survival-capabilities.txt',import.meta.url),'utf8')
+ assert.match(brief,/ARMOUR AND SHIELD/)
+ assert.match(brief,/It never acquires them on its own, so plan for them/)
+ assert.match(brief,/hunt leather from cows/)
+ assert.match(brief,/A shield is six planks and one iron ingot/)
+})
