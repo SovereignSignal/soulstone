@@ -351,3 +351,23 @@ test('a recovery that failed with nothing changed stops repeating, names every b
  await c.seekSafety(THREAT_INTERRUPTION,{retries:3})
  assert.ok(commands.length>before,'a changed situation re-arms recovery')
 })
+
+test('when safety is unachievable the paused request carries on, because idling fixes none of it',async()=>{
+ const w=world('sandstone');w.bot.entities={1:{name:'zombie',position:new Vec3(14.5,64,10.5)}};w.bot.inventory.items=()=>[]
+ const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov'
+ runner.command=c=>{if(c.action==='stop')return;runner.task={id:'1',kind:c.action,status:'running'}
+  setTimeout(()=>{runner.task={...runner.task,status:'failed',reason:'nothing works here'};runner.emit('event',{type:'task_finished',task:runner.task})},1)}
+ runner.waitForIdle=async()=>{};runner.position=()=>({x:10,y:64,z:10})
+ const said=[];let resumed=0
+ const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',unsafeSignature:null,
+  requestProgress:{id:'r1',request:'craft a pickaxe',status:'running',feedback:[],completed:[]},safety:null,burrowWait:{quietMs:20,limitMs:300},
+  say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},snapshot(){return {dead:false}},
+  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,
+  moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
+  safetyBlockKey:Teammate.prototype.safetyBlockKey,unsafeAdvice:Teammate.prototype.unsafeAdvice,
+  async resume(){resumed++;this.requestProgress.status='running'}}
+ await c.seekSafety(THREAT_INTERRUPTION,{retries:3})
+ assert.equal(resumed,1,'the instruction is not consumed by an impossible recovery')
+ assert.equal(c.requestProgress.status,'running')
+ assert.ok(said.some(t=>/carrying on with the work/.test(t)),said.join(' | '))
+})

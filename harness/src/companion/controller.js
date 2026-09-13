@@ -57,8 +57,12 @@ export class Teammate extends EventEmitter {
     runner.on('event', e => {
       if(e.type==='survival_tick'&&runner.ready){
         // Shelter means a built base with a recorded light: the retreat refuses an unlit one.
-        // A torch station is recorded before placement; only a confirmed one lights the base.
-        const base=this.projects.base,shelterAvailable=!!base&&base.built!==false&&base.stations?.torch?.confirmed===true
+        // A torch station is recorded before placement; only a confirmed one lights
+        // the base, and a base players have damaged is not shelter at all.
+        const base=this.projects.base
+        let shelterAvailable=!!base&&base.built!==false&&base.stations?.torch?.confirmed===true
+        // Only a base we can actually inspect can be judged damaged; no design means no evidence.
+        if(shelterAvailable&&base.build?.design?.length){try{inspectRetreatShelter(runner.bot,base,{occupants:false})}catch{shelterAvailable=false}}
         const sheltered=shelterAvailable&&(()=>{try{return shelteredObservation(runner.bot,base).passed}catch{return false}})()
         const observation=survivalObservation(runner.bot),reason=emergencyReason({...observation,shelterAvailable,sheltered})
         if(this.safety?.reason===WATER_EMERGENCY&&['failed','afloat'].includes(this.safety.status)&&observation.headSubmerged===false&&observation.inWater===false&&runner.bot.entity.onGround){
@@ -268,8 +272,15 @@ export class Teammate extends EventEmitter {
       this.safety.status='failed';this.safety.error=error.message;this.safety.failedAt=Date.now();this.phase='blocked';this.activity=''
       const last=this.safety.retries>=SAFETY_RETRIES
       if(last){this.unsafeSignature={reason,key:this.safetyBlockKey(),at:Date.now()};this.persist()}
-      this.say(last?`I cannot make myself safe here: ${this.unsafeAdvice(this.safety.attempts)} I have stopped trying and will stay where I am; tell me what to do, or change any of that and I will try again.`
+      this.say(last?`I cannot make myself safe here: ${this.unsafeAdvice(this.safety.attempts)} Standing still will not fix any of that, so I am carrying on with the work.`
         :'Safety recovery failed: '+error.message+'. I will try again in a few seconds if the danger persists.')
+      // Safety is not achievable here, so idling is not safer than working, and
+      // the work is usually what fixes it: a pickaxe to dig in, blocks to wall
+      // in, the base repaired. Resume rather than consuming the operator's
+      // instruction; the standoff above keeps this from cycling.
+      if(last&&interruptedActiveRequest&&canResume(this.requestProgress)){
+        try{await this.resume({automatic:true})}catch(resumeError){this.say('I could not continue the saved request: '+resumeError.message)}
+      }
     }
     finally{if(epoch===this.epoch){this.abort=null;this.persist();this.emit('change')}}
   }
