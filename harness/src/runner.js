@@ -12,6 +12,7 @@ import collection from 'mineflayer-collectblock'
 import {worldIdentity} from './profile-identity.js'
 import { loadTask, saveTask, validateGoal, validateTaskGoal } from './task-store.js'
 import { executeSkill } from './skills.js'
+import {wearBestArmor} from './armor.js'
 import { attachChatControl } from './chat-control.js'
 
 const { pathfinder, goals } = pathfinding
@@ -245,6 +246,12 @@ export class Runner extends EventEmitter {
       if (work.cancelled || this.closed || this.bot !== bot || !this.ready || this.task !== task || task.status !== 'running') throw new Error('skill interrupted')
     }
     try {
+      // Wear anything protective before working. Skipped for the time-critical
+      // safety actions, where a pause to change clothes is the wrong instinct.
+      if(!['defend','flee','surface','climb'].includes(task.kind)){
+        try{const worn=await wearBestArmor(bot,{check,progress:message=>{this.log('skill_progress',{message});this.say(message)}});if(worn.length)this.persist()}
+        catch(error){if(work.cancelled||this.bot!==bot)throw error}
+      }
       const result = await executeSkill(bot, task, { check, movements: this.movements, gatheringMovements: bot.collectBlock.movements,
         persist: () => { this.extend(); this.persist() },
         stage: value => { work.stage = value; this.extend() },
