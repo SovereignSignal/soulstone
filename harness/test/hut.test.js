@@ -27,9 +27,9 @@ test('a burrow takes three cells when stone stops the fourth, and refuses a two-
  const rock=world({stoneFrom:61});rock.inventory.length=0;assert.match(burrowSite(rock.bot).reason,/at least 3/)
  rock.inventory.push({name:'wooden_pickaxe',count:1});assert.equal(burrowSite(rock.bot).cells.length,4)
 })
-test('a hut needs ten placeable blocks, solid ground around and room above',()=>{
+test('a hut needs the blocks its own site is missing, solid ground around and room above',()=>{
  assert.equal(hutSite(world().bot).ok,true)
- assert.match(hutSite(world({logs:9}).bot).reason,/Fewer than 10/)
+ assert.match(hutSite(world({logs:9}).bot).reason,/10 blocks needed to close this spot and 9 carried/)
  const pit=world();pit.cells.set(new Vec3(11,63,10).toString(),'air');assert.match(hutSite(pit.bot).reason,/No ground/)
  const tree=world();tree.cells.set(new Vec3(10,66,10).toString(),'oak_log');assert.equal(hutSite(tree.bot).ok,true)
  const wall=world();wall.cells.set(new Vec3(11,64,10).toString(),'water');assert.match(hutSite(wall.bot).reason,/Cannot wall/)
@@ -75,4 +75,19 @@ test('walls that already stand, as in a one-block shaft, need no ground beneath 
  const bot={registry,entity:{position:new Vec3(10.5,63,10.5),onGround:true},inventory:{items:()=>inventory},
   blockAt(p){const name=(p.x===10&&p.z===10)?(p.y<=62?'stone':'air'):(p.y<=65?'stone':'air');const b={name,position:p.clone(),boundingBox:name==='air'?'empty':'block'};if(p.x===9&&p.z===10&&p.y===62)b.name='air',b.boundingBox='empty';return b}}
  const site=hutSite(bot);assert.equal(site.ok,true,site.reason)
+})
+
+test('the hut asks for the blocks this spot actually needs, not a fixed ten',()=>{
+ const registry=minecraftData('1.21.4')
+ const open=(inv,solidAt=()=>false)=>({registry,entity:{position:new Vec3(10.5,64,10.5),onGround:true},inventory:{items:()=>inv},
+  blockAt(p){const s=p.y===63||solidAt(p);return {name:s?'stone':'air',position:p.clone(),boundingBox:s?'block':'empty'}}})
+ // Open ground needs all ten placements.
+ const bare=hutSite(open([{name:'dirt',count:9}]))
+ assert.equal(bare.ok,false);assert.match(bare.reason,/10 blocks needed to close this spot and 9 carried/)
+ assert.equal(hutSite(open([{name:'dirt',count:10}])).ok,true)
+ // A nook with three walls already standing needs fewer, and nine is plenty.
+ const walls=p=>p.y===63||(p.x===9&&p.z===10)||(p.x===11&&p.z===10)||(p.x===10&&p.z===9)
+ const nook=hutSite(open([{name:'dirt',count:9}],walls))
+ assert.equal(nook.ok,true,nook.reason)
+ assert.ok(nook.needed<10,`only ${nook.needed} placements are missing`)
 })

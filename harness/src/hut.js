@@ -17,7 +17,6 @@ export function hutSite(bot){
  const p=bot.entity?.position
  if(!p||!bot.entity.onGround)return {ok:false,reason:'Not standing on solid ground'}
  const feet=p.floored()
- if(hutMaterials(bot).reduce((n,i)=>n+i.count,0)<HUT_BLOCKS)return {ok:false,reason:`Fewer than ${HUT_BLOCKS} placeable blocks carried`}
  if(!solid(bot,bot.blockAt(feet.offset(0,-1,0))))return {ok:false,reason:'No solid floor under the bot'}
  for(const [dx,dy,dz] of SIDES){
   for(const level of [0,1]){const c=feet.offset(dx,level,dz),b=bot.blockAt(c);if(!b)return {ok:false,reason:`Cell ${key(c)} is not observed`};if(!REPLACEABLE.has(b.name)&&!solid(bot,b))return {ok:false,reason:`Cannot wall through ${b.name} at ${key(c)}`}}
@@ -26,7 +25,16 @@ export function hutSite(bot){
  }
  const roof=bot.blockAt(feet.offset(0,2,0)),helper=bot.blockAt(feet.offset(1,2,0))
  if(!roof||!helper||!(REPLACEABLE.has(roof.name)||solid(bot,roof))||!(REPLACEABLE.has(helper.name)||solid(bot,helper)))return {ok:false,reason:'No room for the roof'}
- return {ok:true,feet}
+ // Count what this site actually needs rather than a fixed ten. Terrain, a
+ // shaft or a cave nook often supplies several walls, and the bot was refused
+ // with nine blocks in hand on a night it could have sealed itself in.
+ const wanted=[]
+ for(const [dx,dy,dz] of SIDES)for(const level of [0,1])wanted.push(feet.offset(dx,level,dz))
+ wanted.push(feet.offset(1,2,0),feet.offset(0,2,0))
+ const needed=wanted.filter(c=>!solid(bot,bot.blockAt(c))).length
+ const carried=hutMaterials(bot).reduce((n,i)=>n+i.count,0)
+ if(carried<needed)return {ok:false,reason:`${needed} blocks needed to close this spot and ${carried} carried`}
+ return {ok:true,feet,needed}
 }
 async function settle(predicate,{check,ms=1500,poll=50}){
  const end=Date.now()+ms
