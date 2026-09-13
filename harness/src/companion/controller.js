@@ -10,7 +10,7 @@ import {burrowClearance} from '../burrow.js'
 import {defenseDecision,combatClearance,DEFENDABLE_MOBS} from '../combat.js'
 import {projectFootprints} from '../site-survey.js'
 import {reviseArchitecture} from '../construction.js'
-import {evaluateGoal,enforceProjectIntent,validateContract,constructionLimits} from './goal-contract.js'
+import {evaluateGoal,enforceProjectIntent,validateContract,constructionLimits,vacuousContract} from './goal-contract.js'
 import {ExperienceStore,experienceEvidence} from './experience.js'
 import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,shouldContinueAfterBudget,canContinueAfterSafety} from './continuity.js'
 import {PREPARE_ACTIONS} from '../supplies.js'
@@ -487,12 +487,22 @@ export class Teammate extends EventEmitter {
     const activeStarted=Date.now();let stagnant=0,lastFingerprint=progressFingerprint(this.snapshot())
     let repeatFailure='',failureCount=0,lastRejection='',rejections=0,invalidPlans=0
     try {
-      if(!this.requestProgress.goal&&this.planner.formulate){
-        const initial={...this.snapshot(),task:currentRequestTask(this.runner.task,requestTasks),terrain:terrainSummary(this.runner.bot,{near:this.snapshot().ownerPosition||this.runner.position(),projects:this.projects}),experience:this.experience.retrieve(text,null,this.runner.bot?.version||'unknown')}
+      let vacuousRetried=false,contractRejection=null
+      for(let attempt=0;attempt<2&&!this.requestProgress.goal&&this.planner.formulate;attempt++){
+        const initial={...this.snapshot(),task:currentRequestTask(this.runner.task,requestTasks),terrain:terrainSummary(this.runner.bot,{near:this.snapshot().ownerPosition||this.runner.position(),projects:this.projects}),experience:this.experience.retrieve(text,null,this.runner.bot?.version||'unknown'),...(contractRejection?{contractRejection}:{})}
         const interpreted=await this.planner.formulate(text,initial,history,abort.signal,result=>episode?.write('goal_interpretation',result))
         if(epoch!==this.epoch)return
         if(interpreted){
-          this.requestProgress.goal=validateContract(interpreted,this.projects);this.persist()
+          const contract=validateContract(interpreted,this.projects)
+          const vacuous=vacuousContract(contract,this.snapshot(),this.runner.bot)
+          if(vacuous&&!vacuousRetried){
+            vacuousRetried=true
+            contractRejection=`Your previous completion criteria were rejected: ${vacuous}. Restate them as checkable outcomes of the work itself (health, ate, inventory, tools, slept, delivered, at_base and the rest), never as conditions the current state already meets, and never leave the real outcome in a review criterion.`
+            feedback.push({action:'goal_contract',status:'failed',reason:contractRejection})
+            this.persist();this.say('That set of completion criteria would pass without doing the work. Restating them.')
+            this.requestProgress.goal=null;continue
+          }
+          this.requestProgress.goal=contract;this.persist()
           if(interpreted.kind!=='task'){this.phase='ready';this.activity='';this.requestProgress.status=interpreted.kind==='question'?'answered':'needs_clarification';this.say(interpreted.summary);episode?.end(this.requestProgress.status);return}
           this.say(interpreted.summary)
         }

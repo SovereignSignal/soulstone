@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {mkdtempSync,readFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
-import {validateContract,evaluateGoal,enforceProjectIntent} from '../src/companion/goal-contract.js'
+import {validateContract,evaluateGoal,enforceProjectIntent,vacuousContract} from '../src/companion/goal-contract.js'
 import {ExperienceStore,experienceEvidence} from '../src/companion/experience.js'
 import {LocalPlanner} from '../src/companion/planner.js'
 const criterion=(kind,target='',item='',count=0)=>({kind,description:kind+' '+item,target,item,count})
@@ -142,4 +142,26 @@ test('a task cannot be verified by review criteria alone, and a slept night is c
  assert.equal(done.checks[0].passed,true);assert.equal(done.verdict,'needs_review')
  const failed=evaluateGoal(contract,snapshot,null,[{action:'sleep',status:'completed',result:{receipt:'woke_early'}}])
  assert.equal(failed.checks[0].passed,false);assert.equal(failed.verdict,'needs_work')
+})
+
+test('a contract the starting state already satisfies is refused, and health and eating are checkable outcomes',()=>{
+ const base={kind:'task',projectMode:'none',summary:'recover health',milestones:[],constraints:[]}
+ const review={kind:'review',description:'Verify it hunted and ate.',target:'',item:'',count:0}
+ const axe={kind:'tools',description:'Keep the wooden axe serviceable.',target:'',item:'wooden_axe',count:1}
+ const snapshot={inventory:{},projects:{},position:{x:0,y:64,z:0},survival:{health:3}}
+ const bot={inventory:{items:()=>[{name:'wooden_axe',count:1,maxDurability:59,durabilityUsed:0}]}}
+ // The axe check passes on arrival, so the contract measures nothing.
+ assert.match(vacuousContract(validateContract({...base,criteria:[axe,review]}),snapshot,bot),/already pass before any work/)
+ assert.throws(()=>validateContract({...base,criteria:[review]}),/machine-checkable/,'review-only never even validates')
+ assert.match(vacuousContract({kind:'task',criteria:[review]},snapshot,bot),/human review/,'and the guard still refuses one built directly')
+ const health={kind:'health',description:'Reach full health.',target:'',item:'',count:20}
+ const ate={kind:'ate',description:'Eat cooked meat.',target:'',item:'cooked_porkchop',count:2}
+ const real=validateContract({...base,criteria:[health,ate,review]})
+ assert.equal(vacuousContract(real,snapshot,bot),null,'unmet outcomes make a real contract')
+ const before=evaluateGoal(real,snapshot,bot,[])
+ assert.equal(before.checks[0].passed,false);assert.equal(before.checks[1].passed,false)
+ const after=evaluateGoal(real,{...snapshot,survival:{health:20}},bot,[{action:'eat',status:'completed',result:{item:'cooked_porkchop',count:2}}])
+ assert.equal(after.checks[0].passed,true);assert.equal(after.checks[1].passed,true)
+ assert.throws(()=>validateContract({...base,criteria:[{...health,count:0}]}),/1 to 20/)
+ assert.throws(()=>validateContract({...base,criteria:[{...ate,item:''}]}),/food item/)
 })
