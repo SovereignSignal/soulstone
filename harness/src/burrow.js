@@ -164,8 +164,12 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  const s=survivalObservation(bot)
  if(!Number.isFinite(s.timeOfDay))return {clear:false,reason:'Time of day is unknown'}
  if(s.timeOfDay<1000||s.timeOfDay>=12000)return {clear:false,reason:'Waiting for daylight'}
- // Without food there is no regeneration, so a low floor beats waiting forever.
- if(!Number.isFinite(s.health)||s.health<4)return {clear:false,reason:'Health is too low to leave the burrow'}
+ // The floor only helps if waiting can actually heal: regeneration needs hunger
+ // eighteen or carried food. Hurt, hungry and empty-handed, staying under the
+ // cap is a slower death than surfacing in daylight with nothing in sight.
+ const canHeal=(s.carriedFood||[]).length>0||Number.isFinite(s.food)&&s.food>=18
+ if(!Number.isFinite(s.health))return {clear:false,reason:'Health is unknown'}
+ if(s.health<4&&canHeal)return {clear:false,reason:'Health is too low to leave the burrow'}
  const near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=16)
  const scope='Loaded entities within 16 blocks and the world clock; not proof of a safe surface'
  if(!near.length)return {clear:true,health:s.health,timeOfDay:s.timeOfDay,scope}

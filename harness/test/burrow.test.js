@@ -73,7 +73,8 @@ test('a gravity block never becomes the cap, so a sand burrow stays open and say
 })
 test('burrow clearance waits for daylight, health and an empty neighbourhood',()=>{
  const w=world();assert.match(burrowClearance(w.bot).reason,/daylight/)
- w.bot.time.timeOfDay=6000;w.bot.health=3;assert.match(burrowClearance(w.bot).reason,/Health/)
+ w.bot.time.timeOfDay=6000;w.bot.health=3;w.bot.food=20;assert.match(burrowClearance(w.bot).reason,/Health/,'a bot that can still heal waits')
+ w.bot.food=16;assert.equal(burrowClearance(w.bot).clear,true,'one that cannot heal surfaces to look for food rather than starve under the cap')
  w.bot.health=16;w.bot.entities={1:{name:'zombie',position:new Vec3(14.5,64,10.5)}};assert.match(burrowClearance(w.bot).reason,/lone zombie lingers/)
  w.bot.entities={1:{name:'zombie',position:new Vec3(40.5,64,10.5)},2:{name:'cow',position:new Vec3(11.5,64,10.5)}};assert.equal(burrowClearance(w.bot).clear,true)
 })
