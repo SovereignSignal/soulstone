@@ -71,6 +71,13 @@ export class Teammate extends EventEmitter {
           this.say('I am on dry ground and can breathe. The saved task remains paused.')
         }
         if(reason&&(!this.safety||reason===WATER_EMERGENCY&&this.safety.reason!==WATER_EMERGENCY&&this.safety.status!=='cancelled'))void this.seekSafety(reason)
+        // Safety is unreachable here and the chain has stopped trying. Idling fixes
+        // none of the blockers and the work usually does, so let saved work continue.
+        // Owned by the tick rather than the failure handler, which races the retries.
+        if(this.safety?.status==='failed'&&this.unsafeSignature&&!this.standoffResuming&&!this.snapshot().dead&&canResume(this.requestProgress)){
+          this.standoffResuming=true
+          void this.resume({automatic:true}).catch(error=>this.say('I could not continue the saved request: '+error.message)).finally(()=>{this.standoffResuming=false})
+        }
         // A failed recovery never leaves the bot standing still while the danger
         // persists: after a short pause the chain runs again, a bounded number of times.
         else if(reason&&this.safety?.status==='failed'&&this.safety.error!=='Agent died'&&!this.snapshot().dead&&(this.safety.retries||0)<SAFETY_RETRIES&&Date.now()-(this.safety.failedAt||0)>=3000){const retries=(this.safety.retries||0)+1;this.safety=null;void this.seekSafety(reason,{retries})}
@@ -274,13 +281,7 @@ export class Teammate extends EventEmitter {
       if(last){this.unsafeSignature={reason,key:this.safetyBlockKey(),at:Date.now()};this.persist()}
       this.say(last?`I cannot make myself safe here: ${this.unsafeAdvice(this.safety.attempts)} Standing still will not fix any of that, so I am carrying on with the work.`
         :'Safety recovery failed: '+error.message+'. I will try again in a few seconds if the danger persists.')
-      // Safety is not achievable here, so idling is not safer than working, and
-      // the work is usually what fixes it: a pickaxe to dig in, blocks to wall
-      // in, the base repaired. Resume rather than consuming the operator's
-      // instruction; the standoff above keeps this from cycling.
-      if(last&&interruptedActiveRequest&&canResume(this.requestProgress)){
-        try{await this.resume({automatic:true})}catch(resumeError){this.say('I could not continue the saved request: '+resumeError.message)}
-      }
+
     }
     finally{if(epoch===this.epoch){this.abort=null;this.persist();this.emit('change')}}
   }

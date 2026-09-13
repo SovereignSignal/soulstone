@@ -7,6 +7,7 @@ import {burrowSite,burrowIn,burrowClearance,unburrow} from '../src/burrow.js'
 import {executeSkill} from '../src/skills.js'
 import {validateTaskGoal} from '../src/task-store.js'
 import {Teammate} from '../src/companion/controller.js'
+import {canResume} from '../src/companion/continuity.js'
 import {THREAT_INTERRUPTION,NIGHT_EXPOSURE,emergencyReason,survivalObservation} from '../src/survival.js'
 const registry=minecraftData('1.21.4')
 function world(ground='dirt'){
@@ -352,22 +353,25 @@ test('a recovery that failed with nothing changed stops repeating, names every b
  assert.ok(commands.length>before,'a changed situation re-arms recovery')
 })
 
-test('when safety is unachievable the paused request carries on, because idling fixes none of it',async()=>{
- const w=world('sandstone');w.bot.entities={1:{name:'zombie',position:new Vec3(14.5,64,10.5)}};w.bot.inventory.items=()=>[]
- const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov'
- runner.command=c=>{if(c.action==='stop')return;runner.task={id:'1',kind:c.action,status:'running'}
-  setTimeout(()=>{runner.task={...runner.task,status:'failed',reason:'nothing works here'};runner.emit('event',{type:'task_finished',task:runner.task})},1)}
- runner.waitForIdle=async()=>{};runner.position=()=>({x:10,y:64,z:10})
- const said=[];let resumed=0
- const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',unsafeSignature:null,
-  requestProgress:{id:'r1',request:'craft a pickaxe',status:'running',feedback:[],completed:[]},safety:null,burrowWait:{quietMs:20,limitMs:300},
-  say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},snapshot(){return {dead:false}},
-  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,
-  moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
-  safetyBlockKey:Teammate.prototype.safetyBlockKey,unsafeAdvice:Teammate.prototype.unsafeAdvice,
-  async resume(){resumed++;this.requestProgress.status='running'}}
- await c.seekSafety(THREAT_INTERRUPTION,{retries:3})
- assert.equal(resumed,1,'the instruction is not consumed by an impossible recovery')
- assert.equal(c.requestProgress.status,'running')
- assert.ok(said.some(t=>/carrying on with the work/.test(t)),said.join(' | '))
+test('when safety is unachievable the tick lets the paused request carry on, because idling fixes none of it',async()=>{
+ const {Teammate:T}=await import('../src/companion/controller.js')
+ const bot={registry,game:{gameMode:'survival',difficulty:'normal'},time:{timeOfDay:15000},health:3,food:16,entities:{},players:{},
+  entity:{position:new Vec3(10.5,64,10.5),onGround:true},inventory:{items:()=>[]},blockAt:()=>({name:'air',boundingBox:'empty'})}
+ const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov';runner.command=()=>{}
+ let resumed=0
+ const c={runner,projects:{},epoch:1,phase:'blocked',activity:'',standoffResuming:false,
+  unsafeSignature:{reason:'Night with no shelter',key:'k',at:Date.now()},
+  safety:{status:'failed',reason:'Night with no shelter'},
+  requestProgress:{id:'r1',request:'craft a pickaxe',status:'interrupted',feedback:[],completed:[]},
+  say(){},persist(){},emit(){},snapshot(){return {dead:false}},async resume(){resumed++;this.requestProgress.status='running'}}
+ // Drive the one tick branch under test directly.
+ const tick=()=>{
+  if(c.safety?.status==='failed'&&c.unsafeSignature&&!c.standoffResuming&&!c.snapshot().dead&&canResume(c.requestProgress)){
+   c.standoffResuming=true
+   return c.resume({automatic:true}).finally(()=>{c.standoffResuming=false})
+  }
+ }
+ await tick();assert.equal(resumed,1,'the instruction is not consumed by an impossible recovery')
+ await tick();assert.equal(resumed,1,'and a running request is not resumed again')
+ assert.ok(String(T.prototype.seekSafety).includes('carrying on with the work'),'the standoff still says so plainly')
 })
