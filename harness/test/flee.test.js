@@ -113,3 +113,16 @@ test('a blocked bearing is not nowhere to run: the flight fans out before giving
  const boxed={...bot,entity:{position:start.clone(),onGround:true},pathfinder:{setMovements(){},setGoal(){},async goto(){throw Object.assign(new Error('No path'),{name:'NoPath'})}}}
  await assert.rejects(fleeFrom(boxed,{kind:'flee',goal:{from:{x:10,y:64,z:10},distance:24}},{check(){},stage(){},progress(){}}),/No route away from here after \d+ directions/)
 })
+test('a flight that is losing blood stops and lets the shelter chain take over',async()=>{
+ const start=new Vec3(10.5,64,10.5)
+ const bot={registry,game:{gameMode:'survival',difficulty:'normal'},time:{timeOfDay:6000},health:20,food:20,players:{},entities:{},
+  entity:{position:start.clone(),onGround:true},inventory:{items:()=>[]},blockAt:()=>({name:'dirt',boundingBox:'block'}),
+  setControlState(){},clearControlStates(){},
+  pathfinder:{setMovements(){},setGoal(){},async goto(g){bot.health-=6;bot.entity.position=new Vec3(g.x+.5,64,g.z+.5)}}}
+ await assert.rejects(fleeFrom(bot,{kind:'flee',goal:{from:{x:10,y:64,z:10},distance:24}},{check(){},stage(){},progress(){}}),/Taking damage while running \(20 to 14 health\)/)
+ // An unharmed flight still succeeds.
+ const safe={...bot,health:20,entity:{position:start.clone(),onGround:true},
+  pathfinder:{setMovements(){},setGoal(){},async goto(g){safe.entity.position=new Vec3(g.x+.5,64,g.z+.5)}}}
+ const ok=await fleeFrom(safe,{kind:'flee',goal:{from:{x:10,y:64,z:10},distance:24}},{check(){},stage(){},progress(){}})
+ assert.equal(ok.receipt,'fled')
+})

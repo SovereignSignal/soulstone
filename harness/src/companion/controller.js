@@ -297,6 +297,10 @@ export class Teammate extends EventEmitter {
   async leaveOnOpenGround(epoch,signal,bot,interruptedActiveRequest) {
     const s=survivalObservation(bot),near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=16),lone=near.length===1?near[0]:null
     if(!(s.timeOfDay>=1000&&s.timeOfDay<12000)||!(s.health>=12))return 'skipped'
+    // Open ground is only better than a hole if nothing is already on the bot.
+    // A daylight spider counts as conditional, but it still bites: one chased
+    // the agent through a flight from 20 health to 0.
+    if((s.nearbyThreats||[]).some(t=>t.distance<=5))return 'skipped'
     const flights=this.safety.flights||[],fled=flights.some(f=>!f.failed)
     // Two ways to stay out here instead of trekking home: sprint clear of a lone
     // mob this pass, or, having already sprinted (a creeper), find nothing in range.
