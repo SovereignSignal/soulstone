@@ -703,11 +703,11 @@ test('a failed safety recovery runs again after a short pause while the emergenc
  r.emit('event',{type:'survival_tick'});assert.equal(calls.length,1,'never after death')
 })
 
-test('after a night retreat into the lit base the continuation holds until daylight even when the corridor reads clear',async()=>{
+test('after a night retreat into the lit base, which records no shelterName, the continuation still holds until daylight',async()=>{
  const {continueAfterClearance}=Teammate.prototype
  const bot={time:{timeOfDay:15000},entity:{position:new Vec3(0,64,0)},entities:{},inventory:{items:()=>[]},game:{gameMode:'survival',difficulty:'normal'},health:20,food:20}
  const updates=[];let resumed=0
- const c={runner:{ready:true,bot,connectionId:'c1'},projects:{},epoch:1,nightHoldMs:400,requestProgress:{id:'r1',status:'interrupted',completed:[],safetyContinuations:[]},safety:{retreat:{shelterName:'base'}},
+ const c={runner:{ready:true,bot,connectionId:'c1'},projects:{},epoch:1,nightHoldMs:400,requestProgress:{id:'r1',status:'interrupted',completed:[],safetyContinuations:[]},safety:{retreat:{receipt:'sheltered_door_closed'}},
   persist(){},emit(){},say(){},async resume(){resumed++}}
  const {clearanceObservation:_}=await import('../src/companion/hazard-clearance.js')
  const signal=new AbortController().signal

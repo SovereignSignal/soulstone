@@ -361,8 +361,11 @@ export class Teammate extends EventEmitter {
       // Inside the lit base at night the area may read clear while phantoms and
       // the night crowd wait outside: hold until daylight before continuing.
       const night=()=>{const t=survivalObservation(bot).timeOfDay;return Number.isFinite(t)&&(t>=12500||t<1000)}
-      const observe=()=>{const o=clearanceObservation(bot,this.projects,safety.retreat.shelterName);return o.clear&&safety.retreat.shelterName==='base'&&night()?{clear:false,reason:'Waiting in the lit base for daylight'}:o}
-      const limitMs=night()&&safety.retreat.shelterName==='base'?Math.max(recovery.limitMs||0,this.nightHoldMs??NIGHT_HOLD_MS):recovery.limitMs
+      // A base retreat records no shelterName, so an equality test on 'base' never
+      // matched live and the watch fell back to its ninety-second default.
+      const atBase=!safety.retreat.shelterName||safety.retreat.shelterName==='base'
+      const observe=()=>{const o=clearanceObservation(bot,this.projects,safety.retreat.shelterName);return o.clear&&atBase&&night()?{clear:false,reason:'Waiting in the lit base for daylight'}:o}
+      const limitMs=night()&&atBase?Math.max(recovery.limitMs||0,this.nightHoldMs??NIGHT_HOLD_MS):recovery.limitMs
       const result=await awaitClearance({check,limitMs,maintain:recovery.maintain,observe,onUpdate:record=>{safety.continuation=record;this.persist();this.emit('change')}})
       check();safety.continuation=result;this.persist()
       if(result.status!=='cleared'){this.say('I am staying sheltered. Resume is required because a clear area was not established in time.');return}
