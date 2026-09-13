@@ -165,3 +165,16 @@ test('a contract the starting state already satisfies is refused, and health and
  assert.throws(()=>validateContract({...base,criteria:[{...health,count:0}]}),/1 to 20/)
  assert.throws(()=>validateContract({...base,criteria:[{...ate,item:''}]}),/food item/)
 })
+
+test('the goal prompt refuses only when nothing at all can be attempted',()=>{
+ const prompt=readFileSync(new URL('../src/companion/goal-prompt.txt',import.meta.url),'utf8')
+ assert.match(prompt,/When only part of a request is unsupported, do NOT return clarification/)
+ assert.match(prompt,/name the unsupported part in the summary/)
+ assert.match(prompt,/handled automatically by the safety system and are never planner actions/)
+})
+
+test('the capabilities brief tells the planner how a damaged base is repaired',()=>{
+ const brief=readFileSync(new URL('../src/companion/survival-capabilities.txt',import.meta.url),'utf8')
+ assert.match(brief,/DAMAGED BASE/)
+ assert.match(brief,/build at the saved base origin sources and places only the blocks that differ/)
+})
