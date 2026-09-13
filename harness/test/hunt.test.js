@@ -37,3 +37,27 @@ test('hunting stops with a partial result when no animal is in range and pauses 
  const {bot:b2}=fixture();b2.entities[5]={id:5,name:'zombie',type:'hostile',position:new Vec3(4,64,4)}
  await assert.rejects(huntFor(b2,{kind:'hunt',goal:{item:'raw_beef',count:2}},{check(){},stage(){},progress(){},persist(){}}),/Hostile zombie nearby/)
 })
+test('with nothing in sight the hunt walks bounded cardinal legs to look, then reports the legs and what it saw',async()=>{
+ const {bot,cow}=fixture();bot.entities={}
+ const legs=[]
+ bot.pathfinder.goto=async g=>{
+  bot.entity.position=new Vec3(g.x,64,g.z)
+  if(g.y===undefined){legs.push([g.x,g.z]);if(legs.length===2){cow.position=new Vec3(g.x+3,64,g.z);bot.entities[9]=cow}}
+ }
+ bot.pathfinder.setGoal=g=>{if(g&&g.entity)bot.entity.position=new Vec3(g.entity.position.x-1,64,g.entity.position.z)}
+ const result=await huntFor(bot,{kind:'hunt',goal:{item:'raw_beef',count:2}},{check(){},stage(){},progress(){},persist(){}})
+ assert.equal(result.acquired,true);assert.equal(result.legs,2)
+ assert.deepEqual(legs.slice(0,2),[[33,1],[1,33]],'cardinal legs measured from the start')
+})
+test('an empty area ends the hunt after six legs, naming any other animals it found',async()=>{
+ const {bot}=fixture();bot.entities={}
+ const messages=[];let walked=0
+ bot.pathfinder.goto=async g=>{
+  bot.entity.position=new Vec3(g.x,64,g.z)
+  if(g.y===undefined&&++walked===6)bot.entities[11]={id:11,name:'pig',type:'animal',position:new Vec3(g.x+2,64,g.z)}
+ }
+ const result=await huntFor(bot,{kind:'hunt',goal:{item:'raw_beef',count:2}},{check(){},stage(){},progress:m=>messages.push(m),persist(){}})
+ assert.equal(result.receipt,'hunt_partial');assert.equal(result.legs,6)
+ assert.deepEqual(result.nearbyAnimals,['pig'])
+ assert.ok(messages.some(m=>/after 6 exploring legs \(nearby animals: pig\)/.test(m)),messages.at(-1))
+})
