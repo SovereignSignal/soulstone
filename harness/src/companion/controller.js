@@ -1,5 +1,6 @@
 import {THREAT_INTERRUPTION,clearanceObservation,awaitClearance,openGroundClearance} from './hazard-clearance.js'
 import {alternativeShelters,occupiedAlternative} from '../alternate-shelter.js'
+import {shelteredObservation} from '../retreat.js'
 import {setTimeout as delay} from 'node:timers/promises'
 const SAFETY_RETRIES=3
 const NIGHT_HOLD_MS=14*60*1000
@@ -57,7 +58,8 @@ export class Teammate extends EventEmitter {
         // Shelter means a built base with a recorded light: the retreat refuses an unlit one.
         // A torch station is recorded before placement; only a confirmed one lights the base.
         const base=this.projects.base,shelterAvailable=!!base&&base.built!==false&&base.stations?.torch?.confirmed===true
-        const observation=survivalObservation(runner.bot),reason=emergencyReason({...observation,shelterAvailable})
+        const sheltered=shelterAvailable&&(()=>{try{return shelteredObservation(runner.bot,base).passed}catch{return false}})()
+        const observation=survivalObservation(runner.bot),reason=emergencyReason({...observation,shelterAvailable,sheltered})
         if(this.safety?.reason===WATER_EMERGENCY&&['failed','afloat'].includes(this.safety.status)&&observation.headSubmerged===false&&observation.inWater===false&&runner.bot.entity.onGround){
           this.safety=null;this.activity='';runner.bot.clearControlStates();this.phase=canResume(this.requestProgress)?'blocked':'ready'
           if(canResume(this.requestProgress))this.requestProgress.blocker='On dry ground. Review current inventory before resuming the saved task.'
