@@ -108,7 +108,10 @@ export async function defendAgainstMob(bot,task,{check,stage,progress,persist,mo
    guard()
    if(record.deathObserved){if(!record.attacks)throw new Error('Mob died before any defense attack');break}
    if(bot.entities[goal.targetId]!==target||!same(target,goal))throw new Error('Target disappeared or identity changed; no kill confirmed')
-   if(distance(anchor,target.position)>ENGAGE_RANGE+2||distance(bot.entity.position,target.position)>ENGAGE_RANGE+2)throw new Error('Target left the defense boundary')
+   // Judge the target's distance from the bot, not from where the fight began:
+   // the bot's own leash to the anchor is enforced by the guard, and a mob that
+   // drifts two blocks must not end a fight the bot opened at nine.
+   if(distance(bot.entity.position,target.position)>ENGAGE_RANGE+2)throw new Error('Target left the defense boundary')
    const held=bot.heldItem
    if(held?.name!==weapon.name||remainingDurability(held)<4)throw new Error('Weapon changed or is nearly broken')
    const range=distance(bot.entity.position,target.position),sight=clearStrike(bot,target)
@@ -123,7 +126,9 @@ export async function defendAgainstMob(bot,task,{check,stage,progress,persist,mo
     }else if(record.shield&&bot.inventory.slots?.[offHand]?.name==='shield')blockingState(true)
    }else{
     blockingState(false)
-    if(!following){bot.pathfinder.setGoal(new pathfinding.goals.GoalFollow(target,2),true);following=true}
+    // A dropped follow goal (no path inside the bubble, target moved) leaves the
+    // bot standing; re-issue it rather than waiting out the contact window.
+    if(!following||!bot.pathfinder.goal){bot.pathfinder.setGoal(new pathfinding.goals.GoalFollow(target,2),true);following=true}
    }
    // Twelve seconds without a strike covers a doorway detour or a kiting skeleton inside the boundary.
    if(Date.now()-lastContact>12000)throw new Error('Cannot reach a clear melee strike; retreat required')

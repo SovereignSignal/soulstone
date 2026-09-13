@@ -122,3 +122,20 @@ test('an armed bot engages from ten blocks, rushes skeletons only with a health 
  f.weapon.name='wooden_axe';f.weapon.maxDurability=59;assert.equal(defenseDecision(f.bot).weapon,'wooden_axe')
  f.weapon.name='stick';assert.match(defenseDecision(f.bot).reason,/weapon/)
 })
+
+test('a mob that drifts from the opening position keeps the fight, and a dropped follow goal is re-issued',async()=>{
+ const f=fixture();f.weapon.name='iron_sword'
+ f.bot.blockAt=()=>({name:'air',boundingBox:'empty'})
+ f.bot.entity.position=new Vec3(0,64,0);f.target.position=new Vec3(9,64,0)
+ let goal=null,issued=0
+ f.bot.pathfinder={setGoal(g){goal=g;if(g)issued++},setMovements(){},get goal(){return goal}}
+ f.bot.lookAt=async()=>{};f.bot.equip=async()=>{};f.bot.attack=()=>{};f.bot.activateItem=()=>{};f.bot.deactivateItem=()=>{}
+ f.bot.getEquipmentDestSlot=()=>45;f.bot.heldItem=f.weapon;f.bot.clearControlStates=()=>{}
+ // The target drifts to thirteen blocks from the opening anchor while staying four from the bot.
+ setTimeout(()=>{f.bot.entity.position=new Vec3(9,64,0);f.target.position=new Vec3(13,64,0);goal=null},60)
+ setTimeout(()=>{f.target.position=new Vec3(10.5,64,0)},200)
+ setTimeout(()=>f.bot.emit('entityDead',f.target),1100)
+ const result=await defendAgainstMob(f.bot,f.task,f.context)
+ assert.equal(result.receipt,'target_death_observed');assert.ok(result.attacks>=1,'landed a hit after the drift')
+ assert.ok(issued>=2,`follow goal re-issued after being dropped (issued ${issued})`)
+})
