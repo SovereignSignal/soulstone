@@ -5,7 +5,7 @@ import {usableToolCount} from '../supplies.js'
 import {deliveredCount} from './progress.js'
 import {resourceCount} from '../resources.js'
 
-const kinds=['inventory','tools','delivered','stored','shelter','construction','furniture','reach_height','max_blocks','material_only','at_place','at_owner','at_base','base_ready','sheltered','review']
+const kinds=['inventory','tools','delivered','stored','shelter','construction','furniture','reach_height','max_blocks','material_only','at_place','at_owner','at_base','base_ready','sheltered','review','slept']
 export const contractSchema={type:'object',additionalProperties:false,required:['kind','summary','projectMode','milestones','constraints','criteria'],properties:{
  kind:{type:'string',enum:['task','question','clarification']},summary:{type:'string',minLength:1,maxLength:600},projectMode:{type:'string',enum:['new','continue','modify','inspect','none']},
  milestones:{type:'array',items:{type:'string',maxLength:300},maxItems:8},constraints:{type:'array',items:{type:'string',maxLength:300},maxItems:12},
@@ -17,6 +17,9 @@ export function validateContract(v,projects={}) {
  if(!bounded(v.summary,600)||!v.summary.trim())throw new Error('Invalid goal summary: use 1–600 characters, retaining requirements in criteria and constraints')
  for(const [name,max] of [['milestones',8],['constraints',12]])if(!Array.isArray(v[name])||v[name].length>max||v[name].some(s=>!bounded(s,300)))throw new Error('Invalid goal '+name)
  if(!Array.isArray(v.criteria)||v.criteria.length>12||v.kind==='task'&&!v.criteria.length)throw new Error('Tasks require measurable completion criteria')
+ // A contract of nothing but review criteria has no executable content, so the
+ // request reports "the executable checks passed" without doing any of the work.
+ if(v.kind==='task'&&v.criteria.every(c=>c?.kind==='review'))throw new Error('At least one completion criterion must be machine-checkable; review alone cannot verify a task')
  const aliases={},used=new Set(Object.keys(projects))
  const criteria=v.criteria.map(c=>{
   if(!c||!kinds.includes(c.kind)||!bounded(c.description,300)||!c.description||!bounded(c.target,40)||!bounded(c.item,256)||!Number.isInteger(c.count)||c.count<0||c.count>2048)throw new Error('Invalid completion criterion')
@@ -28,6 +31,7 @@ export function validateContract(v,projects={}) {
    if(['continue','modify','inspect'].includes(v.projectMode)&&!projects[c.target]?.construction)throw new Error('Cannot find the construction project to continue or inspect')
   }
   if(c.kind==='sheltered'&&(c.target!=='base'||c.count!==1))throw new Error('Sheltered criterion needs target base and count 1')
+  if(c.kind==='slept'&&c.count!==1)throw new Error('Slept criterion needs count 1')
   if(c.kind==='furniture'&&(!/^[a-z0-9_]{1,64}$/.test(c.item)||c.count<1))throw new Error('Furniture criterion needs item and count')
   if(c.kind==='material_only'&&!/^[a-z0-9_]+(?:,[a-z0-9_]+)*$/.test(c.item))throw new Error('Material constraint must list comma-separated item IDs')
   if(['reach_height','max_blocks'].includes(c.kind)&&c.count<1)throw new Error('Positive construction constraint required')
@@ -81,6 +85,7 @@ export function evaluateGoal(contract,snapshot,bot,feedback=[]) {
   if(c.kind==='base_ready'){observed=current.some(f=>f.action==='check_base'&&f.result?.receipt==='base_verified');passed=observed;source='current request base verification'}
   if(c.kind==='sheltered'){observed=shelteredObservation(bot,snapshot.projects?.base);passed=current.some(f=>f.action==='retreat'&&f.result?.receipt==='sheltered_door_closed')&&observed.passed;source='current retreat receipt and live shelter, interior and closed door inspection'}
   if(c.kind==='shelter'){observed=current.some(f=>f.action==='build'&&f.result?.usability?.status==='usable');passed=observed;source='current request shelter blocks, door and walkthrough receipt'}
+  if(c.kind==='slept'){const f=current.findLast(f=>f.action==='sleep');observed=f?.result?.receipt||null;passed=observed==='slept_until_morning';source='current request sleep receipt with an observed morning wake'}
   if(c.kind==='review'){source='human review required';observed=c.description}
   return {...c,passed,observed,source}
  })

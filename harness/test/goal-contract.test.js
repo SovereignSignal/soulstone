@@ -126,3 +126,20 @@ test('lessons carry the executor revision; older ones retrieve as stale and rank
  const found=store.retrieve('Gather logs and build',contract([criterion('inventory','')]),'1.21.4',{executor:'bundle-31'})
  assert.equal(found.length,2);assert.equal(found[0].executor,'bundle-31');assert.equal(found[0].stale,false);assert.equal(found[1].executor,'bundle-24');assert.equal(found[1].stale,true)
 })
+
+test('a task cannot be verified by review criteria alone, and a slept night is checked from the sleep receipt',()=>{
+ const base={kind:'task',projectMode:'none',summary:'sleep in a bed',milestones:[],constraints:[]}
+ const review={kind:'review',description:'Verify the bot slept.',target:'',item:'',count:0}
+ assert.throws(()=>validateContract({...base,criteria:[review]}),/machine-checkable/)
+ const slept={kind:'slept',description:'Sleep a night in the base bed.',target:'',item:'',count:1}
+ const contract=validateContract({...base,criteria:[slept,review]})
+ assert.equal(contract.criteria.length,2)
+ assert.throws(()=>validateContract({...base,criteria:[{...slept,count:2}]}),/count 1/)
+ const snapshot={inventory:{},projects:{},position:{x:0,y:64,z:0}}
+ const none=evaluateGoal(contract,snapshot,null,[])
+ assert.equal(none.checks[0].passed,false)
+ const done=evaluateGoal(contract,snapshot,null,[{action:'sleep',status:'completed',result:{receipt:'slept_until_morning',wokeAt:120}}])
+ assert.equal(done.checks[0].passed,true);assert.equal(done.verdict,'needs_review')
+ const failed=evaluateGoal(contract,snapshot,null,[{action:'sleep',status:'completed',result:{receipt:'woke_early'}}])
+ assert.equal(failed.checks[0].passed,false);assert.equal(failed.verdict,'needs_work')
+})
