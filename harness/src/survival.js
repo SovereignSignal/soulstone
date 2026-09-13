@@ -2,7 +2,9 @@ import {setTimeout as delay} from 'node:timers/promises'
 
 // Ordinary food only. Special effects, teleportation and valuable consumables
 // need a separate explicit capability rather than automatic hunger management.
-export const SAFE_FOODS=new Set(['raw_beef','raw_porkchop','raw_mutton','raw_cod','raw_salmon','apple','baked_potato','beetroot','beetroot_soup','bread','carrot','cooked_beef','cooked_chicken','cooked_cod','cooked_mutton','cooked_porkchop','cooked_rabbit','cooked_salmon','cookie','dried_kelp','melon_slice','mushroom_stew','potato','pumpkin_pie','rabbit_stew','sweet_berries','glow_berries'])
+// Raw meats use their plain item ids. Raw chicken is excluded: it causes food
+// poisoning. Guarded by a registry test so a misspelled id cannot hide here.
+export const SAFE_FOODS=new Set(['beef','porkchop','mutton','rabbit','cod','salmon','apple','baked_potato','beetroot','beetroot_soup','bread','carrot','cooked_beef','cooked_chicken','cooked_cod','cooked_mutton','cooked_porkchop','cooked_rabbit','cooked_salmon','cookie','dried_kelp','melon_slice','mushroom_stew','potato','pumpkin_pie','rabbit_stew','sweet_berries','glow_berries'])
 const hostile=new Set(['zombie','husk','drowned','skeleton','stray','bogged','wither_skeleton','creeper','spider','cave_spider','witch','slime','magma_cube','phantom','pillager','vindicator','evoker','vex','ravager','silverfish','endermite','blaze','ghast','hoglin','zoglin','piglin_brute','warden','wither','ender_dragon'])
 const conditional=new Set(['enderman','piglin','zombified_piglin','wolf','bee','polar_bear','iron_golem'])
 export const isPotentialHostile=name=>hostile.has(name)

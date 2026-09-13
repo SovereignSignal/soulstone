@@ -9,13 +9,15 @@ import {DoorAwareMovements} from './navigation.js'
 import {clearStrike,meleeWeapon} from './combat.js'
 import {survivalObservation} from './survival.js'
 const {goals}=pathfinding
-export const HUNTABLE={raw_beef:['cow'],raw_porkchop:['pig'],raw_mutton:['sheep'],raw_chicken:['chicken'],leather:['cow'],feather:['chicken']}
+// Minecraft's raw meats carry no raw_ prefix; those item ids do not exist, so a
+// goal naming one could never be counted or eaten. Guarded by a registry test.
+export const HUNTABLE={beef:['cow'],porkchop:['pig'],mutton:['sheep'],chicken:['chicken'],rabbit:['rabbit'],leather:['cow'],feather:['chicken']}
 export const HUNT_LEGS=6,HUNT_LEG=32
 const EDIBLE=['cow','pig','sheep','chicken','rabbit']
 const point=p=>new Vec3(p.x,p.y,p.z)
 const distance=(a,b)=>point(a).distanceTo(point(b))
 export function validateHuntGoal(goal){
- if(!HUNTABLE[goal?.item]||!Number.isInteger(goal.count)||goal.count<1||goal.count>8)throw new Error('Hunt needs a farm-animal drop (raw_beef, raw_porkchop, raw_mutton, raw_chicken, leather, feather) and a total of 1–8')
+ if(!HUNTABLE[goal?.item]||!Number.isInteger(goal.count)||goal.count<1||goal.count>8)throw new Error('Hunt needs a farm-animal drop (beef, porkchop, mutton, chicken, rabbit, leather, feather) and a total of 1–8')
  return {item:goal.item,count:goal.count}
 }
 export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},movements}){
