@@ -5,6 +5,8 @@ The existing Paper lab remains in Survival gamemode and Peaceful difficulty. No 
 ## Actions
 
 - `harvest`: item `sweet_berries`, desired carried total 1–32. Finds ripe loaded bushes within 48 blocks, activates without breaking, checks reset age and inventory pickup, and leaves plants for regrowth. New berry drops can be followed to safe landing cells downhill. Unreachable bushes are skipped within a bounded action. This is wild harvesting, not crop planting or a managed farm.
+Walking out of the base never depends on its shell being whole. A damaged or unlit base is a reason to leave, not a reason to be stuck inside: `leave_base` verifies only its own door and where the bot ends up, and reports the damage it saw in its receipt. Retreating *into* a damaged base is still refused. Players mining a wall block had otherwise trapped the agent, since every plan began by leaving the base and every leave failed.
+
 - `retreat`: target `base`. Checks the saved shell, actual centre approach, interior floor/headroom and a conservative block-light lower bound of at least eight. Enters through the wooden door and verifies closed-door interior arrival. No repair, demolition or new shelter construction occurs during recovery.
 - `leave_base`: verifies the same base, opens its door, exits and closes it again.
 - `eat`: ordinary safe carried food, at most eight portions. Stops at full hunger, requires both hunger increase and inventory decrement, preserves its cap across restart and blocks uncertain replay.

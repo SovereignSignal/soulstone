@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {Vec3} from 'vec3'
+import minecraftData from 'minecraft-data'
 import {harvestBerries} from '../src/foraging.js'
 import {emergencyReason} from '../src/survival.js'
 import {validateTaskGoal} from '../src/task-store.js'
@@ -80,4 +81,28 @@ test('occupied-base checks share the narrow real approach while construction ret
  assert.throws(()=>inspectShelterSite(bot,o,layout),/access obstructed/)
  assert.doesNotThrow(()=>inspectShelterSite(bot,o,shelterAccessLayout(layout)))
  assert.equal(layout.approach.length,9);assert.equal(shelterAccessLayout(layout).approach.length,2)
+})
+test('leaving a damaged or unlit base still works and reports what needs repair',async()=>{
+ const o=new Vec3(0,64,0),world=new Map(),key=p=>p.toString();let open=false
+ const design=[];for(let x=0;x<4;x++)for(let z=0;z<4;z++)for(let y=0;y<3;y++){
+  const edge=x===0||x===3||z===0||z===3
+  if(y===2||edge){if(x===0&&z===1&&y<2)continue;design.push({x,y,z,block:'wood_planks'})}
+ }
+ for(const b of design)world.set(key(o.offset(b.x,b.y,b.z)),'oak_planks')
+ // A player mined one shell block out.
+ world.set(key(o.offset(3,1,2)),'air')
+ const door=o.offset(0,0,1)
+ const bot={registry:minecraftData('1.21.4'),entity:{position:new Vec3(1.5,64,1.5),onGround:true},entities:{},inventory:{items:()=>[]},
+  blockAt(p){const name=world.get(key(p))??(p.y<64?'stone':'air');return {name,position:p.clone(),boundingBox:name==='air'?'empty':'block',getProperties:()=>({half:p.y===door.y?'lower':'upper',open})}},
+  async activateBlock(){open=!open},async unequip(){},pathfinder:{setGoal(){},setMovements(){},async goto(){}}}
+ for(const y of [0,1])world.set(key(door.offset(0,y,0)),'oak_door')
+ const project={build:{origin:{x:0,y:64,z:0},design,wood:'oak_log'},stations:{torch:{position:{x:1,y:64,z:2},confirmed:true}}}
+ const messages=[]
+ const api={check(){},progress:m=>messages.push(m),stage(){},async settle(){},async walk(g){bot.entity.position=new Vec3(g.x+.5,64,g.z+.5)}}
+ const result=await retreatToShelter(bot,{kind:'leave_base',goal:{project}},api)
+ assert.equal(result.receipt,'left_base_door_closed')
+ assert.match(result.damage,/missing or changed/)
+ assert.ok(messages.some(m=>/Leaving the base \(it needs repair/.test(m)),messages.join(' | '))
+ // Retreating INTO the same damaged base is still refused.
+ await assert.rejects(retreatToShelter(bot,{kind:'retreat',goal:{project}},api),/missing or changed/)
 })
