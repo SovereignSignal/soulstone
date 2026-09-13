@@ -10,6 +10,7 @@ const conditional=new Set(['enderman','piglin','zombified_piglin','wolf','bee','
 export const isPotentialHostile=name=>hostile.has(name)
 export const THREAT_INTERRUPTION='A potential hostile is within ten blocks'
 export const NIGHT_EXPOSURE='Night with no shelter'
+export const HEALTH_EMERGENCY='Health is at or below half'
 const ANIMALS=new Set(['cow','pig','sheep','chicken','rabbit','mooshroom','goat'])
 // Ten blocks buys the three to four seconds a burrow needs; a creeper covers six in two.
 export const WATER_EMERGENCY='Underwater or running low on air'
@@ -71,9 +72,11 @@ export function emergencyReason(observation){
  // with no food must be free to go and find some in daylight; interrupting it
  // every time it steps outside its own base traps it there at five health.
  const darkness=Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500)
- if(observation.health<=10&&(hostileNear||observation.shelterAvailable===true&&observation.sheltered!==true&&darkness))return 'Health is at or below half'
+ if(observation.health<=10&&observation.sheltered!==true&&(hostileNear||observation.shelterAvailable===true&&darkness))return HEALTH_EMERGENCY
  if(Number.isFinite(observation.food)&&observation.food<=6&&(observation.carriedFood||[]).length)return 'Food is critically low'
- if(observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=(t.name==='creeper'?16:10)))return THREAT_INTERRUPTION
+ // Inside a verified closed lit shelter the answer to a nearby hostile is already
+ // in place; interrupting there only retreats into the room the bot is standing in.
+ if(observation.sheltered!==true&&observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=(t.name==='creeper'?16:10)))return THREAT_INTERRUPTION
  // Out in the open after dusk with no built base: dig in before the crowd arrives.
  if(observation.shelterAvailable===false&&observation.difficulty&&observation.difficulty!=='peaceful'&&Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500))return NIGHT_EXPOSURE
  return null

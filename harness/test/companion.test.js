@@ -554,8 +554,8 @@ test('Stop after a rejected primary prevents fallback execution',async()=>{
 })
 
 import {THREAT_INTERRUPTION} from '../src/companion/hazard-clearance.js'
-test('only the first threat interruption of active work arms automatic continuation',async()=>{
- for(const [status,reason,used,review,expected] of [['running',THREAT_INTERRUPTION,false,false,1],['blocked',THREAT_INTERRUPTION,false,false,0],['running','Health is at or below half',false,false,0],['running',THREAT_INTERRUPTION,true,false,0],['running',THREAT_INTERRUPTION,false,true,0]]){
+test('a threat or health interruption of active work arms automatic continuation, once per episode',async()=>{
+ for(const [status,reason,used,review,expected] of [['running',THREAT_INTERRUPTION,false,false,1],['blocked',THREAT_INTERRUPTION,false,false,0],['running','Health is at or below half',false,false,1],['running',THREAT_INTERRUPTION,true,false,0],['running',THREAT_INTERRUPTION,false,true,0]]){
   const [r,c]=setup(async()=>({reply:'',steps:[]}));r.bot.food=20;c.projects.base={};c.requestProgress={id:'saved',request:'supplies',status,safetyContinuations:used?[{}]:[]};if(review)r.task={consumption:{uncertain:true}}
   c.execute=async()=>{r.task={result:{receipt:'sheltered_door_closed'}}};let armed=0;c.continueAfterClearance=async()=>armed++
   await c.seekSafety(reason);assert.equal(armed,expected)

@@ -4,7 +4,7 @@ import {shelteredObservation} from '../retreat.js'
 import {setTimeout as delay} from 'node:timers/promises'
 const SAFETY_RETRIES=3
 const NIGHT_HOLD_MS=14*60*1000
-import {survivalObservation,emergencyReason,WATER_EMERGENCY,NIGHT_EXPOSURE} from '../survival.js'
+import {survivalObservation,emergencyReason,WATER_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY} from '../survival.js'
 import {burrowClearance} from '../burrow.js'
 import {defenseDecision,combatClearance,DEFENDABLE_MOBS} from '../combat.js'
 import {projectFootprints} from '../site-survey.js'
@@ -215,13 +215,15 @@ export class Teammate extends EventEmitter {
       if(['burrow','hut'].includes(this.safety.retreat.shelterName)){
         this.safety.status='burrowed';this.phase='blocked';this.persist()
         this.say((this.safety.retreat.shelterName==='hut'?'I am walled in.':this.safety.retreat.capped?'I am dug in below the surface with the shaft capped.':'I am dug in below the surface; no cap block was available.')+' I will wait for daylight and a clear area before opening up.')
-        await this.waitInBurrow(epoch,abort.signal,recoveryBot,interruptedActiveRequest&&[THREAT_INTERRUPTION,NIGHT_EXPOSURE].includes(reason))
+        await this.waitInBurrow(epoch,abort.signal,recoveryBot,interruptedActiveRequest&&[THREAT_INTERRUPTION,NIGHT_EXPOSURE,HEALTH_EMERGENCY].includes(reason))
         return
       }
       const food=survivalObservation(this.runner.bot).carriedFood[0]
       if(this.runner.bot.food<20&&food){await this.execute({action:'eat',goal:{item:food.name,count:Math.min(8,food.count)},timeoutMs:30000},abort.signal);if(epoch!==this.epoch)return;this.safety.eating=structuredClone(this.runner.task.result)}
       this.safety.status='sheltered';this.phase=this.requestProgress?.status==='interrupted'?'blocked':'ready'
-      const eligible=interruptedActiveRequest&&reason===THREAT_INTERRUPTION&&canResume(this.requestProgress)&&canContinueAfterSafety(this.requestProgress)
+      // A health retreat deserves the same watch-and-continue as a threat retreat;
+      // otherwise every hurt evening ends the request until an operator resumes it.
+      const eligible=interruptedActiveRequest&&[THREAT_INTERRUPTION,HEALTH_EMERGENCY].includes(reason)&&canResume(this.requestProgress)&&canContinueAfterSafety(this.requestProgress)
       this.say('I reached '+(this.safety.retreat.shelterName||'the lit base')+' and closed the door. '+(eligible?'I will watch for a clear area before continuing your request.':this.requestProgress?.status==='interrupted'?'Your request is paused; Resume will re-observe and continue.':'Waiting for your next instruction.'))
       if(eligible)await this.continueAfterClearance(epoch,abort.signal,recoveryBot)
 

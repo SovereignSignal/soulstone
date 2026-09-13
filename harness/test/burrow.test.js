@@ -303,6 +303,16 @@ test('low health interrupts work only when there is something to do about it, ne
  assert.equal(emergencyReason({...base,shelterAvailable:true,sheltered:true}),null,'resting inside with no food: healing needs food, not another retreat')
  assert.equal(emergencyReason({...base,timeOfDay:13000,shelterAvailable:true,sheltered:false}),'Health is at or below half','night outside a lit base is worth going home for')
  assert.equal(emergencyReason({...base,timeOfDay:13000,shelterAvailable:true,sheltered:true}),null,'already home for the night')
- assert.equal(emergencyReason({...base,shelterAvailable:true,sheltered:true,nearbyThreats:[{name:'zombie',risk:'potential_hostile',distance:6}]}),'Health is at or below half','a threat still interrupts, day or night')
+ assert.equal(emergencyReason({...base,shelterAvailable:true,sheltered:true,nearbyThreats:[{name:'zombie',risk:'potential_hostile',distance:6}]}),null,'inside the closed lit base, a hostile outside needs no further retreat')
+ assert.equal(emergencyReason({...base,shelterAvailable:true,sheltered:false,nearbyThreats:[{name:'zombie',risk:'potential_hostile',distance:6}]}),'Health is at or below half','outside with a hostile near, day or night')
  assert.equal(emergencyReason({...base,shelterAvailable:false,sheltered:false}),null,'no shelter and no threat: the planner keeps working')
+})
+
+test('a verified closed lit shelter answers a nearby hostile by itself; no emergency retreats into the room the bot stands in',()=>{
+ const base={gameMode:'survival',health:20,food:20,difficulty:'normal',headSubmerged:false,oxygen:20,carriedFood:[],timeOfDay:13000,shelterAvailable:true}
+ const zombie=[{name:'zombie',risk:'potential_hostile',distance:8}]
+ assert.equal(emergencyReason({...base,nearbyThreats:zombie,sheltered:false}),THREAT_INTERRUPTION,'outside, a close hostile still interrupts')
+ assert.equal(emergencyReason({...base,nearbyThreats:zombie,sheltered:true}),null,'inside the closed lit base, staying put is the answer')
+ assert.equal(emergencyReason({...base,health:6,nearbyThreats:zombie,sheltered:true}),null,'hurt and inside: no retreat into the same room')
+ assert.equal(emergencyReason({...base,health:6,nearbyThreats:zombie,sheltered:false}),'Health is at or below half','hurt and outside with a hostile near')
 })
