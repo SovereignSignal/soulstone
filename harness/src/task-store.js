@@ -20,6 +20,7 @@ export function validateGoal(goal) {
 }
 export function validateTaskGoal(kind, goal) {
   if(['surface','burrow','hut','unhut'].includes(kind))return {}
+  if(kind==='sleep')return goal?.project?{project:goal.project}:{}
   if(kind==='climb')return {}
   if(kind==='flee')return validateFleeGoal(goal)
   if(kind==='hunt')return validateHuntGoal(goal)

@@ -4,6 +4,7 @@ import {burrowIn,unburrow} from './burrow.js'
 import {wallIn,unwall} from './hut.js'
 import {fleeFrom} from './flee.js'
 import {climbSkill} from './route-recovery.js'
+import {sleepThroughNight} from './sleep.js'
 import {huntFor} from './hunt.js'
 import {defendAgainstMob} from './combat.js'
 import {EXPEDITION_ACTIONS} from './prospecting.js'
@@ -29,6 +30,7 @@ export async function executeSkill(bot, task, context) {
   if(task.kind==='unhut')return unwall(bot,task,context)
   if(task.kind==='flee')return fleeFrom(bot,task,context)
   if(task.kind==='climb')return climbSkill(bot,task,context)
+  if(task.kind==='sleep')return sleepThroughNight(bot,task,context)
   if(task.kind==='hunt')return huntFor(bot,task,context)
   if(task.kind==='defend')return defendAgainstMob(bot,task,context)
   if(task.kind==='eat')return eatFood(bot,task,context)

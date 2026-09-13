@@ -16,13 +16,13 @@ import { guardIntent } from './intent.js'
 
 export const schema = { type: 'object', additionalProperties: false, required: ['reply', 'steps'], properties: {
   reply: { type: 'string' }, steps: { type: 'array', maxItems: 8, items: { type: 'object', additionalProperties: false,
-    required: ['action', 'name', 'count', 'item','design'], properties: { action: { type: 'string', enum: ['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest','hunt',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS] },
+    required: ['action', 'name', 'count', 'item','design'], properties: { action: { type: 'string', enum: ['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest','hunt','sleep',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS] },
       name: { type: 'string' }, count: { type: 'integer' }, item: { type: 'string' }, design:{type:'array',items:{type:'object',additionalProperties:false,required:['x','y','z','x2','y2','z2','block'],properties:{x:{type:'integer'},y:{type:'integer'},z:{type:'integer'},x2:{type:'integer'},y2:{type:'integer'},z2:{type:'integer'},block:{type:'string'}}}} } } }
 } }
 export function validatePlan(value) {
   if (!value || typeof value.reply !== 'string' || value.reply.length > 1000 || !Array.isArray(value.steps) || value.steps.length > 8) throw new Error('Model returned an invalid plan')
   const steps = value.steps.flatMap((s, i) => {
-    if (!s || !['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest','hunt',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action)) throw new Error('Unsupported model action')
+    if (!s || !['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest','hunt','sleep',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action)) throw new Error('Unsupported model action')
     if(s.action==='harvest')validateHarvest(s)
     if(s.action==='hunt')validateHuntGoal(s)
     if(s.action==='eat')validateEatGoal(s)
