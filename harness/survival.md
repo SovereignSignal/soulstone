@@ -204,3 +204,10 @@ Fixed in bundle 82:
 - **The ore search budget was kept forever**, retiring an ore permanently across the whole life of a base; it now resets when the search moves.
 - **The bed was placed in the doorway.** The filter excluded the approach cells, which are outside the walls, so it excluded nothing. The doorway mouth is now preferred clear, falling back to it only in a starter hut too small to avoid it.
 - **A contract already satisfied at submission was only refused when a review criterion happened to be present**, so a purely checkable already-true contract still reported success without work.
+
+Four more findings from the same audit, dropped by the verification cap and checked by hand afterwards, are fixed in bundle 83:
+
+- **A blocked bearing was treated as nowhere to run.** Fleeing aimed at one point directly away and gave up at zero movement if a wall, a cliff or water stood on that line; the family session logged five such flights. It now fans out through seven bearings at full and half distance, stops as soon as it has gained four blocks, and reports how many directions it tried.
+- **A standable neighbouring column had to be the literal block `air`**, so cave air, grass and flowers disqualified every cave and meadow cell the burrow could otherwise have moved to.
+- **The bed was placed into the cell the bot was standing on.** `GoalNear` with range one is already satisfied while standing on the target, and a block cannot be placed into the space you occupy; the agent now steps aside first.
+- **A torch inside a fallback shelter disqualified it.** The interior check rejected anything that was neither a full cube nor air, which is every furnishing that makes the room usable. Only real hazards disqualify it now.

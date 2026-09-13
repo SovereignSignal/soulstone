@@ -59,7 +59,10 @@ export function findBurrowColumn(bot){
  const feet=bot.entity.position.floored(),reasons=[here.reason]
  for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]]){
   const o=feet.offset(dx,0,dz)
-  const standable=bot.blockAt(o)?.name==='air'&&bot.blockAt(o.offset(0,1,0))?.name==='air'&&solid(bot,bot.blockAt(o.offset(0,-1,0)))
+  // Cave air, grass and flowers are all standable; demanding the literal name
+  // 'air' rejected every cave and meadow cell the bot could have dug from.
+  const passable=b=>!!b&&(b.name==='air'||b.name==='cave_air'||b.boundingBox==='empty'&&!LIQUID.has(b.name))
+  const standable=passable(bot.blockAt(o))&&passable(bot.blockAt(o.offset(0,1,0)))&&solid(bot,bot.blockAt(o.offset(0,-1,0)))
   if(!standable)continue
   const site=burrowSite(bot,o);if(site.ok)return {site,move:o}
   reasons.push(site.reason)

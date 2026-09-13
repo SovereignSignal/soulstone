@@ -23,14 +23,33 @@ export async function fleeFrom(bot,task,{check,stage,progress,movements}){
  check()
  if(!(bot.food>6))throw new Error('Too hungry to sprint')
  const start=bot.entity.position.clone(),target=fleeTarget(start,from,distance)
+ // A wall, water or a cliff on the straight line away is not "nowhere to run".
+ // Fan out from directly-away through wider bearings and shorter hops before
+ // giving up; five flights failed at zero movement in one live session.
+ const away=Math.atan2(start.z-from.z,start.x-from.x)
+ const bearings=[]
+ for(const reach of [distance,Math.max(8,Math.round(distance/2))])
+  for(const turn of [0,Math.PI/4,-Math.PI/4,Math.PI/2,-Math.PI/2,3*Math.PI/4,-3*Math.PI/4])
+   bearings.push({x:Math.round(start.x+Math.cos(away+turn)*reach),z:Math.round(start.z+Math.sin(away+turn)*reach)})
  const movement=new DoorAwareMovements(bot)
  Object.assign(movement,{canDig:false,allow1by1towers:false,allowParkour:false,allowSprinting:true,scafoldingBlocks:[],maxDropDown:2})
  stage('fleeing');progress(`Sprinting away from the threat toward ${target.x},${target.z}`)
  bot.pathfinder.setMovements(movement);bot.setControlState('sprint',true)
- const timer=setTimeout(()=>bot.pathfinder.setGoal(null),12000)
- try{await bot.pathfinder.goto(new goals.GoalXZ(target.x,target.z))}catch{}finally{clearTimeout(timer);bot.setControlState('sprint',false);bot.pathfinder.setGoal(null);if(movements)bot.pathfinder.setMovements(movements)}
+ let tried=0
+ try{
+  const deadline=Date.now()+20000
+  for(const to of bearings){
+   check();tried++
+   const timer=setTimeout(()=>bot.pathfinder.setGoal(null),Math.max(2000,Math.min(12000,deadline-Date.now())))
+   try{await bot.pathfinder.goto(new goals.GoalXZ(to.x,to.z))}catch{}finally{clearTimeout(timer);bot.pathfinder.setGoal(null)}
+   check()
+   if(bot.entity.position.distanceTo(start)>=4)break
+   if(Date.now()>=deadline)break
+   if(tried===1)progress('That way is blocked; trying another direction')
+  }
+ }finally{bot.setControlState('sprint',false);bot.pathfinder.setGoal(null);if(movements)bot.pathfinder.setMovements(movements)}
  check()
  const p=bot.entity.position,gained=Math.hypot(p.x-from.x,p.z-from.z)-Math.hypot(start.x-from.x,start.z-from.z)
- if(p.distanceTo(start)<2)throw new Error('No route away from here')
- return {item:'safety',count:1,receipt:'fled',moved:Math.round(p.distanceTo(start)),gained:Math.round(gained),position:{x:p.x,y:p.y,z:p.z}}
+ if(p.distanceTo(start)<2)throw new Error(`No route away from here after ${tried} directions`)
+ return {item:'safety',count:1,receipt:'fled',moved:Math.round(p.distanceTo(start)),gained:Math.round(gained),directions:tried,position:{x:p.x,y:p.y,z:p.z}}
 }

@@ -58,7 +58,16 @@ export async function sleepThroughNight(bot,task,{check,stage,progress}){
   const movement=new DoorAwareMovements(bot)
   Object.assign(movement,{canDig:false,allow1by1towers:false,allowParkour:false,allowSprinting:false,scafoldingBlocks:[],maxDropDown:1})
   bot.pathfinder.setMovements(movement)
-  await bot.pathfinder.goto(new goals.GoalNear(site.foot.x,site.foot.y,site.foot.z,1));check()
+  // GoalNear with range one is already satisfied while standing on the target
+  // cell, and a bed cannot be placed into the block the bot occupies.
+  const occupies=p=>bot.entity.position.floored().equals(p)
+  if(occupies(site.foot)||occupies(site.head)){
+   const stand=[site.foot.offset(-site.facing.x,0,-site.facing.z),site.head.offset(site.facing.x,0,site.facing.z)].find(p=>air(bot.blockAt(p))&&air(bot.blockAt(p.offset(0,1,0)))&&solid(bot.blockAt(p.offset(0,-1,0))))
+   if(!stand)throw new Error('No cell to stand in while placing the bed')
+   await bot.pathfinder.goto(new goals.GoalBlock(stand.x,stand.y,stand.z));check()
+  }
+  if(bot.entity.position.floored().equals(site.foot)||bot.entity.position.floored().equals(site.head))throw new Error('Still standing where the bed must go')
+  await bot.pathfinder.goto(new goals.GoalNear(site.foot.x,site.foot.y,site.foot.z,2));check()
   await bot.equip(carried,'hand');check()
   // The head extends the way the bot looks, so face the second cell before placing.
   if(bot.lookAt)await bot.lookAt(site.head.offset(.5,.5,.5),true)

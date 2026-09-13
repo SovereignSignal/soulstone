@@ -93,3 +93,23 @@ test('after sprinting clear of a daylight creeper the bot watches open ground an
  assert.equal(resumed,1);assert.equal(c.safety,null)
  assert.ok(said.some(t=>/sprinted clear and nothing is near me in daylight/.test(t)),said.join(' | '))
 })
+test('a blocked bearing is not nowhere to run: the flight fans out before giving up',async()=>{
+ const start=new Vec3(10.5,64,10.5)
+ const tried=[]
+ const bot={registry,game:{gameMode:'survival',difficulty:'normal'},time:{timeOfDay:6000},health:20,food:20,players:{},entities:{},
+  entity:{position:start.clone(),onGround:true},inventory:{items:()=>[]},blockAt:()=>({name:'dirt',boundingBox:'block'}),
+  setControlState(){},clearControlStates(){},
+  pathfinder:{setMovements(){},setGoal(){},async goto(g){
+   tried.push([g.x,g.z])
+   // Only the fourth bearing is walkable.
+   if(tried.length<4)throw Object.assign(new Error('No path'),{name:'NoPath'})
+   bot.entity.position=new Vec3(g.x+.5,64,g.z+.5)
+  }}}
+ const result=await fleeFrom(bot,{kind:'flee',goal:{from:{x:10,y:64,z:10},distance:24}},{check(){},stage(){},progress(){}})
+ assert.equal(result.receipt,'fled')
+ assert.equal(result.directions,4,'it tried four bearings before one worked')
+ assert.ok(result.moved>=4)
+ // When every bearing is blocked it still fails, and says how hard it tried.
+ const boxed={...bot,entity:{position:start.clone(),onGround:true},pathfinder:{setMovements(){},setGoal(){},async goto(){throw Object.assign(new Error('No path'),{name:'NoPath'})}}}
+ await assert.rejects(fleeFrom(boxed,{kind:'flee',goal:{from:{x:10,y:64,z:10},distance:24}},{check(){},stage(){},progress(){}}),/No route away from here after \d+ directions/)
+})

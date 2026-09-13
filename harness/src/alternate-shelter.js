@@ -32,7 +32,10 @@ export function inspectConstructionShelter(bot,shelter,{occupants=true}={}){
    const p=queue[i],k=p.toString();if(seen.has(k)||halves.some(q=>q.equals(p)))continue
    if(p.x<min.x||p.x>max.x||p.y<min.y||p.y>max.y||p.z<min.z||p.z>max.z)throw new Error('Fallback room is not enclosed')
    if(solid(p))continue
-   const b=bot.blockAt(p);if(!air(b)&&!b.name.endsWith('_bed'))throw new Error('Unsupported or hazardous fallback interior: '+b.name)
+   // Lights and other non-colliding furnishings are why the room is usable;
+   // only actual hazards disqualify it.
+   const HAZARD=new Set(['water','lava','fire','soul_fire','magma_block','cactus','sweet_berry_bush','powder_snow','campfire','soul_campfire'])
+   const b=bot.blockAt(p);if(!air(b)&&!b.name.endsWith('_bed')&&(HAZARD.has(b.name)||b.boundingBox!=='empty'))throw new Error('Unsupported or hazardous fallback interior: '+b.name)
    seen.set(k,p);if(seen.size>2048)throw new Error('Fallback room exceeds inspection bound')
    for(const d of directions)queue.push(p.offset(...d))
   }
