@@ -316,3 +316,38 @@ test('a verified closed lit shelter answers a nearby hostile by itself; no emerg
  assert.equal(emergencyReason({...base,health:6,nearbyThreats:zombie,sheltered:true}),null,'hurt and inside: no retreat into the same room')
  assert.equal(emergencyReason({...base,health:6,nearbyThreats:zombie,sheltered:false}),'Health is at or below half','hurt and outside with a hostile near')
 })
+
+test('a recovery that failed with nothing changed stops repeating, names every blocker once, and yields to the operator',async()=>{
+ const w=world('sandstone');w.bot.entities={1:{name:'zombie',position:new Vec3(14.5,64,10.5)}}
+ w.bot.inventory.items=()=>[]
+ const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov'
+ const commands=[]
+ runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'}
+  const reason=c.action==='retreat'?'Shelter access obstructed by birch_log at -656,66,626':c.action==='burrow'?'No safe burrow here: Only 2 diggable cells below':c.action==='hut'?'Cannot wall in here: Fewer than 10 placeable blocks carried':'No pit exit judged from here'
+  setTimeout(()=>{runner.task={...runner.task,status:'failed',reason};runner.emit('event',{type:'task_finished',task:runner.task})},1)}
+ runner.waitForIdle=async()=>{};runner.position=()=>({x:10,y:64,z:10})
+ const said=[]
+ const c={runner,projects:{base:{build:{origin:{x:0,y:64,z:0},design:[{x:0,y:0,z:0,block:'oak_planks'}]},stations:{torch:{position:{x:1,y:65,z:1},confirmed:true}},built:true}},
+  epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,unsafeSignature:null,burrowWait:{quietMs:20,limitMs:500},
+  say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
+  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,
+  moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
+  safetyBlockKey:Teammate.prototype.safetyBlockKey,unsafeAdvice:Teammate.prototype.unsafeAdvice,async resume(){}}
+ await c.seekSafety(THREAT_INTERRUPTION,{retries:3})
+ assert.equal(c.safety.status,'failed')
+ const advice=said.find(t=>/cannot make myself safe/.test(t))
+ assert.ok(advice,said.join(' | '))
+ assert.match(advice,/no pickaxe to dig in/)
+ assert.match(advice,/no blocks to wall in/)
+ assert.match(advice,/I need a pickaxe or ten building blocks/)
+ // Nothing has changed, so a second call must do nothing at all.
+ const before=commands.length,spoken=said.length
+ c.safety=null
+ await c.seekSafety(THREAT_INTERRUPTION,{retries:3})
+ assert.equal(commands.length,before,'no second round of shelter attempts')
+ assert.equal(said.length,spoken,'and no repeated message')
+ // A carried pickaxe changes the fingerprint, so the chain is allowed to try again.
+ w.bot.inventory.items=()=>[{name:'iron_pickaxe',count:1}]
+ await c.seekSafety(THREAT_INTERRUPTION,{retries:3})
+ assert.ok(commands.length>before,'a changed situation re-arms recovery')
+})

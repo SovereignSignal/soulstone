@@ -137,7 +137,12 @@ export async function executeSkill(bot, task, context) {
       }
       if (total() <= before) {
         skipped.add(block.position.toString()); skippedColumns.add(`${block.position.x},${block.position.z}`)
-        if (++stalled >= 12) throw new Error(`no reachable ${resourceLabel(item)} after checking 12 targets; carrying ${total()}/${count}`)
+        if (++stalled >= 12) {
+          // Trees can be visible and unreachable: fenced off, built over, across
+          // water. Walk somewhere else and look there before giving up.
+          if (legs < 8) { progress(`Twelve unreachable ${resourceLabel(item)} here; looking somewhere else`); await explore(); stalled = 0; continue }
+          throw new Error(`no reachable ${resourceLabel(item)} after checking 12 targets from ${legs + 1} places; carrying ${total()}/${count}`)
+        }
       } else stalled = 0
     }
   }

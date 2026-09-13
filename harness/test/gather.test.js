@@ -58,3 +58,18 @@ test('exploration for trunks is bounded and ends with an explicit blocker',async
  await assert.rejects(executeSkill(bot,{kind:'gather',goal:{item:'logs',count:1}},{check(){},progress(){},stage(){},movements:{}}),/no logs within 48 blocks after exploring 8 legs/)
  assert.deepEqual(walked,[[32,0],[0,32],[-32,0],[0,-32],[64,0],[0,64],[-64,0],[0,-64]])
 })
+test('twelve unreachable trunks send the bot somewhere else instead of ending the job',async()=>{
+ const walked=[],messages=[]
+ let here=new Vec3(0,64,0)
+ // Fifteen distinct trunks are always in view and none can be reached.
+ const bot={registry:{blocksByName:{spruce_log:{id:1}}},inventory:{items:()=>[]},entity:{position:here},
+  findBlocks:()=>Array.from({length:15},(_,i)=>here.offset(5+i,0,3)),blockAt:position=>({position,name:'spruce_log'}),
+  canDigBlock:()=>false,tool:{async equipForBlock(){}},dig:async()=>{},
+  pathfinder:{setGoal(){},setMovements(){},async goto(goal){
+   if(goal.y===undefined&&goal.x!==undefined&&goal.z!==undefined){walked.push([goal.x,goal.z]);here=new Vec3(goal.x,64,goal.z);bot.entity.position=here;return}
+   throw Object.assign(new Error('No path'),{name:'NoPath'})
+  }}}
+ await assert.rejects(executeSkill(bot,{kind:'gather',goal:{item:'logs',count:1}},{check(){},progress:m=>messages.push(m),stage(){},movements:{},gatheringMovements:{}}),/no (reachable )?logs/)
+ assert.ok(messages.some(m=>/Twelve unreachable logs here; looking somewhere else/.test(m)),'it announced the move: '+messages.slice(-3).join(' | '))
+ assert.ok(walked.length>0,'and it actually walked somewhere new')
+})

@@ -1,6 +1,7 @@
 import {THREAT_INTERRUPTION,clearanceObservation,awaitClearance,openGroundClearance} from './hazard-clearance.js'
 import {alternativeShelters,occupiedAlternative} from '../alternate-shelter.js'
-import {shelteredObservation} from '../retreat.js'
+import {shelteredObservation,inspectRetreatShelter} from '../retreat.js'
+import {fullCube} from '../construction.js'
 import {setTimeout as delay} from 'node:timers/promises'
 const SAFETY_RETRIES=3
 const NIGHT_HOLD_MS=14*60*1000
@@ -103,12 +104,47 @@ export class Teammate extends EventEmitter {
     const active=this.requestProgress?.status==='running';this.cancel(false,'interrupted')
     if(active){this.requestProgress.status='interrupted';this.requestProgress.reviewRequired=interruptedEffect(this.runner.task);this.requestProgress.blocker=this.requestProgress.reviewRequired||reason;this.persist()}
   }
+  // What could change the outcome of a failed recovery: the tools and blocks it
+  // would need, whether the base is usable, and whether anything is hunting it.
+  safetyBlockKey() {
+    const b=this.runner.bot,items=b?.inventory?.items?.()||[]
+    const placeable=items.filter(i=>fullCube(b?.registry,i.name)).reduce((n,i)=>n+i.count,0)
+    const base=this.projects.base
+    let shelter='none'
+    if(base){try{shelter=shelteredObservation(b,base).passed?'inside':inspectRetreatShelter(b,base,{occupants:true})?'usable':'unusable'}catch(error){shelter=String(error.message).slice(0,60)}}
+    const s=survivalObservation(b)
+    return JSON.stringify({pickaxe:items.some(i=>/_pickaxe$/.test(i.name)),placeable:Math.min(placeable,16),shelter,
+      hostile:(s.nearbyThreats||[]).some(t=>t.risk==='potential_hostile'&&t.distance<=16),health:Math.round((s.health??0)/4),food:(s.carriedFood||[]).length>0})
+  }
+  // One plain sentence naming each blocker and what would clear it, instead of
+  // four generic lines per attempt repeated until the operator gives up.
+  unsafeAdvice(attempts=[]) {
+    const say=[],items=this.runner.bot?.inventory?.items?.()||[]
+    for(const a of attempts){
+      if(a.status!=='rejected'||!a.reason)continue
+      if(a.name==='base')say.push(`the base is not usable (${a.reason})`)
+      else if(a.name==='burrow')say.push(items.some(i=>/_pickaxe$/.test(i.name))?`digging in failed (${a.reason})`:'I have no pickaxe to dig in')
+      else if(a.name==='hut')say.push(/Fewer than/.test(a.reason)?'I have no blocks to wall in with':`walling in failed (${a.reason})`)
+      else if(a.name==='move')say.push('there was nowhere to move to')
+      else say.push(`${a.name}: ${a.reason}`)
+    }
+    const needs=[]
+    if(!items.some(i=>/_pickaxe$/.test(i.name)))needs.push('a pickaxe')
+    if(items.filter(i=>fullCube(this.runner.bot?.registry,i.name)).reduce((n,i)=>n+i.count,0)<10)needs.push('ten building blocks')
+    if(attempts.some(a=>a.name==='base'&&a.status==='rejected'))needs.push('the base doorway clear and its walls whole')
+    return (say.length?say.join('; '):'nothing here worked')+(needs.length?`. I need ${needs.join(' or ')}.`:'')
+  }
   async seekSafety(reason,{retries=0}={}) {
     if(this.safety&&(reason!==WATER_EMERGENCY||this.safety.reason===WATER_EMERGENCY||this.safety.status==='cancelled'))return
+    // A recovery that already failed, with nothing changed that could make it
+    // succeed, must not run again: it produces the same messages and no safety,
+    // and it preempts every instruction the operator types in the meantime.
+    if(reason!==WATER_EMERGENCY&&this.unsafeSignature?.reason===reason&&this.unsafeSignature.key===this.safetyBlockKey())return
     const interruptedActiveRequest=this.requestProgress?.status==='running'
     const previousFollow=this.runner.task?.kind==='follow'&&this.runner.task.status==='running'?this.runner.task.goal.player:null
     this.interrupt('Safety interruption: '+reason)
     const epoch=this.epoch,abort=this.abort=new AbortController()
+    this.unsafeSignature=null
     this.safety={status:'retreating',reason,startedAt:new Date().toISOString(),retries};this.phase='retreating'
     this.say(reason+'. '+(reason===WATER_EMERGENCY?'I am stopping work and swimming up for air.':reason===THREAT_INTERRUPTION?'I am pausing work and assessing self-defense.':'I am pausing work and looking for a verified lit shelter.'))
     try{
@@ -227,7 +263,14 @@ export class Teammate extends EventEmitter {
       this.say('I reached '+(this.safety.retreat.shelterName||'the lit base')+' and closed the door. '+(eligible?'I will watch for a clear area before continuing your request.':this.requestProgress?.status==='interrupted'?'Your request is paused; Resume will re-observe and continue.':'Waiting for your next instruction.'))
       if(eligible)await this.continueAfterClearance(epoch,abort.signal,recoveryBot)
 
-    }catch(error){if(epoch!==this.epoch)return;this.safety.status='failed';this.safety.error=error.message;this.safety.failedAt=Date.now();this.phase='blocked';this.activity='';this.say('Safety recovery failed: '+error.message+(this.safety.retries<SAFETY_RETRIES?'. I will try again in a few seconds if the danger persists.':'. I have stopped; safety is not established.'))}
+    }catch(error){
+      if(epoch!==this.epoch)return
+      this.safety.status='failed';this.safety.error=error.message;this.safety.failedAt=Date.now();this.phase='blocked';this.activity=''
+      const last=this.safety.retries>=SAFETY_RETRIES
+      if(last){this.unsafeSignature={reason,key:this.safetyBlockKey(),at:Date.now()};this.persist()}
+      this.say(last?`I cannot make myself safe here: ${this.unsafeAdvice(this.safety.attempts)} I have stopped trying and will stay where I am; tell me what to do, or change any of that and I will try again.`
+        :'Safety recovery failed: '+error.message+'. I will try again in a few seconds if the danger persists.')
+    }
     finally{if(epoch===this.epoch){this.abort=null;this.persist();this.emit('change')}}
   }
   async leaveOnOpenGround(epoch,signal,bot,interruptedActiveRequest) {
@@ -425,7 +468,7 @@ export class Teammate extends EventEmitter {
       this.say(text,'user');const r=this.requestProgress,check=r?.verification
       this.say(r?.status==='running'?`${r.goal?.summary||r.request}. ${this.activity||'Planning the next step'}.${check?` ${check.checks.filter(c=>c.passed).length}/${check.checks.length} goal checks passed.`:''}`:this.phase==='blocked'?`Blocked: ${r?.blocker||'Waiting for a new instruction'}`:'Ready for your next instruction.');return
     }
-    this.cancel(['thinking', 'acting','retreating','defending'].includes(this.phase)); this.safety=null; const epoch = this.epoch; const abort = this.abort = new AbortController()
+    this.cancel(['thinking', 'acting','retreating','defending'].includes(this.phase)); this.safety=null; this.unsafeSignature=null; const epoch = this.epoch; const abort = this.abort = new AbortController()
     const history = this.messages.slice(-12); this.say(continuation?(automatic?'Automatically continuing the saved request: ':'Resume the saved request: ')+text:text, automatic?'assistant':'user'); this.phase = 'thinking'; this.emit('change')
     const episode = this.episode = this.recorder?.start({ request: text, model: this.planner.model, profile: this.runner.profile, minecraftVersion: this.runner.bot?.version || null })
     this.requestProgress=continuation||{id:randomUUID(),request:text,completed:[],pending:[],feedback:[],rounds:0};this.requestProgress.status='running';this.requestProgress.blocker=null
