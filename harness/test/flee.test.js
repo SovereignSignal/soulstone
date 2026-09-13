@@ -71,3 +71,25 @@ test('in daylight a lone zombie the bot cannot strike is left behind on open gro
  assert.deepEqual(followed.filter(a=>a!=='stop'),['flee','burrow','unburrow'],followed.join(','))
  assert.ok(said.some(t=>/followed me into the open/.test(t)),said.join(' | '))
 })
+
+test('after sprinting clear of a daylight creeper the bot watches open ground and continues, instead of trekking back to base',async()=>{
+ const bot={registry,game:{gameMode:'survival',difficulty:'normal'},time:{timeOfDay:3000},health:18,food:17,players:{},entity:{position:new Vec3(10.5,64,10.5),onGround:true},inventory:{items:()=>[]},
+  entities:{1:{id:1,name:'creeper',type:'hostile',position:new Vec3(24.5,64,10.5)}},blockAt:()=>({name:'dirt',boundingBox:'block'})}
+ const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov'
+ const commands=[]
+ runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'}
+  if(c.action==='flee')bot.entities={}
+  const result=c.action==='flee'?{receipt:'fled',moved:24,gained:24}:{}
+  setTimeout(()=>{runner.task={...runner.task,status:'completed',result};runner.emit('event',{type:'task_finished',task:runner.task})},1)}
+ runner.waitForIdle=async()=>{};runner.position=()=>({x:10,y:64,z:10})
+ const said=[];let resumed=0
+ const c={runner,projects:{base:{build:{origin:{x:0,y:64,z:0}},stations:{torch:{position:{x:1,y:65,z:1},confirmed:true}},built:true}},epoch:1,abort:null,phase:'acting',activity:'',
+  requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,openGroundWait:{quietMs:20,limitMs:2000},
+  say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
+  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
+  async resume(){resumed++;this.requestProgress.status='running'}}
+ await c.seekSafety(THREAT_INTERRUPTION)
+ assert.deepEqual(commands.filter(a=>a!=='stop'),['flee'],commands.join(','))
+ assert.equal(resumed,1);assert.equal(c.safety,null)
+ assert.ok(said.some(t=>/sprinted clear and nothing is near me in daylight/.test(t)),said.join(' | '))
+})

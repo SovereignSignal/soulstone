@@ -228,11 +228,18 @@ export class Teammate extends EventEmitter {
   }
   async leaveOnOpenGround(epoch,signal,bot,interruptedActiveRequest) {
     const s=survivalObservation(bot),near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=16),lone=near.length===1?near[0]:null
-    if(!lone||!DEFENDABLE_MOBS.has(lone.name)||!(s.timeOfDay>=1000&&s.timeOfDay<12000)||!(s.health>=12)||(this.safety.flights||[]).length>=2)return 'skipped'
-    this.safety.status='fleeing';this.phase='retreating'
-    this.say(`Daylight, with a lone ${lone.name} ${lone.distance} blocks away that I cannot strike. Moving to open ground instead of digging in.`)
-    try{await this.execute({action:'flee',goal:{from:lone.position,distance:24},timeoutMs:15000},signal);if(epoch!==this.epoch||signal.aborted)return 'cancelled';(this.safety.flights??=[]).push(structuredClone(this.runner.task.result));this.persist()}
-    catch(error){if(epoch!==this.epoch||signal.aborted)return 'cancelled';(this.safety.flights??=[]).push({failed:error.message});this.persist();return 'skipped'}
+    if(!(s.timeOfDay>=1000&&s.timeOfDay<12000)||!(s.health>=12))return 'skipped'
+    const flights=this.safety.flights||[],fled=flights.some(f=>!f.failed)
+    // Two ways to stay out here instead of trekking home: sprint clear of a lone
+    // mob this pass, or, having already sprinted (a creeper), find nothing in range.
+    const sprint=!fled&&lone&&DEFENDABLE_MOBS.has(lone.name)&&flights.length<2?lone:null
+    if(!sprint&&!(fled&&!near.length))return 'skipped'
+    if(sprint){
+      this.safety.status='fleeing';this.phase='retreating'
+      this.say(`Daylight, with a lone ${sprint.name} ${sprint.distance} blocks away that I cannot strike. Moving to open ground instead of digging in.`)
+      try{await this.execute({action:'flee',goal:{from:sprint.position,distance:24},timeoutMs:15000},signal);if(epoch!==this.epoch||signal.aborted)return 'cancelled';(this.safety.flights??=[]).push(structuredClone(this.runner.task.result));this.persist()}
+      catch(error){if(epoch!==this.epoch||signal.aborted)return 'cancelled';(this.safety.flights??=[]).push({failed:error.message});this.persist();return 'skipped'}
+    }else this.say('I sprinted clear and nothing is near me in daylight. Watching the area instead of walking back to base.')
     const request=this.requestProgress,safety=this.safety,connection=this.runner.connectionId
     const check=()=>{
       if(signal.aborted||epoch!==this.epoch||this.safety!==safety)throw new Error('Open-ground watch cancelled')
