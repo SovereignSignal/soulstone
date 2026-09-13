@@ -35,6 +35,10 @@ export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},move
  }
  const movement=new DoorAwareMovements(bot)
  Object.assign(movement,{canDig:false,allow1by1towers:false,allowParkour:false,allowSprinting:true,scafoldingBlocks:[],maxDropDown:2})
+ // Sprinting is for closing on an animal, never for the search: it burns the
+ // hunger the hunt exists to restore.
+ const searching=new DoorAwareMovements(bot)
+ Object.assign(searching,{canDig:false,allow1by1towers:false,allowParkour:false,allowSprinting:false,scafoldingBlocks:[],maxDropDown:2})
  bot.pathfinder.setMovements(movement)
  try{
   while(count()<total){
@@ -50,8 +54,9 @@ export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},move
     const [dx,dz]=[[HUNT_LEG,0],[0,HUNT_LEG],[-HUNT_LEG,0],[0,-HUNT_LEG]][(legs-1)%4],ring=Math.ceil(legs/4)
     const to={x:Math.round(start.x+dx*ring),z:Math.round(start.z+dz*ring)}
     stage('walking');progress(`No ${animals.join(' or ')} in sight; walking to look, leg ${legs} of ${HUNT_LEGS}`)
+    bot.pathfinder.setMovements(searching);bot.setControlState?.('sprint',false)
     const timer=setTimeout(()=>bot.pathfinder.setGoal(null),20000)
-    try{await bot.pathfinder.goto(new goals.GoalXZ(to.x,to.z))}catch{}finally{clearTimeout(timer);bot.pathfinder.setGoal(null)}
+    try{await bot.pathfinder.goto(new goals.GoalXZ(to.x,to.z))}catch{}finally{clearTimeout(timer);bot.pathfinder.setGoal(null);bot.pathfinder.setMovements(movement)}
     await delay(400);continue
    }
    const weapon=meleeWeapon(bot)

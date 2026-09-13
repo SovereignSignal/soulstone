@@ -61,3 +61,13 @@ test('an empty area ends the hunt after six legs, naming any other animals it fo
  assert.deepEqual(result.nearbyAnimals,['pig'])
  assert.ok(messages.some(m=>/after 6 exploring legs \(nearby animals: pig\)/.test(m)),messages.at(-1))
 })
+test('the search walk never sprints, since sprinting burns the hunger the hunt is meant to restore',async()=>{
+ const {bot}=fixture();bot.entities={}
+ const policies=[];let walks=0
+ bot.pathfinder.setMovements=m=>policies.push(m.allowSprinting)
+ bot.pathfinder.goto=async g=>{bot.entity.position=new Vec3(g.x,64,g.z);if(g.y===undefined)walks++}
+ await huntFor(bot,{kind:'hunt',goal:{item:'raw_beef',count:1}},{check(){},stage(){},progress(){},persist(){}})
+ assert.equal(walks,6)
+ assert.ok(policies.includes(false),'a non-sprinting policy is used for the search')
+ assert.equal(policies.at(-1),true,'the chase policy is restored afterwards')
+})
