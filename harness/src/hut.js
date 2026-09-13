@@ -6,7 +6,7 @@ import {setTimeout as delay} from 'node:timers/promises'
 import {fullCube} from './construction.js'
 export const HUT_BLOCKS=10
 const GRAVITY=new Set(['sand','red_sand','gravel','suspicious_sand','suspicious_gravel'])
-const REPLACEABLE=new Set(['air','short_grass','tall_grass','fern','large_fern','dead_bush','pink_petals','snow','seagrass','vine'])
+const REPLACEABLE=new Set(['air','cave_air','short_grass','tall_grass','fern','large_fern','dead_bush','pink_petals','snow','seagrass','vine'])
 const SIDES=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]
 const solid=(bot,b)=>!!b&&fullCube(bot.registry,b.name)
 const key=p=>`${p.x},${p.y},${p.z}`

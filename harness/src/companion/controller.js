@@ -40,7 +40,9 @@ export class Teammate extends EventEmitter {
     this.restoreBurrow=['burrow','hut'].includes(this.safety?.retreat?.shelterName)&&!!this.safety.retreat.surface&&!this.safety.exit
     // A request interrupted only by a service restart continues once on its own
     // after the bot is back in the world; a second restart needs a person.
-    this.restoreRequest=!this.restoreBurrow&&this.requestProgress?.status==='interrupted'&&/^Service restarted/.test(this.requestProgress.blocker||'')&&!this.requestProgress.reviewRequired&&!(this.requestProgress.restartContinuations>=1)
+    // The blocker string this used to match is written nine lines below, so it was
+    // always absent on the very restart it was meant to detect. Gate on the state.
+    this.restoreRequest=!this.restoreBurrow&&this.requestProgress?.status==='interrupted'&&!interruptedEffect(runner.task)&&!this.requestProgress.reviewRequired&&!(this.requestProgress.restartContinuations>=1)
     if(this.requestProgress?.status==='interrupted'&&this.requestProgress.inFlight?.taskId&&this.requestProgress.inFlight.taskId===runner.task?.id&&runner.task.status==='completed'){
       const {step,taskId}=this.requestProgress.inFlight,result=structuredClone(runner.task.result||null)
       if(!(this.requestProgress.feedback||[]).some(f=>f.taskId===taskId)){
@@ -218,7 +220,6 @@ export class Teammate extends EventEmitter {
         // starts swelling within three blocks. Sprint out of its reach first.
         for(let attempt=0;attempt<2;attempt++){
           const creeper=survivalObservation(recoveryBot).nearbyThreats.find(t=>t.name==='creeper'&&t.risk==='potential_hostile'&&t.distance<=16)
-          if(!creeper||!decision.engage===false&&decision.engage)break
           if(!creeper)break
           this.safety.status='fleeing';this.phase='retreating';this.say('A creeper is '+creeper.distance+' blocks away. Sprinting clear before sheltering.')
           try{await this.execute({action:'flee',goal:{from:creeper.position,distance:24},timeoutMs:15000},abort.signal);if(epoch!==this.epoch||abort.signal.aborted)return;(this.safety.flights??=[]).push(structuredClone(this.runner.task.result));this.persist()}
@@ -259,14 +260,22 @@ export class Teammate extends EventEmitter {
         if(epoch!==this.epoch||abort.signal.aborted)return
       }
       if(!this.safety.retreat)throw new Error('No verified shelter reached. '+this.safety.attempts.map(a=>a.name+': '+a.reason).join('; '))
+      // Eat once safe, whatever the shelter is. Burrowing answers mobs, not hunger,
+      // and a food emergency that only ever digs in re-fires every tick while the
+      // bot starves holding the food that would clear it.
+      {
+        const carried=survivalObservation(this.runner.bot).carriedFood[0]
+        if(this.runner.bot.food<20&&carried){
+          try{await this.execute({action:'eat',goal:{item:carried.name,count:Math.min(8,carried.count)},timeoutMs:30000},abort.signal);if(epoch!==this.epoch||abort.signal.aborted)return;this.safety.eating=structuredClone(this.runner.task.result)}
+          catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;this.safety.eating={failed:error.message}}
+        }
+      }
       if(['burrow','hut'].includes(this.safety.retreat.shelterName)){
         this.safety.status='burrowed';this.phase='blocked';this.persist()
         this.say((this.safety.retreat.shelterName==='hut'?'I am walled in.':this.safety.retreat.capped?'I am dug in below the surface with the shaft capped.':'I am dug in below the surface; no cap block was available.')+' I will wait for daylight and a clear area before opening up.')
         await this.waitInBurrow(epoch,abort.signal,recoveryBot,interruptedActiveRequest&&[THREAT_INTERRUPTION,NIGHT_EXPOSURE,HEALTH_EMERGENCY].includes(reason))
         return
       }
-      const food=survivalObservation(this.runner.bot).carriedFood[0]
-      if(this.runner.bot.food<20&&food){await this.execute({action:'eat',goal:{item:food.name,count:Math.min(8,food.count)},timeoutMs:30000},abort.signal);if(epoch!==this.epoch)return;this.safety.eating=structuredClone(this.runner.task.result)}
       this.safety.status='sheltered';this.phase=this.requestProgress?.status==='interrupted'?'blocked':'ready'
       // A health retreat deserves the same watch-and-continue as a threat retreat;
       // otherwise every hurt evening ends the request until an operator resumes it.
@@ -596,6 +605,7 @@ export class Teammate extends EventEmitter {
               let command
               if(step.action==='gather')command={action:'gather',goal:{item:step.item||'oak_log',count:step.count},timeoutMs:180000}
               else if(['acquire','prepare','eat','harvest','hunt'].includes(step.action))command={action:step.action,goal:{item:step.item,count:step.count},timeoutMs:600000}
+              else if(step.action==='sleep')command={action:'sleep',goal:this.projects.base?{project:structuredClone(this.projects.base)}:{},timeoutMs:180000}
               else if(step.action==='give')command={action:'give',goal:{item:step.item,count:step.count-deliveredCount(feedback,step.item)},timeoutMs:30000}
               else if([...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(step.action)){
                 const occupied=step.action==='leave_base'?occupiedAlternative(this.runner.bot,this.projects):null
@@ -630,7 +640,7 @@ export class Teammate extends EventEmitter {
               await this.execute(command,abort.signal,id=>{requestTasks.add(id);this.requestProgress.inFlight={taskId:id,step};this.persist()})
             }
             if(epoch!==this.epoch)return
-            const result=['gather','acquire','build','construct','revise','give','eat','harvest','hunt',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(step.action)?structuredClone(this.runner.task?.result||null):null
+            const result=['gather','acquire','build','construct','revise','give','eat','harvest','hunt','sleep',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(step.action)?structuredClone(this.runner.task?.result||null):null
             feedback.push({action:step.action,step,taskId:this.requestProgress.inFlight?.taskId,status:'completed',result,inventory:this.snapshot().inventory,...(['build','construct','revise'].includes(step.action)?{task:structuredClone(this.runner.task)}:{})})
             this.requestProgress.completed.push({step,result,taskId:this.requestProgress.inFlight?.taskId});this.requestProgress.inFlight=null;this.requestProgress.pending=plan.steps.slice(i+1);this.requestProgress.blocker=null;this.persist()
             episode?.write('action_result', { round, stepIndex: i, step, outcome: feedback.at(-1), evidence: step.action==='follow'?'Follow started; continued proximity is not independently verified.':'Executor/client observation; no independent server verification.' })

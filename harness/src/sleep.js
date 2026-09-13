@@ -21,14 +21,24 @@ export function bedSite(bot,project){
  const o=point(build.origin),layout=shelterLayout(build.design)
  const reserved=Object.values(project.stations||{}).map(s=>`${s.position.x},${s.position.y},${s.position.z}`)
  const free=p=>air(bot.blockAt(p))&&air(bot.blockAt(p.offset(0,1,0)))&&solid(bot.blockAt(p.offset(0,-1,0)))&&!reserved.includes(`${p.x},${p.y},${p.z}`)
- const approach=new Set(layout.approach.map(p=>`${o.x+p.x},${o.z+p.z}`))
- const cells=layout.inside.map(p=>o.plus(p)).filter(p=>!approach.has(`${p.x},${p.z}`))
- for(const foot of cells)for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]){
-  const head=foot.offset(dx,0,dz)
-  if(!cells.some(c=>c.equals(head)))continue
-  if(free(foot)&&free(head))return {foot,head,facing:new Vec3(dx,0,dz)}
+ // The approach cells are outside the walls, so filtering on them excluded
+ // nothing. What must stay clear is the doorway mouth inside the room and the
+ // cell behind it, or the bed blocks the only way in and out.
+ const mouth=layout.door.minus(layout.out)
+ const doorway=new Set([mouth,mouth.minus(layout.out)].map(p=>`${o.x+p.x},${o.z+p.z}`))
+ const inside=layout.inside.map(p=>o.plus(p))
+ const pair=cells=>{
+  for(const foot of cells)for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]){
+   const head=foot.offset(dx,0,dz)
+   if(!cells.some(c=>c.equals(head)))continue
+   if(free(foot)&&free(head))return {foot,head,facing:new Vec3(dx,0,dz)}
+  }
+  return null
  }
- return null
+ // Keep the doorway clear when the room allows it. A four-by-four starter hut
+ // has four interior cells and one holds the torch, so insisting on it would
+ // mean never sleeping at all; there, the doorway cells are used.
+ return pair(inside.filter(p=>!doorway.has(`${p.x},${p.z}`)))||pair(inside)
 }
 export async function sleepThroughNight(bot,task,{check,stage,progress}){
  check()

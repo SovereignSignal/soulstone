@@ -176,7 +176,12 @@ export async function executeExpedition(bot,task,api){
    if(!target){
     // Advance through loaded terrain in bounded sectors. Moving opens more
     // client chunks; later surveys never rely on server-side ore queries.
-    state.searchSteps??={};const n=state.searchSteps[item]||0
+    // The budget bounds one search from one place. Kept forever it retires the
+    // ore permanently, so a base moved or a new frontier resets it.
+    state.searchSteps??={}
+    const here=`${Math.round(centre.x/32)},${Math.round(centre.z/32)}`
+    if(state.searchOrigin!==here){state.searchOrigin=here;state.searchSteps={}}
+    const n=state.searchSteps[item]||0
     if(n>=16){outcome='Sixteen exploration sectors exhausted';break}
     state.searchSteps[item]=n+1;exploring=true
     const [dx,dz]=[[24,0],[0,24],[-24,0],[0,-24]][Math.floor(n/4)%4]

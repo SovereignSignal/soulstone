@@ -45,6 +45,11 @@ export function burrowSite(bot,origin=bot.entity?.position?.floored()){
  }
  const floor=feet.offset(0,-cells.length-1,0)
  if(!solid(bot,bot.blockAt(floor)))return {ok:false,reason:'No solid floor below the burrow'}
+ // Sand and gravel are diggable but cannot be climbed on or capped with, so a
+ // sand column entombs the bot in an open shaft: the entry approves material
+ // every exit refuses. Require something to climb out on before digging in.
+ const loose=cells.every(c=>GRAVITY.has(bot.blockAt(c)?.name))
+ if(loose&&climbBlocks(bot)<cells.length)return {ok:false,reason:`Loose ${bot.blockAt(cells[0])?.name} column and only ${climbBlocks(bot)} solid blocks carried; ${cells.length} are needed to climb back out`}
  return {ok:true,surface:feet,cells,cap:cells[0]}
 }
 // Spawn points sit on uneven ground: when the column underfoot fails, try the

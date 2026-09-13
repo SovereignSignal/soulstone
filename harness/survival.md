@@ -184,3 +184,23 @@ Gathering had the matching problem: it explored only when nothing was in sight, 
 ## Armour
 
 The agent wore nothing at all until bundle 78. One family session cost fourteen deaths and four hundred hearts of damage, ten of those deaths to zombies. Before every ordinary skill it now equips the best protective piece it carries for each of head, torso, legs and feet: better material wins (leather, gold, chainmail, iron, turtle, diamond, netherite), and between equals the one with more durability left. It never downgrades, and it never pauses to change clothes during `defend`, `flee`, `surface` or `climb`, where the delay is the wrong instinct. A refused equip is ignored rather than failing the task. Acquiring the armour is ordinary work the planner already knows: leather comes from hunting cows, iron from mining and smelting.
+
+## The unsatisfiable-rule audit
+
+A parallel audit of the harness on 13 September, six readers hunting two specific failure shapes and one skeptic per finding, confirmed fourteen distinct defects and refuted two. The shapes: a guard whose precondition can never become true from the state that triggers it, and code that reads a value the runtime never produces. Several explained live failures from the same morning.
+
+Fixed in bundle 82:
+
+- **Burrowing into sand or gravel entombed the bot.** The entry accepted loose columns because they dig easily; every exit refused them, because gravity blocks cannot be climbed on or capped with. The agent died in exactly one of these, shot down its own open shaft by pillagers. A loose column is now refused unless the bot carries enough solid blocks to climb back out.
+- **A food emergency was answered by digging in, which never eats.** The only automatic eat sat after the burrow branch returned, and nothing ate underground, so the emergency re-fired every tick while the bot starved holding the food that would clear it. Eating now happens on every completed retreat, before the shelter type is considered.
+- **The fallback shelter's departure corridor read a field that never exists.** `occupiedAlternative` returns `{name, construction}`; the corridor asked for `.project.build`, threw, and fell into a catch that marked every loaded hostile in the world as blocking, at any distance. No bot ever left a fallback shelter on its own. The corridor is now derived from the shelter itself, and the fallback path filters by distance.
+- **A planned `sleep` step could never dispatch.** It fell through to the saved-place branch and threw, so the sleep skill added the day before was unreachable from the planner, and its `slept` criterion could never pass because the receipt was discarded. Both fixed.
+- **Navigation rejected arrivals the pathfinder had accepted** whenever the destination floor was shorter than a full block: dirt path, farmland, soul sand, mud. This is the "Navigation ended without reaching the target" seen repeatedly in live logs.
+- **The threat list was blind to zombie villagers**, which are 5% of natural zombie spawns and every villager a zombie kills, plus breeze, creaking, guardians and shulkers.
+- **Walling in was impossible underground**, because the replaceable set omitted `cave_air`, in exactly the place the burrow had already failed.
+- **A chase was leashed to where the hunt began**, so any target locked near the exploration edge aborted the whole hunt on its first step away. The chase now has its own anchor.
+- **The creeper sprint was unreachable after a failed defense**, which is precisely when a creeper caused the fight to fail.
+- **The restart continuation tested a blocker string written nine lines later**, so it was always false on the restart it was written for.
+- **The ore search budget was kept forever**, retiring an ore permanently across the whole life of a base; it now resets when the search moves.
+- **The bed was placed in the doorway.** The filter excluded the approach cells, which are outside the walls, so it excluded nothing. The doorway mouth is now preferred clear, falling back to it only in a starter hut too small to avoid it.
+- **A contract already satisfied at submission was only refused when a review criterion happened to be present**, so a purely checkable already-true contract still reported success without work.

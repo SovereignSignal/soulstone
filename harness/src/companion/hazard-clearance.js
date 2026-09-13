@@ -1,7 +1,7 @@
 import {setTimeout as delay} from 'node:timers/promises'
 import {survivalObservation,isPotentialHostile} from '../survival.js'
 import {shelteredObservation} from '../retreat.js'
-import {occupiedAlternative} from '../alternate-shelter.js'
+import {occupiedAlternative,inspectConstructionShelter} from '../alternate-shelter.js'
 import {shelterLayout} from '../shelter.js'
 
 export {THREAT_INTERRUPTION} from '../survival.js'
@@ -18,14 +18,27 @@ export function departureThreatObservation(bot,projects,shelterName='base',{dept
  const entities=Object.values(bot?.entities||{}).filter(e=>e!==bot?.entity&&(isPotentialHostile(e.name)||e?.name==='enderman'||e?.name==='piglin'||e?.name==='zombified_piglin'||e?.name==='wolf'||e?.name==='bee'||e?.name==='polar_bear'||e?.name==='iron_golem'))
  let start,end
  try{
-  const project=shelterName&&shelterName!=='base'?occupiedAlternative(bot,projects)?.project:projects?.base
-  const build=project?.build
-  if(!build)throw new Error('No saved shelter project')
-  const layout=shelterLayout(build.design),origin=build.origin
-  start={x:origin.x+layout.door.x+0.5,y:origin.y+layout.door.y+0.5,z:origin.z+layout.door.z+0.5}
-  end=corridorPoint(origin,layout,depth)
+  if(shelterName&&shelterName!=='base'){
+   // A fallback shelter is {name, construction}; it has no `build`, so reading
+   // one here left the corridor permanently unavailable and every loaded mob
+   // marked as blocking, at any distance. Derive it from the shelter itself.
+   const shelter=occupiedAlternative(bot,projects)
+   if(!shelter)throw new Error('Not inside the named fallback shelter')
+   const inspected=inspectConstructionShelter(bot,shelter,{occupants:false})
+   const door=inspected.door.position,out=inspected.outside
+   start={x:door.x+0.5,y:door.y+0.5,z:door.z+0.5}
+   const dx=Math.sign(out.x-door.x),dz=Math.sign(out.z-door.z)
+   end={x:start.x+dx*depth,y:start.y,z:start.z+dz*depth}
+  }else{
+   const build=projects?.base?.build
+   if(!build)throw new Error('No saved shelter project')
+   const layout=shelterLayout(build.design),origin=build.origin
+   start={x:origin.x+layout.door.x+0.5,y:origin.y+layout.door.y+0.5,z:origin.z+layout.door.z+0.5}
+   end=corridorPoint(origin,layout,depth)
+  }
  }catch{
-  return {blocking:entities.map(e=>({name:e.name,reason:'departure corridor is unavailable'})),peripheral:[]}
+  // Without a corridor only what is actually near the bot can block departure.
+  return {blocking:entities.filter(e=>!e.position||!p||distance(e.position,p)<=24).map(e=>({name:e.name,reason:'departure corridor is unavailable'})),peripheral:[]}
  }
  const blocking=[],peripheral=[]
  for(const e of entities){

@@ -66,10 +66,22 @@ test('each dig waits for the bot to land, since airborne mining is five times sl
  const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
  assert.equal(result.receipt,'burrowed_capped');assert.deepEqual(digsWhileAirborne,[false,false,false,false])
 })
-test('a gravity block never becomes the cap, so a sand burrow stays open and says so',async()=>{
- const w=world('sand');w.cells.set(new Vec3(10,63,10).toString(),'sand')
- const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
- assert.equal(result.receipt,'burrowed_open');assert.deepEqual(w.placed,[])
+test('a loose column is refused unless the bot carries enough to climb back out, and then it caps',async()=>{
+ // Sand and gravel dig easily and cannot be climbed on or capped with, so the
+ // entry used to approve a column every exit refused: an open shaft the bot
+ // could not leave. It died in one of those.
+ const empty=world('sand');const plain=empty.bot.blockAt
+ // Sand all the way down, so no neighbouring column rescues it either.
+ empty.bot.blockAt=p=>{const b=plain(p);return p.y<64&&b.name!=='air'?{...b,name:'sand',boundingBox:'block'}:b}
+ assert.match(burrowSite(empty.bot).reason,/Loose sand column and only 0 solid blocks carried; 4 are needed/)
+ await assert.rejects(burrowIn(empty.bot,{kind:'burrow',goal:{}},api),/Loose sand column|No safe burrow/)
+ assert.deepEqual(empty.dug,[],'and it never starts digging one')
+ const stocked=world('sand');const base=stocked.bot.blockAt
+ stocked.bot.blockAt=p=>{const b=base(p);return p.y<64&&b.name!=='air'?{...b,name:'sand',boundingBox:'block'}:b}
+ stocked.inventory.push({name:'cobblestone',count:8})
+ assert.equal(burrowSite(stocked.bot).ok,true,'carrying solid blocks makes the same column safe')
+ const result=await burrowIn(stocked.bot,{kind:'burrow',goal:{}},api)
+ assert.equal(result.receipt,'burrowed_capped')
 })
 test('burrow clearance waits for daylight, health and an empty neighbourhood',()=>{
  const w=world();assert.match(burrowClearance(w.bot).reason,/daylight/)
@@ -382,4 +394,16 @@ test('a standoff survives the automatic resume it triggers, and only an operator
  const source=readFileSync(new URL('../src/companion/controller.js',import.meta.url),'utf8')
  assert.match(source,/if\(!automatic\)this\.unsafeSignature=null/,'automatic resume keeps the standoff')
  assert.match(source,/this\.unsafeSignature=null\n/,'seekSafety clears it when a real attempt begins')
+})
+
+test('the audit findings hold: threat list, hut underground, navigation arrival, restart continuation',async()=>{
+ const {isPotentialHostile}=await import('../src/survival.js')
+ for(const mob of ['zombie_villager','breeze','creaking','guardian','elder_guardian','shulker'])assert.equal(isPotentialHostile(mob),true,`${mob} counts as a threat`)
+ const hut=readFileSync(new URL('../src/hut.js',import.meta.url),'utf8')
+ assert.match(hut,/'air','cave_air'/,'a cave cell is replaceable, so walling in underground is possible')
+ const nav=readFileSync(new URL('../src/navigation.js',import.meta.url),'utf8')
+ assert.match(nav,/!goal\.isEnd\(feet\)&&!goal\.isEnd\(feet\.offset\(0,1,0\)\)/,'arrival accepts a short floor the pathfinder accepted')
+ const controller=readFileSync(new URL('../src/companion/controller.js',import.meta.url),'utf8')
+ assert.doesNotMatch(controller,/\/\^Service restarted\/\.test/,'the restart continuation no longer tests a string written later')
+ assert.match(controller,/step\.action==='sleep'\)command=\{action:'sleep'/,'a planned sleep step dispatches')
 })

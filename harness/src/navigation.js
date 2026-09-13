@@ -4,7 +4,11 @@ const {Movements}=pathfinding
 export function requireReachedGoal(bot,goal) {
  // Pinned goto() resolves for an empty noPath result. Never equate the
  // promise resolving with arrival, especially before using a workstation.
- if(!goal.isEnd(bot.entity.position.floored()))throw Object.assign(new Error('Navigation ended without reaching the target'),{code:'NAVIGATION_INCOMPLETE'})
+ // Standing on a block whose collision top is under a full cube (dirt_path,
+ // farmland, soul_sand, mud) floors the position one cell below the goal the
+ // pathfinder just satisfied. Mirror its own arrival test rather than rejecting.
+ const feet=bot.entity.position.floored()
+ if(!goal.isEnd(feet)&&!goal.isEnd(feet.offset(0,1,0)))throw Object.assign(new Error('Navigation ended without reaching the target'),{code:'NAVIGATION_INCOMPLETE'})
 }
 export function supportsPlayer(target,position) {
  const feet=position.floored()

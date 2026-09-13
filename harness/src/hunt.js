@@ -29,11 +29,16 @@ export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},move
  const hostile=()=>survivalObservation(bot).nearbyThreats.find(t=>t.risk==='potential_hostile'&&t.distance<=10)
  // The boundary grows with each completed leg so the walk out is not itself a violation.
  const boundary=()=>32+Math.ceil(legs/4)*HUNT_LEG
+ // A chase is leashed to where it began, not to where the hunt began: a target
+ // locked near the exploration edge used to abort the whole hunt on its first
+ // step away, reported as leaving a boundary the bot never crossed.
+ let chaseAnchor=null
  const guard=()=>{
   check()
   if(Date.now()-startedAt>180000)throw new Error('Hunting time limit reached')
   const threat=hostile();if(threat)throw new Error(`Hostile ${threat.name} nearby; hunting paused`)
-  if(distance(bot.entity.position,start)>boundary())throw new Error('Hunting left its boundary')
+  if(chaseAnchor){if(distance(bot.entity.position,chaseAnchor)>32)throw new Error('Chase left its boundary')}
+  else if(distance(bot.entity.position,start)>boundary())throw new Error('Hunting left its boundary')
  }
  const movement=new DoorAwareMovements(bot)
  Object.assign(movement,{canDig:false,allow1by1towers:false,allowParkour:false,allowSprinting:true,scafoldingBlocks:[],maxDropDown:2})
@@ -65,6 +70,7 @@ export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},move
    if(weapon)await bot.equip(weapon,'hand');check()
    const cooldown=weapon?.name.endsWith('_axe')?1300:weapon?700:500
    stage('hunting');progress(`Hunting ${target.name} for ${item}: ${count()}/${total}`)
+   chaseAnchor=point(bot.entity.position)
    let dead=false,lastPosition=point(target.position),nextAttack=0,following=false,contact=Date.now()
    const onDead=e=>{if(e===target){dead=true;lastPosition=point(target.position)}}
    bot.on('entityDead',onDead)
@@ -83,7 +89,7 @@ export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},move
      if(Date.now()-contact>12000)throw new Error(`Cannot reach the ${target.name}`)
      await delay(50)
     }
-   }finally{bot.removeListener('entityDead',onDead);bot.pathfinder.setGoal(null)}
+   }finally{chaseAnchor=null;bot.removeListener('entityDead',onDead);bot.pathfinder.setGoal(null)}
    record.kills++;persist();progress(`${target.name} down; collecting drops`)
    const before=count()
    const timer=setTimeout(()=>bot.pathfinder.setGoal(null),6000)

@@ -68,7 +68,7 @@ export function vacuousContract(contract,snapshot,bot) {
  const executable=contract.criteria.filter(c=>c.kind!=='review')
  if(!executable.length)return 'every criterion needs human review, so nothing can be verified'
  const {checks}=evaluateGoal(contract,snapshot,bot,[])
- if(checks.filter(c=>c.kind!=='review').every(c=>c.passed)&&checks.some(c=>c.kind==='review'))
+ if(checks.filter(c=>c.kind!=='review').every(c=>c.passed))
   return 'its checkable criteria already pass before any work, so the request would report success immediately'
  return null
 }
