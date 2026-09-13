@@ -702,3 +702,19 @@ test('a failed safety recovery runs again after a short pause while the emergenc
  c.safety={status:'failed',error:'Agent died',failedAt:Date.now()-4000,retries:0}
  r.emit('event',{type:'survival_tick'});assert.equal(calls.length,1,'never after death')
 })
+
+test('after a night retreat into the lit base the continuation holds until daylight even when the corridor reads clear',async()=>{
+ const {continueAfterClearance}=Teammate.prototype
+ const bot={time:{timeOfDay:15000},entity:{position:new Vec3(0,64,0)},entities:{},inventory:{items:()=>[]},game:{gameMode:'survival',difficulty:'normal'},health:20,food:20}
+ const updates=[];let resumed=0
+ const c={runner:{ready:true,bot,connectionId:'c1'},projects:{},epoch:1,nightHoldMs:400,requestProgress:{id:'r1',status:'interrupted',completed:[],safetyContinuations:[]},safety:{retreat:{shelterName:'base'}},
+  persist(){},emit(){},say(){},async resume(){resumed++}}
+ const {clearanceObservation:_}=await import('../src/companion/hazard-clearance.js')
+ const signal=new AbortController().signal
+ const run=continueAfterClearance.call(c,1,signal,bot,{limitMs:400,check(){}})
+ await new Promise(r=>setTimeout(r,150));updates.push(c.safety.continuation?.reason)
+ bot.time.timeOfDay=17000;await new Promise(r=>setTimeout(r,150));updates.push(c.safety.continuation?.reason)
+ await run
+ assert.ok(updates.some(u=>/Waiting in the lit base for daylight|Health or food is not ready|Nearby chunks|Survival difficulty/.test(u||'')),JSON.stringify(updates))
+ assert.equal(resumed,0,'never continues into the night')
+})

@@ -2,6 +2,7 @@ import {THREAT_INTERRUPTION,clearanceObservation,awaitClearance,openGroundCleara
 import {alternativeShelters,occupiedAlternative} from '../alternate-shelter.js'
 import {setTimeout as delay} from 'node:timers/promises'
 const SAFETY_RETRIES=3
+const NIGHT_HOLD_MS=14*60*1000
 import {survivalObservation,emergencyReason,WATER_EMERGENCY,NIGHT_EXPOSURE} from '../survival.js'
 import {burrowClearance} from '../burrow.js'
 import {defenseDecision,combatClearance,DEFENDABLE_MOBS} from '../combat.js'
@@ -346,7 +347,12 @@ export class Teammate extends EventEmitter {
       recovery.check?.()
     }
     try{
-      const result=await awaitClearance({check,limitMs:recovery.limitMs,maintain:recovery.maintain,observe:()=>clearanceObservation(bot,this.projects,safety.retreat.shelterName),onUpdate:record=>{safety.continuation=record;this.persist();this.emit('change')}})
+      // Inside the lit base at night the area may read clear while phantoms and
+      // the night crowd wait outside: hold until daylight before continuing.
+      const night=()=>{const t=survivalObservation(bot).timeOfDay;return Number.isFinite(t)&&(t>=12500||t<1000)}
+      const observe=()=>{const o=clearanceObservation(bot,this.projects,safety.retreat.shelterName);return o.clear&&safety.retreat.shelterName==='base'&&night()?{clear:false,reason:'Waiting in the lit base for daylight'}:o}
+      const limitMs=night()&&safety.retreat.shelterName==='base'?Math.max(recovery.limitMs||0,this.nightHoldMs??NIGHT_HOLD_MS):recovery.limitMs
+      const result=await awaitClearance({check,limitMs,maintain:recovery.maintain,observe,onUpdate:record=>{safety.continuation=record;this.persist();this.emit('change')}})
       check();safety.continuation=result;this.persist()
       if(result.status!=='cleared'){this.say('I am staying sheltered. Resume is required because a clear area was not established in time.');return}
       // Record before dispatch so restart, Stop or a second threat cannot create
