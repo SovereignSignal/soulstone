@@ -480,3 +480,27 @@ test('relocating from a hole climbs out before it runs, and puts distance behind
  assert.equal(fledFrom.length,1);assert.ok(Number.isFinite(fledFrom[0].x),'it ran from the threats it named')
  assert.ok(said.some(t=>/3 hostiles will not move on.*leaving the area/.test(t)),said.join(' | '))
 })
+
+test('an expired observation window re-arms the watch rather than ending the day',async()=>{
+ // Watched live: one window expired and the bot stayed buried at full health
+ // with a creeper ten blocks off, waiting for a person who was asleep.
+ const w=world();w.bot.time.timeOfDay=13000;w.bot.health=20;w.bot.food=20
+ w.bot.entities={1:{name:'creeper',position:new Vec3(14.5,64,10.5)}}
+ const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov'
+ const commands=[]
+ runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'}
+  const result=c.action==='burrow'?{receipt:'burrowed_capped',shelterName:'burrow',surface:{x:10,y:64,z:10}}:c.action==='unburrow'?{receipt:'surfaced'}:{}
+  setTimeout(()=>{runner.task={...runner.task,status:'completed',result};runner.emit('event',{type:'task_finished',task:runner.task})},1)}
+ runner.waitForIdle=async()=>{};runner.position=()=>({x:10,y:64,z:10})
+ const said=[]
+ const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,
+  burrowWait:{quietMs:10,limitMs:60,patienceMs:5000,relocateAfterMs:5000,watches:3},
+  say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
+  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
+  async resume(){this.requestProgress.status='running'}}
+ await c.seekSafety(THREAT_INTERRUPTION)
+ const rearmed=said.filter(s=>/staying dug in and watching again/.test(s))
+ assert.equal(rearmed.length,2,`it re-armed twice before giving up: ${said.join(' | ')}`)
+ assert.ok(said.some(s=>/Resume is required/.test(s)),'and still hands over after the last watch')
+ assert.equal(c.safety.continuation.watch,3,'the watch count is recorded')
+})

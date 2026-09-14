@@ -3,6 +3,8 @@ import {alternativeShelters,occupiedAlternative} from '../alternate-shelter.js'
 import {shelteredObservation,inspectRetreatShelter} from '../retreat.js'
 import {fullCube} from '../construction.js'
 import {setTimeout as delay} from 'node:timers/promises'
+// Four expired windows is an hour of watching; past that a person should look.
+const BURROW_WATCHES=4
 const SAFETY_RETRIES=3
 const NIGHT_HOLD_MS=14*60*1000
 import {survivalObservation,emergencyReason,WATER_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY} from '../survival.js'
@@ -391,7 +393,7 @@ export class Teammate extends EventEmitter {
   }
   async waitInBurrow(epoch,signal,bot,eligible) {
     const request=this.requestProgress,safety=this.safety,connection=this.runner.connectionId
-    const {quietMs=20000,limitMs=14*60*1000,patienceMs,relocateAfterMs}=this.burrowWait||{}
+    const {quietMs=20000,limitMs=14*60*1000,patienceMs,relocateAfterMs,watches=BURROW_WATCHES}=this.burrowWait||{}
     let lingerSince=null
     // The relocate decision is derived from how long the threat has held, so
     // clearing the timer the moment it fires un-decides it on the next poll and
@@ -402,8 +404,17 @@ export class Teammate extends EventEmitter {
       if(!this.runner.ready||this.runner.bot!==bot||this.runner.connectionId!==connection)throw new Error('Connection changed while burrowed')
     }
     try{
-      const result=await awaitClearance({check,observe,quietMs,limitMs,onUpdate:record=>{safety.continuation=record;this.persist();this.emit('change')}})
-      check();safety.continuation=result;this.persist()
+      // One expired window used to end the watch for good: sheltered, safe, and
+      // waiting for a person to notice. Working unattended that is where the day
+      // ends. Keep watching a bounded number of times, carrying the linger clock
+      // across so a threat holding station still comes due, before giving up.
+      let result
+      for(let watch=1;;watch++){
+        result=await awaitClearance({check,observe,quietMs,limitMs,onUpdate:record=>{safety.continuation={...record,watch};this.persist();this.emit('change')}})
+        check();safety.continuation={...result,watch};this.persist()
+        if(result.status==='cleared'||watch>=watches)break
+        this.say(`Still no clear area after ${Math.round(limitMs/60000)} minutes. I am staying dug in and watching again.`)
+      }
       if(result.status!=='cleared'){this.say('I am staying dug in. Resume is required because daylight and a clear area were not established in time.');return}
       const confront=result.observation?.confront,relocate=result.observation?.relocate
       this.say(confront?`Daylight, and a lone ${confront.name} has lingered ${confront.distance} blocks away. Opening up to confront it.`
