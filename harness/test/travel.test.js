@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import {readFileSync} from 'node:fs'
 import {Vec3} from 'vec3'
 import minecraftData from 'minecraft-data'
 const registry=minecraftData('1.21.4')
@@ -41,3 +42,12 @@ test('a journey with no way forward at all fails with how far it got',async()=>{
   pathfinder:{setMovements(){},setGoal(){},async goto(){throw Object.assign(new Error('No path'),{name:'NoPath'})}}}
  await assert.rejects(travelTo(bot,{kind:'travel',goal:{x:200,y:64,z:0}},{check(){},stage(){},progress(){}}),/No way forward 200 blocks short of 200,64,0 after three detours/)
 })
+
+test('every long walk in the world skills closes the gap in stages first',()=>{
+ const source=readFileSync(new URL('../src/world-skills.js',import.meta.url),'utf8')
+ assert.ok(source.includes('async function approach(goal){'),'a staged approach exists')
+ assert.ok(source.includes('await approach(goal)'),'and every walk runs it first')
+ assert.ok(source.includes('<=64)return'),'short walks are untouched')
+ assert.ok(source.includes('travelTo(bot,'),'using the travel skill')
+})
+

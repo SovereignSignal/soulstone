@@ -17,6 +17,7 @@ import {craftWithWindowState} from './crafting.js'
 import {supportsPlayer} from './navigation.js'
 import {WATER_BLOCKS} from './survival.js'
 import {walkWithTerrainRecovery} from './route-recovery.js'
+import {travelTo} from './travel.js'
 const {goals}=pathfinding
 const key=p=>`${p.x},${p.y},${p.z}`
 export function validateDesign(design) {
@@ -124,7 +125,20 @@ export async function executeWorldSkill(bot,task,context,gather) {
  const count=name=>bot.inventory.items().filter(i=>i.name===name).reduce((n,i)=>n+i.count,0)
  let operations=0
  const budget=()=>{check();if(++operations>256)throw new Error('Action budget exhausted; inspect progress before continuing')}
+ // The pathfinder searches a bounded region, so one attempt across a hundred
+ // blocks reports no route where an easy walk exists. Close most of the gap in
+ // staged legs first, then let the ordinary walk finish and verify arrival.
+ async function approach(goal){
+  const to=['x','z'].every(k=>Number.isFinite(goal[k]))?goal:null
+  if(!to)return
+  const here=bot.entity.position
+  if(Math.hypot(to.x-here.x,to.z-here.z)<=64)return
+  progress(`Walking the long way to ${Math.round(to.x)},${Math.round(to.z)}`)
+  try{await travelTo(bot,{kind:'travel',goal:{x:to.x,y:Number.isFinite(goal.y)?goal.y:here.y,z:to.z}},{check,stage,progress,movements:walking})}
+  catch(error){check();progress(`Long walk stopped short: ${error.message}`)}
+ }
  async function walk(goal,recover=true) {
+  await approach(goal)
   // A retreat walk to the lit base may cross thirty blocks of night terrain: give it the task's own window.
   await walkWithTerrainRecovery(bot,goal,{movements:walking,check,stage,progress,attemptMs:task.kind==='retreat'?40000:15000,allowRecovery:recover&&task.kind!=='retreat',onRecovery:record=>{task.navigationRecovery=record;context.persist?.()}})
  }
