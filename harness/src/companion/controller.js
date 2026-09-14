@@ -650,7 +650,13 @@ export class Teammate extends EventEmitter {
               } else {
                 const p=step.action==='come'?this.runner.bot?.players[this.runner.owner]?.entity?.position:this.places[step.name]
                 if(!p)throw new Error('That location is unavailable. Come into view or name a saved place.')
-                command={action:'navigate',goal:{x:p.x,y:p.y,z:p.z},timeoutMs:120000}
+                // The pathfinder searches a bounded region, so one goto across a
+                // hundred blocks reports no route where an easy walk exists. Cross
+                // real distances in stages instead.
+                const here=this.runner.position()
+                const far=here&&Math.hypot(p.x-here.x,p.z-here.z)>64
+                command=far?{action:'travel',goal:{x:p.x,y:p.y,z:p.z},timeoutMs:600000}
+                             :{action:'navigate',goal:{x:p.x,y:p.y,z:p.z},timeoutMs:120000}
               }
               await this.execute(command,abort.signal,id=>{requestTasks.add(id);this.requestProgress.inFlight={taskId:id,step};this.persist()})
             }

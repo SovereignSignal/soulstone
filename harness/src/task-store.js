@@ -1,3 +1,4 @@
+import {validateTravelGoal} from './travel.js'
 import {validateHarvest} from './foraging.js'
 import {validateEatGoal} from './survival.js'
 import {validateDefenseGoal} from './combat.js'
@@ -20,6 +21,7 @@ export function validateGoal(goal) {
 }
 export function validateTaskGoal(kind, goal) {
   if(['surface','burrow','hut','unhut'].includes(kind))return {}
+  if(kind==='travel')return validateTravelGoal(goal)
   if(kind==='sleep')return goal?.project?{project:goal.project}:{}
   if(kind==='climb')return {}
   if(kind==='flee')return validateFleeGoal(goal)
