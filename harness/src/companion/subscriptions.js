@@ -24,6 +24,7 @@ export function subscriptionEnv(env=process.env) {
  // third-party billing credentials. The official CLI owns its saved login.
  return Object.fromEntries(['HOME','USER','LOGNAME','PATH','TMPDIR','LANG','LC_ALL','SSL_CERT_FILE'].filter(k=>env[k]).map(k=>[k,env[k]]))
 }
+export const PLAN_TIMEOUT_MS=300000
 export function runClient(binary,args,{cwd,input='',signal,timeout=120000}={}) {
  return new Promise((resolve,reject)=>{
   if(signal?.aborted){reject(new Error('Cancelled'));return}
@@ -59,7 +60,11 @@ export async function requestSubscriptionPlan(profile,messages,schema,signal) {
   } else {
    args=['--print','--safe-mode','--tools','','--strict-mcp-config','--mcp-config','{"mcpServers":{}}','--disable-slash-commands','--no-session-persistence','--output-format','json','--json-schema',JSON.stringify(schema),'--model',profile.model,'--permission-mode','dontAsk','--permission-prompts','none']
   }
-  const r=await runClient(clientBinary(profile.kind),args,{cwd:dir,input:prompt,signal})
+  // One planning call carries the whole capability brief and a JSON schema, and
+  // the brief has grown as the harness gained skills. The generic two-minute
+  // client budget blanked a run outright: the request reported "Subscription
+  // client timed out" at round zero and the agent stood still for an hour.
+  const r=await runClient(clientBinary(profile.kind),args,{cwd:dir,input:prompt,signal,timeout:PLAN_TIMEOUT_MS})
   if(r.code!==0)throw new Error(`${profile.label} could not complete the request. Check CLI login, model access and subscription limits. No API fallback was attempted.`)
   if(profile.kind==='codex')return await readFile(join(dir,'result.json'),'utf8')
   const result=JSON.parse(r.out)

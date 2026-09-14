@@ -737,3 +737,11 @@ test('a shelter build repairs the saved base instead of abandoning it for a fres
  // The station wipe that made this matter: a new origin drops the torch record.
  assert.match(source,/stations:sameSite\?\(this\.projects\.base\?\.stations\|\|\{\}\):\{\}/)
 })
+
+test('a planning call gets a budget of its own, larger than the generic client default',async()=>{
+ const {PLAN_TIMEOUT_MS}=await import('../src/companion/subscriptions.js')
+ assert.ok(PLAN_TIMEOUT_MS>=240000,`planning has room for a slow model call (${PLAN_TIMEOUT_MS}ms)`)
+ const source=readFileSync(new URL('../src/companion/subscriptions.js',import.meta.url),'utf8')
+ assert.match(source,/input:prompt,signal,timeout:PLAN_TIMEOUT_MS/,'the plan request passes it')
+ assert.match(source,/timeout=120000/,'and the generic default is unchanged for status checks')
+})
