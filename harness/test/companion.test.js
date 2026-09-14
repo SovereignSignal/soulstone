@@ -745,3 +745,17 @@ test('a planning call gets a budget of its own, larger than the generic client d
  assert.match(source,/input:prompt,signal,timeout:PLAN_TIMEOUT_MS/,'the plan request passes it')
  assert.match(source,/timeout=120000/,'and the generic default is unchanged for status checks')
 })
+
+test('a client failure names its own cause, and stderr chatter never becomes a timeout',async()=>{
+ const {runClient}=await import('../src/companion/subscriptions.js')
+ const source=readFileSync(new URL('../src/companion/subscriptions.js',import.meta.url),'utf8')
+ assert.match(source,/exceeded its \$\{Math\.round\(timeout\/1000\)\} second budget/,'a real timeout says so')
+ assert.match(source,/returned more output than the harness will read/,'an oversized payload says so')
+ assert.match(source,/err=err\.slice\(-200000\)/,'stderr is trimmed rather than aborted on')
+ assert.doesNotMatch(source,/if\(err\.length>1000000\)abort\(\)/,'chatter no longer kills the call')
+ // A client that writes a lot to stderr and then succeeds still succeeds.
+ const noisy=await runClient('/bin/sh',['-c','i=0; while [ $i -lt 200 ]; do printf "%06000d" 1 >&2; i=$((i+1)); done; echo done'],{timeout:20000})
+ assert.equal(noisy.code,0);assert.match(noisy.out,/done/)
+ assert.ok(noisy.err.length<=400000,`stderr is capped, kept ${noisy.err.length} bytes`)
+ await assert.rejects(runClient('/bin/sh',['-c','sleep 5'],{timeout:1000}),/exceeded its 1 second budget/)
+})
