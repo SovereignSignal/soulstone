@@ -635,7 +635,15 @@ export class Teammate extends EventEmitter {
                 const shelter=step.name==='shelter'||/\b(?:build|make|construct|repair|fix|finish|improve|upgrade)\s+(?:(?:me|a|an|the|this|my|our|existing|small|wooden|starter|usable)\s+){0,6}(?:house|home|shelter|hut|cabin)\b/i.test(text)
                 const repairExisting=/\b(repair|improve|fix|finish|this|existing)\b/i.test(text)
                 const prior=feedback.findLast(f=>f.action==='build'&&f.status==='failed'&&f.task?.goal?.origin&&designKey(f.task?.goal?.design)===designKey(step.design)) || (existingTask?.kind==='build'&&(['failed','paused','running','cancelled'].includes(existingTask.status)||repairExisting)&&designKey(existingTask.goal.design)===designKey(step.design)?{task:existingTask}:null)
-                command={action:'build',goal:{design:step.design,...(shelter?{purpose:'shelter'}:{}),near:{x:near.x,y:near.y,z:near.z},...(prior?.task?.goal?.origin?{origin:prior.task.goal.origin,wood:prior.task.goal.wood}:{protectedSites:projectFootprints(this.projects)})},timeoutMs:600000}
+                command={action:'build',goal:{design:step.design,...(shelter?{purpose:'shelter'}:{}),near:{x:near.x,y:near.y,z:near.z},...(function(){
+                  // A shelter build with a saved base repairs that base. Searching for a
+                  // fresh site abandons a lit, furnished one: the new origin wipes the
+                  // station records, and 140 of 143 'no recorded light' refusals in a
+                  // single session followed exactly that.
+                  const saved=shelter&&this.projects.base?.build?.origin?this.projects.base.build:null
+                  const from=prior?.task?.goal?.origin?prior.task.goal:saved
+                  return from?{origin:from.origin,...(from.wood?{wood:from.wood}:{})}:{protectedSites:projectFootprints(this.projects)}
+                }).call(this)},timeoutMs:600000}
               } else {
                 const p=step.action==='come'?this.runner.bot?.players[this.runner.owner]?.entity?.position:this.places[step.name]
                 if(!p)throw new Error('That location is unavailable. Come into view or name a saved place.')

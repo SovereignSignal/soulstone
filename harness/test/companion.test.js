@@ -718,3 +718,14 @@ test('after a night retreat into the lit base, which records no shelterName, the
  assert.ok(updates.some(u=>/Waiting in the lit base for daylight|Health or food is not ready|Nearby chunks|Survival difficulty/.test(u||'')),JSON.stringify(updates))
  assert.equal(resumed,0,'never continues into the night')
 })
+
+test('a shelter build repairs the saved base instead of abandoning it for a fresh site',()=>{
+ const source=readFileSync(new URL('../src/companion/controller.js',import.meta.url),'utf8')
+ const i=source.indexOf("command={action:'build'")
+ const block=source.slice(i,i+900)
+ assert.match(block,/const saved=shelter&&this\.projects\.base\?\.build\?\.origin\?this\.projects\.base\.build:null/,'a saved base supplies the origin')
+ assert.match(block,/const from=prior\?\.task\?\.goal\?\.origin\?prior\.task\.goal:saved/,'a build already under way still wins')
+ assert.match(block,/protectedSites/,'and only a bot with no base at all searches for a site')
+ // The station wipe that made this matter: a new origin drops the torch record.
+ assert.match(source,/stations:sameSite\?\(this\.projects\.base\?\.stations\|\|\{\}\):\{\}/)
+})
