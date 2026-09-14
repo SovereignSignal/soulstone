@@ -178,3 +178,23 @@ test('the capabilities brief tells the planner how a damaged base is repaired',(
  assert.match(brief,/DAMAGED BASE/)
  assert.match(brief,/build at the saved base origin sources and places only the blocks that differ/)
 })
+
+test('the reachability audit fixes hold: a lone hunt or sleep plans, and three criteria read what the runtime writes',async()=>{
+ const {guardIntent}=await import('../src/companion/intent.js')
+ for(const action of ['hunt','sleep']){
+  const plan={reply:'',steps:[{action,name:'',item:action==='hunt'?'beef':'',count:action==='hunt'?2:0,design:[]}]}
+  assert.equal(guardIntent(structuredClone(plan),'do it',[]).steps.length,1,`a lone ${action} plan is allowed`)
+ }
+ const snapshot={inventory:{},projects:{},position:{x:0,y:64,z:0},places:{'home base':{x:0,y:64,z:0}},ownerPosition:{x:2.8,y:64,z:0}}
+ const base={kind:'task',projectMode:'none',summary:'go',milestones:[],constraints:[]}
+ // A saved place is keyed lowercase; a criterion naming it any other way used to miss.
+ const place=validateContract({...base,criteria:[{kind:'at_place',description:'Finish at home base.',target:'Home Base',item:'',count:0}]})
+ assert.equal(evaluateGoal(place,snapshot,null,[]).checks[0].passed,true)
+ // Following holds within three blocks, so the check may not demand two.
+ const owner=validateContract({...base,criteria:[{kind:'at_owner',description:'Finish near me.',target:'',item:'',count:0}]})
+ assert.equal(evaluateGoal(owner,snapshot,null,[]).checks[0].passed,true)
+ // A withdraw returns a verified container snapshot and now counts as evidence.
+ const stored=validateContract({...base,criteria:[{kind:'stored',description:'Keep 3 iron in the chest.',target:'',item:'iron_ingot',count:3}]})
+ const after=evaluateGoal(stored,snapshot,null,[{action:'withdraw',status:'completed',result:{container:{iron_ingot:5}}}])
+ assert.equal(after.checks[0].passed,true)
+})

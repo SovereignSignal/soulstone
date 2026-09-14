@@ -645,15 +645,23 @@ test('a request interrupted only by a service restart continues once automatical
  const d=new Teammate(new FakeRunner(),{model:'fake',plan:async()=>({reply:'',steps:[]})},path);assert.equal(d.restoreRequest,false)
 })
 
-test('a base counts as shelter only once its build task completed',()=>{
+test('only a shelter build becomes the base, and it counts as shelter only once it completed',()=>{
  const [r,c]=setup(async()=>({reply:'',steps:[]}))
- const goal={design:[{x:0,y:0,z:0,block:'wood_planks'}],origin:{x:4,y:64,z:5},near:{x:1,y:64,z:2},wood:'oak_log'}
+ const goal={design:[{x:0,y:0,z:0,block:'wood_planks'}],origin:{x:4,y:64,z:5},near:{x:1,y:64,z:2},wood:'oak_log',purpose:'shelter'}
  r.emit('event',{type:'task_finished',task:{id:'b1',kind:'build',status:'failed',goal}})
  assert.equal(c.projects.base.built,false)
  r.emit('event',{type:'task_finished',task:{id:'b2',kind:'build',status:'completed',goal}})
  assert.equal(c.projects.base.built,true)
  r.emit('event',{type:'task_finished',task:{id:'b3',kind:'build',status:'failed',goal}})
  assert.equal(c.projects.base.built,true,'a later failed repair on the same site does not unbuild it')
+ // Any other build used to be adopted as the base, wiping the station records
+ // and leaving every place, deposit and check_base throwing afterwards.
+ const before=JSON.stringify(c.projects.base)
+ c.projects.base.stations={crafting_table:{position:{x:4,y:64,z:6},confirmed:true}}
+ r.emit('event',{type:'task_finished',task:{id:'w1',kind:'build',status:'completed',goal:{design:[{x:0,y:0,z:0,block:'cobblestone'}],origin:{x:40,y:64,z:40},near:{x:1,y:64,z:2},wood:'oak_log'}}})
+ assert.deepEqual(c.projects.base.build.origin,{x:4,y:64,z:5},'a wall built elsewhere is not the base')
+ assert.deepEqual(Object.keys(c.projects.base.stations),['crafting_table'],'and its stations survive')
+ assert.ok(before)
 })
 
 import {canContinueAfterSafety,SAFETY_CONTINUATIONS} from '../src/companion/continuity.js'

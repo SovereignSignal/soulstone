@@ -86,7 +86,10 @@ export class Teammate extends EventEmitter {
       }
       if(['task_started','task_finished'].includes(e.type)&&e.task?.goal?.project){this.projects.base=structuredClone(e.task.goal.project);this.persist()}
       if(['task_started','task_finished'].includes(e.type)&&e.task?.kind==='construct'&&e.task.goal?.name){this.projects[e.task.goal.name]={construction:structuredClone(e.task.goal),progress:structuredClone(e.task.progress||null),result:structuredClone(e.task.result||null),status:e.task.status};this.persist()}
-      if(e.type==='task_finished'&&e.task?.kind==='build'&&e.task.goal?.origin){const sameSite=JSON.stringify(this.projects.base?.build?.origin)===JSON.stringify(e.task.goal.origin);this.projects.base={...(sameSite?this.projects.base:{}),build:structuredClone(e.task.goal),stations:sameSite?(this.projects.base?.stations||{}):{},built:e.task.status==='completed'||(sameSite&&this.projects.base?.built===true)};this.persist()}
+      // Only a shelter build is the base. Any other build adopted it and wiped the
+      // station records, after which every place, deposit and check_base threw and
+      // the bot was homeless at dusk.
+      if(e.type==='task_finished'&&e.task?.kind==='build'&&e.task.goal?.origin&&e.task.goal.purpose==='shelter'){const sameSite=JSON.stringify(this.projects.base?.build?.origin)===JSON.stringify(e.task.goal.origin);this.projects.base={...(sameSite?this.projects.base:{}),build:structuredClone(e.task.goal),stations:sameSite?(this.projects.base?.stations||{}):{},built:e.task.status==='completed'||(sameSite&&this.projects.base?.built===true)};this.persist()}
       if (e.type === 'skill_progress') { this.activity = e.message; this.emit('change') }
       if (e.type === 'death') {
         const recovery=['retreating','defending'].includes(this.phase),action=this.phase==='defending'?'defense':'retreat'
@@ -623,7 +626,7 @@ export class Teammate extends EventEmitter {
                 let design=step.design.length?step.design:saved?.design,previousDesign=saved?.previousDesign
                 if(step.action==='revise'){
                   if(!saved?.origin)throw new Error('Revision requires an existing project with a saved origin')
-                  if(saved.previousDesign&&this.projects[step.name].status!=='completed')throw new Error('Continue the pending revision with construct and an empty design before another edit')
+                  if(saved.previousDesign&&(this.projects[step.name].status!=='completed'||this.projects[step.name].result?.partial===true))throw new Error('Continue the pending revision with construct and an empty design before another edit')
                   previousDesign=saved.design;design=reviseArchitecture(saved.design,step.design)
                 }
                 command={action:'construct',goal:{name:step.name,design,...(previousDesign?{previousDesign}:{}),near:{x:near.x,y:near.y,z:near.z},...(saved?.origin?{origin:saved.origin}:{protectedSites:projectFootprints(this.projects),constructionLimits:constructionLimits(this.requestProgress.goal,step.name)})},timeoutMs:600000}
@@ -632,7 +635,7 @@ export class Teammate extends EventEmitter {
                 if(!site)throw new Error('Position is unknown; cannot choose a build site')
                 const near=site.near
                 if(site.anchor==='agent')this.say('You are not in view, so I am choosing a shelter site near me.')
-                const shelter=step.name==='shelter'||/\b(?:build|make|construct|repair|fix|finish|improve|upgrade)\s+(?:(?:me|a|an|the|this|my|our|existing|small|wooden|starter|usable)\s+){0,6}(?:house|home|shelter|hut|cabin)\b/i.test(text)
+                const shelter=this.requestProgress?.goal?.criteria?.some(c=>c.kind==='shelter')||step.name==='shelter'||/\b(?:build|make|construct|repair|fix|finish|improve|upgrade)\s+(?:(?:me|a|an|the|this|my|our|existing|small|wooden|starter|usable)\s+){0,6}(?:house|home|shelter|hut|cabin)\b/i.test(text)
                 const repairExisting=/\b(repair|improve|fix|finish|this|existing)\b/i.test(text)
                 const prior=feedback.findLast(f=>f.action==='build'&&f.status==='failed'&&f.task?.goal?.origin&&designKey(f.task?.goal?.design)===designKey(step.design)) || (existingTask?.kind==='build'&&(['failed','paused','running','cancelled'].includes(existingTask.status)||repairExisting)&&designKey(existingTask.goal.design)===designKey(step.design)?{task:existingTask}:null)
                 command={action:'build',goal:{design:step.design,...(shelter?{purpose:'shelter'}:{}),near:{x:near.x,y:near.y,z:near.z},...(function(){
@@ -667,7 +670,7 @@ export class Teammate extends EventEmitter {
             this.requestProgress.blocker=error.message;this.requestProgress.reviewRequired=interruptedEffect(this.runner.task);this.persist()
             episode?.write('action_result', { round, stepIndex: i, step, outcome: feedback.at(-1), evidence: 'Executor/client observation' })
             if(step.action==='give'&&this.runner.task?.delivery?.attempted||['deposit','withdraw','stow'].includes(step.action)&&this.runner.task?.transfer?.uncertain)throw error
-            const adaptive=plan.steps.some(s=>['acquire','build','construct','revise','inspect','give','eat','harvest','hunt',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action))
+            const adaptive=plan.steps.some(s=>['acquire','build','construct','revise','inspect','give','eat','harvest','hunt','sleep',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action))
             if(!adaptive||failureCount>=2)throw error
             this.dispatch({action:'stop'});this.say(`Blocked: ${error.message}. I will inspect the result and revise the plan.`);failed=true;break
           }
@@ -676,7 +679,7 @@ export class Teammate extends EventEmitter {
         if(!executed&&!failed&&!this.requestProgress.goal){this.phase='ready';this.activity='';this.requestProgress.status='steps_completed';this.requestProgress.pending=[];this.say('I checked those steps; they are already satisfied.');episode?.end('actions_finished',{feedback});this.emit('change');return}
         const fingerprint=progressFingerprint(this.snapshot());stagnant=fingerprint===lastFingerprint?stagnant+1:0;lastFingerprint=fingerprint
         if(stagnant>=3)throw new Error('No observed progress for three planning rounds. Progress is saved; resolve the blocker and Resume.')
-        if(this.requestProgress.goal||failed||plan.steps.some(s=>['acquire','build','construct','revise','inspect','give','eat','harvest','hunt',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action))){this.phase='thinking';continue}
+        if(this.requestProgress.goal||failed||plan.steps.some(s=>['acquire','build','construct','revise','inspect','give','eat','harvest','hunt','sleep',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action))){this.phase='thinking';continue}
         this.phase='ready';this.activity='';this.stepIndex=plan.steps.length
         this.requestProgress.status='steps_completed';this.requestProgress.pending=[]
         this.say(plan.steps.at(-1).action==='follow'?'I am following you.':`Finished. ${plan.steps.some(s=>s.action==='gather')?`I have ${resourceCount(this.snapshot().inventory,plan.steps.find(s=>s.action==='gather').item||'oak_log')} logs.`:'Ready for the next task.'}`)

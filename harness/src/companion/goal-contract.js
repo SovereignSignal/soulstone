@@ -83,7 +83,7 @@ export function evaluateGoal(contract,snapshot,bot,feedback=[]) {
   if(c.kind==='tools'){observed=usableToolCount(bot?.inventory?.items()||[],c.item);passed=observed>=c.count}
   if(c.kind==='delivered'){observed=deliveredCount(current,c.item);passed=observed>=c.count;source='current request pickup receipts'}
   if(c.kind==='stored'){
-   const f=current.findLast(f=>['deposit','stow','check_base'].includes(f.action));observed=f?.result?.container?.[c.item]??f?.result?.stations?.chest?.contents?.[c.item]??null;passed=observed!==null&&observed>=c.count;source='current request container receipt'
+   const f=current.findLast(f=>['deposit','withdraw','stow','check_base'].includes(f.action));observed=f?.result?.container?.[c.item]??f?.result?.stations?.chest?.contents?.[c.item]??null;passed=observed!==null&&observed>=c.count;source='current request container receipt'
   }
   if(c.kind==='construction'){
    source='fresh construction receipt and live block check'
@@ -93,8 +93,12 @@ export function evaluateGoal(contract,snapshot,bot,feedback=[]) {
   if(c.kind==='furniture'){observed=receipt?.result.furnishings?.filter(f=>f.block===c.item).length||0;passed=observed>=c.count;source='current request furnishing access/window checks'}
   if(c.kind==='max_blocks'){observed=build?compileArchitecture(build.design).blocks.length:null;passed=observed!==null&&observed<=c.count}
   if(c.kind==='material_only'){observed=build?[...new Set(compileArchitecture(build.design).blocks.map(b=>b.block))]:null;passed=!!observed&&observed.every(n=>c.item.split(',').includes(n))}
-  if(c.kind==='at_place'){observed=distance(snapshot.places?.[c.target]);passed=observed<=2}
-  if(c.kind==='at_owner'){observed=distance(snapshot.ownerPosition);passed=observed<=2}
+  // Saved place names are lowercased and trimmed when they are stored, so a
+  // criterion naming the same place in any other case looked at an empty slot.
+  if(c.kind==='at_place'){const key=String(c.target||'').toLowerCase().trim();observed=distance(snapshot.places?.[c.target]??snapshot.places?.[key]);passed=observed<=2}
+  // Following holds the bot within the pathfinder's follow radius of three, so
+  // demanding two reported failure while it was following exactly as designed.
+  if(c.kind==='at_owner'){observed=distance(snapshot.ownerPosition);passed=observed<=3}
   if(c.kind==='at_base'){observed=distance(snapshot.projects?.base?.stations?.crafting_table?.position);passed=observed<=5}
   if(c.kind==='base_ready'){observed=current.some(f=>f.action==='check_base'&&f.result?.receipt==='base_verified');passed=observed;source='current request base verification'}
   if(c.kind==='sheltered'){observed=shelteredObservation(bot,snapshot.projects?.base);passed=current.some(f=>f.action==='retreat'&&f.result?.receipt==='sheltered_door_closed')&&observed.passed;source='current retreat receipt and live shelter, interior and closed door inspection'}
