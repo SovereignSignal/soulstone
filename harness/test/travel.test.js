@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs'
 import {Vec3} from 'vec3'
 import minecraftData from 'minecraft-data'
 const registry=minecraftData('1.21.4')
-import {legs,validateTravelGoal,travelTo,LEG} from '../src/travel.js'
+import {legs,validateTravelGoal,travelTo,LEG,LEG_TIMEOUT_MS} from '../src/travel.js'
 import {DoorAwareMovements,allowGroundBreaking,breakableWhileTravelling,TRAVERSAL_DIG_COST} from '../src/navigation.js'
 import {validateTaskGoal} from '../src/task-store.js'
 
@@ -93,4 +93,19 @@ test('escape and the shared walk use the same traversal profile as travel',()=>{
   assert.ok(/allowGroundBreaking\(bot ?, ?movements?\)/.test(source),`${file} lets the walker break ground`)
   assert.ok(!/canDig ?[=:] ?false/.test(source),`${file} no longer hard-refuses digging`)
  }
+})
+
+test('a leg the harness abandoned is reported as ours, not as the world changing',async()=>{
+ // Clearing the goal is how travel abandons a slow leg, and the pathfinder
+ // rejects the in-flight goto as "The goal was changed before it could be
+ // completed!". Reported raw, that reads like the world moved under us; it was
+ // our own stopwatch, and it sent the diagnosis somewhere useless.
+ const bot={entity:{position:new Vec3(0.5,64,0.5)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},blockAt:()=>({name:'air',boundingBox:'empty'}),
+  pathfinder:{setMovements(){},setGoal(){},goto(){return new Promise((resolve,reject)=>{bot.pathfinder.reject=reject})}}}
+ // Fire the abandon path directly: the goal is cleared, then the goto rejects.
+ const original=global.setTimeout
+ global.setTimeout=(fn,ms)=>ms===LEG_TIMEOUT_MS?original(()=>{fn();bot.pathfinder.reject(Object.assign(new Error('The goal was changed before it could be completed!'),{name:'GoalChanged'}))},1):original(fn,ms)
+ try{
+  await assert.rejects(travelTo(bot,{kind:'travel',goal:{x:200,y:64,z:0}},{check(){},stage(){},progress(){}}),/this leg was still walking after 25 seconds/)
+ }finally{global.setTimeout=original}
 })

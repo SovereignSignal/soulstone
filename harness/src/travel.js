@@ -7,7 +7,7 @@ import pathfinding from 'mineflayer-pathfinder'
 import {Vec3} from 'vec3'
 import {DoorAwareMovements,allowGroundBreaking} from './navigation.js'
 const {goals}=pathfinding
-export const LEG=32,ARRIVE=3
+export const LEG=32,ARRIVE=3,LEG_TIMEOUT_MS=25000
 const point=p=>new Vec3(p.x,p.y,p.z)
 export function validateTravelGoal(goal){
  if(!goal||!['x','y','z'].every(k=>Number.isFinite(goal[k])))throw new Error('Travel needs a finite x, y and z')
@@ -50,9 +50,14 @@ export async function travelTo(bot,task,{check,stage,progress,movements}){
     const to={x:next.x+offset.x,z:next.z+offset.z}
     if(index)record.detours++
     stage('walking');progress(`Travelling to ${target.x},${target.z}: ${Math.round(before)} blocks to go`)
-    const timer=setTimeout(()=>bot.pathfinder.setGoal(null),25000)
+    // Clearing the goal is how a slow leg is abandoned, and the pathfinder
+    // reports a replaced goal as "the goal was changed": our own stopwatch,
+    // read back as if the world had moved. Say which it was.
+    let abandoned=false
+    const timer=setTimeout(()=>{abandoned=true;bot.pathfinder.setGoal(null)},LEG_TIMEOUT_MS)
     try{await bot.pathfinder.goto(new goals.GoalNear(to.x,bot.entity.position.y,to.z,ARRIVE))}
-    catch(error){refusal=error?.name==='NoPath'?`no route to ${to.x},${to.z}`:error?.message||String(error)}
+    catch(error){refusal=abandoned?`this leg was still walking after ${Math.round(LEG_TIMEOUT_MS/1000)} seconds`
+      :error?.name==='NoPath'?`no route to ${to.x},${to.z}`:error?.message||String(error)}
     finally{clearTimeout(timer);bot.pathfinder.setGoal(null)}
     check()
     if(before-flat()>=4||bot.entity.position.distanceTo(start)>=4&&index===0&&before-flat()>0){moved=true;break}
