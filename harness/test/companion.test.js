@@ -620,7 +620,7 @@ test('Resume marks earlier failures as pre-resume and tells the planner to retry
  await c.submit('build a shelter');assert.equal(c.requestProgress.feedback.some(f=>f.action==='resume'),false)
 })
 
-import {shouldContinueAfterBudget,BUDGET_CONTINUATIONS} from '../src/companion/continuity.js'
+import {shouldContinueAfterBudget,BUDGET_CONTINUATIONS,shouldRetryPlanning,PLAN_RETRIES,canResume as canResumeRequest} from '../src/companion/continuity.js'
 test('a request that ran out of rounds or time while completing steps continues automatically, at most twice',()=>{
  const r={completed:[{step:{action:'gather'}}],budgetContinuations:0}
  assert.equal(shouldContinueAfterBudget(r,0,'Planning limit reached after 24 rounds. Progress is saved; use Resume to continue.'),true)
@@ -758,4 +758,24 @@ test('a client failure names its own cause, and stderr chatter never becomes a t
  assert.equal(noisy.code,0);assert.match(noisy.out,/done/)
  assert.ok(noisy.err.length<=400000,`stderr is capped, kept ${noisy.err.length} bytes`)
  await assert.rejects(runClient('/bin/sh',['-c','sleep 5'],{timeout:1000}),/exceeded its 1 second budget/)
+})
+
+test('a planner that never answered is asked again; one that answered and failed is not',async()=>{
+ // An unattended hour was lost to a single slow planning call: the request went
+ // blocked with nothing tried, and nothing ever asked again. No step ran, so the
+ // timeout says nothing about whether the request can be done.
+ const fresh=()=>({status:'blocked',completed:[],planRetries:0})
+ assert.equal(shouldRetryPlanning(fresh(),0,'Subscription client exceeded its 300 second budget'),true)
+ assert.equal(shouldRetryPlanning(fresh(),0,'The selected model could not be reached.'),true)
+ assert.equal(shouldRetryPlanning(fresh(),0,'fetch failed'),true)
+ // Work that actually ran is the budget rule's business, not this one.
+ assert.equal(shouldRetryPlanning({status:'blocked',completed:[{},{}],planRetries:0},1,'Subscription client exceeded its 300 second budget'),false)
+ // A planner that answered and produced an unusable plan is not a timeout.
+ assert.equal(shouldRetryPlanning(fresh(),0,'I could not validate the proposed actions against your request.'),false)
+ assert.equal(shouldRetryPlanning(fresh(),0,'Planning limit reached after 24 rounds.'),false)
+ // Bounded: it does not retry for ever.
+ assert.equal(shouldRetryPlanning({status:'blocked',completed:[],planRetries:PLAN_RETRIES},0,'fetch failed'),false)
+ assert.ok(PLAN_RETRIES>=1&&PLAN_RETRIES<=3,'a small bound')
+ // A request needing review is never retried automatically.
+ assert.equal(canResumeRequest({status:'blocked',reviewRequired:true}),false,'a request needing review is never resumed automatically')
 })

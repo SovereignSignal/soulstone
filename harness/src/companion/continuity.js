@@ -12,6 +12,11 @@ export const ACTIVE_BUDGET_MS=45*60*1000
 // A request that runs out of rounds or time while still completing steps
 // continues on its own, at most twice, instead of waiting for a manual Resume.
 export const BUDGET_CONTINUATIONS=2
+// A model call that never answered says nothing about whether the request can be
+// done: no step ran, nothing was tried, nothing was learned. Treating that as
+// terminal cost a whole unattended hour to one slow planning call, with the agent
+// surviving on the safety system and never being asked again.
+export const PLAN_RETRIES=2
 // After a safety episode (shelter, burrow, hut, combat) the request continues on
 // its own while it keeps completing steps between episodes, at most six times.
 export const SAFETY_CONTINUATIONS=6,IDLE_CONTINUATIONS=2
@@ -30,6 +35,11 @@ export function canContinueAfterSafety(request,limit=SAFETY_CONTINUATIONS){
 }
 export function shouldContinueAfterBudget(request,completedAtStart,message){
  return /^(Active planning time limit|Planning limit reached)/.test(message||'')&&(request?.completed?.length||0)>completedAtStart&&(request?.budgetContinuations||0)<BUDGET_CONTINUATIONS
+}
+export function shouldRetryPlanning(request,completedAtStart,message){
+ return /(exceeded its \d+ second budget|could not be reached|fetch failed|was cancelled)/i.test(message||'')
+  &&(request?.completed?.length||0)===completedAtStart
+  &&(request?.planRetries||0)<PLAN_RETRIES
 }
 export const canResume=request=>!!request&&['blocked','interrupted','paused'].includes(request.status)&&!request.reviewRequired
 export function progressFingerprint(snapshot){
