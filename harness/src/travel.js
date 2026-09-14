@@ -5,7 +5,7 @@
 import {setTimeout as delay} from 'node:timers/promises'
 import pathfinding from 'mineflayer-pathfinder'
 import {Vec3} from 'vec3'
-import {DoorAwareMovements} from './navigation.js'
+import {DoorAwareMovements,allowGroundBreaking} from './navigation.js'
 const {goals}=pathfinding
 export const LEG=32,ARRIVE=3
 const point=p=>new Vec3(p.x,p.y,p.z)
@@ -28,7 +28,8 @@ export function legs(from,to,leg=LEG){
 export async function travelTo(bot,task,{check,stage,progress,movements}){
  const target=validateTravelGoal(task.goal),start=bot.entity.position.clone()
  const movement=new DoorAwareMovements(bot)
- Object.assign(movement,{canDig:false,allow1by1towers:false,allowParkour:false,allowSprinting:false,scafoldingBlocks:[],maxDropDown:3})
+ Object.assign(movement,{allow1by1towers:false,allowParkour:false,allowSprinting:false,scafoldingBlocks:[],maxDropDown:3})
+ allowGroundBreaking(bot,movement)
  bot.pathfinder.setMovements(movement)
  const flat=()=>Math.hypot(bot.entity.position.x-target.x,bot.entity.position.z-target.z)
  const started=Date.now(),record=task.travel={legs:0,detours:0,startedAt:started}
@@ -43,21 +44,23 @@ export async function travelTo(bot,task,{check,stage,progress,movements}){
    // The straight line first, then a lateral detour either side of it.
    const dx=target.x-here.x,dz=target.z-here.z,len=Math.hypot(dx,dz)||1
    const side=[{x:0,z:0},{x:Math.round(-dz/len*16),z:Math.round(dx/len*16)},{x:Math.round(dz/len*16),z:Math.round(-dx/len*16)}]
-   let moved=false
+   let moved=false,refusal=null
    for(const [index,offset] of side.entries()){
     check()
     const to={x:next.x+offset.x,z:next.z+offset.z}
     if(index)record.detours++
     stage('walking');progress(`Travelling to ${target.x},${target.z}: ${Math.round(before)} blocks to go`)
     const timer=setTimeout(()=>bot.pathfinder.setGoal(null),25000)
-    try{await bot.pathfinder.goto(new goals.GoalNear(to.x,bot.entity.position.y,to.z,ARRIVE))}catch{}finally{clearTimeout(timer);bot.pathfinder.setGoal(null)}
+    try{await bot.pathfinder.goto(new goals.GoalNear(to.x,bot.entity.position.y,to.z,ARRIVE))}
+    catch(error){refusal=error?.name==='NoPath'?`no route to ${to.x},${to.z}`:error?.message||String(error)}
+    finally{clearTimeout(timer);bot.pathfinder.setGoal(null)}
     check()
     if(before-flat()>=4||bot.entity.position.distanceTo(start)>=4&&index===0&&before-flat()>0){moved=true;break}
     if(before-flat()>0){moved=true;break}
    }
    record.legs++
    if(!moved){
-    if(++stalls>=3)throw new Error(`No way forward ${Math.round(flat())} blocks short of ${target.x},${target.y},${target.z} after three detours`)
+    if(++stalls>=3)throw new Error(`No way forward ${Math.round(flat())} blocks short of ${target.x},${target.y},${target.z} after three detours${refusal?`: ${refusal}`:''}`)
     await delay(400)
    }else stalls=0
   }

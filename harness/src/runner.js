@@ -2,7 +2,7 @@ import {setTimeout as delay} from 'node:timers/promises'
 import {PREPARE_ACTIONS} from './supplies.js'
 import {EXPEDITION_ACTIONS} from './prospecting.js'
 import {STATION_ACTIONS} from './stations.js'
-import {DoorAwareMovements,correctDoorWaypoints} from './navigation.js'
+import {DoorAwareMovements,correctDoorWaypoints,allowGroundBreaking} from './navigation.js'
 import { isLog } from './resources.js'
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
@@ -59,7 +59,7 @@ export class Runner extends EventEmitter {
       this.ready = true
       this.respawnPending = false; clearTimeout(this.respawnTimer)
       const movements = new DoorAwareMovements(bot)
-      movements.canDig = false; movements.allow1by1towers = false
+      allowGroundBreaking(bot, movements); movements.allow1by1towers = false
       movements.allowParkour = false; movements.allowFreeMotion = false
       movements.allowSprinting = false; movements.scafoldingBlocks = []
       movements.maxDropDown = 3

@@ -2,7 +2,7 @@
 // out at close range. A creeper starts swelling within three blocks whether or
 // not it can see the bot, so distance is the only defence while unarmed.
 import pathfinding from 'mineflayer-pathfinder'
-import {DoorAwareMovements} from './navigation.js'
+import {DoorAwareMovements,allowGroundBreaking} from './navigation.js'
 const {goals}=pathfinding
 export const FLEE_DISTANCE=24
 export function fleeTarget(position,from,distance=FLEE_DISTANCE){
@@ -32,7 +32,8 @@ export async function fleeFrom(bot,task,{check,stage,progress,movements}){
   for(const turn of [0,Math.PI/4,-Math.PI/4,Math.PI/2,-Math.PI/2,3*Math.PI/4,-3*Math.PI/4])
    bearings.push({x:Math.round(start.x+Math.cos(away+turn)*reach),z:Math.round(start.z+Math.sin(away+turn)*reach)})
  const movement=new DoorAwareMovements(bot)
- Object.assign(movement,{canDig:false,allow1by1towers:false,allowParkour:false,allowSprinting:true,scafoldingBlocks:[],maxDropDown:2})
+ Object.assign(movement,{allow1by1towers:false,allowParkour:false,allowSprinting:true,scafoldingBlocks:[],maxDropDown:2})
+ allowGroundBreaking(bot,movement)
  stage('fleeing');progress(`Sprinting away from the threat toward ${target.x},${target.z}`)
  bot.pathfinder.setMovements(movement);bot.setControlState('sprint',true)
  let tried=0

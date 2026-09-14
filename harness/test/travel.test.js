@@ -5,6 +5,7 @@ import {Vec3} from 'vec3'
 import minecraftData from 'minecraft-data'
 const registry=minecraftData('1.21.4')
 import {legs,validateTravelGoal,travelTo,LEG} from '../src/travel.js'
+import {DoorAwareMovements,allowGroundBreaking,breakableWhileTravelling,TRAVERSAL_DIG_COST} from '../src/navigation.js'
 import {validateTaskGoal} from '../src/task-store.js'
 
 test('a journey is cut into legs along the line, and a short hop is one leg',()=>{
@@ -51,3 +52,45 @@ test('every long walk in the world skills closes the gap in stages first',()=>{
  assert.ok(source.includes('travelTo(bot,'),'using the travel skill')
 })
 
+
+test('a traveller breaks soft ground to get out, and nothing else',()=>{
+ // The agent digs its own shelters. Walled in by its own dirt, a traveller that
+ // cannot break ground reports "no route" and stands there: the whole reason a
+ // 138-block journey home ran nine pathfinder calls without moving one block.
+ for(const name of ['dirt','grass_block','coarse_dirt','sand','gravel','clay','mud','snow','oak_leaves','birch_leaves'])
+  assert.equal(breakableWhileTravelling({name}),true,`${name} should not trap a walker`)
+ for(const name of ['stone','deepslate','diamond_ore','crafting_table','chest','furnace','torch','oak_door','white_bed','obsidian'])
+  assert.equal(breakableWhileTravelling({name}),false,`${name} must never be broken in passing`)
+ assert.equal(breakableWhileTravelling(null),false)
+ assert.equal(breakableWhileTravelling({}),false)
+})
+test('ground breaking is priced into the traversal profile, not left free',()=>{
+ const bot={registry,world:{},entity:{position:new Vec3(0.5,64,0.5)},inventory:{items:()=>[]},blockAt:()=>({name:'air',boundingBox:'empty'})}
+ const movement=new DoorAwareMovements(bot)
+ movement.canDig=false
+ allowGroundBreaking(bot,movement)
+ assert.equal(movement.canDig,true,'a traveller may dig')
+ assert.equal(movement.digCost,TRAVERSAL_DIG_COST)
+ assert.ok(TRAVERSAL_DIG_COST>1,'digging must cost more than walking so detours win')
+ const exclude=movement.exclusionAreasBreak.at(-1)
+ assert.equal(exclude({name:'dirt'}),0,'soft ground is available')
+ assert.equal(exclude({name:'stone'}),100,'stone is refused outright, pickaxe or not')
+ assert.equal(exclude({name:'crafting_table'}),100,'the base survives the walk home')
+})
+test('a refused journey names what the pathfinder actually said',async()=>{
+ // Nine swallowed rejections read as one silent stall and cost an evening of
+ // debugging aimed at the wrong layer. The reason travels with the failure.
+ const bot={entity:{position:new Vec3(0.5,64,0.5)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},blockAt:()=>({name:'air',boundingBox:'empty'}),
+  pathfinder:{setMovements(){},setGoal(){},async goto(){throw Object.assign(new Error('No path'),{name:'NoPath'})}}}
+ await assert.rejects(travelTo(bot,{kind:'travel',goal:{x:200,y:64,z:0}},{check(){},stage(){},progress(){}}),/no route to/)
+ const other={...bot,pathfinder:{setMovements(){},setGoal(){},async goto(){throw new Error('Goal changed underfoot')}}}
+ other.entity={position:new Vec3(0.5,64,0.5)}
+ await assert.rejects(travelTo(other,{kind:'travel',goal:{x:200,y:64,z:0}},{check(){},stage(){},progress(){}}),/Goal changed underfoot/)
+})
+test('escape and the shared walk use the same traversal profile as travel',()=>{
+ for(const file of ['../src/runner.js','../src/flee.js','../src/travel.js']){
+  const source=readFileSync(new URL(file,import.meta.url),'utf8')
+  assert.ok(/allowGroundBreaking\(bot ?, ?movements?\)/.test(source),`${file} lets the walker break ground`)
+  assert.ok(!/canDig ?[=:] ?false/.test(source),`${file} no longer hard-refuses digging`)
+ }
+})

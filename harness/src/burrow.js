@@ -4,7 +4,7 @@
 import {setTimeout as delay} from 'node:timers/promises'
 import pathfinding from 'mineflayer-pathfinder'
 import {Vec3} from 'vec3'
-import {DoorAwareMovements} from './navigation.js'
+import {DoorAwareMovements,SOFT_GROUND as SOFT,centreOn} from './navigation.js'
 import {fullCube} from './construction.js'
 import {survivalObservation,RANGED} from './survival.js'
 import {DEFENDABLE_MOBS,DEFENSE_HEALTH} from './combat.js'
@@ -13,7 +13,6 @@ const {goals}=pathfinding
 // trigger distance; the cap goes on the top cell so nothing can drop in.
 export const BURROW_DEPTH=4
 export const BURROW_MIN_DEPTH=3
-const SOFT=new Set(['grass_block','dirt','coarse_dirt','podzol','rooted_dirt','mud','sand','red_sand','gravel','clay','moss_block','snow_block','mycelium'])
 const HARD=new Set(['stone','andesite','diorite','granite','tuff','deepslate','sandstone','red_sandstone','cobblestone','cobbled_deepslate','terracotta','netherrack'])
 const LIQUID=new Set(['water','lava','bubble_column'])
 const GRAVITY=new Set(['sand','red_sand','gravel','suspicious_sand','suspicious_gravel'])
@@ -77,17 +76,6 @@ async function settle(predicate,message,{check,ms=3000,poll=50}){
  const end=Date.now()+ms
  while(Date.now()<end){check();if(predicate())return;await delay(poll)}
  throw new Error(message)
-}
-async function centreOn(bot,cell,check,{tolerance=.15,pulses=12}={}){
- const centre=cell.offset(.5,0,.5)
- const off=()=>Math.hypot(bot.entity.position.x-centre.x,bot.entity.position.z-centre.z)
- for(let i=0;i<pulses&&off()>tolerance;i++){
-  check()
-  if(bot.lookAt)await bot.lookAt(centre.offset(0,bot.entity.eyeHeight||1.62,0),true)
-  bot.setControlState?.('forward',true);await delay(Math.min(120,Math.max(40,off()*250)));bot.setControlState?.('forward',false)
-  await delay(80)
- }
- return off()<=tolerance
 }
 export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
  check();const found=findBurrowColumn(bot)

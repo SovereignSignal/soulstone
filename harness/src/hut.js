@@ -4,6 +4,7 @@
 // sight a creeper needs and every melee reach. Exit by digging one side out.
 import {setTimeout as delay} from 'node:timers/promises'
 import {fullCube} from './construction.js'
+import {centreOn} from './navigation.js'
 export const HUT_BLOCKS=10
 const GRAVITY=new Set(['sand','red_sand','gravel','suspicious_sand','suspicious_gravel'])
 const REPLACEABLE=new Set(['air','cave_air','short_grass','tall_grass','fern','large_fern','dead_bush','pink_petals','snow','seagrass','vine'])
@@ -45,6 +46,11 @@ export async function wallIn(bot,task,{check,stage,progress}){
  check();const site=hutSite(bot)
  if(!site.ok)throw new Error('Cannot wall in here: '+site.reason)
  bot.pathfinder?.setGoal(null);bot.clearControlStates?.()
+ // A player is 0.6 blocks wide. Standing a hand's breadth off centre puts the
+ // hitbox inside the next cell, and the server refuses to place a block inside
+ // a player: the same two walls fail to close, in the same two cells, every
+ // night, while the bot reports carrying enough to finish. Centre, then build.
+ const centred=await centreOn(bot,site.feet,check)
  stage('walling');progress('Walling in with carried blocks')
  const {feet}=site
  const placements=[]
@@ -71,7 +77,7 @@ export async function wallIn(bot,task,{check,stage,progress}){
   if(solid(bot,bot.blockAt(target)))placed++
  }
  const missing=placements.filter(({target})=>!solid(bot,bot.blockAt(target))).map(({target})=>key(target))
- if(missing.length)throw new Error(`Hut incomplete: ${missing.length} of ${placements.length} blocks missing (${missing.slice(0,3).join('; ')})`)
+ if(missing.length)throw new Error(`Hut incomplete: ${missing.length} of ${placements.length} blocks missing (${missing.slice(0,3).join('; ')})${centred?'':'; could not stand clear of the wall line'}`)
  progress('Walled in; waiting for daylight')
  const p=bot.entity.position
  return {item:'safety',count:1,receipt:'walled_in',shelterName:'hut',capped:true,placed,position:{x:p.x,y:p.y,z:p.z},surface:{x:feet.x,y:feet.y,z:feet.z}}

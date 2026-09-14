@@ -1,6 +1,42 @@
+import {setTimeout as delay} from 'node:timers/promises'
 import pathfinding from 'mineflayer-pathfinder'
 import {WATER_BLOCKS} from './survival.js'
 const {Movements}=pathfinding
+// Ground a traveller is allowed to break. The agent digs itself shelters and
+// half-builds huts, then meets its own dirt wall as "no route" and stands in it:
+// 138 blocks from home, nine pathfinder calls, zero displacement, every rejection
+// swallowed. Soft ground and leaves are what actually wall a walker in, so those
+// are breakable and nothing else is: never stone, never ore, never the base
+// furniture, never a door it should be opening.
+export const SOFT_GROUND=new Set(['grass_block','dirt','coarse_dirt','podzol','rooted_dirt','mud','sand','red_sand','gravel','clay','moss_block','snow_block','mycelium'])
+export function breakableWhileTravelling(block){
+ const name=block?.name||''
+ return SOFT_GROUND.has(name)||name.endsWith('_leaves')||name==='snow'
+}
+// Priced, not free: digTime already reflects the tool carried, and this multiplier
+// puts one dirt block at about sixteen walking steps, so any reasonable detour
+// still wins and breaking ground stays the last resort it should be.
+export const TRAVERSAL_DIG_COST=5
+export function allowGroundBreaking(bot,movement,{digCost=TRAVERSAL_DIG_COST}={}){
+ movement.canDig=true
+ movement.digCost=digCost
+ movement.exclusionAreasBreak.push(block=>breakableWhileTravelling(block)?0:100)
+ return movement
+}
+// Stand in the middle of your own cell. A player is 0.6 blocks wide, so a bot a
+// hand's breadth off centre has its hitbox inside the neighbouring cell, and the
+// server refuses both to place a block there and to let it drop cleanly.
+export async function centreOn(bot,cell,check,{tolerance=.15,pulses=12}={}){
+ const centre=cell.offset(.5,0,.5)
+ const off=()=>Math.hypot(bot.entity.position.x-centre.x,bot.entity.position.z-centre.z)
+ for(let i=0;i<pulses&&off()>tolerance;i++){
+  check()
+  if(bot.lookAt)await bot.lookAt(centre.offset(0,bot.entity.eyeHeight||1.62,0),true)
+  bot.setControlState?.('forward',true);await delay(Math.min(120,Math.max(40,off()*250)));bot.setControlState?.('forward',false)
+  await delay(80)
+ }
+ return off()<=tolerance
+}
 export function requireReachedGoal(bot,goal) {
  // Pinned goto() resolves for an empty noPath result. Never equate the
  // promise resolving with arrival, especially before using a workstation.

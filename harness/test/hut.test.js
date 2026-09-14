@@ -91,3 +91,42 @@ test('the hut asks for the blocks this spot actually needs, not a fixed ten',()=
  assert.equal(nook.ok,true,nook.reason)
  assert.ok(nook.needed<10,`only ${nook.needed} placements are missing`)
 })
+
+test('a bot standing off centre steps clear before walling itself in',async()=>{
+ // The real server refuses to place a block inside a player. A bot 0.49 off
+ // centre has its 0.6-wide hitbox in the next cell, so those two walls never
+ // close: "Hut incomplete: 2 of 10 blocks missing", the same two cells, nightly.
+ const w=world()
+ w.bot.entity.position=new Vec3(10.99,64,10.5)
+ let aim=null
+ w.bot.lookAt=async v=>{aim=v}
+ w.bot.setControlState=(control,on)=>{
+  if(control!=='forward'||!on||!aim)return
+  const p=w.bot.entity.position
+  w.bot.entity.position=new Vec3(p.x+(aim.x-p.x)*0.5,p.y,p.z+(aim.z-p.z)*0.5)
+ }
+ const place=w.bot.placeBlock.bind(w.bot)
+ w.bot.placeBlock=async(ref,face)=>{
+  const target=ref.position.plus(face),p=w.bot.entity.position
+  const hits=p.x+0.3>target.x&&p.x-0.3<target.x+1&&p.z+0.3>target.z&&p.z-0.3<target.z+1&&p.y<target.y+1&&p.y+1.8>target.y
+  if(hits)throw new Error('cannot place a block inside a player')
+  return place(ref,face)
+ }
+ const result=await executeSkill(w.bot,{kind:'hut',goal:{}},api)
+ assert.equal(result.receipt,'walled_in')
+ assert.equal(w.placed.length,10,'every wall closed')
+ assert.ok(Math.abs(w.bot.entity.position.x-10.5)<=0.15,`stood clear of the wall line (x=${w.bot.entity.position.x})`)
+})
+test('the hut reports when it could not stand clear of its own wall line',async()=>{
+ const w=world()
+ w.bot.entity.position=new Vec3(10.99,64,10.5)
+ // No lookAt and no controls: the bot cannot move, so two cells stay occupied.
+ const place=w.bot.placeBlock.bind(w.bot)
+ w.bot.placeBlock=async(ref,face)=>{
+  const target=ref.position.plus(face),p=w.bot.entity.position
+  const hits=p.x+0.3>target.x&&p.x-0.3<target.x+1&&p.z+0.3>target.z&&p.z-0.3<target.z+1&&p.y<target.y+1&&p.y+1.8>target.y
+  if(hits)throw new Error('cannot place a block inside a player')
+  return place(ref,face)
+ }
+ await assert.rejects(executeSkill(w.bot,{kind:'hut',goal:{}},api),/could not stand clear of the wall line/)
+})
