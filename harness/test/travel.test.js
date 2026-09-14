@@ -109,3 +109,16 @@ test('a leg the harness abandoned is reported as ours, not as the world changing
   await assert.rejects(travelTo(bot,{kind:'travel',goal:{x:200,y:64,z:0}},{check(){},stage(){},progress(){}}),/this leg was still walking after 25 seconds/)
  }finally{global.setTimeout=original}
 })
+
+test('the staged approach reads a goal that names a block, not just one with x and z',()=>{
+ // GoalLookAtBlock keeps its target in `pos`; GoalBlock and GoalNear expose x/z.
+ // Reading only x/z silently skipped staging for the walk home to the base
+ // station, and for the base door and every station placement with it.
+ const source=readFileSync(new URL('../src/world-skills.js',import.meta.url),'utf8')
+ const body=source.slice(source.indexOf('async function approach(goal){'),source.indexOf('async function walk(goal,recover=true)'))
+ assert.ok(/goal\?\.pos\?\.\[k\]/.test(body),'it falls back to the goal position')
+ assert.ok(/<=64\)return/.test(body),'short walks are still untouched')
+ // The walk home ends at a block-named goal, which is why this mattered.
+ const prospecting=readFileSync(new URL('../src/prospecting.js',import.meta.url),'utf8')
+ assert.ok(/walk\(new goals\.GoalLookAtBlock\(vec\(station\.position\)/.test(prospecting),'the base walk still targets the station block')
+})

@@ -129,7 +129,13 @@ export async function executeWorldSkill(bot,task,context,gather) {
  // blocks reports no route where an easy walk exists. Close most of the gap in
  // staged legs first, then let the ordinary walk finish and verify arrival.
  async function approach(goal){
-  const to=['x','z'].every(k=>Number.isFinite(goal[k]))?goal:null
+  // A goal that names a block keeps its position in `pos`, not as x and z, so
+  // this skipped staging for every walk to one however far away it was. The walk
+  // home ends at the base crafting table, which is exactly such a goal: eighty
+  // five blocks in a single hop on a fifteen second budget, failing as "Walking
+  // attempt timed out" while the identical journey by travel succeeded.
+  const to=['x','z'].every(k=>Number.isFinite(goal?.[k]))?goal
+    :['x','z'].every(k=>Number.isFinite(goal?.pos?.[k]))?goal.pos:null
   if(!to)return
   const here=bot.entity.position
   if(Math.hypot(to.x-here.x,to.z-here.z)<=64)return
