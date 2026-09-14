@@ -106,3 +106,22 @@ test('one capped burrow ceiling with open air above is dug through on the climb;
  f.bot.blockAt=capped('cobblestone','stone');assert.equal(pitExit(f.bot),null)
  f.bot.blockAt=capped('cobblestone','water');assert.equal(pitExit(f.bot),null)
 })
+
+test("the cap over the bot's own shelter is climbed through, not read as a ceiling",()=>{
+ // A hut roof and a burrow cap both sit exactly two above the feet, and climbOut
+ // digs that block on the way up. Refusing to judge an exit there stranded the
+ // bot inside a shelter whose side it had just opened: every self-help route was
+ // blocked by its own roof and the walk home timed out in the hole.
+ const f=fixture();carrying(f.bot,8)
+ const overhead=(cap,over='air')=>p=>{
+  if(p.x===0&&p.z===0&&p.y===67)return {position:p,name:cap,boundingBox:cap==='air'?'empty':'block'}
+  if(p.x===0&&p.z===0&&p.y===68)return {position:p,name:over,boundingBox:over==='air'||over==='water'?'empty':'block'}
+  return pit()(p)
+ }
+ f.bot.blockAt=overhead('cobblestone')
+ assert.deepEqual(pitExit(f.bot),{height:5,cell:new Vec3(1,70,0),roof:new Vec3(0,67,0)})
+ // Still refused when digging up is the wrong move.
+ f.bot.blockAt=overhead('gravel');assert.equal(pitExit(f.bot),null,'sand and gravel fall back in')
+ f.bot.blockAt=overhead('cobblestone','stone');assert.equal(pitExit(f.bot),null,'a thick roof is not a cap')
+ f.bot.blockAt=overhead('cobblestone','water');assert.equal(pitExit(f.bot),null,'never dig up into water')
+})

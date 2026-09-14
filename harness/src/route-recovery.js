@@ -49,8 +49,17 @@ export async function stepFree(bot,{check,progress}){
 // first height with a solid ledge beside it. Roofed columns are never dug.
 export const MAX_CLIMB=8
 export function pitExit(bot,feet=bot.entity.position.floored()){
- if(!clear(bot.blockAt(feet.offset(0,2,0))))return null
+ // The block two above the feet is exactly the cap the bot puts over its own
+ // burrow, and the roof of the hut it walls itself into. climbOut digs whatever
+ // sits there on the way up, so refusing to judge an exit at all was stricter
+ // than the climb being judged: a shelter four blocks down could be opened at
+ // the side and still never climbed out of, and the walk home timed out in it.
  let roof=null
+ const overhead=feet.offset(0,2,0)
+ if(!clear(bot.blockAt(overhead))){
+  if(!thinRoof(bot,bot.blockAt(overhead),overhead.offset(0,1,0)))return null
+  roof=overhead
+ }
  for(let h=2;h<=MAX_CLIMB;h++){
   const above=feet.offset(0,h+1,0)
   if(!clear(bot.blockAt(above))){
