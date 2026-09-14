@@ -451,3 +451,32 @@ test('a threat that holds station is left rather than waited out, but only from 
  w.bot.entities=outpost;w.bot.time.timeOfDay=13000
  assert.equal(burrowClearance(w.bot,{lingeredMs:RELOCATE_PATIENCE_MS}).clear,false)
 })
+
+test('relocating from a hole climbs out before it runs, and puts distance behind it',async()=>{
+ // Opening a wall four blocks down is not leaving: without the pit exit the
+ // sprint has nowhere to go. Three pillagers hold station, so neither waiting
+ // nor fighting is the answer.
+ const w=world();w.bot.time.timeOfDay=6000;w.bot.health=20;w.bot.food=20
+ w.bot.entities={1:{name:'pillager',position:new Vec3(22.5,69,17.5)},2:{name:'pillager',position:new Vec3(23.5,72,20.5)},3:{name:'pillager',position:new Vec3(24.5,70,19.5)}}
+ const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov'
+ const commands=[],fledFrom=[]
+ runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'}
+  if(c.action==='flee')fledFrom.push(c.goal.from)
+  const result=c.action==='burrow'?{receipt:'burrowed_capped',shelterName:'burrow',surface:{x:10,y:64,z:10}}
+   :c.action==='unburrow'?{receipt:'surfaced'}:c.action==='climb'?{receipt:'climbed'}:c.action==='flee'?{receipt:'fled',gained:32}:{}
+  setTimeout(()=>{runner.task={...runner.task,status:'completed',result};runner.emit('event',{type:'task_finished',task:runner.task})},1)}
+ runner.waitForIdle=async()=>{};runner.position=()=>({x:10,y:64,z:10})
+ const said=[];let resumed=0
+ const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,
+  burrowWait:{quietMs:20,limitMs:4000,patienceMs:50,relocateAfterMs:50},
+  say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
+  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
+  async resume(){resumed++;this.requestProgress.status='running'}}
+ await c.seekSafety(THREAT_INTERRUPTION)
+ const acted=commands.filter(a=>a!=='stop')
+ assert.ok(acted.includes('climb'),`it climbed out first: ${acted.join(',')}`)
+ assert.ok(acted.includes('flee'),`then it ran: ${acted.join(',')}`)
+ assert.ok(acted.indexOf('climb')<acted.indexOf('flee'),'climb comes before flee')
+ assert.equal(fledFrom.length,1);assert.ok(Number.isFinite(fledFrom[0].x),'it ran from the threats it named')
+ assert.ok(said.some(t=>/3 hostiles will not move on.*leaving the area/.test(t)),said.join(' | '))
+})

@@ -391,9 +391,12 @@ export class Teammate extends EventEmitter {
   }
   async waitInBurrow(epoch,signal,bot,eligible) {
     const request=this.requestProgress,safety=this.safety,connection=this.runner.connectionId
-    const {quietMs=20000,limitMs=14*60*1000,patienceMs}=this.burrowWait||{}
+    const {quietMs=20000,limitMs=14*60*1000,patienceMs,relocateAfterMs}=this.burrowWait||{}
     let lingerSince=null
-    const observe=()=>{const r=burrowClearance(bot,{lingeredMs:lingerSince?Date.now()-lingerSince:0,patienceMs});if(r.lingering||r.confront)lingerSince??=Date.now();else lingerSince=null;return r}
+    // The relocate decision is derived from how long the threat has held, so
+    // clearing the timer the moment it fires un-decides it on the next poll and
+    // the wait oscillates for ever, never accumulating the quiet period it needs.
+    const observe=()=>{const r=burrowClearance(bot,{lingeredMs:lingerSince?Date.now()-lingerSince:0,patienceMs,relocateAfterMs});if(r.lingering||r.confront||r.relocate)lingerSince??=Date.now();else lingerSince=null;return r}
     const check=()=>{
       if(signal.aborted||epoch!==this.epoch||this.safety!==safety)throw new Error('Burrow wait cancelled')
       if(!this.runner.ready||this.runner.bot!==bot||this.runner.connectionId!==connection)throw new Error('Connection changed while burrowed')
@@ -409,10 +412,16 @@ export class Teammate extends EventEmitter {
       await this.execute(safety.retreat.shelterName==='hut'?{action:'unhut',goal:{},timeoutMs:60000}:{action:'unburrow',goal:{surface:safety.retreat.surface},timeoutMs:90000},signal);check()
       safety.exit=structuredClone(this.runner.task.result);this.persist()
       // Surfacing beside a threat that outguns us only helps if we then leave.
+      // Opening one wall is not leaving: a shelter four blocks down still needs
+      // the pit exit before a sprint has anywhere to go, which is why moving away
+      // from danger climbs first everywhere else the harness does it.
       if(relocate){
+        try{await this.execute({action:'climb',goal:{},timeoutMs:45000},signal);check()}
+        catch(error){check();this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check()}
         try{await this.execute({action:'flee',goal:{from:relocate.from,distance:32},timeoutMs:60000},signal);check()
           safety.relocated=structuredClone(this.runner.task.result);this.persist()}
-        catch(error){check();this.say('I could not get clear of them: '+error.message)}
+        catch(error){check();this.say('I could not get clear of them: '+error.message)
+          this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check()}
       }
       const continuing=(eligible||safety.resumeRequested)&&canResume(request)&&(safety.resumeRequested||canContinueAfterSafety(request))
       this.safety=null;this.activity='';this.phase=canResume(request)?'blocked':'ready'
