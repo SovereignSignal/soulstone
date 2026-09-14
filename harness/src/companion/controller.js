@@ -402,10 +402,18 @@ export class Teammate extends EventEmitter {
       const result=await awaitClearance({check,observe,quietMs,limitMs,onUpdate:record=>{safety.continuation=record;this.persist();this.emit('change')}})
       check();safety.continuation=result;this.persist()
       if(result.status!=='cleared'){this.say('I am staying dug in. Resume is required because daylight and a clear area were not established in time.');return}
-      const confront=result.observation?.confront
-      this.say(confront?`Daylight, and a lone ${confront.name} has lingered ${confront.distance} blocks away. Opening up to confront it.`:'Daylight with no hostile nearby. Opening up.')
+      const confront=result.observation?.confront,relocate=result.observation?.relocate
+      this.say(confront?`Daylight, and a lone ${confront.name} has lingered ${confront.distance} blocks away. Opening up to confront it.`
+        :relocate?`Daylight, and ${relocate.threats.length===1?`a ${relocate.threats[0].name}`:`${relocate.threats.length} hostiles`} will not move on. I cannot take that unarmed and waiting is not working, so I am surfacing and leaving the area.`
+        :'Daylight with no hostile nearby. Opening up.')
       await this.execute(safety.retreat.shelterName==='hut'?{action:'unhut',goal:{},timeoutMs:60000}:{action:'unburrow',goal:{surface:safety.retreat.surface},timeoutMs:90000},signal);check()
       safety.exit=structuredClone(this.runner.task.result);this.persist()
+      // Surfacing beside a threat that outguns us only helps if we then leave.
+      if(relocate){
+        try{await this.execute({action:'flee',goal:{from:relocate.from,distance:32},timeoutMs:60000},signal);check()
+          safety.relocated=structuredClone(this.runner.task.result);this.persist()}
+        catch(error){check();this.say('I could not get clear of them: '+error.message)}
+      }
       const continuing=(eligible||safety.resumeRequested)&&canResume(request)&&(safety.resumeRequested||canContinueAfterSafety(request))
       this.safety=null;this.activity='';this.phase=canResume(request)?'blocked':'ready'
       if(continuing){

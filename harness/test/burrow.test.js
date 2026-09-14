@@ -4,7 +4,7 @@ import {EventEmitter} from 'node:events'
 import {readFileSync} from 'node:fs'
 import minecraftData from 'minecraft-data'
 import {Vec3} from 'vec3'
-import {burrowSite,burrowIn,burrowClearance,unburrow} from '../src/burrow.js'
+import {burrowSite,burrowIn,burrowClearance,unburrow,RELOCATE_PATIENCE_MS,RELOCATE_HEALTH} from '../src/burrow.js'
 import {executeSkill} from '../src/skills.js'
 import {validateTaskGoal} from '../src/task-store.js'
 import {Teammate} from '../src/companion/controller.js'
@@ -232,8 +232,10 @@ test('daylight judgement: a lone defendable mob that lingers is confronted after
  w.bot.entities={1:{name:'skeleton',position:new Vec3(14.5,64,10.5)}}
  let r=burrowClearance(w.bot);assert.equal(r.clear,false);assert.equal(r.lingering,true);assert.match(r.reason,/lone skeleton .* 60 seconds/)
  r=burrowClearance(w.bot,{lingeredMs:61000});assert.equal(r.clear,true);assert.equal(r.confront.name,'skeleton');assert.match(r.reason,/surfacing to confront/)
- w.bot.health=14;r=burrowClearance(w.bot,{lingeredMs:61000});assert.equal(r.clear,false);assert.equal(r.lingering,undefined)
- w.bot.health=20;w.bot.entities={1:{name:'creeper',position:new Vec3(14.5,64,10.5)}};r=burrowClearance(w.bot,{lingeredMs:61000});assert.equal(r.clear,false);assert.equal(r.lingering,undefined)
+ // A threat we cannot answer is still a threat that is lingering: the timer has
+ // to run for the case that needs it most, or relocation can never come due.
+ w.bot.health=14;r=burrowClearance(w.bot,{lingeredMs:61000});assert.equal(r.clear,false);assert.equal(r.lingering,true)
+ w.bot.health=20;w.bot.entities={1:{name:'creeper',position:new Vec3(14.5,64,10.5)}};r=burrowClearance(w.bot,{lingeredMs:61000});assert.equal(r.clear,false);assert.equal(r.lingering,true)
  w.bot.entities={1:{name:'zombie',position:new Vec3(14.5,64,10.5)},2:{name:'zombie',position:new Vec3(12.5,64,10.5)}};assert.equal(burrowClearance(w.bot,{lingeredMs:61000}).clear,false)
  w.bot.entities={1:{name:'zombie',position:new Vec3(14.5,64,10.5)}};w.bot.food=8;assert.equal(burrowClearance(w.bot,{lingeredMs:61000}).clear,false)
  w.bot.food=20;w.bot.time.timeOfDay=13000;assert.match(burrowClearance(w.bot,{lingeredMs:61000}).reason,/daylight/)
@@ -422,4 +424,30 @@ test('ranged mobs are answered at their firing range, not at melee range',async(
  assert.equal(burrowClearance(w.bot).clear,false,'a pillager twenty blocks off still keeps it underground')
  w.bot.entities={1:{name:'zombie',position:new Vec3(30.5,64,10.5)}}
  assert.equal(burrowClearance(w.bot).clear,true,'a zombie at the same distance does not')
+})
+
+test('a threat that holds station is left rather than waited out, but only from a safe distance in daylight at strength',()=>{
+ // Found live: buried at y=62 with three pillagers holding the hill twelve
+ // blocks up. Waiting for a clear area next to an outpost waits for ever, and
+ // the observation window ends in "resume is required" with nobody watching.
+ const w=world();w.bot.time.timeOfDay=6000;w.bot.health=20;w.bot.food=20
+ const outpost={1:{name:'pillager',position:new Vec3(22.5,69,17.5)},2:{name:'pillager',position:new Vec3(23.5,72,20.5)},3:{name:'pillager',position:new Vec3(24.5,70,19.5)}}
+ w.bot.entities=outpost
+ let r=burrowClearance(w.bot,{lingeredMs:1000})
+ assert.equal(r.clear,false);assert.equal(r.lingering,true,'the clock runs while they hold')
+ r=burrowClearance(w.bot,{lingeredMs:RELOCATE_PATIENCE_MS})
+ assert.equal(r.clear,true,'past the window, leaving beats waiting')
+ assert.equal(r.relocate.threats.length,3)
+ assert.match(r.reason,/3 hostiles held station .* will not disperse/)
+ assert.ok(Number.isFinite(r.relocate.from.x)&&Number.isFinite(r.relocate.from.z),'it knows what to move away from')
+ assert.equal(r.confront,undefined,'three pillagers are not confronted')
+ // Hurt, we stay under the cap rather than surface into crossbows.
+ w.bot.health=RELOCATE_HEALTH-1
+ assert.equal(burrowClearance(w.bot,{lingeredMs:RELOCATE_PATIENCE_MS}).clear,false)
+ // In melee reach, surfacing is worse than waiting.
+ w.bot.health=20;w.bot.entities={1:{name:'pillager',position:new Vec3(14.5,64,10.5)},2:{name:'pillager',position:new Vec3(15.5,64,10.5)}}
+ assert.equal(burrowClearance(w.bot,{lingeredMs:RELOCATE_PATIENCE_MS}).clear,false)
+ // At night we wait, whatever the patience.
+ w.bot.entities=outpost;w.bot.time.timeOfDay=13000
+ assert.equal(burrowClearance(w.bot,{lingeredMs:RELOCATE_PATIENCE_MS}).clear,false)
 })

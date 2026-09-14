@@ -156,7 +156,19 @@ export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
 // is confronted after a patience window rather than waited out. It may be
 // roofed or stuck and would otherwise hold the bot underground all day.
 export const CONFRONT_PATIENCE_MS=60000
-export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_MS}={}){
+// A threat that will not leave is not waited out. A pillager outpost never
+// disperses, so a bot waiting for a clear area waits for ever: the observation
+// window times out into "resume is required", which for an agent working
+// unattended is a dead end. Found live, buried at y=62 with three pillagers
+// holding station twelve blocks up the hill, on a run with nobody watching.
+export const RELOCATE_PATIENCE_MS=240000
+export const RELOCATE_HEALTH=16
+export const RELOCATE_STANDOFF=10
+const centre=threats=>({
+ x:Math.round(threats.reduce((n,t)=>n+t.position.x,0)/threats.length),
+ y:Math.round(threats.reduce((n,t)=>n+t.position.y,0)/threats.length),
+ z:Math.round(threats.reduce((n,t)=>n+t.position.z,0)/threats.length)})
+export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_MS,relocateAfterMs=RELOCATE_PATIENCE_MS}={}){
  const s=survivalObservation(bot)
  if(!Number.isFinite(s.timeOfDay))return {clear:false,reason:'Time of day is unknown'}
  if(s.timeOfDay<1000||s.timeOfDay>=12000)return {clear:false,reason:'Waiting for daylight'}
@@ -173,7 +185,16 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  if(!near.length)return {clear:true,health:s.health,timeOfDay:s.timeOfDay,scope}
  const lone=near.length===1?near[0]:null
  const ready=!!lone&&DEFENDABLE_MOBS.has(lone.name)&&s.health>=DEFENSE_HEALTH[lone.name]&&Number.isFinite(s.food)&&s.food>=10
- if(!ready)return {clear:false,reason:'A potential hostile remains within 16 blocks',threats:near}
+ if(!ready){
+  // Neither fight nor hide. Unarmed against numbers or a crossbow, healthy, in
+  // daylight, with nothing in melee reach and the threat sat still past the
+  // patience window: the judgement a player makes here is to leave.
+  const closest=near.reduce((m,t)=>Math.min(m,t.distance),Infinity)
+  if(lingeredMs>=relocateAfterMs&&s.health>=RELOCATE_HEALTH&&closest>=RELOCATE_STANDOFF&&near.every(t=>t.position))
+   return {clear:true,relocate:{threats:near,from:centre(near)},health:s.health,timeOfDay:s.timeOfDay,scope,
+    reason:`${near.length===1?`A ${near[0].name}`:`${near.length} hostiles`} held station for ${Math.round(lingeredMs/1000)} seconds and will not disperse; surfacing to move away rather than wait them out`}
+  return {clear:false,lingering:true,reason:'A potential hostile remains within 16 blocks',threats:near}
+ }
  if(lingeredMs<patienceMs)return {clear:false,lingering:true,reason:`A lone ${lone.name} lingers within 16 blocks in daylight; confronting it after ${Math.round(patienceMs/1000)} seconds`,threats:near}
  return {clear:true,confront:lone,health:s.health,timeOfDay:s.timeOfDay,reason:`A lone ${lone.name} has lingered ${Math.round(lingeredMs/1000)} seconds into daylight; surfacing to confront it`,scope}
 }
