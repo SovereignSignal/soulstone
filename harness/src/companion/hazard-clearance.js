@@ -75,16 +75,24 @@ export function openGroundClearance(bot){
  if(near.length)return {clear:false,reason:'A potential hostile followed within 16 blocks',threats:near}
  return {clear:true,health:s.health,timeOfDay:s.timeOfDay,scope:'Loaded entities within 16 blocks and the world clock; open ground, not a shelter'}
 }
+// The observation window bounds how long we will wait for a situation that can
+// change. Time in which nothing could possibly change is not part of that: a bot
+// that digs in at dusk spends ten real minutes waiting for a dawn that is simply
+// coming, and charging that to the window left twenty-eight seconds for the
+// judgement that needed four minutes. An observation marked holding stops the
+// clock without stopping the watch.
 export async function awaitClearance({check,observe,maintain,onUpdate=()=>{},quietMs=20000,limitMs=90000,pollMs=500}){
- const startedAt=Date.now();let clearSince=null,lastReason=null
- while(Date.now()-startedAt<limitMs){
+ const startedAt=Date.now();let clearSince=null,lastReason=null,held=0,since=Date.now()
+ const elapsed=()=>Date.now()-startedAt-held
+ while(elapsed()<limitMs){
   check();if(maintain){if(await maintain())clearSince=null;check();if(Date.now()-startedAt>=limitMs)break}
   const observation=observe();check()
+  const now=Date.now();if(observation.holding)held+=now-since;since=now
   if(observation.clear){clearSince??=Date.now();if(Date.now()-clearSince>=quietMs)return {status:'cleared',startedAt,clearedAt:Date.now(),quietMs,observation}}
   else clearSince=null
   const reason=observation.clear?'Watching clear area':observation.reason
   if(reason!==lastReason){onUpdate({status:'watching',reason,startedAt,clearSince});lastReason=reason}
-  await delay(Math.min(pollMs,Math.max(1,limitMs-(Date.now()-startedAt))))
+  await delay(Math.min(pollMs,Math.max(1,limitMs-elapsed())))
  }
- check();return {status:'paused',code:'clearance_timeout',reason:'Clearance was not established within the observation window',startedAt,endedAt:Date.now()}
+ check();return {status:'paused',code:'clearance_timeout',reason:'Clearance was not established within the observation window',startedAt,endedAt:Date.now(),...(held?{heldMs:Math.round(held)}:{})}
 }

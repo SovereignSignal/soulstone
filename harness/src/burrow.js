@@ -171,7 +171,8 @@ const centre=threats=>({
 export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_MS,relocateAfterMs=RELOCATE_PATIENCE_MS}={}){
  const s=survivalObservation(bot)
  if(!Number.isFinite(s.timeOfDay))return {clear:false,reason:'Time of day is unknown'}
- if(s.timeOfDay<1000||s.timeOfDay>=12000)return {clear:false,reason:'Waiting for daylight'}
+ // Dawn is coming whatever we do, so waiting for it is not the window's business.
+ if(s.timeOfDay<1000||s.timeOfDay>=12000)return {clear:false,holding:true,reason:'Waiting for daylight'}
  // The floor only helps if waiting can actually heal: regeneration needs hunger
  // eighteen or carried food. Hurt, hungry and empty-handed, staying under the
  // cap is a slower death than surfacing in daylight with nothing in sight.

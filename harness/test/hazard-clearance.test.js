@@ -60,3 +60,19 @@ test('departure threat observation blocks the exit corridor but records peripher
  delete bot.entities.unknown
  const split=departureThreatObservation(bot,{base:project});assert.equal(split.blocking.length,1);assert.equal(split.blocking[0].name,'skeleton');assert.equal(split.peripheral[0].name,'creeper')
 })
+
+test('time in which nothing could change does not spend the observation window',async()=>{
+ // A bot that digs in at dusk waits ten real minutes for a dawn that is simply
+ // coming. Charged to the window, that left twenty-eight seconds for a judgement
+ // needing four minutes, and the wait ended in "resume is required" instead.
+ let calls=0
+ const held=await awaitClearance({check(){},quietMs:15,limitMs:120,pollMs:2,
+  observe:()=>(++calls<60?{clear:false,holding:true,reason:'Waiting for daylight'}:{clear:true})})
+ assert.equal(held.status,'cleared','the watch outlasted a hold longer than its own window')
+ // A hold does not make the window infinite: once something could change, it runs.
+ calls=0
+ const timedOut=await awaitClearance({check(){},quietMs:15,limitMs:60,pollMs:2,
+  observe:()=>(++calls<10?{clear:false,holding:true,reason:'Waiting for daylight'}:{clear:false,reason:'A potential hostile remains'})})
+ assert.equal(timedOut.status,'paused');assert.equal(timedOut.code,'clearance_timeout')
+ assert.ok(timedOut.heldMs>0,'it reports how long it held')
+})
