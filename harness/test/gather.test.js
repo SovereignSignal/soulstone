@@ -73,3 +73,16 @@ test('twelve unreachable trunks send the bot somewhere else instead of ending th
  assert.ok(messages.some(m=>/Twelve unreachable logs here; looking somewhere else/.test(m)),'it announced the move: '+messages.slice(-3).join(' | '))
  assert.ok(walked.length>0,'and it actually walked somewhere new')
 })
+
+test('a bot that cannot walk stops exploring and says so, instead of blaming the world',async()=>{
+ // Eight legs against a wall cost seconds and zero displacement, then reported
+ // "no logs within 48 blocks ... move me near trees" while a trunk stood 91
+ // blocks away in plain sight. The blocker is navigation, and it should say so.
+ const walked=[]
+ const bot={registry:{blocksByName:{spruce_log:{id:1}}},inventory:{items:()=>[]},entity:{position:new Vec3(0,64,0)},findBlocks:()=>[],blockAt:()=>null,
+  pathfinder:{setGoal(){},setMovements(){},async goto(goal){walked.push([goal.x,goal.z]);throw Object.assign(new Error('No path'),{name:'NoPath'})}},
+  canDigBlock:()=>true,tool:{async equipForBlock(){}},dig:async()=>{}}
+ await assert.rejects(executeSkill(bot,{kind:'gather',goal:{item:'logs',count:1}},{check(){},progress(){},stage(){},movements:{}}),
+  /no logs within 48 blocks after exploring 3 legs from the start: no route toward/)
+ assert.equal(walked.length,3,'it gave up after three legs that moved it nowhere')
+})

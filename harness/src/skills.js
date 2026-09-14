@@ -73,6 +73,11 @@ export async function executeSkill(bot, task, context) {
     // from the start, re-scanning after each leg; at most eight legs per job.
     async function explore() {
       const origin = bot.entity.position.clone()
+      // A leg that moves the bot nowhere was not spent searching, it was spent
+      // standing still. Eight of those burn in seconds and then blame the world
+      // for having no trees, while a trunk stands in sight and the bot has not
+      // left the cell it started in.
+      let refusal = null, still = 0
       while (legs < 8) {
         check(); legs++
         const far = scan(128, 64)[0]; let target
@@ -86,13 +91,19 @@ export async function executeSkill(bot, task, context) {
           target = { x: origin.x + dx * ring, z: origin.z + dz * ring }
           progress(`Exploring for ${resourceLabel(item)}: leg ${legs} of 8`)
         }
+        const from = bot.entity.position.clone()
         stage('walking'); bot.pathfinder.setMovements(context.movements)
-        try { await walk(new goals.GoalXZ(Math.round(target.x), Math.round(target.z)), 20000) }
-        catch (error) { check(); if (!['NoPath', 'Timeout'].includes(error.name)) throw error }
+        try { await walk(new goals.GoalXZ(Math.round(target.x), Math.round(target.z)), 20000); refusal = null }
+        catch (error) {
+          check(); if (!['NoPath', 'Timeout'].includes(error.name)) throw error
+          refusal = error.name === 'NoPath' ? `no route toward ${Math.round(target.x)},${Math.round(target.z)}` : 'the walk timed out'
+        }
         bot.pathfinder.setGoal(null); check()
         if (scan(48, 512).length) return
+        if (bot.entity.position.distanceTo(from) >= 2) still = 0
+        else if (++still >= 3) break
       }
-      throw new Error(`no ${resourceLabel(item)} within 48 blocks after exploring 8 legs from the start; move me near trees`)
+      throw new Error(`no ${resourceLabel(item)} within 48 blocks after exploring ${legs} legs from the start${refusal ? `: ${refusal}` : '; move me near trees'}`)
     }
     while (total() < count) {
       check()
