@@ -57,3 +57,10 @@ test('the capabilities brief tells the planner to acquire armour, since wearing 
  assert.match(brief,/hunt leather from cows/)
  assert.match(brief,/A shield is six planks and one iron ingot/)
 })
+
+test('the brief tells the planner to bank what it earns, since death drops everything',()=>{
+ const brief=readFileSync(new URL('../src/companion/survival-capabilities.txt',import.meta.url),'utf8')
+ assert.match(brief,/KEEPING WHAT YOU EARN/)
+ assert.match(brief,/A base chest is death insurance/)
+ assert.match(brief,/deposit spare tools, ores, food and torches before any risky trip/)
+})
