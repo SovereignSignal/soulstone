@@ -4,7 +4,7 @@ import {EventEmitter} from 'node:events'
 import {readFileSync} from 'node:fs'
 import minecraftData from 'minecraft-data'
 import {Vec3} from 'vec3'
-import {burrowSite,burrowIn,burrowClearance,unburrow,RELOCATE_PATIENCE_MS,RELOCATE_HEALTH} from '../src/burrow.js'
+import {burrowSite,burrowIn,burrowClearance,unburrow,RELOCATE_PATIENCE_MS,RELOCATE_HEALTH,RELOCATE_FLOOR} from '../src/burrow.js'
 import {executeSkill} from '../src/skills.js'
 import {validateTaskGoal} from '../src/task-store.js'
 import {Teammate} from '../src/companion/controller.js'
@@ -503,4 +503,27 @@ test('an expired observation window re-arms the watch rather than ending the day
  assert.equal(rearmed.length,2,`it re-armed twice before giving up: ${said.join(' | ')}`)
  assert.ok(said.some(s=>/Resume is required/.test(s)),'and still hands over after the last watch')
  assert.equal(c.safety.continuation.watch,3,'the watch count is recorded')
+})
+
+test('a bot that cannot heal does not wait underground for health it will never reach',()=>{
+ // Observed live, 14 September: walled in at health 12 with no food, hunger 10,
+ // threats holding. Regeneration needs hunger 18, so 16 health was a number the
+ // agent could never reach; relocate refused it every pass and it stayed buried
+ // for the whole hour, never surfacing, never planning, never getting food.
+ const w=world();w.bot.time.timeOfDay=6000;w.bot.food=10;w.bot.health=12
+ w.bot.entities={1:{name:'pillager',position:new Vec3(22.5,69,17.5)},2:{name:'pillager',position:new Vec3(23.5,72,20.5)}}
+ w.inventory.length=0
+ const stuck=burrowClearance(w.bot,{lingeredMs:RELOCATE_PATIENCE_MS})
+ assert.equal(stuck.clear,true,'waiting cannot improve anything, so leaving is the move')
+ assert.equal(stuck.relocate.threats.length,2)
+ // Carrying food, waiting does help: eat, heal, then decide from strength.
+ w.inventory.push({name:'cooked_beef',count:2})
+ assert.equal(burrowClearance(w.bot,{lingeredMs:RELOCATE_PATIENCE_MS}).clear,false,'healing is possible, so hold')
+ // Hunger at the regeneration threshold is the same: health is coming back.
+ w.inventory.length=0;w.bot.food=18
+ assert.equal(burrowClearance(w.bot,{lingeredMs:RELOCATE_PATIENCE_MS}).clear,false)
+ // The waiver is not unlimited: badly hurt, surfacing into crossbows is worse.
+ w.bot.food=10;w.bot.health=RELOCATE_FLOOR-1
+ assert.equal(burrowClearance(w.bot,{lingeredMs:RELOCATE_PATIENCE_MS}).clear,false)
+ assert.ok(RELOCATE_FLOOR<RELOCATE_HEALTH&&RELOCATE_FLOOR>=6,'a floor below the healthy gate but above one-shot range')
 })
