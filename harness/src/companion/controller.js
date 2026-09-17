@@ -9,7 +9,8 @@ const SAFETY_RETRIES=3
 const NIGHT_HOLD_MS=14*60*1000
 import {survivalObservation,emergencyReason,WATER_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY} from '../survival.js'
 import {burrowClearance} from '../burrow.js'
-import {defenseDecision,combatClearance,DEFENDABLE_MOBS} from '../combat.js'
+import {defenseDecision,combatClearance,DEFENDABLE_MOBS,meleeWeapon} from '../combat.js'
+import {ThreatJudge,harnessVerdict,wornArmour} from '../threat-judgement.js'
 import {projectFootprints} from '../site-survey.js'
 import {reviseArchitecture} from '../construction.js'
 import {evaluateGoal,enforceProjectIntent,validateContract,constructionLimits,vacuousContract} from './goal-contract.js'
@@ -35,6 +36,8 @@ export class Teammate extends EventEmitter {
     super(); this.runner = runner; this.planner = planner; this.statePath = statePath; this.recorder = recorder
     this.messages = []; this.places = {}; this.phase = 'ready'; this.plan = []; this.stepIndex = -1; this.epoch = 0
     this.safety = null; this.requestProgress = null; this.projects = {};this.experience=new ExperienceStore(join(dirname(statePath),'experience.json'),runner.profile)
+    // Shadow mode: Jev's opinion is logged beside every safety decision and changes nothing yet.
+    this.threatJudge=new ThreatJudge({log:(type,data)=>runner.log?.(type,data)})
     try { const s = JSON.parse(readFileSync(statePath, 'utf8')); if (s.profile === runner.profile) { this.safety=s.safety||null;if(['retreating','defending'].includes(this.safety?.status))this.safety.status='interrupted';this.messages = s.messages.slice(-60); this.places = s.places; this.projects=s.projects||{}; this.requestProgress=s.requestProgress||null; if(this.requestProgress?.status==='running')this.requestProgress.status='interrupted' } }
     catch (e) { if (e.code !== 'ENOENT') throw e }
     if(this.safety?.continuation?.status==='watching')this.safety.continuation={status:'paused',reason:'Service restarted; explicit Resume is required'}
@@ -75,6 +78,8 @@ export class Teammate extends EventEmitter {
           this.say('I am on dry ground and can breathe. The saved task remains paused.')
         }
         if(reason&&(!this.safety||reason===WATER_EMERGENCY&&this.safety.reason!==WATER_EMERGENCY&&this.safety.status!=='cancelled'))void this.seekSafety(reason)
+        // Hostiles in view that the rule leaves alone: ask whether a player would, throttled.
+        else if(!reason&&!this.safety&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=24))void this.threatJudge?.judge('watch',observation,{...this.judgementContext(runner.bot,shelterAvailable,sheltered),harness:'continue',harnessReason:'no hostile inside its interruption radius'})
         // Safety is unreachable here and the chain has stopped trying. Idling fixes
         // none of the blockers and the work usually does, so let saved work continue.
         // Owned by the tick rather than the failure handler, which races the retries.
@@ -152,6 +157,13 @@ export class Teammate extends EventEmitter {
     if(attempts.some(a=>a.name==='base'&&a.status==='rejected'))needs.push('the base doorway clear and its walls whole')
     return (say.length?say.join('; '):'nothing here worked')+(needs.length?`. I need ${needs.join(' or ')}.`:'')
   }
+  // What the judge sees beyond the survival observation: weapon, armour, tools, shelter and base distance.
+  judgementContext(bot,shelterAvailable=false,sheltered=false){
+    const origin=this.projects?.base?.build?.origin,p=bot?.entity?.position
+    const baseDistance=origin&&p?Math.hypot(origin.x-p.x,origin.z-p.z):null
+    const items=bot?.inventory?.items?.()||[]
+    return {weapon:meleeWeapon(bot)?.name||null,armour:wornArmour(bot),tools:items.filter(i=>/_(pickaxe|axe|shovel|sword|hoe)$/.test(i.name)).map(i=>i.name),inventory:items.reduce((m,i)=>({...m,[i.name]:(m[i.name]||0)+i.count}),{}),sheltered,shelterAvailable,baseDistance}
+  }
   async seekSafety(reason,{retries=0}={}) {
     if(this.safety&&(reason!==WATER_EMERGENCY||this.safety.reason===WATER_EMERGENCY||this.safety.status==='cancelled'))return
     // A recovery that already failed, with nothing changed that could make it
@@ -193,6 +205,9 @@ export class Teammate extends EventEmitter {
         let decision=defenseDecision(recoveryBot)
         // Landing from a jump or closing a window takes a moment; re-judge briefly before choosing shelter.
         for(let i=0;i<4&&!decision.engage&&/^Not ready/.test(decision.reason);i++){await delay(250);if(epoch!==this.epoch||abort.signal.aborted)return;decision=defenseDecision(recoveryBot)}
+        {const observed=survivalObservation(recoveryBot),verdict=harnessVerdict(decision,observed)
+         void this.threatJudge?.judge('interruption',observed,{...this.judgementContext(recoveryBot),harness:verdict.verdict,harnessReason:verdict.reason})
+          ?.then(j=>{if(j&&this.safety&&epoch===this.epoch){this.safety.judgement={response:j.response,confidence:j.confidence,interrupt:j.interrupt,danger:j.danger,winnable:j.winnable,harness:j.harness,agrees:j.agrees};this.persist()}})}
         if(decision.engage){
           this.safety.status='defending';this.phase='defending'
           this.say('I can defend against this '+decision.target.targetName+'. I am equipping '+decision.weapon.replaceAll('_',' ')+'.')
