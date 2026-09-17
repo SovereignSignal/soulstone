@@ -86,13 +86,39 @@ export function harnessVerdict(decision,observation){
 }
 // Worn armour sits in equipment slots the item list does not include; armor.js reads them the same way.
 export const wornArmour=bot=>['head','torso','legs','feet'].map(slot=>{const i=bot?.getEquipmentDestSlot?.(slot);return Number.isInteger(i)?bot.inventory?.slots?.[i]?.name:null}).filter(Boolean)
+// Control mode. Code keeps the floors a player would never argue with; Jev
+// judges between them. Nothing here fires unless MC_THREAT_JUDGE=control.
+export const CONTROL=process.env.MC_THREAT_JUDGE==='control'
+export const FLOORS={melee:6,creeper:10,health:8,fightHealth:10,fightFood:8,continueInterrupt:0.4,overrideConfidence:0.3,holdMs:10000}
+// A hostile in arm's reach, a creeper in fuse range or a bot already hurt is not a judgement call.
+export function forcedInterruption(observation,floors=FLOORS){
+ const threats=(observation?.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile')
+ if(Number.isFinite(observation?.health)&&observation.health<=floors.health)return 'health at or below the floor'
+ if(threats.some(t=>t.name==='creeper'&&t.distance<=floors.creeper))return 'a creeper inside fuse range'
+ if(threats.some(t=>t.distance<=floors.melee))return 'a hostile in melee reach'
+ return null
+}
+// Whether work stops at all: Jev's call, unless it did not answer.
+export function gateVerdict(judgement,floors=FLOORS){
+ if(!judgement)return 'interrupt'
+ return judgement.response==='continue'||judgement.interrupt<floors.continueInterrupt?'continue':'interrupt'
+}
+// What the interruption does. An unsure answer defers to the rule; continue at
+// this point (the gate already passed) means the same as evade.
+export function chooseResponse(judgement,ruleVerdict,floors=FLOORS){
+ if(!judgement||judgement.confidence<floors.overrideConfidence)return {response:ruleVerdict,source:judgement?'rule (judgement unsure)':'rule (no judgement)'}
+ const response=judgement.response==='continue'?'evade':judgement.response
+ return {response,source:'jev'}
+}
 export class ThreatJudge{
- constructor({key=resolveKey(),model=process.env.TYPESAFE_MODEL||DEFAULT_MODEL,fetch=globalThis.fetch,log=()=>{},timeoutMs=2500,minWatchIntervalMs=15000,now=Date.now}={}){
-  Object.assign(this,{key,model,fetch,log,timeoutMs,minWatchIntervalMs,now});this.enabled=!!key;this.lastWatchAt=0;this.failures=0
-  if(!this.enabled)log('threat_judgement_disabled',{reason:'No TypeSafe key in the environment or the login Keychain'})
+ constructor({key=resolveKey(),model=process.env.TYPESAFE_MODEL||DEFAULT_MODEL,fetch=globalThis.fetch,log=()=>{},timeoutMs=2500,minWatchIntervalMs=15000,now=Date.now,control=CONTROL,floors=FLOORS}={}){
+  Object.assign(this,{key,model,fetch,log,timeoutMs,minWatchIntervalMs,now,floors});this.enabled=!!key;this.control=this.enabled&&!!control;this.lastWatchAt=0;this.failures=0
+  if(!this.enabled)log('threat_judgement_disabled',{reason:'No TypeSafe key in the environment or the login Keychain',controlRequested:!!control})
+  else log('threat_judgement_mode',{mode:this.control?'control':'shadow',model})
  }
- // kind: 'interruption' at the moment the chain decides, 'watch' (throttled) when
- // hostiles are in view but nothing has interrupted. Never throws, never blocks.
+ // kind: 'gate' before the rule interrupts (control mode), 'interruption' at the
+ // moment the chain decides, 'watch' (throttled) when hostiles are in view but
+ // nothing has interrupted. Never throws.
  async judge(kind,observation,extras={}){
   if(!this.enabled)return null
   if(kind==='watch'){const t=this.now();if(t-this.lastWatchAt<this.minWatchIntervalMs)return null;this.lastWatchAt=t}
@@ -100,7 +126,8 @@ export class ThreatJudge{
   try{
    const answer=await judgeThreat(state,{fetch:this.fetch,key:this.key,model:this.model,timeoutMs:this.timeoutMs})
    this.failures=0
-   const event={kind,harness,harnessReason,...answer,agrees:harness?answer.response===harness:null,state}
+   const agrees=kind==='gate'?gateVerdict(answer,this.floors)==='interrupt':harness?answer.response===harness:null
+   const event={kind,harness,harnessReason,...answer,agrees,state}
    this.log('threat_judgement',event);return event
   }catch(error){
    // Three failures are worth reading; a dead endpoint is not worth a log line per tick.

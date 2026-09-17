@@ -84,3 +84,96 @@ test('a threat interruption asks the judge at the moment the chain decides, with
  c.safety={status:'retreating'};release();await new Promise(r=>setTimeout(r,5))
  assert.deepEqual(c.safety.judgement,{response:'evade',confidence:.5,interrupt:.6,danger:1.2,winnable:.2,harness:'shelter',agrees:false})
 })
+
+// ---- control mode ----
+import {forcedInterruption,gateVerdict,chooseResponse,FLOORS} from '../src/threat-judgement.js'
+import {defenseDecision} from '../src/combat.js'
+import {mkdtempSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+const hostile=(name,distance,extra={})=>({name,distance,risk:'potential_hostile',position:{x:distance,y:64,z:0},...extra})
+test('the floors are not judgement calls: melee reach, creeper fuse range and low health always interrupt',()=>{
+ assert.equal(forcedInterruption({health:20,nearbyThreats:[hostile('zombie',9)]}),null)
+ assert.match(forcedInterruption({health:20,nearbyThreats:[hostile('zombie',5.5)]}),/melee/)
+ assert.match(forcedInterruption({health:20,nearbyThreats:[hostile('creeper',9)]}),/creeper/)
+ assert.match(forcedInterruption({health:8,nearbyThreats:[]}),/health/)
+ assert.equal(forcedInterruption({health:20,nearbyThreats:[{name:'spider',distance:2,risk:'conditional'}]}),null,'a conditional mob is not a hostile')
+})
+test('the gate lets work continue on a judged continue or a low interrupt probability, and interrupts when Jev did not answer',()=>{
+ assert.equal(gateVerdict({response:'continue',interrupt:.7}),'continue')
+ assert.equal(gateVerdict({response:'shelter',interrupt:.3}),'continue')
+ assert.equal(gateVerdict({response:'shelter',interrupt:.6}),'interrupt')
+ assert.equal(gateVerdict(null),'interrupt')
+})
+test('the response follows Jev when it is sure, defers to the rule when it is not, and reads continue as evade',()=>{
+ assert.deepEqual(chooseResponse({response:'fight',confidence:.7},'shelter'),{response:'fight',source:'jev'})
+ assert.deepEqual(chooseResponse({response:'fight',confidence:.2},'shelter'),{response:'shelter',source:'rule (judgement unsure)'})
+ assert.deepEqual(chooseResponse(null,'evade'),{response:'evade',source:'rule (no judgement)'})
+ assert.equal(chooseResponse({response:'continue',confidence:.6},'shelter').response,'evade')
+ assert.equal(FLOORS.fightHealth,10)
+})
+function arena({health=11,food=12,mob='zombie',distance=5,weapon='wooden_axe'}={}){
+ const inventory=weapon?[{name:weapon,count:1,maxDurability:59,durabilityUsed:0}]:[]
+ const entities={1:{id:1,uuid:'a'.repeat(36),type:'mob',name:mob,position:new Vec3(10.5+distance,64,10.5)}}
+ const bot={registry,game:{gameMode:'survival',difficulty:'normal'},time:{timeOfDay:6000},health,food,players:{},entities,
+  entity:{position:new Vec3(10.5,64,10.5),onGround:true,isInWater:false,isInLava:false},inventory:{items:()=>inventory,slots:[]},getEquipmentDestSlot:()=>null,currentWindow:null,
+  blockAt:p=>({name:p.y>=64?'air':'dirt',position:p.clone(),boundingBox:p.y>=64?'empty':'block'}),pathfinder:{setGoal(){},setMovements(){},async goto(){}},clearControlStates(){},async equip(){},async dig(){},async placeBlock(){},world:{getColumn:()=>null}}
+ return bot
+}
+test('a judged fight lowers the rule margins to the floors and never below them',()=>{
+ const bot=arena({health:11,food:12})
+ assert.match(defenseDecision(bot).reason,/too low/)
+ const relaxed=defenseDecision(bot,{healthFloor:FLOORS.fightHealth,foodFloor:FLOORS.fightFood,mobMargins:false})
+ assert.equal(relaxed.engage,true);assert.equal(relaxed.target.targetName,'zombie');assert.equal(relaxed.weapon,'wooden_axe')
+ assert.match(defenseDecision(arena({health:9}),{healthFloor:10,foodFloor:8,mobMargins:false}).reason,/too low/)
+ assert.match(defenseDecision(arena({health:15,mob:'skeleton'})).reason,/skeleton/,'the rule keeps its skeleton margin')
+ assert.equal(defenseDecision(arena({health:15,mob:'skeleton'}),{mobMargins:false}).engage,true)
+})
+function controlled(c,answers){
+ const asked=[];const judge={control:true,floors:FLOORS,judge:async(kind,observation,extras)=>{asked.push({kind,harness:extras.harness});const a=answers[kind]??null;return a&&{...a,harness:extras.harness,agrees:null}}}
+ return [judge,asked]
+}
+function seekScaffold(bot,{onCommand}={}){
+ const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov';const commands=[];const logged=[];runner.log=(t,d)=>logged.push([t,d])
+ runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'};onCommand?.(c)
+  setTimeout(()=>{runner.task={...runner.task,status:c.action==='defend'?'failed':'completed',result:{receipt:c.action},error:c.action==='defend'?'test stops the fight':undefined};runner.emit('event',{type:'task_finished',task:runner.task})},1)}
+ runner.waitForIdle=async()=>{};runner.position=()=>({x:10,y:64,z:10})
+ const said=[];let resumed=0
+ const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,burrowWait:{quietMs:20,limitMs:50},
+  say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},judgementContext:Teammate.prototype.judgementContext,judgedEvade:Teammate.prototype.judgedEvade,
+  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:async()=>{},moveOutOfDanger:async()=>false,leaveOnOpenGround:async()=>'skipped',waitInBurrow:async()=>{},safetyBlockKey:()=>'k',snapshot:()=>({dead:false}),async resume(){resumed++;this.requestProgress.status='running'}}
+ return {c,commands,said,logged,resumed:()=>resumed}
+}
+test('in control mode a confident Jev fight overrides the rule\'s shelter, within the floors',async()=>{
+ const bot=arena({health:11,food:12});const {c,commands,said,logged}=seekScaffold(bot)
+ const [judge]=controlled(c,{interruption:{response:'fight',confidence:.7,interrupt:.8,danger:1.5,winnable:.75}});c.threatJudge=judge
+ await Promise.race([c.seekSafety(THREAT_INTERRUPTION),new Promise(r=>setTimeout(r,1500))])
+ assert.ok(commands.includes('defend'),commands.join(','));assert.ok(said.some(t=>/Judgement: fight \(jev/.test(t)),said.join(' | '))
+ assert.deepEqual(logged.find(l=>l[0]==='threat_control')[1],{chosen:'fight',source:'jev',rule:'shelter',jev:'fight',confidence:.7,winnable:.75,danger:1.5})
+})
+test('in control mode an unsure Jev defers to the rule',async()=>{
+ const bot=arena({health:11,food:12});const {c,commands,said}=seekScaffold(bot)
+ const [judge]=controlled(c,{interruption:{response:'fight',confidence:.2,interrupt:.8,danger:1.5,winnable:.5}});c.threatJudge=judge
+ await Promise.race([c.seekSafety(THREAT_INTERRUPTION),new Promise(r=>setTimeout(r,1500))])
+ assert.ok(!commands.includes('defend'));assert.ok(said.some(t=>/Judgement: shelter \(rule \(judgement unsure\)/.test(t)),said.join(' | '))
+})
+test('a judged evade flees the nearest hostile and resumes the request when nothing followed',async()=>{
+ const bot=arena({health:20,food:20,distance:8});const {c,commands,said,resumed}=seekScaffold(bot,{onCommand:cmd=>{if(cmd.action==='flee')bot.entities={}}})
+ const [judge]=controlled(c,{interruption:{response:'evade',confidence:.6,interrupt:.7,danger:1.2,winnable:.3}});c.threatJudge=judge
+ await c.seekSafety(THREAT_INTERRUPTION)
+ assert.deepEqual(commands.filter(a=>a!=='stop'),['flee']);assert.equal(resumed(),1);assert.equal(c.safety,null)
+ assert.equal(c.requestProgress.safetyContinuations[0].shelter,'judged_evade');assert.ok(said.some(t=>/Judged evade/.test(t)))
+})
+test('the gate lets a judged continue keep the bot working, holds for a while, and interrupts when Jev says so or the floors do',async()=>{
+ const bot=arena({health:20,food:20,distance:9});const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.profile='p';runner.owner='Sov';runner.position=()=>({x:10,y:64,z:10});const logged=[];runner.log=(t,d)=>logged.push([t,d])
+ const t=new Teammate(runner,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-jev-')),'state.json'))
+ let answer={response:'continue',confidence:.6,interrupt:.2,danger:.4,winnable:.5};const asked=[];let sought=[]
+ t.threatJudge={control:true,floors:{...FLOORS,holdMs:60},judge:async(kind)=>{asked.push(kind);return {...answer,agrees:null}}};t.seekSafety=async r=>{sought.push(r)}
+ const tick=async()=>{runner.emit('event',{type:'survival_tick'});await new Promise(r=>setTimeout(r,10))}
+ await tick();assert.deepEqual(asked,['gate']);assert.deepEqual(sought,[]);assert.ok(t.threatHold);assert.equal(logged.find(l=>l[0]==='threat_gate')[1].verdict,'continue')
+ await tick();assert.equal(asked.length,1,'the hold stops a second question');assert.deepEqual(sought,[])
+ await new Promise(r=>setTimeout(r,70));answer={response:'shelter',confidence:.8,interrupt:.9,danger:2,winnable:.1}
+ await tick();assert.equal(asked.length,2);assert.deepEqual(sought,[THREAT_INTERRUPTION]);assert.equal(t.threatHold,null)
+ sought=[];bot.entities[1].position=new Vec3(14.5,64,10.5)
+ await tick();assert.equal(asked.length,2,'a hostile in melee reach is not asked about');assert.deepEqual(sought,[THREAT_INTERRUPTION])
+})

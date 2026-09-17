@@ -10,7 +10,7 @@ const NIGHT_HOLD_MS=14*60*1000
 import {survivalObservation,emergencyReason,WATER_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY} from '../survival.js'
 import {burrowClearance} from '../burrow.js'
 import {defenseDecision,combatClearance,DEFENDABLE_MOBS,meleeWeapon} from '../combat.js'
-import {ThreatJudge,harnessVerdict,wornArmour} from '../threat-judgement.js'
+import {ThreatJudge,harnessVerdict,wornArmour,forcedInterruption,gateVerdict,chooseResponse} from '../threat-judgement.js'
 import {projectFootprints} from '../site-survey.js'
 import {reviseArchitecture} from '../construction.js'
 import {evaluateGoal,enforceProjectIntent,validateContract,constructionLimits,vacuousContract} from './goal-contract.js'
@@ -63,6 +63,7 @@ export class Teammate extends EventEmitter {
     runner.on('operator_command', c => { if (!this.dispatching && c.action !== 'status') { this.cancel(false);if(c.action==='stop'){this.safety={status:'cancelled',reason:'Operator stop'};if(canResume(this.requestProgress))this.requestProgress.status='cancelled';this.persist()} } })
     runner.on('event', e => {
       if(e.type==='survival_tick'&&runner.ready){
+        const bot=runner.bot
         // Shelter means a built base with a recorded light: the retreat refuses an unlit one.
         // A torch station is recorded before placement; only a confirmed one lights
         // the base, and a base players have damaged is not shelter at all.
@@ -77,7 +78,25 @@ export class Teammate extends EventEmitter {
           if(canResume(this.requestProgress))this.requestProgress.blocker='On dry ground. Review current inventory before resuming the saved task.'
           this.say('I am on dry ground and can breathe. The saved task remains paused.')
         }
-        if(reason&&(!this.safety||reason===WATER_EMERGENCY&&this.safety.reason!==WATER_EMERGENCY&&this.safety.status!=='cancelled'))void this.seekSafety(reason)
+        if(reason&&(!this.safety||reason===WATER_EMERGENCY&&this.safety.reason!==WATER_EMERGENCY&&this.safety.status!=='cancelled')){
+          // Control mode: whether a hostile in radius stops work is Jev's call,
+          // above the floors; a judged continue holds for a few seconds so the
+          // next tick does not ask again about the same mob.
+          const forced=reason===THREAT_INTERRUPTION&&this.threatJudge?.control?forcedInterruption(observation,this.threatJudge.floors):'not judged'
+          if(forced)void this.seekSafety(reason)
+          else if(this.threatHold&&Date.now()<this.threatHold.until){}
+          else if(!this.threatGate){
+            const context=this.judgementContext(runner.bot,shelterAvailable,sheltered)
+            this.threatGate=this.threatJudge.judge('gate',observation,{...context,harness:'interrupt',harnessReason:'a hostile is inside the rule\'s interruption radius'}).then(j=>{
+              this.threatGate=null
+              if(this.safety||!runner.ready||runner.bot!==bot)return
+              const verdict=gateVerdict(j,this.threatJudge.floors)
+              runner.log?.('threat_gate',{verdict,response:j?.response??null,interrupt:j?.interrupt??null,confidence:j?.confidence??null,threats:observation.nearbyThreats.map(t=>`${t.name}@${t.distance}`)})
+              if(verdict==='continue'){const fresh=!this.threatHold;this.threatHold={until:Date.now()+this.threatJudge.floors.holdMs,response:j.response};if(fresh)this.say(`Jev says keep working (${j.response}, interrupt ${Math.round(j.interrupt*100)}%). Watching the ${observation.nearbyThreats[0]?.name||'threat'}.`)}
+              else{this.threatHold=null;void this.seekSafety(reason)}
+            }).catch(()=>{this.threatGate=null;void this.seekSafety(reason)})
+          }
+        }
         // Hostiles in view that the rule leaves alone: ask whether a player would, throttled.
         else if(!reason&&!this.safety&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=24))void this.threatJudge?.judge('watch',observation,{...this.judgementContext(runner.bot,shelterAvailable,sheltered),harness:'continue',harnessReason:'no hostile inside its interruption radius'})
         // Safety is unreachable here and the chain has stopped trying. Idling fixes
@@ -205,10 +224,21 @@ export class Teammate extends EventEmitter {
         let decision=defenseDecision(recoveryBot)
         // Landing from a jump or closing a window takes a moment; re-judge briefly before choosing shelter.
         for(let i=0;i<4&&!decision.engage&&/^Not ready/.test(decision.reason);i++){await delay(250);if(epoch!==this.epoch||abort.signal.aborted)return;decision=defenseDecision(recoveryBot)}
-        {const observed=survivalObservation(recoveryBot),verdict=harnessVerdict(decision,observed)
-         void this.threatJudge?.judge('interruption',observed,{...this.judgementContext(recoveryBot),harness:verdict.verdict,harnessReason:verdict.reason})
-          ?.then(j=>{if(j&&this.safety&&epoch===this.epoch){this.safety.judgement={response:j.response,confidence:j.confidence,interrupt:j.interrupt,danger:j.danger,winnable:j.winnable,harness:j.harness,agrees:j.agrees};this.persist()}})}
-        if(decision.engage){
+        const observed=survivalObservation(recoveryBot),verdict=harnessVerdict(decision,observed)
+        let chosen=verdict.verdict
+        const record=j=>{if(j&&this.safety&&epoch===this.epoch){this.safety.judgement={response:j.response,confidence:j.confidence,interrupt:j.interrupt,danger:j.danger,winnable:j.winnable,harness:j.harness,agrees:j.agrees};this.persist()}}
+        if(this.threatJudge?.control){
+          // Bounded wait: the judge answers in well under a second or not at all.
+          const j=await this.threatJudge.judge('interruption',observed,{...this.judgementContext(recoveryBot),harness:verdict.verdict,harnessReason:verdict.reason})
+          if(epoch!==this.epoch||abort.signal.aborted)return
+          record(j);const pick=chooseResponse(j,verdict.verdict,this.threatJudge.floors);chosen=pick.response
+          // A judged fight lowers the rule's margins to the floors, never below them.
+          if(chosen==='fight'&&!decision.engage)decision=defenseDecision(recoveryBot,{healthFloor:this.threatJudge.floors.fightHealth,foodFloor:this.threatJudge.floors.fightFood,mobMargins:false})
+          if(chosen==='fight'&&!decision.engage){this.say(`Jev would fight, but I cannot: ${decision.reason}. Falling back to ${verdict.verdict==='fight'?'shelter':verdict.verdict}.`);chosen=verdict.verdict==='fight'?'shelter':verdict.verdict}
+          else this.say(`Judgement: ${chosen} (${pick.source}${j?`; Jev ${j.response} at ${Math.round(j.confidence*100)}%, rule ${verdict.verdict}`:''}).`)
+          this.runner.log?.('threat_control',{chosen,source:pick.source,rule:verdict.verdict,jev:j?.response??null,confidence:j?.confidence??null,winnable:j?.winnable??null,danger:j?.danger??null})
+        }else void this.threatJudge?.judge('interruption',observed,{...this.judgementContext(recoveryBot),harness:verdict.verdict,harnessReason:verdict.reason})?.then(record)
+        if(decision.engage&&(!this.threatJudge?.control||chosen==='fight')){
           this.safety.status='defending';this.phase='defending'
           this.say('I can defend against this '+decision.target.targetName+'. I am equipping '+decision.weapon.replaceAll('_',' ')+'.')
           try{
@@ -249,7 +279,8 @@ export class Teammate extends EventEmitter {
         // cannot strike (roofed, behind a wall, kiting) is left behind on open
         // ground rather than waited out underground. Undead burn in the sun
         // when they follow; a mob that stays put is no longer a threat.
-        const open=await this.leaveOnOpenGround(epoch,abort.signal,recoveryBot,interruptedActiveRequest)
+        let open=this.threatJudge?.control&&chosen==='evade'?await this.judgedEvade(epoch,abort.signal,recoveryBot,interruptedActiveRequest):'skipped'
+        if(open==='skipped')open=await this.leaveOnOpenGround(epoch,abort.signal,recoveryBot,interruptedActiveRequest)
         if(open!=='skipped'||epoch!==this.epoch||abort.signal.aborted)return
         this.safety.status='retreating';this.phase='retreating'
       }
@@ -313,6 +344,30 @@ export class Teammate extends EventEmitter {
 
     }
     finally{if(epoch===this.epoch){this.abort=null;this.persist();this.emit('change')}}
+  }
+  // Jev chose evade: put distance between the bot and the nearest hostile and go
+  // back to work if nothing followed; anything else falls through to the chain.
+  async judgedEvade(epoch,signal,bot,interruptedActiveRequest) {
+    const s=survivalObservation(bot),threat=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.position).sort((a,b)=>a.distance-b.distance)[0]
+    if(!threat)return 'skipped'
+    this.safety.status='fleeing';this.phase='retreating'
+    this.say(`Judged evade: moving away from the ${threat.name} at ${threat.distance} blocks instead of sheltering.`)
+    try{await this.execute({action:'flee',goal:{from:threat.position,distance:24},timeoutMs:15000},signal);if(epoch!==this.epoch||signal.aborted)return 'cancelled';(this.safety.flights??=[]).push(structuredClone(this.runner.task.result));this.persist()}
+    catch(error){if(epoch!==this.epoch||signal.aborted)return 'cancelled';(this.safety.flights??=[]).push({failed:error.message});this.persist();this.say('Could not get clear: '+error.message+'. Sheltering instead.');return 'skipped'}
+    const after=survivalObservation(bot)
+    if((after.nearbyThreats||[]).some(t=>t.risk==='potential_hostile'&&t.distance<=16)){this.say('The threat followed me. Sheltering instead.');return 'skipped'}
+    const request=this.requestProgress,connection=this.runner.connectionId
+    const result={status:'cleared',shelter:'judged_evade',health:after.health,timeOfDay:after.timeOfDay}
+    this.safety.continuation=result;this.safety.status='clear';this.persist()
+    const continuing=interruptedActiveRequest&&canResume(request)&&canContinueAfterSafety(request)
+    this.safety=null;this.activity='';this.phase=canResume(request)?'blocked':'ready'
+    if(continuing){
+      ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,resumeSerial:request.resumeSerial||0,completedAt:request.completed?.length||0})
+      ;(request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations.at(-1)});this.persist()
+      this.say('Clear after moving away. I am continuing your saved request.')
+      await this.resume({automatic:true})
+    }else this.say('Clear after moving away. '+(canResume(request)?'Resume is available if the saved request can safely continue.':'Ready for your next instruction.'))
+    return 'continued'
   }
   async leaveOnOpenGround(epoch,signal,bot,interruptedActiveRequest) {
     const s=survivalObservation(bot),near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=16),lone=near.length===1?near[0]:null

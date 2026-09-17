@@ -38,15 +38,16 @@ export function clearStrike(bot,target){
  for(let d=0;d<=length;d+=.25)if(!bot.blockAt(eye.plus(direction.scaled(d))))return false
  return !bot.world.raycast(eye,direction,length)
 }
-export function defenseDecision(bot){
+// The margins are the rule's; a judged fight may lower them to floors it names.
+export function defenseDecision(bot,{healthFloor=12,foodFloor=10,mobMargins=true}={}){
  const s=survivalObservation(bot)
  const reject=reason=>({engage:false,reason})
  if(s.gameMode!=='survival'||!['easy','normal','hard'].includes(s.difficulty))return reject('Combat requires observed hostile Survival difficulty')
- if(!Number.isFinite(s.health)||s.health<12||s.food<10||!Number.isFinite(s.food))return reject('Health or food is too low to engage')
+ if(!Number.isFinite(s.health)||s.health<healthFloor||s.food<foodFloor||!Number.isFinite(s.food))return reject('Health or food is too low to engage')
  if(!knownPoint(bot.entity?.position)||!bot.entity.onGround||bot.entity.isInWater||bot.entity.isInLava||bot.currentWindow)return reject('Not ready on stable ground with inventory closed')
  const threats=dangerNearby(bot,ENGAGE_RANGE)
  if(threats.length!==1||threats[0].distance>ENGAGE_RANGE||!DEFENDABLE_MOBS.has(threats[0].name))return reject('Threat type or nearby numbers exceed basic melee defense')
- if(s.health<DEFENSE_HEALTH[threats[0].name])return reject(`Health is too low to engage a ${threats[0].name}`)
+ if(mobMargins&&s.health<DEFENSE_HEALTH[threats[0].name])return reject(`Health is too low to engage a ${threats[0].name}`)
  const target=Object.values(bot.entities||{}).find(e=>identified(e)&&e.name===threats[0].name&&distance(e.position,bot.entity.position)<=ENGAGE_RANGE)
  // A blocked line (wall, doorway, roof) is not a reason to hide: the defense
  // loop closes in through doors and gives up after twelve seconds without a strike.
