@@ -30,6 +30,10 @@ const linkedAuth=setup?.minecraftAccountId ? linkedAccountAuth(new MinecraftAcco
 const runner = new Runner({ host: setup?.host ?? process.env.MC_HOST, port: setup?.port ?? Number(process.env.MC_PORT || 25565), version: setup?.version ?? process.env.MC_VERSION ?? '1.21.4',
   authenticate:linkedAuth,
   username: setup?.username ?? process.env.MC_USERNAME ?? 'HarnessRunner', auth:setup?.auth ?? 'offline', worldId:setup?.id, profileIdentity:setup?.identity, profilesFolder:resolve('state/auth'), onMsaCode:code=>{authentication={code:code.user_code,url:'https://www.microsoft.com/link',expiresAt:Date.now()+Number(code.expires_in||900)*1000}}, owner, chatControl: true, statePath: resolve(process.env.MC_STATE || 'state/companion.json') })
+// Every vanilla route answers a correctly predicted click with silence and a
+// mismatched revision with a full sync, so every click asks for the full sync.
+// Pinned versions never reach the auto-detect branch that used to set this.
+runner.inventoryResync=true
 // A process restart never silently replays a model plan or a half-completed skill.
 if (runner.task?.kind !== 'follow' && ['running', 'paused'].includes(runner.task?.status)) runner.stop()
 const recorder = process.env.MC_RECORD_EPISODES === '0' ? null : new EpisodeRecorder(resolve('state/episodes'), message => console.error(message))
@@ -146,8 +150,8 @@ async function startGame() {
      if(closing)return
      lastConnectionFailure=message;runner.close();runner.connectionExhausted=true;connectionIssue=message
     }})
-    runner.inventoryResync=true;runner.options.host=versionBridge.host;runner.options.port=versionBridge.port;runner.options.version=versionBridge.version
-   } else {runner.inventoryResync=false;runner.options.host=setup.host;runner.options.port=setup.port;runner.options.version=setup.version==='auto'?false:setup.version}
+    runner.options.host=versionBridge.host;runner.options.port=versionBridge.port;runner.options.version=versionBridge.version
+   } else {runner.options.host=setup.host;runner.options.port=setup.port;runner.options.version=setup.version==='auto'?false:setup.version}
   }
   if(closing){await versionBridge?.close();return}
   if(runner.closed)runner.reconnect();else runner.start()

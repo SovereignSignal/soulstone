@@ -15,9 +15,9 @@ export async function withWindowState(bot, action, check=()=>{}) {
  }
  const send=function(name,packet,...rest){
   if(name==='window_click') {
-   // Vanilla 26.2 can acknowledge a correct predicted click with silence.
-   // The translated route requests a full authoritative state using an
-   // unknown revision. The server applies the click once, then synchronizes
+   // Vanilla acknowledges a correct predicted click with silence (seen on 26.2
+   // through the bridge and on a native 1.21.4 dedicated server, 17 September).
+   // Sending an unknown revision requests a full authoritative state instead. The server applies the click once, then synchronizes
    // all slots and cursor. Never retry a consuming click to obtain an ack.
    if(bot.soulstoneInventoryResync)packet={...packet,stateId:-1}
    else if(states.has(packet.windowId))packet={...packet,stateId:states.get(packet.windowId)}

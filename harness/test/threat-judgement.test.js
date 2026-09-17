@@ -177,3 +177,12 @@ test('the gate lets a judged continue keep the bot working, holds for a while, a
  sought=[];bot.entities[1].position=new Vec3(14.5,64,10.5)
  await tick();assert.equal(asked.length,2,'a hostile in melee reach is not asked about');assert.deepEqual(sought,[THREAT_INTERRUPTION])
 })
+
+test('a judged shelter skips the rule\'s daylight open-ground detour',async()=>{
+ const bot=arena({health:20,food:20,distance:8});const {c,commands}=seekScaffold(bot);let detours=0;c.leaveOnOpenGround=async()=>{detours++;return 'skipped'}
+ const [judge]=controlled(c,{interruption:{response:'shelter',confidence:.6,interrupt:.8,danger:1.8,winnable:.1}});c.threatJudge=judge
+ await Promise.race([c.seekSafety(THREAT_INTERRUPTION),new Promise(r=>setTimeout(r,1500))])
+ assert.equal(detours,0);assert.ok(!commands.includes('flee'))
+ const rule=seekScaffold(arena({health:20,food:20,distance:8}));let ruleDetours=0;rule.c.leaveOnOpenGround=async()=>{ruleDetours++;return 'skipped'}
+ await Promise.race([rule.c.seekSafety(THREAT_INTERRUPTION),new Promise(r=>setTimeout(r,1500))]);assert.equal(ruleDetours,1)
+})

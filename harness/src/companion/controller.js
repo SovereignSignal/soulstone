@@ -280,7 +280,8 @@ export class Teammate extends EventEmitter {
         // ground rather than waited out underground. Undead burn in the sun
         // when they follow; a mob that stays put is no longer a threat.
         let open=this.threatJudge?.control&&chosen==='evade'?await this.judgedEvade(epoch,abort.signal,recoveryBot,interruptedActiveRequest):'skipped'
-        if(open==='skipped')open=await this.leaveOnOpenGround(epoch,abort.signal,recoveryBot,interruptedActiveRequest)
+        // A judged shelter is a decision, not a hint: the daylight open-ground detour stays with the rule.
+        if(open==='skipped'&&!(this.threatJudge?.control&&chosen==='shelter'))open=await this.leaveOnOpenGround(epoch,abort.signal,recoveryBot,interruptedActiveRequest)
         if(open!=='skipped'||epoch!==this.epoch||abort.signal.aborted)return
         this.safety.status='retreating';this.phase='retreating'
       }
