@@ -125,3 +125,47 @@ test("the cap over the bot's own shelter is climbed through, not read as a ceili
  f.bot.blockAt=overhead('cobblestone','stone');assert.equal(pitExit(f.bot),null,'a thick roof is not a cap')
  f.bot.blockAt=overhead('cobblestone','water');assert.equal(pitExit(f.bot),null,'never dig up into water')
 })
+
+// A bot standing on the forest floor beside a spruce is not in a pit. On the
+// persistent world it decided it was, pillared up on its own dirt, and spent
+// 62% of a six-hour run on top of a one-wide tower it built itself.
+const forest=p=>{
+ const name = p.y<65 ? 'stone'
+   : (p.x===1&&p.z===0&&p.y===66) ? 'spruce_leaves'
+   : 'air'
+ return {position:p,name,boundingBox:name==='air'?'empty':'block',shapes:name==='air'?[]:[[0,0,0,1,1,1]]}
+}
+test('foliage is not a pit rim: leaves have a block bounding box and are not ground',()=>{
+ const f=fixture();f.bot.blockAt=forest;carrying(f.bot,8)
+ // Without this, solid() sees spruce_leaves.boundingBox==='block' and offers a
+ // ledge two blocks up whose floor is a leaf.
+ assert.equal(pitExit(f.bot),null,'a tree beside the bot must not read as a ledge to climb onto')
+})
+
+test('a climb only succeeds if it reached ground it can walk off',async()=>{
+ // Height gained was the whole receipt, so pillaring straight up on carried
+ // dirt reported success while leaving the bot on a one-wide tower with air on
+ // all four sides: no path out, and no quarry column either.
+ const f=fixture()
+ const placed=new Set()
+ // a genuine stone ledge two up, so pitExit offers it
+ f.bot.blockAt=p=>{
+  // a real ledge: stone plateau at y=66 from x>=1, so the rim has ground beyond it
+  const name = placed.has(p.toString()) ? 'dirt'
+    : p.y<65 ? 'stone'
+    : (p.x>=1&&p.y===66) ? 'stone'
+    : 'air'
+  return {position:p,name,boundingBox:name==='air'?'empty':'block',shapes:name==='air'?[]:[[0,0,0,1,1,1]]}
+ }
+ carrying(f.bot,8)
+ const exit=pitExit(f.bot)
+ assert.ok(exit,'a real stone ledge is still a rim')
+ f.bot.lookAt=async()=>{};f.bot.setControlState=()=>{}
+ // the climb gains the height but strands the bot on a tower: nothing walkable beside it
+ const towerTop=new Vec3(0,67,0)
+ const climbed=async()=>{f.bot.entity.position=towerTop.offset(.5,0,.5)
+  f.bot.blockAt=p=>{const name=(p.x===0&&p.z===0&&p.y<=66)?'dirt':p.y<65?'stone':'air'
+   return {position:p,name,boundingBox:name==='air'?'empty':'block',shapes:name==='air'?[]:[[0,0,0,1,1,1]]}}}
+ const ok=await climbFree(f.bot,{check(){},stage(){},progress(){},climb:climbed})
+ assert.equal(ok,false,'a tower with air on every side is not an escape')
+})

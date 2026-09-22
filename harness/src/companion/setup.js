@@ -2,7 +2,7 @@ import {readFileSync} from 'node:fs'
 import mineflayer from 'mineflayer'
 import minecraftData from 'minecraft-data'
 import {isIP} from 'node:net'
-import {bridgeVersion} from './version-bridge.js'
+import {bridgeRouteForVersion} from './version-bridge.js'
 import {worldIdentity} from '../profile-identity.js'
 
 export const supportedProtocols = new Set(mineflayer.testedVersions.map(version => minecraftData(version).version.version))
@@ -15,7 +15,7 @@ export function validateServer(value) {
   if (version!=='auto') {
     if (!/^\d{1,2}\.\d{1,2}(\.\d{1,2})?$/.test(version)) throw new Error('Enter auto or a Java release such as 1.21.4 or 26.1')
     const data=minecraftData(version)
-    if (version!==bridgeVersion && (!data || !supportedProtocols.has(data.version.version))) throw new Error(`Java ${version} is not supported by this build. Bundled client releases span ${mineflayer.oldestSupportedVersion} through ${mineflayer.latestSupportedVersion}; use auto for a supported server.`)
+    if (!bridgeRouteForVersion(version) && (!data || !supportedProtocols.has(data.version.version))) throw new Error(`Java ${version} is not supported by this build. Bundled client releases span ${mineflayer.oldestSupportedVersion} through ${mineflayer.latestSupportedVersion}; use auto for a supported server.`)
   }
   return {host,port,version}
 }

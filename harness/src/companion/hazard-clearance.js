@@ -81,12 +81,13 @@ export function openGroundClearance(bot){
 // coming, and charging that to the window left twenty-eight seconds for the
 // judgement that needed four minutes. An observation marked holding stops the
 // clock without stopping the watch.
-export async function awaitClearance({check,observe,maintain,onUpdate=()=>{},quietMs=20000,limitMs=90000,pollMs=500}){
+export async function awaitClearance({check,observe,maintain,onUpdate=()=>{},quietMs=20000,limitMs=90000,pollMs=500,stopOnUnsafe=false}){
  const startedAt=Date.now();let clearSince=null,lastReason=null,held=0,since=Date.now()
  const elapsed=()=>Date.now()-startedAt-held
  while(elapsed()<limitMs){
   check();if(maintain){if(await maintain())clearSince=null;check();if(Date.now()-startedAt>=limitMs)break}
   const observation=observe();check()
+  if(stopOnUnsafe&&!observation.clear)return {status:'paused',code:'clearance_lost',reason:observation.reason,observation,startedAt,endedAt:Date.now()}
   const now=Date.now();if(observation.holding)held+=now-since;since=now
   if(observation.clear){clearSince??=Date.now();if(Date.now()-clearSince>=quietMs)return {status:'cleared',startedAt,clearedAt:Date.now(),quietMs,observation}}
   else clearSince=null

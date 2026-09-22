@@ -3,6 +3,7 @@ import {surfaceForAir} from './water-safety.js'
 import {burrowIn,unburrow} from './burrow.js'
 import {wallIn,unwall} from './hut.js'
 import {fleeFrom} from './flee.js'
+import {descendFromCanopy} from './canopy.js'
 import {climbSkill} from './route-recovery.js'
 import {sleepThroughNight} from './sleep.js'
 import {travelTo} from './travel.js'
@@ -30,6 +31,7 @@ export async function executeSkill(bot, task, context) {
   if(task.kind==='hut')return wallIn(bot,task,context)
   if(task.kind==='unhut')return unwall(bot,task,context)
   if(task.kind==='flee')return fleeFrom(bot,task,context)
+  if(task.kind==='descend')return descendFromCanopy(bot,task,context)
   if(task.kind==='climb')return climbSkill(bot,task,context)
   if(task.kind==='sleep')return sleepThroughNight(bot,task,context)
   if(task.kind==='travel')return travelTo(bot,task,context)
@@ -100,7 +102,11 @@ export async function executeSkill(bot, task, context) {
         }
         bot.pathfinder.setGoal(null); check()
         if (scan(48, 512).length) return
-        if (bot.entity.position.distanceTo(from) >= 2) still = 0
+        // Distance MOVED counted as searching, so two blocks of shuffle in any
+        // direction, including away, reset the counter. What matters is ground
+        // closed toward where we are looking.
+        const closed = Math.hypot(from.x - target.x, from.z - target.z) - Math.hypot(bot.entity.position.x - target.x, bot.entity.position.z - target.z)
+        if (closed >= 4) still = 0
         else if (++still >= 3) break
       }
       throw new Error(`no ${resourceLabel(item)} within 48 blocks after exploring ${legs} legs from the start${refusal ? `: ${refusal}` : '; move me near trees'}`)
@@ -181,7 +187,7 @@ export async function executeSkill(bot, task, context) {
       await craftOne('oak_planks')
     }
   }
-  if (['harvest','acquire','build','construct',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(task.kind))return executeWorldSkill(bot,task,context,gather)
+  if (['harvest','use','acquire','build','construct',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(task.kind))return executeWorldSkill(bot,task,context,gather)
   if (task.kind === 'gather') {
     await gather(task.goal.count, task.goal.item)
     return { item: task.goal.item, count: resourceNames(task.goal.item).reduce((n, name) => n + countItem(bot, name), 0) }

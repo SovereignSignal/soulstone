@@ -4,6 +4,7 @@
 // sight a creeper needs and every melee reach. Exit by digging one side out.
 import {setTimeout as delay} from 'node:timers/promises'
 import {fullCube} from './construction.js'
+import {assertNoHostileOccupants,inspectEmergencyShelter} from './shelter-occupants.js'
 import {centreOn} from './navigation.js'
 export const HUT_BLOCKS=10
 const GRAVITY=new Set(['sand','red_sand','gravel','suspicious_sand','suspicious_gravel'])
@@ -62,7 +63,7 @@ export async function wallIn(bot,task,{check,stage,progress}){
  placements.push({target:feet.offset(0,2,0),ref:feet.offset(1,2,0)})
  let placed=0
  for(const {target,ref} of placements){
-  check()
+  check();assertNoHostileOccupants(bot,[feet,feet.offset(0,1,0)])
   if(solid(bot,bot.blockAt(target))){placed++;continue}
   const material=hutMaterials(bot)[0]
   if(!material)break
@@ -78,9 +79,10 @@ export async function wallIn(bot,task,{check,stage,progress}){
  }
  const missing=placements.filter(({target})=>!solid(bot,bot.blockAt(target))).map(({target})=>key(target))
  if(missing.length)throw new Error(`Hut incomplete: ${missing.length} of ${placements.length} blocks missing (${missing.slice(0,3).join('; ')})${centred?'':'; could not stand clear of the wall line'}`)
- progress('Walled in; waiting for daylight')
+ const protection=inspectEmergencyShelter(bot)
+ progress('Closed, unoccupied hut verified; watching protection and the surface')
  const p=bot.entity.position
- return {item:'safety',count:1,receipt:'walled_in',shelterName:'hut',capped:true,placed,position:{x:p.x,y:p.y,z:p.z},surface:{x:feet.x,y:feet.y,z:feet.z}}
+ return {item:'safety',count:1,receipt:'walled_in',protection,shelterName:'hut',capped:true,placed,position:{x:p.x,y:p.y,z:p.z},surface:{x:feet.x,y:feet.y,z:feet.z}}
 }
 export async function unwall(bot,task,{check,stage,progress}){
  check();const feet=bot.entity.position.floored()

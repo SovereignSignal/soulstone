@@ -2,6 +2,9 @@ import {usableToolCount} from '../supplies.js'
 import {resourceCount} from '../resources.js'
 
 export const stepKey=step=>JSON.stringify([step.action,step.name||'',step.item||'',step.count||0,
+  // Two uses differ only by where they land. Without the target, inserting the
+  // second end portal eye reads as a repeat of the first and is refused.
+  step.target?[step.target.x,step.target.y,step.target.z,step.target.how??'',step.target.dimension??'']:null,
   (step.design||[]).map(b=>[b.x,b.y,b.z,b.x2??b.x,b.y2??b.y,b.z2??b.z,b.block])])
 export const deliveredCount=(feedback,item)=>feedback.filter(f=>f.action==='give'&&f.status==='completed'&&f.result?.receipt==='recipient_pickup'&&f.result.item===item).reduce((n,f)=>n+f.result.count,0)
 export function satisfiedStep(step,feedback,snapshot,bot) {

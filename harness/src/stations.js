@@ -41,6 +41,8 @@ export function stationCandidates(bot,project,item) {
 export async function withStationWindow(bot,name,p,{check,walk,stage},operation) {
  if(bot.blockAt(p)?.name!==name)throw new Error(`The saved ${name} is missing or replaced; inspect it`)
  if(name==='chest'&&bot.blockAt(p.offset(0,1,0))?.boundingBox!=='empty')throw new Error('Chest lid is obstructed')
+ // An empty hand is required here: activating with an item held uses that item instead. When `use` lands, bare-hand becomes an explicit variant of this path, not an invariant of it.
+ // Here specifically: a held item would be placed or used instead of opening the station.
  await walk(new goals.GoalLookAtBlock(p,bot.world,{reach:3}));check();await bot.unequip('hand');check()
  if(bot.blockAt(p)?.name!==name)throw new Error('Workstation changed while approaching')
  return withWindowState(bot,async()=>{
@@ -70,6 +72,8 @@ export async function executeStationSkill(bot,task,api) {
   const p=vec(saved.position)
   if(name==='torch'){
    const origin=vec(project.build.origin),layout=shelterLayout(project.build.design),door=origin.plus(layout.door)
+   // An empty hand is required here: activating with an item held uses that item instead. When `use` lands, bare-hand becomes an explicit variant of this path, not an invariant of it.
+   // Here specifically: a held item would be placed or used instead of opening the station.
    if(bot.blockAt(door)?.getProperties().open===false){await walk(new goals.GoalLookAtBlock(door,bot.world,{reach:3}));check();await bot.unequip('hand');check();await bot.activateBlock(bot.blockAt(door));check();await settle(()=>bot.blockAt(door)?.getProperties().open===true,'Base door did not open')}
   }
   if(bot.blockAt(p)?.name!==name){

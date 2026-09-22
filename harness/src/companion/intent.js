@@ -9,11 +9,13 @@ export function guardIntent(plan, request, history = []) {
   if(plan.steps.some(s=>s.action==='give')&&!/\b(give|bring|deliver|hand|pass|share|drop|toss)\b|\bmake\s+me\b/i.test(request))return {reply:'I need a delivery instruction before handing over inventory.',steps:[]}
   // Open-ended tasks can legitimately require intermediate work absent from
   // the request wording. Typed tool validation owns the execution boundary.
-  if(plan.steps.some(s=>['acquire','build','construct','revise','inspect','give','eat','harvest','hunt','sleep',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action)))return plan
+  if(plan.steps.some(s=>['acquire','build','construct','revise','inspect','give','eat','harvest','hunt','sleep','descend','climb','travel','use',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action)))return plan
   // An empty plan can be a valid completion review, including after mining.
   if (!plan.steps.length) return plan
   // Prevent unrelated substitutions without denying implemented capabilities.
-  if (/\b(?:mine|dig|collect|gather)\b.*\b(?:diamonds?|ores?|coal|iron|gold|redstone|stone|cobblestone)\b/i.test(request)) {
+  // Equipment descriptions name materials without requesting their ore.
+  const resourceRequest=request.replace(/\b(?:wooden|stone|iron|golden|diamond|netherite)[ _-](?:axe|pickaxe|shovel|hoe|sword|helmet|chestplate|leggings|boots)\b/gi,'equipment')
+  if (/\b(?:mine|dig|collect|gather)\b.*\b(?:diamonds?|ores?|coal|iron|gold|redstone|stone|cobblestone)\b/i.test(resourceRequest)) {
     return {reply: 'I could not validate those actions for your mining request. I will wait for a revised instruction.', steps: []}
   }
   let scope = request.toLowerCase()
@@ -24,7 +26,7 @@ export function guardIntent(plan, request, history = []) {
   const gathering = /\b(wood|oak|logs?|lumber|timber)\b/.test(scope)
   const following = /\b(follow|stay|stick|accompany)\b|by my side|keep up|walk with|tag along/.test(scope)
   const remembering = /\b(remember|save|mark|name)\b|call this|this place is/.test(scope)
-  const coming = /\b(come|meet|join)\b|over here/.test(scope)
+  const coming = /\b(come|meet|join|regroup)\b|over here/.test(scope)
   const returning = /\b(return|back|go|head|walk|navigate)\b/.test(scope)
   // Gathering and returning authorizes a temporary meeting-point capture.
   for (const step of plan.steps) {

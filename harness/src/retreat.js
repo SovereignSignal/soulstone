@@ -19,6 +19,8 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
  const door=o.plus(layout.door),inside=door.minus(layout.out),name=build.wood.replace('_log','_door')
  const halves=()=>[bot.blockAt(door),bot.blockAt(door.offset(0,1,0))]
  const valid=()=>halves().every(b=>b?.name===name)&&halves()[0].getProperties().half==='lower'&&halves()[1].getProperties().half==='upper'
+ // An empty hand is required here: activating with an item held uses that item instead. When `use` lands, bare-hand becomes an explicit variant of this path, not an invariant of it.
+ // Here specifically: a held item would be used on the door instead of opening it.
  const open=async value=>{check();if(!valid())throw new Error('Retreat door missing or changed');if(halves().every(b=>b.getProperties().open===value))return;if(bot.entity.position.distanceTo(door.offset(.5,0,.5))>2.5)await walk(new goals.GoalLookAtBlock(door,bot.world,{reach:3}));check();await bot.unequip('hand');check();await bot.activateBlock(bot.blockAt(door));check();await settle(()=>valid()&&halves().every(b=>b.getProperties().open===value),'Retreat door state not confirmed')}
  const target=leaving?door.plus(layout.out.scaled(2)):inside
  inspect();progress(leaving?(damage?`Leaving the base (it needs repair: ${damage})`:'Leaving the verified base'):'Retreating into the verified lit base')

@@ -26,7 +26,7 @@ export function resolveKey(env=process.env,platform=process.platform){
 // What the bot sees, named for a reader who does not know the harness. Facts the
 // model cannot see in the numbers (regeneration, creeper fuse, arrow range) ride
 // along as mechanics; the model judges, the state informs.
-export function threatState(observation,{weapon=null,armour=[],tools=[],inventory={},sheltered=false,shelterAvailable=false,baseDistance=null}={}){
+export function threatState(observation,{weapon=null,armour=[],tools=[],inventory={},sheltered=false,shelterAvailable=false,baseDistance=null,evidence=null,contextMode='rich'}={}){
  const s=observation||{}
  return {
   situation:'A Minecraft Java survival-mode agent is in the middle of a work task (gathering, building or mining) and hostile mobs have been observed nearby. Judge what a skilled, careful player would do right now.',
@@ -42,14 +42,16 @@ export function threatState(observation,{weapon=null,armour=[],tools=[],inventor
    litBase:shelterAvailable?`available${Number.isFinite(baseDistance)?`, ${Math.round(baseDistance)} blocks away`:''}`:'none'
   },
   world:{timeOfDay:s.timeOfDay??null,phase:dayPhase(s.timeOfDay),difficulty:s.difficulty??null},
-  threats:(s.nearbyThreats||[]).map(t=>({mob:t.name,distanceBlocks:t.distance,attacksFromRange:RANGED.has(t.name),risk:t.risk==='conditional'?'neutral unless provoked (or a daylight spider)':'hostile'})),
+  threats:(s.nearbyThreats||[]).map(t=>({mob:t.name,distanceBlocks:t.distance,attacksFromRange:RANGED.has(t.name),risk:t.risk==='conditional'?'neutral unless provoked (or a daylight spider)':'hostile',...(contextMode!=='legacy'?{verticalOffset:t.verticalOffset??null,sightline:t.sightline??{status:'unknown'}}:{})})),
+  ...(contextMode!=='legacy'&&evidence?{decisionContext:evidence}:{}),
   mechanics:[
+   ...(contextMode!=='legacy'?['Sightline is a current eye-to-body ray through observed terrain. Blocked means a block obstructs that ray, not that pursuit or every attack is impossible. Negative vertical offset means the mob is below the agent. Recheck after moving or leaving a shelter; its current walls may be the obstruction.']:[]),
    'Natural health regeneration only happens when hunger is 18 or more; below that, lost health does not come back without food.',
    'A creeper explodes after about 1.5 seconds within 3 blocks and cannot be fought bare-handed safely.',
    'Skeletons and pillagers shoot arrows from up to about 16 blocks; zombies, spiders and husks must reach melee range.',
-   'Zombies and skeletons have 20 health and burn in direct daylight; spiders are neutral in daylight; creepers and pillagers do not burn.',
+   contextMode==='legacy'?'Zombies and skeletons have 20 health and burn in direct daylight; spiders are neutral in daylight; creepers and pillagers do not burn.':'Zombies and skeletons can burn in direct sunlight, but head equipment or shade can prevent burning. Do not assume sunlight or an unprotected head when unknown. Spiders are usually neutral in daylight; creepers and pillagers do not burn.',
    'Each mob attack costs roughly 2 to 5 health without armour. Dying drops the whole inventory.',
-   'Digging into the ground and capping the hole, or walling in, takes a few seconds and is safe from everything except explosions at the wall.'
+   contextMode==='legacy'?'Digging into the ground and capping the hole, or walling in, takes a few seconds and is safe from everything except explosions at the wall.':'Sheltering needs suitable terrain, tools or blocks and a verified enclosure. Escape movement is not proof pursuit ended. Consider whether past responses enabled the actual objective.'
   ]
  }
 }

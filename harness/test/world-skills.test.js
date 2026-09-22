@@ -195,3 +195,23 @@ test('an unusable fractional placement stance excludes both possible voxel heigh
  },()=>{})
  assert.equal(attempts,2)
 })
+
+test('a build failure names the first thing that went wrong, not the top layer deferral',async()=>{
+ // The queue is sorted y-ascending and every deferred block is pushed back, so
+ // the LAST error of a no-progress pass is structurally always the top layer's
+ // PLACEMENT_UNSUPPORTED deferral. Every build failure in the six-hour run
+ // therefore read "No adjacent placement face" and not one of them said what
+ // actually stopped the build.
+ const registry=minecraftData('1.21.4')
+ const obstructed=new Map([['10,64,10','stone'],['10,65,10','dirt']])
+ const bot={registry,players:{},_client:new EventEmitter(),world:{},
+  entity:{position:new Vec3(10.5,64,12.5),onGround:true},
+  inventory:{items:()=>[{name:'oak_planks',count:8,type:registry.itemsByName.oak_planks.id}]},
+  blockAt:p=>({position:p,name:obstructed.get(`${p.x},${p.y},${p.z}`)||'air',boundingBox:'empty',shapes:[]}),
+  findBlock:()=>null,findBlocks:()=>[],recipesAll:()=>[],recipesFor:()=>[],
+  pathfinder:{setMovements(){},setGoal(){},async goto(){}},clearControlStates(){}}
+ Object.setPrototypeOf(bot,new EventEmitter())
+ const task={kind:'build',goal:{design:[{x:0,y:0,z:0,block:'oak_planks'},{x:0,y:1,z:0,block:'oak_planks'}],near:{x:10,y:64,z:10},origin:{x:10,y:64,z:10}}}
+ await assert.rejects(executeWorldSkill(bot,task,{check(){},stage(){},progress(){},persist(){},movements:{}}),
+  e=>{assert.match(e.message,/obstructed by stone/,`the first failure of the pass, got: ${e.message}`);return true})
+})

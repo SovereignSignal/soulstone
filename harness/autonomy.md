@@ -45,3 +45,11 @@ These are bounded peaceful Java 1.21.4 cases with supplied resources and prepare
 
 
 The first [paired experience pilot: scope and evidence limits](../docs/STATUS.md) found no reliable benefit. Construction succeeded in both arms; an equipment failure exposed an inventory-crafting synchronization gap. After repair, both equipment arms passed. Keep lessons provisional and separate executor reliability from reasoning comparisons.
+
+## Durable milestone scheduling
+
+New task briefs include `milestonePlan`: a bounded, acyclic graph whose nodes reference zero-based indices in the immutable `criteria` array. Every criterion is covered exactly once, including review-only requirements. Existing prose `milestones` remain readable, and older stored contracts without a graph use one stage without rewriting the original goal. The graph groups final outcome checks; bounded acquisition/build skills and action planning continue to resolve intermediate supplies.
+
+`requestProgress.mission` records the active stage, dependencies, current check evidence, last passing observation, bounded transition history and last blocker. The shared observation loop reevaluates the original checks. Inventory, health, hunger and tool condition can reopen a stage; receipt-based checks retain their existing request-scoped semantics. A passed stage is not a permanent guarantee that the world will stay unchanged. Pause and disconnect require a new observation before selecting work.
+
+Both ordinary planning and Jev selection receive `activeMilestone`. Execution drops the remainder of a batch when fresh checks change that focus, so later stages are replanned against current observations. This schedules the planner focus; it does not prove that an arbitrary proposed action advances it. Existing action validation and full-goal verification remain the effect and completion boundaries. Safety can interrupt any stage, and budgets are not reset by milestone transitions.

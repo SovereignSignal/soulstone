@@ -75,6 +75,8 @@ export async function setPassageOpen(bot,pos,b,open,{check,walk,settle}) {
  // Approach within interaction reach and require the server state change.
  await walk(bot.blockAt(pos).shapes?.length===0?new goals.GoalNear(pos.x,pos.y,pos.z,2):new goals.GoalLookAtBlock(pos,bot.world,{reach:3}));check()
  if(!valid())throw new Error('Passage changed while approaching')
+ // An empty hand is required here: activating with an item held uses that item instead. When `use` lands, bare-hand becomes an explicit variant of this path, not an invariant of it.
+ // Here specifically: a held item would be placed instead of activating the furnishing.
  await bot.unequip('hand');check();await bot.activateBlock(bot.blockAt(pos));check()
  await settle(()=>valid()&&expected.every(e=>bot.blockAt(e.pos).getProperties().open===open),`Passage did not ${open?'open':'close'}`)
 }

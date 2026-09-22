@@ -1,3 +1,4 @@
+import {executeWithShelter} from './emergency-shelter-fixture.js'
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {EventEmitter} from 'node:events'
@@ -87,7 +88,7 @@ test('burrow clearance waits for daylight, health and an empty neighbourhood',()
  const w=world();assert.match(burrowClearance(w.bot).reason,/daylight/)
  w.bot.time.timeOfDay=6000;w.bot.health=3;w.bot.food=20;assert.match(burrowClearance(w.bot).reason,/Health/,'a bot that can still heal waits')
  w.bot.food=16;assert.equal(burrowClearance(w.bot).clear,true,'one that cannot heal surfaces to look for food rather than starve under the cap')
- w.bot.health=16;w.bot.entities={1:{name:'zombie',position:new Vec3(14.5,64,10.5)}};assert.match(burrowClearance(w.bot).reason,/lone zombie lingers/)
+ w.bot.health=16;w.bot.entities={1:{name:'zombie',position:new Vec3(14.5,64,10.5)}};assert.match(burrowClearance(w.bot).reason,/potential hostile remains/)
  w.bot.entities={1:{name:'zombie',position:new Vec3(40.5,64,10.5)},2:{name:'cow',position:new Vec3(11.5,64,10.5)}};assert.equal(burrowClearance(w.bot).clear,true)
 })
 test('digging out lets the pathfinder tunnel and pillar back to the recorded surface cell',async()=>{
@@ -109,7 +110,7 @@ test('with no shelter to retreat to, safety digs in, waits for day, digs out and
  const said=[];let resumed=0
  const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,burrowWait:{quietMs:20,limitMs:2000},
   say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
-  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
+  execute:executeWithShelter,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
   async resume(){resumed++;this.requestProgress.status='running'}}
  const started=c.seekSafety(THREAT_INTERRUPTION)
  await new Promise(r=>setTimeout(r,300));w.bot.time.timeOfDay=6000;w.bot.health=20
@@ -139,7 +140,7 @@ test('creepers trigger the interruption at sixteen blocks, other hostiles at ten
 })
 test('when the blast destroyed the dug earth, the burrow takes a cap block from the bottom wall',async()=>{
  const w=world();const dig=w.bot.dig
- w.bot.dig=async block=>{const column=block.position.x===10&&block.position.z===10;await dig(block);if(column){const i=w.inventory.findIndex(x=>x.name==='dirt');if(i>=0)w.inventory.splice(i,1)}}
+ w.bot.dig=async block=>{const column=block.position.x===10&&block.position.z===10;await dig(block);if(!column)w.bot.entity.position=new Vec3(10.5,60,10.5);if(column){const i=w.inventory.findIndex(x=>x.name==='dirt');if(i>=0)w.inventory.splice(i,1)}}
  const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
  assert.equal(result.receipt,'burrowed_capped')
  assert.ok(w.dug.some(k=>[new Vec3(11,60,10),new Vec3(9,60,10),new Vec3(10,60,11),new Vec3(10,60,9)].map(String).includes(k)),'took a wall block at the bottom level')
@@ -192,8 +193,8 @@ test('a missed block-update event does not fail a cap that is actually there',as
  const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
  assert.equal(result.receipt,'burrowed_capped');assert.equal(attempts,1)
  const v=world();let tries=0;v.bot.placeBlock=async()=>{tries++;throw new Error('rejected')}
- const open=await burrowIn(v.bot,{kind:'burrow',goal:{}},api)
- assert.equal(open.receipt,'burrowed_open');assert.equal(tries,4)
+ await assert.rejects(burrowIn(v.bot,{kind:'burrow',goal:{}},api),/cap could not be verified/)
+ assert.equal(tries,4)
 })
 
 test('a spider in daylight is conditional, not a trigger, and does not hold the burrow closed',()=>{
@@ -228,8 +229,8 @@ test('when the pathfinder will not climb out, the exit jumps and places blocks b
 })
 
 test('daylight judgement: a lone defendable mob that lingers is confronted after the patience window; creepers, pairs, low health and hunger keep the bot dug in',()=>{
- const w=world();w.bot.time.timeOfDay=6000;w.bot.health=20;w.bot.food=20
- w.bot.entities={1:{name:'skeleton',position:new Vec3(14.5,64,10.5)}}
+ const w=world();w.inventory.push({name:'stone_axe',count:1,maxDurability:131,durabilityUsed:0});w.bot.time.timeOfDay=6000;w.bot.health=20;w.bot.food=20
+ w.bot.entities={1:{id:1,uuid:'00000000-0000-0000-0000-000000000001',type:'hostile',name:'skeleton',position:new Vec3(14.5,64,10.5)}}
  let r=burrowClearance(w.bot);assert.equal(r.clear,false);assert.equal(r.lingering,true);assert.match(r.reason,/lone skeleton .* 60 seconds/)
  r=burrowClearance(w.bot,{lingeredMs:61000});assert.equal(r.clear,true);assert.equal(r.confront.name,'skeleton');assert.match(r.reason,/surfacing to confront/)
  // A threat we cannot answer is still a threat that is lingering: the timer has
@@ -251,14 +252,14 @@ test('a burrowed bot surfaces to confront a lone zombie that lingers through the
  const said=[];let resumed=0
  const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,burrowWait:{quietMs:20,limitMs:3000,patienceMs:100},
   say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
-  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
+  execute:executeWithShelter,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
   async resume(){resumed++;this.requestProgress.status='running'}}
  const started=c.seekSafety(THREAT_INTERRUPTION)
- await new Promise(r=>setTimeout(r,300));w.bot.time.timeOfDay=6000;w.bot.health=20
+ await new Promise(r=>setTimeout(r,300));w.bot.time.timeOfDay=6000;w.bot.health=20;w.inventory.push({name:'stone_axe',count:1,maxDurability:131,durabilityUsed:0});Object.assign(w.bot.entities[1],{id:1,uuid:'00000000-0000-0000-0000-000000000001',type:'hostile'})
  await started
  assert.deepEqual(commands.filter(a=>a!=='stop'),['burrow','unburrow'])
  assert.equal(resumed,1);assert.equal(c.requestProgress.safetyContinuations.length,1);assert.equal(c.safety,null)
- assert.ok(said.some(t=>/lone zombie has lingered 4 blocks away. Opening up to confront it/.test(t)),said.join(' | '))
+ assert.ok(said.some(t=>/lone zombie has lingered [0-9.]+ blocks away. Opening up to confront it/.test(t)),said.join(' | '))
 })
 
 test('Resume while dug in defers to the burrow wait, then continues the request at daylight even without new progress',async()=>{
@@ -271,7 +272,7 @@ test('Resume while dug in defers to the burrow wait, then continues the request 
  const said=[];let submitted=0
  const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',request:'mine a diamond',status:'running',feedback:[],completed:[],safetyContinuations:[{completedAt:0},{completedAt:0}]},safety:null,burrowWait:{quietMs:20,limitMs:3000},
   say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},snapshot(){return {dead:false}},
-  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
+  execute:executeWithShelter,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
   resume:Teammate.prototype.resume,async submit(){submitted++;this.requestProgress.status='running'}}
  const started=c.seekSafety(THREAT_INTERRUPTION)
  await new Promise(r=>setTimeout(r,300))
@@ -304,7 +305,7 @@ test('when every shelter is refused with a threat near, the bot climbs out, spri
  const said=[];let resumed=0
  const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,burrowWait:{quietMs:20,limitMs:3000},
   say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
-  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
+  execute:executeWithShelter,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
   async resume(){resumed++;this.requestProgress.status='running'}}
  const started=c.seekSafety(THREAT_INTERRUPTION)
  await new Promise(r=>setTimeout(r,400));w.bot.time.timeOfDay=6000;w.bot.health=20
@@ -347,7 +348,7 @@ test('a recovery that failed with nothing changed stops repeating, names every b
  const c={runner,projects:{base:{build:{origin:{x:0,y:64,z:0},design:[{x:0,y:0,z:0,block:'oak_planks'}]},stations:{torch:{position:{x:1,y:65,z:1},confirmed:true}},built:true}},
   epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,unsafeSignature:null,burrowWait:{quietMs:20,limitMs:500},
   say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
-  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,
+  execute:executeWithShelter,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,
   moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
   safetyBlockKey:Teammate.prototype.safetyBlockKey,unsafeAdvice:Teammate.prototype.unsafeAdvice,async resume(){}}
  await c.seekSafety(THREAT_INTERRUPTION,{retries:3})
@@ -470,7 +471,7 @@ test('relocating from a hole climbs out before it runs, and puts distance behind
  const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,
   burrowWait:{quietMs:20,limitMs:4000,patienceMs:50,relocateAfterMs:50},
   say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
-  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
+  execute:executeWithShelter,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
   async resume(){resumed++;this.requestProgress.status='running'}}
  await c.seekSafety(THREAT_INTERRUPTION)
  const acted=commands.filter(a=>a!=='stop')
@@ -496,7 +497,7 @@ test('an expired observation window re-arms the watch rather than ending the day
  const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,
   burrowWait:{quietMs:10,limitMs:60,patienceMs:5000,relocateAfterMs:5000,watches:3},
   say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
-  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
+  execute:executeWithShelter,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
   async resume(){this.requestProgress.status='running'}}
  await c.seekSafety(THREAT_INTERRUPTION)
  const rearmed=said.filter(s=>/staying dug in and watching again/.test(s))
@@ -526,4 +527,42 @@ test('a bot that cannot heal does not wait underground for health it will never 
  w.bot.food=10;w.bot.health=RELOCATE_FLOOR-1
  assert.equal(burrowClearance(w.bot,{lingeredMs:RELOCATE_PATIENCE_MS}).clear,false)
  assert.ok(RELOCATE_FLOOR<RELOCATE_HEALTH&&RELOCATE_FLOOR>=6,'a floor below the healthy gate but above one-shot range')
+})
+
+test('burrow seals after three digs before deepening, and rejects an intruder before capping',async()=>{
+ const w=world(),dig=w.bot.dig,capAt=[]
+ const place=w.bot.placeBlock;w.bot.placeBlock=async(...args)=>{capAt.push(w.dug.length);await place(...args)}
+ await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ assert.deepEqual(capAt,[3])
+ const v=world(),dig2=v.bot.dig
+ v.bot.dig=async b=>{await dig2(b);if(v.dug.length===2)v.bot.entities={1:{name:'zombie',position:v.bot.entity.position.clone()}}}
+ await assert.rejects(burrowIn(v.bot,{kind:'burrow',goal:{}},api),/contains a potential hostile/)
+ assert.equal(v.placed.length,0,'never seal a hostile inside')
+})
+
+test('a confrontation exit requires the same current weapon and target checks as defense',()=>{
+ const w=world();w.bot.time.timeOfDay=6000;w.bot.health=20;w.bot.food=20
+ w.bot.entities={1:{id:1,uuid:'00000000-0000-0000-0000-000000000001',type:'hostile',name:'zombie',position:new Vec3(14.5,64,10.5)}}
+ assert.equal(burrowClearance(w.bot,{lingeredMs:61000}).clear,false,'unarmed waiting cannot turn into a fight')
+ w.inventory.push({name:'stone_axe',count:1,maxDurability:131,durabilityUsed:0})
+ assert.equal(burrowClearance(w.bot,{lingeredMs:61000}).confront.name,'zombie')
+ w.inventory[0].durabilityUsed=130
+ assert.equal(burrowClearance(w.bot,{lingeredMs:61000}).clear,false,'a worn-out weapon also cancels that exit')
+})
+
+test('a cancelled step to a sound burrow column reports our own stopwatch, not the world',async()=>{
+ // The deadline clears the pathfinder goal, so goto REJECTS with GoalChanged.
+ // Raw, that reads as the world moving under us and is terminal to the
+ // classifier; it was our own six-second clock, and this is an emergency path.
+ const w=world();w.cells.set(new Vec3(11,62,10).toString(),'air')
+ w.bot.pathfinder.goto=async()=>{throw Object.assign(new Error('The goal was changed before it could be completed!'),{name:'GoalChanged'})}
+ const original=global.setTimeout
+ global.setTimeout=fn=>{fn();return {unref(){}}}
+ try{
+  await assert.rejects(burrowIn(w.bot,{kind:'burrow',goal:{}},api),e=>{
+   assert.equal(e.name,'Timeout',`a stalled step must stay retryable, got ${e.name}: ${e.message}`)
+   assert.match(e.message,/burrow/i)
+   return true
+  })
+ }finally{global.setTimeout=original}
 })

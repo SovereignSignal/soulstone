@@ -13,6 +13,7 @@ import { validResource, isLog } from './resources.js'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
+import {validateUseGoal} from './use-item.js'
 const statuses = new Set(['running', 'paused', 'cancelled', 'completed', 'failed'])
 export function validateGoal(goal) {
   if (!goal || !['x', 'y', 'z'].every(k => Number.isFinite(goal[k]))) throw new Error('goal requires finite x, y, z')
@@ -22,8 +23,9 @@ export function validateGoal(goal) {
 export function validateTaskGoal(kind, goal) {
   if(['surface','burrow','hut','unhut'].includes(kind))return {}
   if(kind==='travel')return validateTravelGoal(goal)
+  if(kind==='use')return validateUseGoal(goal)
   if(kind==='sleep')return goal?.project?{project:goal.project}:{}
-  if(kind==='climb')return {}
+  if(['climb','descend'].includes(kind))return {}
   if(kind==='flee')return validateFleeGoal(goal)
   if(kind==='hunt')return validateHuntGoal(goal)
   if(kind==='unburrow')return {surface:validateGoal(goal?.surface)}

@@ -1,4 +1,5 @@
 import {setTimeout as delay} from 'node:timers/promises'
+import {observedSightline} from './visibility.js'
 
 // Ordinary food only. Special effects, teleportation and valuable consumables
 // need a separate explicit capability rather than automatic hunger management.
@@ -16,6 +17,10 @@ export const threatRadius=name=>name==='creeper'||RANGED.has(name)?16:10
 export const THREAT_INTERRUPTION='A potential hostile is within ten blocks'
 export const NIGHT_EXPOSURE='Night with no shelter'
 export const HEALTH_EMERGENCY='Health is at or below half'
+// How recently health must have dropped to count as still under attack. One
+// survival tick is about a second, so this is a few ticks of grace.
+export const DAMAGE_WINDOW_MS=4000
+export const FOOD_EMERGENCY='Food is critically low'
 const ANIMALS=new Set(['cow','pig','sheep','chicken','rabbit','mooshroom','goat'])
 // Ten blocks buys the three to four seconds a burrow needs; a creeper covers six in two.
 export const WATER_EMERGENCY='Underwater or running low on air'
@@ -27,9 +32,10 @@ export function survivalObservation(bot) {
  // Surface spiders are neutral in daylight; treating them as hostile sends the bot underground for nothing.
  const tod=bot?.time?.timeOfDay,daylight=Number.isFinite(tod)&&tod>=1000&&tod<12500
  const nearbyThreats=p?Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&e.position&&(hostile.has(e.name)||conditional.has(e.name))).map(e=>({name:e.name,distance:Math.round(e.position.distanceTo(p)*10)/10,position:{x:e.position.x,y:e.position.y,z:e.position.z},risk:conditional.has(e.name)||e.name==='spider'&&daylight?'conditional':'potential_hostile'})).filter(e=>e.distance<=24).sort((a,b)=>a.distance-b.distance).slice(0,16):[]
+ for(const t of nearbyThreats){t.verticalOffset=Math.round((t.position.y-p.y)*10)/10;t.sightline=observedSightline(bot,{x:p.x,y:p.y+(bot.entity.eyeHeight||1.62),z:p.z},{x:t.position.x,y:t.position.y+1,z:t.position.z})}
  // Farm animals within 32 blocks, so the planner hunts what is actually there.
  const nearbyAnimals=p?Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&e.position&&ANIMALS.has(e.name)).map(e=>({name:e.name,distance:Math.round(e.position.distanceTo(p)*10)/10})).filter(e=>e.distance<=32).sort((a,b)=>a.distance-b.distance).slice(0,12):[]
- return {oxygen:Number.isFinite(bot?.oxygenLevel)?bot.oxygenLevel:null,nearbyAnimals,headSubmerged,inWater:bot?.entity?.isInWater??null,food:Number.isFinite(bot?.food)?bot.food:null,saturation:Number.isFinite(bot?.foodSaturation)?bot.foodSaturation:null,health:Number.isFinite(bot?.health)?bot.health:null,gameMode:bot?.game?.gameMode??null,difficulty:bot?.game?.difficulty??null,timeOfDay:bot?.time?.timeOfDay??null,carriedFood:(bot?.inventory?.items()||[]).filter(i=>SAFE_FOODS.has(i.name)).map(i=>({name:i.name,count:i.count})),nearbyThreats,threatCoverage:'Loaded entities within 24 blocks only; proximity does not establish aggression or line of sight'}
+ return {oxygen:Number.isFinite(bot?.oxygenLevel)?bot.oxygenLevel:null,nearbyAnimals,headSubmerged,inWater:bot?.entity?.isInWater??null,food:Number.isFinite(bot?.food)?bot.food:null,saturation:Number.isFinite(bot?.foodSaturation)?bot.foodSaturation:null,health:Number.isFinite(bot?.health)?bot.health:null,gameMode:bot?.game?.gameMode??null,difficulty:bot?.game?.difficulty??null,dimension:String(bot?.game?.dimension||'').replace(/^minecraft:/,'')||null,timeOfDay:bot?.time?.timeOfDay??null,carriedFood:(bot?.inventory?.items()||[]).filter(i=>SAFE_FOODS.has(i.name)).map(i=>({name:i.name,count:i.count})),nearbyThreats,threatCoverage:'Loaded entities within 24 blocks only; proximity does not establish aggression or line of sight'}
 }
 export function validateEatGoal(goal) {
  if(!goal||!SAFE_FOODS.has(goal.item)||!Number.isInteger(goal.count)||goal.count<1||goal.count>8)throw new Error('Eat requires an ordinary safe food and a maximum of 1–8 portions')
@@ -77,8 +83,15 @@ export function emergencyReason(observation){
  // with no food must be free to go and find some in daylight; interrupting it
  // every time it steps outside its own base traps it there at five health.
  const darkness=Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500)
- if(observation.health<=10&&observation.sheltered!==true&&(hostileNear||observation.shelterAvailable===true&&darkness))return HEALTH_EMERGENCY
- if(Number.isFinite(observation.food)&&observation.food<=6&&(observation.carriedFood||[]).length)return 'Food is critically low'
+ // Health actually falling is the honest signal that something can be done,
+ // and it needs no mob taxonomy. Enderman and piglin are `conditional`, so a
+ // provoked one is invisible to hostileNear and could beat the agent below ten
+ // with nothing firing. Reclassifying them would be worse: a passive enderman
+ // is genuinely not a threat and the agent would flee every one it sees. This
+ // also covers fire, lava and a mob the version added after this was written.
+ const underAttack=Number.isFinite(observation.recentDamageMs)&&observation.recentDamageMs<=DAMAGE_WINDOW_MS
+ if(observation.health<=10&&observation.sheltered!==true&&(hostileNear||underAttack||observation.shelterAvailable===true&&darkness))return HEALTH_EMERGENCY
+ if(Number.isFinite(observation.food)&&observation.food<=6&&(observation.carriedFood||[]).length)return FOOD_EMERGENCY
  // Inside a verified closed lit shelter the answer to a nearby hostile is already
  // in place; interrupting there only retreats into the room the bot is standing in.
  if(observation.sheltered!==true&&observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name)))return THREAT_INTERRUPTION

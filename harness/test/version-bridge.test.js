@@ -32,3 +32,30 @@ test('26.2 is a bounded translated route with explicit missing-runtime and versi
  assert.equal(describeServer({version:{name:'future',protocol:9999}},'auto',true).status,'unsupported')
  assert.match(connectionFailure('multiplayer.disconnect.name_taken'),/already playing/)
 })
+
+test('an unsupported future version is an actionable update failure and never starts account authentication',async()=>{
+ const {describeServer}=await import('../src/companion/connection-check.js')
+ const {startVersionBridge}=await import('../src/companion/version-bridge.js')
+ const result=describeServer({version:{name:'99.9',protocol:9999}},'auto',true)
+ assert.equal(result.status,'unsupported')
+ assert.match(result.message,/compatibility update/)
+ let accountRead=false
+ await assert.rejects(startVersionBridge({host:'127.0.0.1',port:1,serverVersion:'99.9',store:{read(){accountRead=true}}}),/no verified compatibility route/)
+ assert.equal(accountRead,false)
+})
+
+test('all pinned routes retain version selection and cannot be mistaken for a different server',async()=>{
+ const {bridgeRoutes,bridgeClientVersion}=await import('../src/companion/version-bridge.js')
+ const {describeServer}=await import('../src/companion/connection-check.js')
+ const {validateServer}=await import('../src/companion/setup.js')
+ for(const route of bridgeRoutes){
+  assert.equal(validateServer({host:'localhost',port:25565,version:route.version}).version,route.version)
+  const status={version:{name:route.version,protocol:route.protocol}}
+  for(const selected of ['auto',route.version]){
+   const result=describeServer(status,selected,true)
+   assert.equal(result.route,'bridge');assert.equal(result.serverVersion,route.version);assert.equal(result.clientVersion,bridgeClientVersion)
+  }
+  assert.equal(describeServer(status,route.version,false).status,'unsupported')
+  assert.equal(describeServer({version:{name:'different',protocol:9999}},route.version,true).status,'mismatch')
+ }
+})

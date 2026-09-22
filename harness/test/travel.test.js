@@ -7,6 +7,9 @@ const registry=minecraftData('1.21.4')
 import {legs,validateTravelGoal,travelTo,LEG,LEG_TIMEOUT_MS} from '../src/travel.js'
 import {DoorAwareMovements,allowGroundBreaking,breakableWhileTravelling,TRAVERSAL_DIG_COST} from '../src/navigation.js'
 import {validateTaskGoal} from '../src/task-store.js'
+import {goalTarget} from '../src/world-skills.js'
+import pathfinding from 'mineflayer-pathfinder'
+const {goals}=pathfinding
 
 test('a journey is cut into legs along the line, and a short hop is one leg',()=>{
  assert.deepEqual(legs({x:0,z:0},{x:10,z:0}),[{x:10,z:0}],'inside one leg, go straight there')
@@ -110,15 +113,149 @@ test('a leg the harness abandoned is reported as ours, not as the world changing
  }finally{global.setTimeout=original}
 })
 
-test('the staged approach reads a goal that names a block, not just one with x and z',()=>{
- // GoalLookAtBlock keeps its target in `pos`; GoalBlock and GoalNear expose x/z.
- // Reading only x/z silently skipped staging for the walk home to the base
- // station, and for the base door and every station placement with it.
+test('the staged approach reads a goal that names a block, and one wrapped in a composite',()=>{
+ // GoalLookAtBlock keeps its target in `pos`; GoalBlock and GoalNear expose x/z;
+ // and approachPlacement wraps EVERY placement in a GoalCompositeAll, which has
+ // neither, only `goals`. Reading x/z alone skipped staging for the walk home to
+ // the base station; reading x/z and pos skipped it for every build walk, which
+ // is why the run stood 39, 76 and 87 blocks from its site at its three build
+ // failures and verified zero blocks. The old form of this test asserted the
+ // source text of the ladder and would have passed throughout that failure.
+ const at=new Vec3(-644,68,-324),world={}
+ const xz=t=>t&&[t.x,t.z]
+ assert.deepEqual(xz(goalTarget(new goals.GoalNear(at.x,at.y,at.z,2))),[-644,-324],'a plain x/z goal')
+ assert.deepEqual(xz(goalTarget(new goals.GoalLookAtBlock(at,world))),[-644,-324],'a goal that names a block')
+ assert.deepEqual(xz(goalTarget(new goals.GoalCompositeAll([new goals.GoalLookAtBlock(at,world)]))),[-644,-324],'every placement walk arrives wrapped in this')
+ assert.equal(goalTarget(new goals.GoalCompositeAll([])),null,'an empty composite names nowhere')
+ assert.equal(goalTarget({}),null,'a goal with no position at all names nowhere')
  const source=readFileSync(new URL('../src/world-skills.js',import.meta.url),'utf8')
- const body=source.slice(source.indexOf('async function approach(goal){'),source.indexOf('async function walk(goal,recover=true)'))
- assert.ok(/goal\?\.pos\?\.\[k\]/.test(body),'it falls back to the goal position')
- assert.ok(/<=64\)return/.test(body),'short walks are still untouched')
+ assert.ok(/<=64\)return/.test(source),'short walks are still untouched')
  // The walk home ends at a block-named goal, which is why this mattered.
  const prospecting=readFileSync(new URL('../src/prospecting.js',import.meta.url),'utf8')
  assert.ok(/walk\(new goals\.GoalLookAtBlock\(vec\(station\.position\)/.test(prospecting),'the base walk still targets the station block')
+})
+
+
+test('staged travel follows sloped terrain without requiring the intermediate starting elevation',async()=>{
+ const bot={entity:{position:new Vec3(.5,64,.5)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},blockAt:()=>({name:'air',boundingBox:'empty'}),
+ pathfinder:{setMovements(){},setGoal(){},async goto(goal){
+  const landing=new Vec3(goal.x,64+Math.floor(goal.x/2),goal.z)
+  if(!goal.isEnd(landing))throw Object.assign(new Error('No landing at requested elevation'),{name:'NoPath'})
+  bot.entity.position=landing.offset(.5,0,.5)
+ }}}
+ const r=await travelTo(bot,{kind:'travel',goal:{x:64,y:96,z:0}},{check(){},stage(){},progress(){}})
+ assert.equal(r.receipt,'arrived');assert.equal(r.position.y,96);assert.ok(r.legs>=2)
+})
+test('travel does not report arrival below the destination when goto silently returns without moving',async()=>{
+ const bot={entity:{position:new Vec3(.5,64,.5)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},blockAt:()=>({name:'air',boundingBox:'empty'}),
+ pathfinder:{setMovements(){},setGoal(){},async goto(){}}}
+ await assert.rejects(travelTo(bot,{kind:'travel',goal:{x:0,y:80,z:0}},{check(){},stage(){},progress(){}}),/without reaching/)
+})
+test('travel finishes a reachable elevation change even when already horizontally nearby',async()=>{
+ let walks=0
+ const bot={entity:{position:new Vec3(.5,64,.5)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},blockAt:()=>({name:'air',boundingBox:'empty'}),
+ pathfinder:{setMovements(){},setGoal(){},async goto(goal){walks++;bot.entity.position=new Vec3(goal.x+.5,goal.y,goal.z+.5)}}}
+ const r=await travelTo(bot,{kind:'travel',goal:{x:0,y:80,z:0}},{check(){},stage(){},progress(){}})
+ assert.equal(walks,1);assert.equal(r.position.y,80);assert.equal(r.receipt,'arrived')
+})
+
+
+test('model-selected travel requires nearby loaded support and safe headroom',async()=>{
+ const {validateObservedTravelGoal}=await import('../src/travel.js')
+ let override=null
+ const bot={registry,entity:{position:new Vec3(.5,64,.5)},blockAt(p){if(override)return override(p);return {name:p.y===63?'dirt':'air',boundingBox:p.y===63?'block':'empty'}}}
+ assert.deepEqual(validateObservedTravelGoal(bot,{x:16,y:64,z:0}),{x:16,y:64,z:0})
+ assert.throws(()=>validateObservedTravelGoal(bot,{x:200,y:64,z:0}),/96 blocks/)
+ for(const name of [null,'water','lava','sweet_berry_bush','stone']){
+  override=p=>p.y===63?{name:'dirt',boundingBox:'block'}:name===null?null:{name,boundingBox:name==='stone'?'block':'empty'}
+  assert.throws(()=>validateObservedTravelGoal(bot,{x:16,y:64,z:0}),/observed solid support/)
+ }
+ override=p=>({name:p.y===63?'magma_block':'air',boundingBox:p.y===63?'block':'empty'})
+ assert.throws(()=>validateObservedTravelGoal(bot,{x:16,y:64,z:0}),/observed solid support/)
+})
+
+test('local terrain waypoints name observed feet cells rather than construction anchors',async()=>{
+ const {terrainSummary}=await import('../src/observations.js')
+ const bot={entity:{position:new Vec3(.5,64,.5)},players:{},blockAt:p=>({name:p.y<=63?'dirt':'air',boundingBox:p.y<=63?'block':'empty'})}
+ const observed=terrainSummary(bot)
+ assert.ok(observed.waypoints.length>=4);assert.ok(observed.waypoints.every(p=>p.y===64));assert.ok(observed.waypoints.some(p=>p.x>=16))
+ for(const p of observed.waypoints){assert.equal(bot.blockAt(new Vec3(p.x,p.y-1,p.z)).name,'dirt');assert.equal(bot.blockAt(new Vec3(p.x,p.y,p.z)).name,'air')}
+})
+
+
+test('the final travel stage preserves elevation when a lower route shares its horizontal destination',async()=>{
+ const upper=new Vec3(16,84,0),lower=new Vec3(16,69,0),visited=[]
+ const bot={entity:{position:new Vec3(.5,90,.5)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},blockAt:()=>({name:'air',boundingBox:'empty'}),
+ pathfinder:{setMovements(){},setGoal(){},async goto(goal){
+  // Both routes are initially reachable; a descent commits to a lower area
+  // without an ascent back. An XZ-only destination accepts that wrong route.
+  const candidates=bot.entity.position.y<80?[lower]:[lower,upper]
+  const landing=candidates.find(p=>goal.isEnd(p))
+  if(!landing)throw Object.assign(new Error('No ascent from lower route'),{name:'NoPath'})
+  bot.entity.position=landing.offset(.5,0,.5);visited.push(landing.y)
+ }}}
+ const r=await travelTo(bot,{kind:'travel',goal:{x:16,y:84,z:0}},{check(){},stage(){},progress(){}})
+ assert.equal(r.receipt,'arrived');assert.equal(r.position.y,84)
+ assert.ok(visited.every(y=>y>=80),'approach did not choose the lower route merely for horizontal proximity')
+})
+
+test('regroup refreshes a moving player between travel legs and records current arrival',async()=>{
+ const owner={position:new Vec3(100,70,0)},visited=[]
+ const bot={players:{Sov:{entity:owner}},entity:{position:new Vec3(0,70,0)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},blockAt:()=>({name:'air',boundingBox:'empty'}),pathfinder:{setMovements(){},setGoal(){},async goto(g){visited.push([g.x,g.z]);bot.entity.position=new Vec3(g.x,g.y??70,g.z);if(visited.length===1)owner.position=new Vec3(64,70,40)}}}
+ const result=await travelTo(bot,{goal:{x:100,y:70,z:0,player:'Sov'}},{check(){},stage(){},progress(){}})
+ assert.deepEqual(result.target,{x:64,y:70,z:40});assert.ok(bot.entity.position.distanceTo(owner.position)<=3)
+ assert.deepEqual(validateTaskGoal('travel',{x:1,y:70,z:2,player:'Sov'}),{x:1,y:70,z:2,player:'Sov'})
+ assert.throws(()=>validateTravelGoal({x:1,y:70,z:2,player:'not a player'}),/player/)
+})
+
+test('regroup refuses stale coordinates when the observed player disappears',async()=>{
+ const bot={players:{},entity:{position:new Vec3(0,70,0)}}
+ await assert.rejects(travelTo(bot,{goal:{x:100,y:70,z:0,player:'Sov'}},{check(){},stage(){},progress(){}}),/Cannot currently see Sov/)
+})
+
+test('regroup cannot claim arrival when the player moves during final elevation approach',async()=>{
+ const owner={position:new Vec3(0,80,0)}
+ const bot={players:{Sov:{entity:owner}},entity:{position:new Vec3(0,70,0)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},blockAt:()=>({name:'air',boundingBox:'empty'}),pathfinder:{setMovements(){},setGoal(){},async goto(g){bot.entity.position=new Vec3(g.x,g.y,g.z);owner.position=new Vec3(20,80,0)}}}
+ await assert.rejects(travelTo(bot,{goal:{x:0,y:80,z:0,player:'Sov'}},{check(){},stage(){},progress(){}}),/moved during the final approach/)
+})
+
+
+test('nearby regroup first plans the full destination height instead of a horizontal valley waypoint',async()=>{
+ const owner={position:new Vec3(90,112,0)},visited=[]
+ const bot={players:{Sov:{entity:owner}},entity:{position:new Vec3(0,87,0)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},blockAt:()=>({name:'air',boundingBox:'empty'}),pathfinder:{setMovements(){},setGoal(){},async goto(g){visited.push(g);assert.equal(g.y,112);bot.entity.position=new Vec3(g.x,g.y,g.z)}}}
+ await travelTo(bot,{goal:{x:90,y:112,z:0,player:'Sov'}},{check(){},stage(){},progress(){}})
+ assert.equal(visited.length,1);assert.equal(visited[0].x,90)
+})
+
+test('travel arrives in the dead band where the goal is satisfied but the float distance is not',async()=>{
+ // The loop exits on flat() <= ARRIVE, computed from the raw float position,
+ // while the pathfinder satisfies GoalNear against the FLOORED cell. Between
+ // those two lies a band where goto() has genuinely arrived and the loop does
+ // not believe it, so travel walks in place until the eight-minute deadline and
+ // reports "N blocks short". The live run produced exactly that, repeatedly,
+ // from five blocks out.
+ let walks=0
+ const bot={entity:{position:new Vec3(2.5,64,2.5)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},
+  blockAt:()=>({name:'air',boundingBox:'empty'}),
+  pathfinder:{setMovements(){},setGoal(){},async goto(){walks++}}}   // already there; the walk changes nothing
+ // floor(2.5)=2 → the goal's own isEnd is true at (2,64,2); flat() is 3.54 > ARRIVE
+ const r=await travelTo(bot,{kind:'travel',goal:{x:0,y:64,z:0}},{check(){},stage(){},progress(){}})
+ assert.equal(r.receipt,'arrived',`must recognise arrival, got ${JSON.stringify(r)}`)
+ assert.ok(walks<=1,`and must not keep walking in place: ${walks} walks`)
+})
+
+test('a detour is scaled to the gap, and skipped when there is no gap',async()=>{
+ // The offset was a flat 16 blocks whatever the distance, applied to the target.
+ // Five blocks short, it proposed a cell 16 blocks perpendicular: further away
+ // than the bot already was, and outside the region the straight line failed
+ // in. The live refusals reconstruct exactly: "5 blocks short of -726,70,-278
+ // ... no route to -710,-278" is target.x+16.
+ const tried=[]
+ const bot={entity:{position:new Vec3(.5,64,5.5)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},
+  blockAt:()=>({name:'air',boundingBox:'empty'}),
+  pathfinder:{setMovements(){},setGoal(){},async goto(g){tried.push({x:g.x,z:g.z});throw Object.assign(new Error('No path'),{name:'NoPath'})}}}
+ await assert.rejects(travelTo(bot,{kind:'travel',goal:{x:0,y:64,z:0}},{check(){},stage(){},progress(){}}),
+  e=>{assert.match(e.message,/no room to detour/,`a 5-block gap has no room for a detour: ${e.message}`);return true})
+ const far=tried.filter(t=>Math.hypot(t.x,t.z)>8)
+ assert.equal(far.length,0,`no attempt should land further out than the target: ${JSON.stringify(far)}`)
 })

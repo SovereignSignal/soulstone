@@ -81,3 +81,29 @@ test('the observation lists farm animals within 32 blocks for the planner to hun
  const o=survivalObservation(bot)
  assert.deepEqual(o.nearbyAnimals,[{name:'chicken',distance:3},{name:'cow',distance:10}])
 })
+
+test('low health plus incoming damage is an emergency even when nothing is classified hostile',async()=>{
+ const {emergencyReason,HEALTH_EMERGENCY}=await import('../src/survival.js')
+ // An enderman and a piglin are `conditional`, so hostileNear is false and a
+ // provoked one can beat the agent below ten health with nothing firing. The
+ // fix is not to reclassify them: a passive enderman is genuinely not a threat,
+ // and reclassifying would make the agent flee every one it sees. Falling
+ // health is the honest signal, and it covers fire and lava too.
+ const base={gameMode:'survival',health:8,food:18,difficulty:'easy',timeOfDay:6000,sheltered:false,
+  shelterAvailable:false,headSubmerged:false,oxygen:20,carriedFood:[],
+  nearbyThreats:[{name:'enderman',distance:3,risk:'conditional'}]}
+ assert.equal(emergencyReason(base),null,'stable low health next to a neutral mob is not an emergency')
+ assert.equal(emergencyReason({...base,recentDamageMs:800}),HEALTH_EMERGENCY,'the same agent actually being hurt is')
+ assert.equal(emergencyReason({...base,recentDamageMs:30000}),null,'damage long past is not')
+})
+
+test('falling health does not override the guard that keeps a hurt agent free to forage',async()=>{
+ const {emergencyReason}=await import('../src/survival.js')
+ // The existing comment is load-bearing: interrupting every time a hurt agent
+ // steps outside its base traps it there at five health with no food. Only
+ // health at or below ten qualifies, and only while it is actually dropping.
+ const hurt={gameMode:'survival',health:14,food:4,difficulty:'easy',timeOfDay:6000,sheltered:false,
+  shelterAvailable:false,headSubmerged:false,oxygen:20,carriedFood:[],nearbyThreats:[]}
+ assert.equal(emergencyReason({...hurt,recentDamageMs:500}),null,'above the floor, damage alone does not interrupt foraging')
+ assert.equal(emergencyReason({...hurt,health:8,sheltered:true,recentDamageMs:500}),null,'already sheltered, it is not an interruption')
+})

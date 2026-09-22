@@ -72,6 +72,7 @@ export async function finishShelter(bot,origin,layout,wood,api) {
  async function toggle(open) {
   check();if(opened()===open&&halves().every(b=>b.getProperties().open===open))return
   // Empty hand prevents accidentally placing another block while interacting.
+  // When `use` lands, bare-hand becomes an explicit variant of this path, not an invariant of it.
   await bot.unequip('hand');check();await bot.activateBlock(bot.blockAt(door));check()
   await settle(()=>halves().every(b=>b.getProperties().open===open),`Door did not ${open?'open':'close'}`)
  }

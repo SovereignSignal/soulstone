@@ -70,8 +70,18 @@ export class DoorAwareMovements extends Movements {
     if(!floor.position||floor.liquid||this.blocksToAvoid.has(floor.type))return null
     if(floor.physical){
      if(!floor.shapes.some(s=>JSON.stringify(s)==='[0,0,0,1,1,1]'))return null
+     // A landing may be a cell this profile is already allowed to break. Ascent
+     // through the graph is free and unlimited; descent had no edge at all from
+     // a one-wide tower, because the only landing was the tower itself. At drop
+     // 1 the mover's own safeOrBreak re-checks these exact cells and refuses
+     // when the break is not permitted; at drops 2 and 3 the loop above has
+     // already established both are non-physical and safe, so this cannot widen
+     // anything there. Falling blocks stay excluded: soft ground includes sand,
+     // and a sand shaft is one allow1by1towers=false cannot climb back out of.
+     const falls=b=>b.canFall===true||/^(red_sand|suspicious_sand|suspicious_gravel)$/.test(b.name||'')
+     const passable=b=>!!b.position&&!b.liquid&&!this.blocksToAvoid.has(b.type)&&(b.safe||(this.safeToBreak(b)&&!falls(b)))
      const feet=this.getBlock(node,dir.x,-drop,dir.z),head=this.getBlock(node,dir.x,1-drop,dir.z)
-     return feet.safe&&head.safe&&!feet.liquid&&!head.liquid?feet:null
+     return passable(feet)&&passable(head)?feet:null
     }
     if(!floor.safe)return null
    }

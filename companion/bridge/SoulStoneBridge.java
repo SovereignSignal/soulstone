@@ -1,6 +1,8 @@
 package soulstone;
 
 import com.google.gson.JsonObject;
+import com.viaversion.viaversion.api.Via;
+import com.viaversion.viaversion.api.protocol.version.ProtocolVersion;
 import com.google.gson.JsonParser;
 import net.lenni0451.lambdaevents.EventHandler;
 import net.raphimc.viaproxy.ViaProxy;
@@ -18,6 +20,7 @@ import java.util.concurrent.*;
 // Minecraft credentials stay in SoulStone's account manager.
 public final class SoulStoneBridge extends ViaProxyPlugin {
     private UUID expected;
+    private int clientProtocol, serverProtocol;
     private final ConcurrentHashMap<String, CompletableFuture<Boolean>> pending = new ConcurrentHashMap<>();
     private synchronized void emit(JsonObject value) { System.out.println("SOULSTONE_BRIDGE " + value); System.out.flush(); }
     @Override public void onEnable() {
@@ -28,6 +31,8 @@ public final class SoulStoneBridge extends ViaProxyPlugin {
             if (line == null || line.length() > 1024) throw new IOException("Missing bridge identity");
             JsonObject config = JsonParser.parseString(line).getAsJsonObject();
             expected = UUID.fromString(config.get("uuid").getAsString());
+            clientProtocol = config.get("clientProtocol").getAsInt();
+            serverProtocol = config.get("serverProtocol").getAsInt();
             ViaProxy.EVENT_MANAGER.register(this);
             Thread reader = new Thread(() -> {
                 try {
@@ -45,6 +50,13 @@ public final class SoulStoneBridge extends ViaProxyPlugin {
         } catch (Exception error) { System.exit(1); }
     }
     @EventHandler public void starting(ProxyStartEvent event) {
+        var target = ViaProxy.getConfig().getTargetVersion();
+        if (target.getVersion() != serverProtocol ||
+            Via.getManager().getProtocolManager().getProtocolPath(ProtocolVersion.getProtocol(clientProtocol), target) == null) {
+            JsonObject failure = new JsonObject(); failure.addProperty("type", "unsupported_route");
+            failure.addProperty("clientProtocol", clientProtocol); failure.addProperty("serverProtocol", serverProtocol);
+            emit(failure); System.exit(1); return;
+        }
         Thread ready = new Thread(() -> {
             try {
                 for (int i=0; i<400; i++) {
@@ -52,7 +64,7 @@ public final class SoulStoneBridge extends ViaProxyPlugin {
                     if (proxy != null && proxy.getChannel() != null && proxy.getChannel().isActive()) {
                         InetSocketAddress address = (InetSocketAddress) proxy.getChannel().localAddress();
                         if (!address.getAddress().isLoopbackAddress()) System.exit(1);
-                        JsonObject value = new JsonObject(); value.addProperty("type","ready"); value.addProperty("port",address.getPort()); emit(value); return;
+                        JsonObject value = new JsonObject(); value.addProperty("type","ready"); value.addProperty("port",address.getPort()); value.addProperty("clientProtocol",clientProtocol); value.addProperty("serverProtocol",serverProtocol); emit(value); return;
                     }
                     Thread.sleep(50);
                 }

@@ -198,3 +198,82 @@ test('the reachability audit fixes hold: a lone hunt or sleep plans, and three c
  const after=evaluateGoal(stored,snapshot,null,[{action:'withdraw',status:'completed',result:{container:{iron_ingot:5}}}])
  assert.equal(after.checks[0].passed,true)
 })
+
+
+test('food recovery verifies server hunger without requiring a predetermined food species',()=>{
+ const base={kind:'task',projectMode:'none',summary:'Recover hunger using available safe food',milestones:[],constraints:[]},criterion={kind:'hunger',description:'Restore hunger to at least 18.',target:'',item:'',count:18}
+ const contract=validateContract({...base,criteria:[criterion]})
+ for(const food of [null,undefined,5,17])assert.equal(evaluateGoal(contract,{survival:{food},inventory:{}},null,[]).verdict,'needs_work')
+ for(const item of ['beef','sweet_berries']){
+  const feedback=[{action:'eat',status:'completed',result:{item,count:3}}]
+  assert.equal(evaluateGoal(contract,{survival:{food:18},inventory:{}},null,feedback).verdict,'passed')
+  assert.equal(evaluateGoal(contract,{survival:{food:5},inventory:{}},null,feedback).verdict,'needs_work','eating receipts alone cannot substitute for current hunger')
+ }
+ for(const count of [0,21])assert.throws(()=>validateContract({...base,criteria:[{...criterion,count}]}),/1 to 20/)
+})
+
+// --- block_at: the criterion `use` must not ship without ---
+const useReceipt = (x, y, z, name, state = {}, dimension = 'overworld', receipt = 'use_effect_observed') =>
+  ({ action: 'use', status: 'completed', result: { receipt, item: 'flint_and_steel', target: { x, y, z, how: 'click', dimension }, observed: { name, state }, changed: [] } })
+const blockAtContract = (over = {}) => ({
+  kind: 'task', summary: 'Light a nether portal.', projectMode: 'none', milestones: ['Light it'], constraints: [],
+  milestonePlan: [{ id: 'light', description: 'Light the portal frame and confirm it.', dependsOn: [], criteria: [0] }],
+  criteria: [{ kind: 'block_at', description: 'A nether portal exists that this request lit.', target: '', item: 'nether_portal', count: 1, ...over }],
+})
+const botIn = (dimension, block) => ({ game: { dimension }, blockAt: () => block })
+const litBlock = { name: 'nether_portal', getProperties: () => ({ axis: 'x' }) }
+
+test('block_at passes on a use receipt from this request and survives walking away', () => {
+  const c = validateContract(blockAtContract(), {}), snap = { position: { x: 0, y: 64, z: 0 } }
+  const fb = [useReceipt(12, 65, -7, 'nether_portal', { axis: 'x' })]
+  assert.equal(evaluateGoal(c, snap, botIn('overworld', litBlock), fb).verdict, 'passed', 'receipt plus a matching live read')
+  // An unloaded chunk is not a contradiction: it is the absence of a reading.
+  assert.equal(evaluateGoal(c, snap, botIn('overworld', null), fb).verdict, 'passed', 'walking away does not un-light the portal')
+  // A different block in the same dimension is a real contradiction.
+  assert.equal(evaluateGoal(c, snap, botIn('overworld', { name: 'obsidian', getProperties: () => ({}) }), fb).verdict, 'needs_work', 'someone broke it')
+  // bot.world is replaced wholesale on a dimension change, so a cross-dimension
+  // read is skipped rather than trusted.
+  assert.equal(evaluateGoal(c, snap, botIn('the_nether', { name: 'netherrack', getProperties: () => ({}) }), fb).verdict, 'passed', 'a read from another dimension proves nothing')
+  assert.equal(evaluateGoal(c, snap, botIn('overworld', litBlock), []).verdict, 'needs_work', 'no receipt, no pass')
+})
+
+test('block_at counts distinct places and reads block states', () => {
+  const twelve = validateContract(blockAtContract({ item: 'end_portal_frame[eye=true]', count: 12, description: 'Twelve frames hold an eye.' }), {})
+  const snap = { position: { x: 0, y: 64, z: 0 } }
+  const frame = n => useReceipt(n, 65, -7, 'end_portal_frame', { eye: true })
+  const bot = botIn('overworld', { name: 'end_portal_frame', getProperties: () => ({ eye: true }) })
+  const eleven = Array.from({ length: 11 }, (_, i) => frame(i))
+  assert.equal(evaluateGoal(twelve, snap, bot, eleven).verdict, 'needs_work', 'eleven frames is not twelve')
+  assert.equal(evaluateGoal(twelve, snap, bot, [...eleven, frame(11)]).verdict, 'passed')
+  // Distinct places, not repeated receipts for the same one.
+  assert.equal(evaluateGoal(twelve, snap, bot, Array.from({ length: 12 }, () => frame(0))).verdict, 'needs_work', 'one frame twelve times is one frame')
+  assert.throws(() => validateContract(blockAtContract({ count: 2, target: '1,2,3' }), {}), /names no single position/)
+  assert.throws(() => validateContract(blockAtContract({ target: 'over there' }), {}), /"" or "x,y,z"/)
+})
+
+test('a portal contract is not vacuous before the work', () => {
+  // vacuousContract evaluates with empty feedback, so a receipt-anchored
+  // criterion cannot report success on arrival.
+  const c = validateContract(blockAtContract(), {})
+  assert.equal(vacuousContract(c, { position: { x: 0, y: 64, z: 0 } }, botIn('overworld', litBlock)), null)
+})
+
+test('an inventory criterion counts armour the agent is wearing', () => {
+  // Armour occupies player-window slots 5-8 and items() starts at 9, verified
+  // live: carried reads 1, worn reads 0. So "carry an iron helmet" failed the
+  // instant the agent put one on, and it crafted a spare to satisfy itself.
+  const contract = validateContract({
+    kind: 'task', summary: 'Wear iron.', projectMode: 'none', milestones: ['Get a helmet'], constraints: [],
+    milestonePlan: [{ id: 'helm', description: 'Obtain and wear an iron helmet.', dependsOn: [], criteria: [0] }],
+    criteria: [{ kind: 'inventory', description: 'An iron helmet is held or worn.', target: '', item: 'iron_helmet', count: 1 }],
+  }, {})
+  const snap = { position: { x: 0, y: 64, z: 0 }, inventory: {} }
+  const bare = { getEquipmentDestSlot: () => null, inventory: { slots: [] } }
+  assert.equal(evaluateGoal(contract, snap, bare, []).verdict, 'needs_work', 'neither carried nor worn')
+  // worn: the equipment slot holds it, inventory.items() does not
+  const wearing = { getEquipmentDestSlot: s => ({ head: 5, torso: 6, legs: 7, feet: 8 }[s] ?? null),
+    inventory: { slots: [, , , , , { name: 'iron_helmet' }] } }
+  assert.equal(evaluateGoal(contract, snap, wearing, []).verdict, 'passed', 'wearing it satisfies carrying it')
+  // carried still works
+  assert.equal(evaluateGoal(contract, { ...snap, inventory: { iron_helmet: 1 } }, bare, []).verdict, 'passed')
+})

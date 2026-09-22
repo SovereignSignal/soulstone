@@ -6,6 +6,7 @@ import pathfinding from 'mineflayer-pathfinder'
 import collection from 'mineflayer-collectblock'
 import {MinecraftAccounts,linkedAccountAuth} from '../src/companion/minecraft-accounts.js'
 import {startVersionBridge} from '../src/companion/version-bridge.js'
+import {checkConnection} from '../src/companion/connection-check.js'
 import {craftWithWindowState} from '../src/crafting.js'
 const root=join(homedir(),'Library/Application Support/Vibrant Soul'),setup=JSON.parse(readFileSync(join(root,'setup.json'),'utf8')),store=new MinecraftAccounts(join(root,'accounts'))
 const trace=[],receipt={startedAt:new Date().toISOString(),trace};let bridge,bot,done=false
@@ -13,7 +14,10 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms))
 async function finish(status,error){if(done)return;done=true;receipt.status=status;receipt.error=error;bot?.quit();await bridge?.close();writeFileSync('results/bridge-craft-diagnostic.json',JSON.stringify(receipt,null,2)+'\n');console.log(JSON.stringify(receipt));process.exit(status==='passed'?0:1)}
 setTimeout(()=>void finish('failed','timeout'),120000).unref()
 try{
- bridge=await startVersionBridge({host:setup.host,port:setup.port,store,accountId:setup.minecraftAccountId})
+ const connection=await checkConnection(setup)
+ if(connection.status!=='reachable'||connection.route!=='bridge')throw new Error(connection.message)
+ receipt.serverVersion=connection.serverVersion
+ bridge=await startVersionBridge({host:setup.host,port:setup.port,serverVersion:connection.serverVersion,store,accountId:setup.minecraftAccountId})
  bot=mineflayer.createBot({host:bridge.host,port:bridge.port,version:bridge.version,username:setup.minecraftAccountId,auth:linkedAccountAuth(store,setup.minecraftAccountId)})
  bot.soulstoneInventoryResync=true
  bot.loadPlugin(pathfinding.pathfinder);bot.loadPlugin(collection.plugin)

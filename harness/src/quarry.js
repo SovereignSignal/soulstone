@@ -38,23 +38,33 @@ async function digBlock(bot,block,check){
 }
 export function findQuarryColumn(bot){
  const feet=bot.entity.position.floored()
- const usable=o=>quarryColumn(bot,o.offset(0,-1,0),{top:true}).ok&&quarryColumn(bot,o.offset(0,-2,0)).ok
- if(usable(feet))return {surface:feet,move:null}
+ // Keep the reason the column check already computed. A refusal that says only
+ // that it refused sends the planner nowhere: "Shaft side is open at ..." is
+ // what a self-built tower looks like from below, and it never reached the log.
+ const judge=o=>{const cap=quarryColumn(bot,o.offset(0,-1,0),{top:true});return cap.ok?quarryColumn(bot,o.offset(0,-2,0)):cap}
+ const here=judge(feet)
+ if(here.ok)return {surface:feet,move:null}
  for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]]){
   const o=feet.offset(dx,0,dz)
   const standable=bot.blockAt(o)?.name==='air'&&bot.blockAt(o.offset(0,1,0))?.name==='air'&&solid(bot,bot.blockAt(o.offset(0,-1,0)))
-  if(standable&&usable(o))return {surface:o,move:o}
+  if(standable&&judge(o).ok)return {surface:o,move:o}
  }
- return null
+ return {reason:here.reason}
 }
 export async function quarryStone(bot,{name='cobblestone',total,path=[]},{check,stage,progress,persist=()=>{},acquire,count}){
  check()
  if(!bot.inventory.items().some(i=>/_pickaxe$/.test(i.name)))await acquire('wooden_pickaxe',1,path)
  const found=findQuarryColumn(bot)
- if(!found)throw new Error('No sound quarry column here or beside it')
+ if(!found?.surface)throw new Error('No sound quarry column here or beside it'+(found?.reason?`: ${found.reason}`:''))
  if(found.move){
-  const timer=setTimeout(()=>bot.pathfinder.setGoal(null),6000)
-  try{await bot.pathfinder.goto(new goals.GoalBlock(found.move.x,found.move.y,found.move.z))}finally{clearTimeout(timer)}
+  // The deadline clears the goal, which makes goto() REJECT with GoalChanged:
+  // our own stopwatch reported as the world moving, into a classifier that does
+  // not list it. Name it Timeout so a stalled step stays retryable.
+  let expired=false
+  const timer=setTimeout(()=>{expired=true;bot.pathfinder.setGoal(null)},6000)
+  try{await bot.pathfinder.goto(new goals.GoalBlock(found.move.x,found.move.y,found.move.z))}
+  catch(error){if(expired)throw Object.assign(new Error('Walking to the quarry column timed out'),{name:'Timeout'});throw error}
+  finally{clearTimeout(timer)}
   check()
  }
  const surface=found.surface

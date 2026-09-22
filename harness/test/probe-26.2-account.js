@@ -12,7 +12,7 @@ let bridge,bot,finished=false
 const timer=setTimeout(()=>void finish('failed','probe timeout'),60000)
 async function finish(status,reason){if(finished)return;finished=true;clearTimeout(timer);bot?.quit();await bridge?.close();receipt.status=status;receipt.reason=reason;writeFileSync('results/lan-26.2-account-probe.json',JSON.stringify(receipt,null,2)+'\n');console.log(JSON.stringify(receipt));process.exit(status==='passed'?0:1)}
 try {
- bridge=await startVersionBridge({host:'127.0.0.1',port:receipt.targetPort,store,accountId:setup.minecraftAccountId,onEvent:type=>receipt.events.push({type}),onFailure:reason=>void finish('failed',reason)})
+ bridge=await startVersionBridge({host:'127.0.0.1',port:receipt.targetPort,serverVersion:receipt.serverVersion,store,accountId:setup.minecraftAccountId,onEvent:type=>receipt.events.push({type}),onFailure:reason=>void finish('failed',reason)})
  receipt.events.push({type:'helper_ready'})
  bot=mineflayer.createBot({host:bridge.host,port:bridge.port,version:bridge.version,username:setup.minecraftAccountId,auth:linkedAccountAuth(store,setup.minecraftAccountId)})
  bot.once('login',()=>receipt.events.push({type:'login',name:bot.username}))

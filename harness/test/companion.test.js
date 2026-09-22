@@ -6,7 +6,7 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { validatePlan } from '../src/companion/planner.js'
+import { validatePlan, schema } from '../src/companion/planner.js'
 import { Teammate } from '../src/companion/controller.js'
 class FakeRunner extends EventEmitter {
   constructor(){ super(); this.profile='lab'; this.owner='Sov'; this.ready=true; this.commands=[]; this.bot={players:{Sov:{entity:{position:{x:1,y:64,z:2}}}},inventory:{items:()=>[]}} }
@@ -501,6 +501,79 @@ test('death after a blocked task is visible and blocks Resume until explicit res
  assert.equal(c.snapshot().dead,false);assert.equal(c.requestProgress.id,'diamond');assert.equal(c.requestProgress.status,'blocked');assert.equal(c.snapshot().canResume,true)
  assert.match(c.requestProgress.blocker,/Respawned/);assert.doesNotMatch(c.requestProgress.blocker,/Respawn first/)
 })
+test('the agent remembers where it died so a recovery trip can be planned after respawn',async()=>{
+ // The drop pile is the whole point: a real death cost a full kit because
+ // nothing retained where it happened. deathPosition is captured today
+ // (controller.js:154) but lives on `safety`, which the respawn branch nulls
+ // before anything reads it, and which observe() never destructures.
+ const [r,c]=setup(async()=>({reply:'ok',steps:[]}))
+ c.phase='blocked';c.requestProgress={id:'diamond',request:'get a diamond',status:'blocked'}
+ r.position=()=>({x:-249,y:63,z:264})
+ r.ready=false;r.bot.health=0;r.bot.isAlive=false
+ r.emit('event',{type:'death'})
+ assert.deepEqual(c.snapshot().lastDeath?.position,{x:-249,y:63,z:264},'the death position is recorded where a reader can reach it')
+ r.respawn=()=>{r.respawnPending=true};c.respawn()
+ r.bot.health=20;r.bot.isAlive=true;r.respawnPending=false;r.ready=true;r.emit('event',{type:'spawn'})
+ assert.deepEqual(c.snapshot().lastDeath?.position,{x:-249,y:63,z:264},'and it survives the respawn that clears safety')
+})
+test('the planner is told where the agent died so it can plan the recovery trip',async()=>{
+ // Recording the position is useless if the model never receives it. observe()
+ // destructures a fixed field list from snapshot(); anything absent from that
+ // list cannot be planned against.
+ let observed
+ const [r,c]=setup(async(_,observation)=>{observed=observation;return {reply:'Understood.',steps:[]}})
+ r.position=()=>({x:-249,y:63,z:264})
+ r.ready=false;r.bot.health=0;r.bot.isAlive=false
+ r.emit('event',{type:'death'})
+ r.respawn=()=>{r.respawnPending=true};c.respawn()
+ r.bot.health=20;r.bot.isAlive=true;r.respawnPending=false;r.ready=true
+ r.position=()=>({x:0,y:64,z:0})
+ r.emit('event',{type:'spawn'})
+ await c.submit('go get my stuff back')
+ assert.deepEqual(observed.lastDeath?.position,{x:-249,y:63,z:264},'the planner sees the death site, not the respawn point')
+})
+test('a death during a resumable request respawns without waiting for an operator',async()=>{
+ // The whole cost of the 20 September death was that nobody was watching:
+ // the agent sat dead while its drop pile despawned. No model call happens
+ // while dead, so recovery cannot be a planner verb; it has to be automatic.
+ const [r,c]=setup(async()=>({reply:'ok',steps:[]}))
+ c.phase='blocked';c.requestProgress={id:'d',request:'get a diamond',status:'blocked'}
+ let respawns=0;r.respawn=()=>{respawns++;r.respawnPending=true}
+ r.ready=false;r.bot.health=0;r.bot.isAlive=false
+ r.emit('event',{type:'death'})
+ assert.equal(respawns,1,'the agent brings itself back')
+})
+
+test('automatic respawn is bounded so a spawn camp cannot loop it',async()=>{
+ // Respawning into the thing that just killed you, forever, is worse than
+ // stopping. After the budget the agent waits for a human.
+ const {AUTO_RESPAWN_LIMIT}=await import('../src/companion/continuity.js')
+ const [r,c]=setup(async()=>({reply:'ok',steps:[]}))
+ c.phase='blocked';c.requestProgress={id:'d',request:'get a diamond',status:'blocked'}
+ let respawns=0;r.respawn=()=>{respawns++;r.respawnPending=true}
+ for(let i=0;i<AUTO_RESPAWN_LIMIT+2;i++){
+  r.ready=false;r.bot.health=0;r.bot.isAlive=false
+  r.emit('event',{type:'death'})
+  r.bot.health=20;r.bot.isAlive=true;r.respawnPending=false;r.ready=true
+  r.emit('event',{type:'spawn'})
+ }
+ assert.equal(respawns,AUTO_RESPAWN_LIMIT,'it stops after the budget instead of dying in a loop')
+ assert.match(c.messages.at(-1).text,/Use Respawn agent/,'and the last word is the one asking a human to act')
+})
+test('the brief tells the planner that death now recovers itself, and where the drop pile is',()=>{
+ // A source-text assertion is the right shape here and only here: the prompt IS
+ // data sent to the model, so its text is the behaviour. An observation field
+ // the brief never names is a field the planner will not use.
+ const brief=readFileSync(new URL('../src/companion/teammate-prompt.txt',import.meta.url),'utf8')
+ assert.match(brief,/observation\.lastDeath/,'the death site is named so a recovery can be planned against it')
+ assert.doesNotMatch(brief,/Death requires explicit Respawn agent/,'the brief no longer contradicts the controller')
+})
+test('the target guard rejects a target on an action that is not travel',()=>{
+ // planner.js's travel-only target exclusivity is load-bearing and untested.
+ // The `use` action will need a target, so this pins the current rule before
+ // anything touches it.
+ assert.throws(()=>validatePlan({reply:'x',steps:[{action:'gather',name:'',count:4,item:'oak_log',design:[],target:{x:1,y:2,z:3}}]}),/Only travel/)
+})
 test('water recovery preempts failed shelter logic and never waits for a model or lit base',async()=>{
  const {WATER_EMERGENCY}=await import('../src/survival.js')
  const [r,c]=setup(async()=>{throw new Error('No model call for air recovery')});r.bot.setControlState=()=>{}
@@ -692,7 +765,11 @@ test('a built base counts as shelter for the dusk rule only once it has a torch 
 test('every planner action has a spoken label, and an unknown one falls back instead of ending the round',()=>{
  const src=readFileSync(new URL('../src/companion/controller.js',import.meta.url),'utf8')
  const line=src.split('\n').find(l=>l.includes('const labels={'))
- for(const action of ['hunt','harvest','eat','prospect','return_base','place','gather','acquire','build','construct','revise','give','inspect','remember','return','come','follow','retreat','leave_base','stow','prepare','deposit','withdraw','smelt','check_base'])assert.ok(line.includes(action+':'),action+' label')
+ // Derived from the schema, not listed by hand: a hardcoded list cannot notice
+ // a new action, so it would let one ship with no spoken label and no way for
+ // the planner to read its own refusal.
+ // gather_and_return is rewritten before dispatch (planner.js) and never reaches the map.
+ for(const action of schema.properties.steps.items.properties.action.enum.filter(a=>a!=='gather_and_return'))assert.ok(line.includes(action+':'),action+' label')
  assert.ok(src.includes('labels[s.action]||'),'fallback label')
 })
 
@@ -727,15 +804,41 @@ test('after a night retreat into the lit base, which records no shelterName, the
  assert.equal(resumed,0,'never continues into the night')
 })
 
-test('a shelter build repairs the saved base instead of abandoning it for a fresh site',()=>{
+test('a new base origin drops the station records of the old one',()=>{
+ // The wipe that made the origin choice matter: a fresh origin drops the torch
+ // record, and unrecorded light is what produced 140 of 143 refusals in a session.
+ // Still a source assertion, which proves only that the line reads this way. The
+ // origin choice itself is now covered behaviourally by the two tests below.
  const source=readFileSync(new URL('../src/companion/controller.js',import.meta.url),'utf8')
- const i=source.indexOf("command={action:'build'")
- const block=source.slice(i,i+900)
- assert.match(block,/const saved=shelter&&this\.projects\.base\?\.build\?\.origin\?this\.projects\.base\.build:null/,'a saved base supplies the origin')
- assert.match(block,/const from=prior\?\.task\?\.goal\?\.origin\?prior\.task\.goal:saved/,'a build already under way still wins')
- assert.match(block,/protectedSites/,'and only a bot with no base at all searches for a site')
- // The station wipe that made this matter: a new origin drops the torch record.
  assert.match(source,/stations:sameSite\?\(this\.projects\.base\?\.stations\|\|\{\}\):\{\}/)
+})
+
+test('a shelter build far from the saved base builds where the agent is',async()=>{
+ // A base 400 blocks away cannot shelter the agent tonight. Binding the build to
+ // its origin sent a real run on a 387-block walk to a base that had gone stale,
+ // and left no legal fallback: the contract that mandates the build action also
+ // forbids named construction. Distance decides, so the lit-base repair below survives.
+ const design=[{x:0,y:0,z:0,block:'wood_planks'}];let calls=0
+ const [r,c]=setup(async()=>++calls===1?{reply:'Making camp.',steps:[{action:'build',design}]}:{reply:'Checked.',steps:[]})
+ c.projects.base={build:{origin:{x:400,y:64,z:400},wood:'spruce_log',design},stations:{}}
+ await c.submit('build me a shelter')
+ const command=r.commands.find(x=>x.action==='build')
+ assert.notDeepEqual(command.goal.origin,{x:400,y:64,z:400},'a distant base must not anchor tonight\u2019s shelter')
+ assert.equal(command.goal.origin,undefined,'no origin means the builder surveys a fresh site here')
+ assert.equal(command.goal.purpose,'shelter')
+ assert.ok(command.goal.protectedSites,'the distant base is still protected from being built over')
+})
+
+test('a shelter build beside the saved base still repairs it',async()=>{
+ // The repair this guards: a fresh site wipes the station records, and 140 of 143
+ // 'no recorded light' refusals in one session followed exactly that.
+ const design=[{x:0,y:0,z:0,block:'wood_planks'}];let calls=0
+ const [r,c]=setup(async()=>++calls===1?{reply:'Repairing the base.',steps:[{action:'build',design}]}:{reply:'Checked.',steps:[]})
+ c.projects.base={build:{origin:{x:4,y:64,z:5},wood:'spruce_log',design},stations:{}}
+ await c.submit('build me a shelter')
+ const command=r.commands.find(x=>x.action==='build')
+ assert.deepEqual(command.goal.origin,{x:4,y:64,z:5},'a base within reach still supplies the origin')
+ assert.equal(command.goal.wood,'spruce_log')
 })
 
 test('a planning call gets a budget of its own, larger than the generic client default',async()=>{
@@ -778,4 +881,335 @@ test('a planner that never answered is asked again; one that answered and failed
  assert.ok(PLAN_RETRIES>=1&&PLAN_RETRIES<=3,'a small bound')
  // A request needing review is never retried automatically.
  assert.equal(canResumeRequest({status:'blocked',reviewRequired:true}),false,'a request needing review is never resumed automatically')
+})
+
+
+test('exhausted safety reacts to a new hostile and changed health, without reopening unchanged failures or Stop',()=>{
+ const [r,c]=setup(async()=>({reply:'',steps:[]}))
+ r.bot.game={gameMode:'survival',difficulty:'easy'};r.bot.time={timeOfDay:15000};r.bot.health=20;r.bot.food=20
+ r.bot.entity={position:new Vec3(0,64,0),onGround:true};r.bot.entities={}
+ const night='Night with no shelter'
+ const {reason}=c.safety={status:'failed',reason:night,retries:3,failedAt:0}
+ c.unsafeSignature={reason,key:c.safetyBlockKey()}
+ const calls=[];c.seekSafety=async why=>{calls.push(why);c.safety={status:'retreating',reason:why}}
+ const actual=night
+ r.emit('event',{type:'survival_tick'});assert.equal(calls.length,0)
+ r.bot.entities={1:{id:1,name:'zombie',position:new Vec3(3,64,0)}}
+ r.emit('event',{type:'survival_tick'});assert.equal(calls.length,1);assert.match(calls[0],/hostile/)
+ c.safety={status:'failed',reason:calls[0],retries:3,failedAt:0};c.unsafeSignature={reason:calls[0],key:c.safetyBlockKey()}
+ r.emit('event',{type:'survival_tick'});assert.equal(calls.length,1)
+ r.bot.health=12;r.emit('event',{type:'survival_tick'});assert.equal(calls.length,2)
+ c.safety={status:'cancelled',reason:'Operator stop'};r.bot.health=8
+ r.emit('event',{type:'survival_tick'});assert.equal(calls.length,2)
+ c.safety={status:'failed',reason:actual,retries:3};r.bot.health=0;r.bot.isAlive=false
+ r.emit('event',{type:'survival_tick'});assert.equal(calls.length,2)
+})
+
+
+test('retaining a mineral-named tool does not turn wood gathering into ore mining',async()=>{
+ const {guardIntent}=await import('../src/companion/intent.js')
+ const plan={reply:'Gathering',steps:[{action:'gather',item:'oak_log',count:8}]}
+ for(const tool of ['stone axe','iron sword','diamond pickaxe','iron helmet'])assert.equal(guardIntent(plan,`Collect eight oak logs and retain your ${tool} and four bread.`).steps.length,1,tool)
+ for(const request of ['mine diamonds','collect eight oak logs and iron ore','gather coal with a stone axe'])assert.equal(guardIntent(plan,request).steps.length,0,request)
+})
+
+test('a prepared shelter plan is consumed once only for its request, connection and freshness',async()=>{
+ for(const mismatch of ['none','request','connection','expired']){
+  let calls=0
+  const [r,c]=setup(async()=>{calls++;return {reply:'Fresh plan',steps:[{action:'follow',name:'',count:0}]}})
+  r.connectionId='live'
+  c.requestProgress={id:'saved',request:'follow me',status:'interrupted',completed:[],pending:[],feedback:[]}
+  const prepared={requestId:mismatch==='request'?'old':'saved',connectionId:mismatch==='connection'?'old':'live',createdAt:Date.now()-(mismatch==='expired'?90001:0),plan:{reply:'Prepared plan',steps:[{action:'follow',name:'',count:0}]}}
+  await c.resume({automatic:true,prepared})
+  assert.equal(calls,mismatch==='none'?0:1,mismatch)
+  assert.equal(r.commands.filter(x=>x.action==='follow').length,1,mismatch)
+ }
+})
+
+
+test('safety interruption preserves partial work once before recovery replaces the runner task',()=>{
+ const [r,c]=setup(async()=>({reply:'',steps:[]}))
+ const step={action:'hunt',item:'beef',count:4,name:''}
+ c.requestProgress={id:'request',status:'running',completed:[],feedback:[],inFlight:{taskId:'search',step}}
+ r.task={id:'search',kind:'hunt',status:'running',hunt:{legs:3,kills:0,attacks:0}}
+ c.interrupt('Safety interruption: nearby hostile')
+ r.task.hunt.legs=6;r.task={id:'escape',kind:'flee',status:'running'}
+ c.interrupt('Recovery changed')
+ const f=c.requestProgress.feedback
+ assert.equal(f.length,1);assert.equal(f[0].status,'interrupted');assert.equal(f[0].observed.hunt.legs,3)
+ assert.equal(f[0].taskId,'search');assert.equal(f[0].reason,'Safety interruption: nearby hostile')
+ assert.equal(c.requestProgress.completed.length,0)
+})
+test('interruptions do not attribute an unrelated runner task to the current request',()=>{
+ const [r,c]=setup(async()=>({reply:'',steps:[]}))
+ c.requestProgress={id:'request',status:'running',feedback:[],inFlight:{taskId:'search',step:{action:'hunt'}}}
+ r.task={id:'other',kind:'hunt',status:'running',hunt:{legs:6}}
+ c.interrupt('Safety interruption')
+ assert.deepEqual(c.requestProgress.feedback,[])
+})
+
+
+test('terrain recovery is validated, selected from local footing and returns a durable receipt',async()=>{
+ const {schema}=await import('../src/companion/planner.js')
+ const {guardIntent}=await import('../src/companion/intent.js')
+ for(const action of ['descend','climb']){
+  assert.ok(schema.properties.steps.items.properties.action.enum.includes(action))
+  for(const bad of [{count:1},{item:'dirt'},{name:'base'},{design:[{x:0}]}])assert.throws(()=>validatePlan({reply:'Recovering',steps:[{action,name:'',item:'',count:0,design:[],...bad}]}))
+ }
+ let rounds=0,receipt
+ const [r,c]=setup(async(_text,observation)=>{
+  rounds++
+  if(rounds===1){assert.equal(observation.footing.support.name,'oak_leaves');return guardIntent(validatePlan({reply:'Descending to observed ground',steps:[{action:'descend',name:'',item:'',count:0,design:[]}]}),_text)}
+  receipt=observation.feedback.find(f=>f.action==='descend')
+  return {reply:'Ground reached',steps:[]}
+ })
+ r.bot.entity={position:new Vec3(0,75,0),onGround:true};r.bot.blockAt=p=>({name:p.y===74?'oak_leaves':'air',boundingBox:p.y===74?'block':'empty'})
+ r.command=function(command){this.emit('operator_command',command);this.commands.push(command);this.task={id:String(this.commands.length),kind:command.action,status:'running'};if(command.action!=='stop')queueMicrotask(()=>{this.task={...this.task,status:'completed',result:{receipt:'descended_to_ground',position:{x:6,y:65,z:0}}};this.emit('event',{type:'task_finished',task:this.task})})}
+ await c.submit('Reach usable ground before continuing resources')
+ assert.deepEqual(r.commands.filter(x=>x.action!=='stop'),[{action:'descend',goal:{},timeoutMs:45000}],JSON.stringify(c.messages))
+ assert.equal(receipt.status,'completed');assert.equal(receipt.result.receipt,'descended_to_ground');assert.equal(rounds,2)
+})
+
+test('failed shelter retry carries only the same interrupted request eligibility and respects Stop',()=>{
+ const [r,c]=setup(async()=>({reply:'',steps:[]}))
+ r.bot.game={gameMode:'survival',difficulty:'normal'};r.bot.time={timeOfDay:6000};r.bot.health=20;r.bot.food=20;r.bot.entity={position:new Vec3(0,64,0),onGround:true};r.bot.entities={1:{name:'zombie',position:new Vec3(5,64,0)}}
+ const calls=[];c.seekSafety=async(reason,options)=>calls.push(options)
+ for(const [status,marker,review,expected] of [['interrupted','r1',null,true],['interrupted','old',null,false],['blocked','r1',null,false],['cancelled','r1',null,false],['interrupted','r1','Uncertain effect',false]]){
+  c.requestProgress={id:'r1',status,reviewRequired:review,completed:[]}
+  c.safety={status:'failed',error:'Protection unavailable',failedAt:Date.now()-4000,retries:0,resumeRequestId:marker}
+  r.emit('event',{type:'survival_tick'});assert.equal(calls.at(-1).resumeInterrupted,expected);assert.equal(calls.at(-1).retries,1)
+ }
+ c.stop();const before=calls.length;r.emit('event',{type:'survival_tick'});assert.equal(calls.length,before)
+})
+
+test('an eligible shelter watch retains request identity even when protection verification fails',async()=>{
+ const [r,c]=setup(async()=>({reply:'',steps:[]}))
+ r.bot.entity={position:new Vec3(0,64,0),onGround:true};r.bot.blockAt=()=>null;r.bot.health=20;r.bot.time={timeOfDay:6000};r.bot.entities={}
+ c.requestProgress={id:'work',status:'interrupted',completed:[]};c.safety={status:'burrowed',retreat:{shelterName:'burrow',surface:{x:0,y:70,z:0}}};c.shelterPlanning=false
+ await c.waitInBurrow(c.epoch,new AbortController().signal,r.bot,true)
+ assert.equal(c.safety.status,'failed');assert.equal(c.safety.resumeRequestId,'work');assert.equal(c.requestProgress.status,'interrupted')
+})
+
+
+test('shelter restoration waits for local chunks and Stop prevents delayed recovery',async()=>{
+ const [r,c]=setup(async()=>({reply:'',steps:[]}));let loaded
+ r.bot.entity={position:new Vec3(0,64,0),onGround:true};r.bot.blockAt=()=>null;r.bot.health=20
+ r.bot.waitForChunksToLoad=()=>new Promise(resolve=>{loaded=resolve})
+ c.requestProgress={id:'saved',status:'interrupted',completed:[]};c.safety={status:'burrowed',retreat:{shelterName:'burrow',surface:{x:0,y:68,z:0}}}
+ const run=c.waitInBurrow(c.epoch,new AbortController().signal,r.bot,true)
+ await new Promise(resolve=>setTimeout(resolve,10));assert.equal(c.safety.status,'burrowed');assert.equal(c.safety.resumeRequestId,'saved');assert.equal(r.commands.length,0)
+ c.stop();loaded();await run;assert.equal(c.safety.status,'cancelled');assert.equal(c.requestProgress.status,'cancelled');assert.ok(r.commands.every(x=>x.action==='stop'))
+})
+
+
+test('brief clear readings do not erase shelter patience before the quiet window verifies departure',async()=>{
+ const {default:minecraftData}=await import('minecraft-data')
+ const [r,c]=setup(async()=>({reply:'',steps:[]}));const registry=minecraftData('1.21.4')
+ Object.assign(r.bot,{registry,entity:{position:new Vec3(.5,64,.5),onGround:true},game:{gameMode:'survival',difficulty:'easy'},time:{timeOfDay:6000},health:17,food:11,
+  blockAt(p){const name=p.x===0&&p.z===0&&p.y>=64&&p.y<=65?'air':'dirt';return {name,position:p.clone(),boundingBox:registry.blocksByName[name].boundingBox}}})
+ const hostile={1:{name:'skeleton',position:new Vec3(20,64,.5)}};r.bot.entities=hostile
+ c.requestProgress={id:'work',status:'interrupted',completed:[],feedback:[]};c.safety={status:'burrowed',retreat:{shelterName:'burrow',surface:{x:0,y:68,z:0}}};c.shelterPlanning=false
+ c.burrowWait={quietMs:1100,limitMs:2700,relocateAfterMs:400,watches:1}
+ const commands=[];let resumed=0;c.execute=async command=>{commands.push(command.action);r.task={result:{receipt:command.action}}};c.resume=async()=>{resumed++}
+ const gone=setTimeout(()=>{r.bot.entities={}},900),back=setTimeout(()=>{r.bot.entities=hostile},1400)
+ try{await c.waitInBurrow(c.epoch,new AbortController().signal,r.bot,true)}finally{clearTimeout(gone);clearTimeout(back)}
+ assert.equal(resumed,1);assert.deepEqual(commands,['unburrow','climb','flee']);assert.equal(c.requestProgress.safetyContinuations.length,1)
+})
+
+
+test('planner travel preserves its typed target through normalization, intent and execution',async()=>{
+ const {guardIntent}=await import('../src/companion/intent.js'),{default:minecraftData}=await import('minecraft-data')
+ const raw={reply:'Relocating to observed clear ground',steps:[{action:'travel',name:'',count:0,item:'',design:[],target:{x:16,y:64,z:0}}]}
+ const plan=guardIntent(validatePlan(raw),'Find usable ground for the work');assert.deepEqual(validatePlan(plan),plan)
+ for(const target of [null,{x:16,y:64},{x:16.5,y:64,z:0},{x:16,y:64,z:0,code:'no'},{x:16,y:64,z:0,how:'click'},{x:16,y:64,z:0,how:'click',dimension:'overworld'}])assert.throws(()=>validatePlan({...raw,steps:[{...raw.steps[0],target}]}),/Travel needs a target/,'travel keeps its three-key shape even though use has five')
+ assert.throws(()=>validatePlan({...raw,steps:[{...raw.steps[0],action:'climb'}]}),/Only travel/)
+ let count=0;const [r,c]=setup(async()=>++count===1?plan:{reply:'Arrived',steps:[]})
+ Object.assign(r.bot,{registry:minecraftData('1.21.4'),findBlocks:()=>[],entity:{position:new Vec3(.5,64,.5),onGround:true},blockAt:p=>({name:p.y<=63?'dirt':'air',boundingBox:p.y<=63?'block':'empty'})})
+ await c.submit('Find usable ground for the work')
+ assert.deepEqual(r.commands.filter(x=>x.action!=='stop'),[{action:'travel',goal:{x:16,y:64,z:0},timeoutMs:180000}],JSON.stringify(c.messages))
+})
+
+
+test('automatic continuation retains failed prerequisites instead of authorizing unchanged retries',async()=>{
+ let seen
+ const [r,c]=setup(async(text,o)=>{seen=o;return {reply:'Current blocker retained.',steps:[]}})
+ c.requestProgress={id:'saved',request:'find food',status:'interrupted',completed:[],pending:[],rounds:2,feedback:[{action:'harvest',status:'failed',reason:'No ripe bushes'},{action:'hunt',status:'failed',reason:'No animals',beforeResume:true}]}
+ await c.resume({automatic:true})
+ assert.equal(seen.feedback[0].beforeResume,undefined)
+ assert.equal(seen.feedback[1].beforeResume,true,'an earlier explicit Resume marker is preserved')
+ assert.match(seen.feedback.at(-1).reason,/preserves earlier failure evidence/)
+ assert.equal(r.commands.length,0);assert.equal(c.requestProgress.id,'saved')
+})
+test('ordinary planning observes new ripe food while retaining its earlier failed harvest',async()=>{
+ let calls=0,food=0
+ const [r,c]=setup(async(text,o)=>{
+  calls++;assert.equal(o.feedback[0].beforeResume,undefined)
+  assert.equal(o.foraging.status,'observed');assert.equal(o.foraging.ripeCount,1)
+  return calls===1?{reply:'A newly ripe bush supplies the missing food.',steps:[{action:'harvest',name:'',item:'sweet_berries',count:3}]}:{reply:'Food retained.',steps:[]}
+ })
+ const p=new Vec3(3,64,0)
+ Object.assign(r.bot,{entity:{position:new Vec3(0,64,0),onGround:true},registry:{blocksByName:{sweet_berry_bush:{id:1}}},findBlocks:()=>[p],blockAt:q=>({name:q.equals(p)?'sweet_berry_bush':'air',boundingBox:'empty',getProperties:()=>({age:'3'})}),inventory:{items:()=>food?[{name:'sweet_berries',count:food}]:[]}})
+ c.execute=async command=>{r.commands.push(command);food=3;r.task={id:'food',kind:'harvest',status:'completed',result:{item:'sweet_berries',count:3}}}
+ c.requestProgress={id:'food-request',request:'find food',status:'interrupted',completed:[],pending:[],feedback:[{action:'harvest',status:'failed',reason:'No ripe bushes'}]}
+ await c.resume({automatic:true})
+ assert.equal(r.commands.filter(c=>c.action==='harvest').length,1);assert.equal(c.snapshot().inventory.sweet_berries,3)
+})
+
+const starterMission=()=>({kind:'task',summary:'Get fed, prepare tools and build a usable shelter.',projectMode:'none',milestones:['Food','Tools','Shelter'],constraints:[],criteria:[goalCriterion('hunger','',18),goalCriterion('tools','stone_pickaxe',1),goalCriterion('shelter','',1)],milestonePlan:[
+ {id:'food',description:'Get fed',dependsOn:[],criteria:[0]},
+ {id:'tools',description:'Prepare a usable pickaxe',dependsOn:['food'],criteria:[1]},
+ {id:'shelter',description:'Build a usable shelter',dependsOn:['tools'],criteria:[2]}]})
+const starterSteps=[{action:'eat',item:'sweet_berries',count:4},{action:'prepare',item:'stone_pickaxe',count:1},{action:'build',name:'shelter',design:[{x:0,y:0,z:0,block:'wood_planks'}]}]
+function starterExecutor(r){
+ let inventory=[{name:'sweet_berries',count:4}];r.bot.food=10;r.bot.health=20;r.bot.inventory.items=()=>inventory
+ r.command=function(command){
+  this.commands.push(command);this.task={id:String(this.commands.length),kind:command.action,status:'running',goal:command.goal}
+  if(command.action==='stop')return
+  if(command.action==='eat'){this.bot.food=20;inventory=inventory.filter(i=>i.name!=='sweet_berries')}
+  if(command.action==='prepare')inventory.push({name:'stone_pickaxe',count:1,maxDurability:131,durabilityUsed:0})
+  const result=command.action==='build'?{usability:{status:'usable'}}:{receipt:command.action==='eat'?'ate':'serviceable_tools_verified',count:1}
+  queueMicrotask(()=>{this.task={...this.task,status:'completed',result};this.emit('event',{type:'task_finished',task:this.task})})
+ }
+}
+
+test('compound mission replans at each verified stage and finishes only on original checks',async()=>{
+ const stages=[],[r,c]=setup(async(_,o)=>{
+  stages.push(o.activeMilestone?.id||null)
+  const index=['food','tools','shelter'].indexOf(o.activeMilestone?.id)
+  return {reply:index<0?'Verified.':'Continuing the active milestone.',steps:index<0?[]:starterSteps.slice(index)}
+ });starterExecutor(r);c.planner.formulate=async()=>starterMission()
+ await c.submit('Get me fed, equipped with a stone pickaxe and a usable shelter')
+ assert.deepEqual(stages,['food','tools','shelter',null],JSON.stringify(c.requestProgress.feedback));assert.equal(c.requestProgress.status,'verified')
+ assert.deepEqual(r.commands.filter(x=>x.action!=='stop').map(x=>x.action),['eat','prepare','build'])
+ const saved=JSON.parse(readFileSync(c.statePath)).requestProgress
+ assert.equal(saved.mission.nodes.every(n=>n.status==='verified'),true);assert.equal(saved.mission.requiresObservation,false)
+ assert.equal(saved.verification.verdict,'passed');assert.equal(saved.goal.criteria.length,3)
+})
+
+test('mission reload resumes remaining work, preserves root goal and never repeats verified feeding',async()=>{
+ let suspended,resolve
+ const [r,c]=setup(async(_,o)=>o.activeMilestone.id==='food'?{reply:'Eating.',steps:[starterSteps[0]]}:new Promise(done=>{suspended=o;resolve=done}))
+ starterExecutor(r);c.planner.formulate=async()=>starterMission()
+ const run=c.submit('Get food, a pickaxe and shelter')
+ while(!resolve)await new Promise(done=>setTimeout(done,2))
+ const root=structuredClone(c.requestProgress.goal),id=c.requestProgress.id
+ c.interrupt('Service restarted');resolve({reply:'Stale reply',steps:[starterSteps[1]]});await run
+ assert.equal(suspended.activeMilestone.id,'tools')
+ const reloaded=new Teammate(r,{model:'fake',formulate:async()=>{throw new Error('Must not reinterpret saved goal')},plan:async(_,o)=>({reply:'Continuing.',steps:o.activeMilestone?[starterSteps[['food','tools','shelter'].indexOf(o.activeMilestone.id)]]:[]})},c.statePath)
+ assert.equal(reloaded.requestProgress.mission.requiresObservation,true)
+ await reloaded.resume()
+ assert.equal(reloaded.requestProgress.id,id);assert.deepEqual(reloaded.requestProgress.goal,root)
+ assert.equal(reloaded.requestProgress.status,'verified');assert.equal(r.commands.filter(x=>x.action==='eat').length,1)
+})
+
+test('Stop cancels a mission and rejects a late planner reply without scheduling another stage',async()=>{
+ let resolve;const [r,c]=setup(()=>new Promise(done=>resolve=done));starterExecutor(r);c.planner.formulate=async()=>starterMission()
+ const run=c.submit('Get food, a pickaxe and shelter')
+ while(!resolve)await new Promise(done=>setTimeout(done,2))
+ c.stop();resolve({reply:'Eating.',steps:starterSteps});await run
+ assert.equal(c.requestProgress.status,'cancelled');assert.equal(c.requestProgress.mission.status,'cancelled')
+ assert.equal(r.commands.filter(x=>x.action!=='stop').length,0);await assert.rejects(c.resume(),/No interrupted request/)
+})
+
+
+test('a hard restart marks saved milestone evidence stale before Resume observes the world',()=>{
+ const [r,c]=setup(async()=>({reply:'',steps:[]}));starterExecutor(r)
+ c.requestProgress={id:'hard-restart',request:'Get food, a pickaxe and shelter',status:'running',goal:starterMission(),feedback:[],completed:[],pending:[]}
+ c.verifyGoal();c.persist();assert.equal(c.requestProgress.mission.requiresObservation,false)
+ const restored=new Teammate(r,c.planner,c.statePath)
+ assert.equal(restored.requestProgress.status,'interrupted');assert.equal(restored.requestProgress.mission.requiresObservation,true)
+ assert.equal(restored.requestProgress.mission.status,'interrupted');assert.match(restored.requestProgress.mission.blocker,/restarted/)
+})
+
+test('plain team regroup uses current owner observations without any model call',async()=>{
+ const {LocalPlanner}=await import('../src/companion/planner.js')
+ const [r,c]=setup(null);c.planner=new LocalPlanner({url:'http://127.0.0.1:1/v1/chat/completions'})
+ r.position=()=>({x:0,y:64,z:0});r.bot.players.Sov.entity.position={x:15,y:64,z:0}
+ r.command=function(command){this.commands.push(command);this.task={id:String(this.commands.length),status:'running',kind:command.action,goal:command.goal};if(command.action==='travel')queueMicrotask(()=>{r.position=()=>({x:15,y:64,z:0});this.task={...this.task,status:'completed',result:{receipt:'arrived'}};this.emit('event',{type:'task_finished',task:this.task})})}
+ await c.submit('come to where all of us are playing')
+ assert.equal(c.phase,'ready');assert.deepEqual(r.commands.filter(x=>x.action!=='stop').map(x=>x.action),['travel'])
+ assert.equal(r.commands.find(x=>x.action==='travel').goal.player,'Sov');assert.match(c.messages.at(-1).text,/regrouped with Sov/)
+})
+
+test('regroup distinguishes unknown location, blocked terrain and bounded recovery without broadening intent',async()=>{
+ const {regroupPlan}=await import('../src/companion/direct-plan.js')
+ const o={owner:'Sov',position:{x:0,y:64,z:0},ownerPosition:{x:40,y:70,z:0},footing:{onGround:true,support:{name:'oak_leaves'}},feedback:[]}
+ for(const text of ['regroup','regroup with the team','come to us','join us','meet me'])assert.equal(regroupPlan(text,o).steps[0].action,'come')
+ for(const text of ['do not come to us','come to us and build a house','come to Alex','if I ask, regroup'])assert.equal(regroupPlan(text,o),null)
+ assert.match(regroupPlan('regroup',{...o,ownerPosition:null}).reply,/cannot currently locate/)
+ o.feedback.push({action:'come',status:'failed',reason:'No route'});assert.equal(regroupPlan('regroup',o).steps[0].action,'descend')
+ o.feedback.push({action:'descend',status:'completed'});assert.equal(regroupPlan('regroup',o).steps[0].action,'come')
+ o.feedback.push({action:'come',status:'failed',reason:'No route'});assert.equal(regroupPlan('regroup',o).steps.length,0)
+ assert.match(regroupPlan('regroup',o).reply,/can locate Sov, but the route is blocked/)
+})
+
+test('a blocked request retries itself when the agent is healthy, bounded, instead of sitting forever',async()=>{
+ // On the persistent Proxmox world "get a diamond" blocked on its first step
+ // and sat for eight hours: alive, connected, full health, nothing watching.
+ // Blocked meaning "a human should look" is right for an attended session and
+ // fatal for a continuous one, so it retries a few times and then stops loudly.
+ const {STALL_CONTINUATIONS}=await import('../src/companion/continuity.js')
+ let resumes=0
+ const [r,c]=setup(async()=>({reply:'ok',steps:[]}))
+ c.resume=async()=>{resumes++}
+ c.phase='blocked'
+ c.requestProgress={id:'d',request:'get a diamond',status:'blocked',blocker:'The goal was changed before it could be completed!'}
+ // the stall clock is only consulted on a survival tick, so drive ticks
+ for(let i=0;i<STALL_CONTINUATIONS+3;i++){
+  c.blockedSince=1                                  // long past the delay
+  await c.stallRetry()
+ }
+ assert.equal(resumes,STALL_CONTINUATIONS,`bounded at ${STALL_CONTINUATIONS}, got ${resumes}`)
+ assert.match(c.messages.at(-1).text,/blocked/i,'and it says why it stopped trying')
+})
+
+test('a stall retry never fires while the agent is dead, disconnected or needs review',async()=>{
+ let resumes=0
+ const [r,c]=setup(async()=>({reply:'ok',steps:[]}))
+ c.resume=async()=>{resumes++}
+ c.phase='blocked';c.blockedSince=1
+ c.requestProgress={id:'d',request:'x',status:'blocked',reviewRequired:'An interrupted use may have charged the item'}
+ await c.stallRetry();assert.equal(resumes,0,'a request needing review is not retried behind a human')
+ c.requestProgress={id:'d',request:'x',status:'blocked'}
+ r.ready=false;await c.stallRetry();assert.equal(resumes,0,'nor while disconnected')
+ r.ready=true;r.bot.health=0;r.bot.isAlive=false
+ await c.stallRetry();assert.equal(resumes,0,'nor while dead')
+})
+
+test('real progress refills the stall budget, so a long run is not capped at three recoveries',async()=>{
+ // The budget was per-request and never reset. On the persistent world the
+ // agent worked for hours, mining cobblestone 17 -> 54 and descending y 82 ->
+ // 49, spent its three recoveries on transient blocks along the way, and then
+ // parked permanently while still making progress. Three is the right cap for
+ // "stuck"; it is the wrong cap for "has been working all afternoon".
+ const {STALL_CONTINUATIONS}=await import('../src/companion/continuity.js')
+ let resumes=0
+ const [r,c]=setup(async()=>({reply:'ok',steps:[]}))
+ c.resume=async()=>{resumes++}
+ c.phase='blocked'
+ c.requestProgress={id:'d',request:'get a diamond',status:'blocked',blocker:'Route blocked'}
+ for(let i=0;i<STALL_CONTINUATIONS;i++){c.blockedSince=1;await c.stallRetry()}
+ assert.equal(resumes,STALL_CONTINUATIONS,'budget spent')
+ c.blockedSince=1;await c.stallRetry()
+ assert.equal(resumes,STALL_CONTINUATIONS,'and exhausted')
+ // now the agent actually gets somewhere
+ r.bot.inventory={items:()=>[{name:'cobblestone',count:54}]}
+ c.noteProgress()
+ c.blockedSince=1;await c.stallRetry()
+ assert.equal(resumes,STALL_CONTINUATIONS+1,'observable progress earns the budget back')
+})
+
+test('the progress fingerprint ignores sub-block drift, so the stop rules can actually fire',async()=>{
+ // progressFingerprint ended with the raw float position, and runner.js returns
+ // raw floats, so a bot standing still on a pillar changed its own fingerprint
+ // by micrometres between physics packets. That defeated BOTH planner stop
+ // rules: the repeat-failure signature needs two identical ones, and stagnation
+ // needs three. The live run churned 239 rounds without either firing.
+ const {progressFingerprint}=await import('../src/companion/continuity.js')
+ const base={inventory:{},tools:[],places:{},projects:{},requestProgress:{completed:[],verification:{checks:[]}}}
+ const a=progressFingerprint({...base,position:{x:-726.6861273589012,y:53,z:-276.3111473889956}})
+ const b=progressFingerprint({...base,position:{x:-726.6861273589099,y:53,z:-276.3111473889812}})
+ assert.equal(a,b,'a bot that has not left its block has not made progress')
+ const moved=progressFingerprint({...base,position:{x:-725.1,y:53,z:-276.3}})
+ assert.notEqual(a,moved,'but leaving the block still counts')
 })

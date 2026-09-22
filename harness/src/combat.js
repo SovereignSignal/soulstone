@@ -4,6 +4,7 @@ import pathfinding from 'mineflayer-pathfinder'
 import {DoorAwareMovements} from './navigation.js'
 import {remainingDurability} from './supplies.js'
 import {survivalObservation} from './survival.js'
+import {observedSightline} from './visibility.js'
 
 // Melee-defendable mobs and the health margin each demands. Skeletons shoot
 // while the bot closes in, so they need more headroom.
@@ -33,10 +34,7 @@ export function clearStrike(bot,target){
  const eye=point(bot.entity.position).offset(0,bot.entity.eyeHeight||1.62,0)
  const aim=point(target.position).offset(0,Math.min(1.2,(target.height||1.8)/2),0)
  const vector=aim.minus(eye),length=vector.norm();if(!length||length>7)return false
- const direction=vector.scaled(1/length)
- // A null raycast alone also occurs for unloaded terrain. Require observed blocks.
- for(let d=0;d<=length;d+=.25)if(!bot.blockAt(eye.plus(direction.scaled(d))))return false
- return !bot.world.raycast(eye,direction,length)
+ return observedSightline(bot,eye,aim).status==='clear'
 }
 // The margins are the rule's; a judged fight may lower them to floors it names.
 export function defenseDecision(bot,{healthFloor=12,foodFloor=10,mobMargins=true}={}){

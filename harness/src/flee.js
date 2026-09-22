@@ -36,7 +36,7 @@ export async function fleeFrom(bot,task,{check,stage,progress,movements}){
  allowGroundBreaking(bot,movement)
  stage('fleeing');progress(`Sprinting away from the threat toward ${target.x},${target.z}`)
  bot.pathfinder.setMovements(movement);bot.setControlState('sprint',true)
- let tried=0
+ let tried=0,destinationReached=false
  // Running while being hit is worse than stopping and digging in. A flight that
  // is losing blood has failed; the caller's shelter chain is the better answer.
  const startHealth=bot.health
@@ -46,10 +46,11 @@ export async function fleeFrom(bot,task,{check,stage,progress,movements}){
   for(const to of bearings){
    check();tried++
    const timer=setTimeout(()=>bot.pathfinder.setGoal(null),Math.max(2000,Math.min(12000,deadline-Date.now())))
-   try{await bot.pathfinder.goto(new goals.GoalXZ(to.x,to.z))}catch{}finally{clearTimeout(timer);bot.pathfinder.setGoal(null)}
+   const goal=new goals.GoalXZ(to.x,to.z)
+   try{await bot.pathfinder.goto(goal)}catch{}finally{clearTimeout(timer);bot.pathfinder.setGoal(null)}
    check()
    if(bleeding())break
-   if(bot.entity.position.distanceTo(start)>=4)break
+   if(goal.isEnd(bot.entity.position.floored())){destinationReached=true;break}
    if(Date.now()>=deadline)break
    if(tried===1)progress('That way is blocked; trying another direction')
   }
@@ -58,5 +59,5 @@ export async function fleeFrom(bot,task,{check,stage,progress,movements}){
  const p=bot.entity.position,gained=Math.hypot(p.x-from.x,p.z-from.z)-Math.hypot(start.x-from.x,start.z-from.z)
  if(bleeding())throw new Error(`Taking damage while running (${Math.round(startHealth)} to ${Math.round(bot.health)} health); shelter instead`)
  if(p.distanceTo(start)<2)throw new Error(`No route away from here after ${tried} directions`)
- return {item:'safety',count:1,receipt:'fled',moved:Math.round(p.distanceTo(start)),gained:Math.round(gained),directions:tried,position:{x:p.x,y:p.y,z:p.z}}
+ return {item:'safety',count:1,receipt:'fled',destinationReached,moved:Math.round(p.distanceTo(start)),gained:Math.round(gained),directions:tried,position:{x:p.x,y:p.y,z:p.z}}
 }

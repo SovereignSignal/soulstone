@@ -1,6 +1,6 @@
 import protocol from 'minecraft-protocol'
 import minecraftData from 'minecraft-data'
-import {bridgeVersion,bridgeProtocol,bridgeClientVersion,bridgeAvailable} from './version-bridge.js'
+import {bridgeRoutes,bridgeRouteForVersion,bridgeRouteForProtocol,bridgeClientVersion,bridgeAvailable} from './version-bridge.js'
 import {supportedProtocols,validateServer} from './setup.js'
 
 export function connectionFailure(reason) {
@@ -20,9 +20,10 @@ export function describeServer(status,version='auto',helperReady=bridgeAvailable
   const number=status?.version?.protocol
   const advertised=String(status?.version?.name||'unknown').replace(/[\x00-\x1f]/g,'').slice(0,80)
   if(!Number.isInteger(number))return {status:'unknown',message:'The server replied without a recognizable Java protocol. Account access has not been checked.'}
-  if(number===bridgeProtocol && (version==='auto'||version===bridgeVersion))return helperReady ? {status:'reachable',route:'bridge',serverVersion:bridgeVersion,clientVersion:bridgeClientVersion,protocol:number,message:`Server responds as ${advertised}. SoulStone will use its compatibility mode. A linked Java account is required; sign-in and gameplay are checked when joining.`} : {status:'unsupported',protocol:number,message:'Java 26.2 needs SoulStone’s compatibility helper and the Java runtime from Minecraft Launcher. Launch Minecraft once, then reopen SoulStone.'}
-  if(version===bridgeVersion && number!==bridgeProtocol)return {status:'mismatch',protocol:number,message:`Server responds as ${advertised}, which differs from selected Java ${version}. Use auto or the correct server version.`}
-  if(!supportedProtocols.has(number))return {status:'unsupported',message:`Server advertises ${advertised} (protocol ${number}), which is not bundled in this SoulStone build.`,protocol:number}
+  const route=bridgeRouteForProtocol(number),selected=bridgeRouteForVersion(version)
+  if(route && (version==='auto'||version===route.version))return helperReady ? {status:'reachable',route:'bridge',serverVersion:route.version,clientVersion:bridgeClientVersion,protocol:number,message:`Server responds as ${advertised}. SoulStone will use its compatibility mode. A linked Java account is required; sign-in and gameplay are checked when joining.`} : {status:'unsupported',protocol:number,message:`Java ${route.version} needs SoulStone’s compatibility helper and the Java runtime from Minecraft Launcher. Launch Minecraft once, then reopen SoulStone.`}
+  if(selected && number!==selected.protocol)return {status:'mismatch',protocol:number,message:`Server responds as ${advertised}, which differs from selected Java ${version}. Use auto or the correct server version.`}
+  if(!supportedProtocols.has(number))return {status:'unsupported',message:`Server advertises ${advertised} (protocol ${number}), which needs a compatibility update. This build has verified bridge routes for ${bridgeRoutes.map(r=>r.version).join(', ')}. Check for a newer SoulStone compatibility bundle before connecting.`,protocol:number}
   if(version!=='auto'&&minecraftData(version)?.version.version!==number)return {status:'mismatch',message:`Server advertises ${advertised}, which differs from selected Java ${version}. Try auto unless the server provides protocol translation.`,protocol:number}
   return {status:'reachable',message:`Server responds as ${advertised}. Its advertised protocol is supported. Bot sign-in and allowlist access will be checked when connecting.`,protocol:number}
 }
@@ -31,9 +32,9 @@ export async function checkConnection(value) {
   const {host,port,version}=validateServer(value)
   try {
     // Status ping only: no login, player spawn, chat or model call.
-    const status=await protocol.ping({host,port,version:version==='auto'||version===bridgeVersion?false:version,closeTimeout:5000,noPongTimeout:1000})
+    const status=await protocol.ping({host,port,version:version==='auto'||bridgeRouteForVersion(version)?false:version,closeTimeout:5000,noPongTimeout:1000})
     const result=describeServer(status,version)
-    if(result.route==='bridge'&&value.auth==='offline')return {...result,status:'account_required',message:'Link a Minecraft Java account to use 26.2 compatibility mode.'}
+    if(result.route==='bridge'&&value.auth==='offline')return {...result,status:'account_required',message:`Link a Minecraft Java account to use ${result.serverVersion} compatibility mode.`}
     return result
   } catch(error) {return {status:'unreachable',message:connectionFailure(error.message)}}
 }

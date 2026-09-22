@@ -1,4 +1,5 @@
 import {harvestBerries} from './foraging.js'
+import {useHeldItem} from './use-item.js'
 import {fitConstructionSite} from './construction-site.js'
 import {surveyGround,candidateSites} from './site-survey.js'
 import {placeBuildingBlock} from './building-blocks.js'
@@ -28,6 +29,19 @@ export function validateDesign(design) {
   const id=key(b);if(seen.has(id))throw new Error('Duplicate design position');seen.add(id)
   return {x:b.x,y:b.y,z:b.z,block:b.block}
  })
+}
+// Where is this goal, for staging purposes? A goal that names a block keeps its
+// position in `pos`, not as x and z, so reading only x/z skipped staging for
+// every walk to one however far away it was: the walk home ends at the base
+// crafting table, eighty five blocks in a single hop on a fifteen second budget,
+// failing as "Walking attempt timed out" while travel made the same journey.
+// And `approachPlacement` wraps EVERY placement in a GoalCompositeAll, which has
+// neither x/z nor pos, only `goals` — so no build walk was staged at all. The run
+// that motivated this was 39, 76 and 87 blocks from its site at its three build
+// failures and verified zero blocks.
+export function goalTarget(goal) {
+ const named=g=>['x','z'].every(k=>Number.isFinite(g?.[k]))?g:['x','z'].every(k=>Number.isFinite(g?.pos?.[k]))?g.pos:null
+ return named(goal)||(Array.isArray(goal?.goals)?goal.goals.map(named).find(Boolean)||null:null)
 }
 export function playerIntersectsSite(position,origin,bounds) {
  return position.x>origin.x+bounds.minX-1 && position.x<origin.x+bounds.maxX+2 &&
@@ -129,18 +143,12 @@ export async function executeWorldSkill(bot,task,context,gather) {
  // blocks reports no route where an easy walk exists. Close most of the gap in
  // staged legs first, then let the ordinary walk finish and verify arrival.
  async function approach(goal){
-  // A goal that names a block keeps its position in `pos`, not as x and z, so
-  // this skipped staging for every walk to one however far away it was. The walk
-  // home ends at the base crafting table, which is exactly such a goal: eighty
-  // five blocks in a single hop on a fifteen second budget, failing as "Walking
-  // attempt timed out" while the identical journey by travel succeeded.
-  const to=['x','z'].every(k=>Number.isFinite(goal?.[k]))?goal
-    :['x','z'].every(k=>Number.isFinite(goal?.pos?.[k]))?goal.pos:null
+  const to=goalTarget(goal)
   if(!to)return
   const here=bot.entity.position
   if(Math.hypot(to.x-here.x,to.z-here.z)<=64)return
   progress(`Walking the long way to ${Math.round(to.x)},${Math.round(to.z)}`)
-  try{await travelTo(bot,{kind:'travel',goal:{x:to.x,y:Number.isFinite(goal.y)?goal.y:here.y,z:to.z}},{check,stage,progress,movements:walking})}
+  try{await travelTo(bot,{kind:'travel',goal:{x:to.x,y:Number.isFinite(to.y)?to.y:here.y,z:to.z}},{check,stage,progress,movements:walking})}
   catch(error){check();progress(`Long walk stopped short: ${error.message}`)}
  }
  async function walk(goal,recover=true) {
@@ -293,6 +301,7 @@ export async function executeWorldSkill(bot,task,context,gather) {
   }
  }
  if(task.kind==='harvest')return harvestBerries(bot,task,{check,progress,stage,persist:context.persist,walk,settle})
+ if(task.kind==='use')return useHeldItem(bot,task,{check,stage,persist:context.persist,walk,settle,approach:approachPlacement})
  if(EXPEDITION_ACTIONS.includes(task.kind))return executeExpedition(bot,task,{check,progress,stage,persist:context.persist,walk,settle})
  if(STATION_ACTIONS.includes(task.kind))return executeStationSkill(bot,task,{check,progress,stage,persist:context.persist,walk,settle,acquire})
  if(task.kind==='construct')return executeConstruction(bot,task,{check,progress,stage,movements,persist:context.persist,place,walk,settle,chooseSite:(point,blueprint)=>fitConstructionSite(bot,blueprint,point,task.goal.protectedSites||[],task.goal.constructionLimits||{})})
@@ -323,11 +332,16 @@ export async function executeWorldSkill(bot,task,context,gather) {
  // Lower supported blocks first; defer unsupported placements until their
  // neighbours exist. This handles arbitrary connected designs, not house text.
  remaining.sort((a,b)=>a.y-b.y)
- let misses=0,verified=0
+ // Report the FIRST failure of a no-progress pass, not the last. The queue is
+ // y-ascending and deferred blocks go to the back, so the last error is
+ // structurally always a top-layer PLACEMENT_UNSUPPORTED deferral: every build
+ // failure in the six-hour run said "No adjacent placement face" and none of
+ // them said what actually went wrong.
+ let misses=0,verified=0,firstMiss=null
  while(remaining.length){
   const b=remaining.shift(),pos=origin.offset(b.x,b.y,b.z)
-  try{progress(`Building ${resolved.length-remaining.length}/${resolved.length}: ${b.block}`);await place(pos,b.block);misses=0;task.progress={verifiedBlocks:++verified,origin:task.goal.origin};context.persist()}
-  catch(e){check();remaining.push(b);if(++misses>=remaining.length)throw new Error(`Build blocked with ${remaining.length} blocks remaining: ${e.message}`)}
+  try{progress(`Building ${resolved.length-remaining.length}/${resolved.length}: ${b.block}`);await place(pos,b.block);misses=0;firstMiss=null;task.progress={verifiedBlocks:++verified,origin:task.goal.origin};context.persist()}
+  catch(e){check();remaining.push(b);firstMiss??=e.message;if(++misses>=remaining.length)throw new Error(`Build blocked with ${remaining.length} blocks remaining: ${firstMiss}`)}
  }
  const missing=resolved.filter(b=>bot.blockAt(origin.offset(b.x,b.y,b.z))?.name!==b.block)
  if(missing.length)throw new Error(`Build verification failed: ${missing.length} blocks differ`)

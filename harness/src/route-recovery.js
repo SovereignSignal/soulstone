@@ -11,6 +11,19 @@ const LIQUID=new Set(['water','lava','bubble_column'])
 const GRAVITY=new Set(['sand','red_sand','gravel','suspicious_sand','suspicious_gravel'])
 const clear=b=>!b||b.name==='air'||(b.boundingBox==='empty'&&!LIQUID.has(b.name))
 const solid=b=>!!b&&b.boundingBox==='block'
+// A pit rim is terrain you could have walked off, which is a narrower question
+// than "has a collision box". Leaves answer yes to solid() in the pinned
+// registry, so a spruce standing beside the bot read as a ledge: it pillared up
+// on its own dirt onto the canopy and stranded itself on a one-wide tower for
+// 62% of a six-hour run. Gravity blocks are deliberately NOT excluded here:
+// settled sand and gravel are ground this agent already walks and digs
+// (quarry.js DIGGABLE, navigation.js SOFT_GROUND), and excluding them would
+// break climb on every beach, desert and riverbank.
+const rimGround=b=>solid(b)&&!/_leaves$/.test(b.name||'')
+const standable=(bot,c)=>rimGround(bot.blockAt(c.offset(0,-1,0)))&&clear(bot.blockAt(c))&&clear(bot.blockAt(c.offset(0,1,0)))
+// A cell with no walkable neighbour is a tower top, not a rim. Flat, one up and
+// one down, matching what stepFree already accepts as somewhere to go.
+const walkableNeighbour=(bot,c)=>SIDES.some(([dx,dz])=>[0,1,-1].some(dy=>standable(bot,c.offset(dx,dy,dz))))
 // A single full block with open air above it (a burrow cap, a thin cave roof)
 // is dug through on the way up; sand, gravel, liquid or a thicker roof is not.
 const thinRoof=(bot,b,aboveCell)=>solid(b)&&!GRAVITY.has(b.name)&&clear(bot.blockAt(aboveCell))
@@ -68,7 +81,7 @@ export function pitExit(bot,feet=bot.entity.position.floored()){
   }
   for(const [dx,dz] of SIDES){
    const c=feet.offset(dx,h,dz)
-   if(solid(bot.blockAt(c.offset(0,-1,0)))&&clear(bot.blockAt(c))&&clear(bot.blockAt(c.offset(0,1,0))))return {height:h,cell:c,roof}
+   if(standable(bot,c)&&walkableNeighbour(bot,c))return {height:h,cell:c,roof}
   }
  }
  return null
@@ -83,7 +96,15 @@ export async function climbFree(bot,{check,stage,progress,climb=climbOut}){
  try{await climb(bot,{x:exit.cell.x,y:feet.y+exit.height,z:exit.cell.z},{check,stage,progress})}
  catch(error){check();progress(`Climb out of the pit failed: ${error.message}`);return false}
  stage('walking');await nudge(bot,exit.cell,{check})
- return Math.floor(bot.entity.position.y)>=feet.y+exit.height
+ // Height gained was the whole receipt, so pillaring straight up reported
+ // success while leaving the bot somewhere it could not walk off. Require
+ // ground beside it, not a number.
+ const at=bot.entity.position.floored()
+ if(at.y<exit.cell.y||!walkableNeighbour(bot,at)){
+  progress(`Climbed ${at.y-feet.y} blocks to ${at.x},${at.y},${at.z} with no walkable ground beside it; still stuck`)
+  return false
+ }
+ return true
 }
 // Safety action: leave a pit before sprinting from a threat. Fails plainly
 // when no exit is judged so the caller can choose the next step.
@@ -99,7 +120,7 @@ const SELF_HELP=[[stepFree,'stepped_free'],[climbFree,'climbed_free']]
 // or resource-action replay; the only blocks placed are the bot's own climb.
 export async function walkWithTerrainRecovery(bot,goal,{movements,check,stage,progress,onRecovery=()=>{},attemptMs=15000,waitMs=30000,allowRecovery=true,climb=climbOut}){
  let changed=false
- const start=bot.entity.position.clone(),initialStanding=standing(bot)
+ const start=bot.entity.position.clone();let initialStanding=standing(bot)
  const updated=(before,after)=>{
   const p=after?.position||before?.position
   if(p&&(p.distanceTo(start)<=6||p.distanceTo(bot.entity.position)<=6)&&collision(before,movements)!==collision(after,movements))changed=true
@@ -128,6 +149,12 @@ export async function walkWithTerrainRecovery(bot,goal,{movements,check,stage,pr
     catch(e){check();onRecovery({...record,status:'failed',reason:e.message,endedAt:Date.now()});if(!routeFailure(e))throw e;last=e}
    }
    if(record.trigger)throw last
+   // The self-help ladder above can move the bot without setting a trigger (a
+   // climb that gained height and then refused). The watch below tests whether
+   // our standing position changed, which is now trivially true because WE
+   // moved it, so it exits immediately and retries the same blocked walk,
+   // reporting our own footwork as the terrain changing.
+   initialStanding=standing(bot)
    onRecovery({...record});stage('observing');progress('Route blocked; watching nearby terrain for up to 30 seconds before one retry')
    const deadline=Date.now()+waitMs
    while(!changed&&!(standing(bot)&&standing(bot)!==initialStanding)&&Date.now()<deadline){check();await delay(Math.min(100,Math.max(1,deadline-Date.now())))}

@@ -1,0 +1,30 @@
+{
+  "name": "soulstone-play",
+  "productName": "SoulStone Play",
+  "version": "0.1.1",
+  "private": true,
+  "description": "A voice-first Minecraft teammate for family play",
+  "author": "SovereignSignal",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "prepare:resources": "node scripts/prepare-resources.js",
+    "pack": "npm run prepare:resources && electron-builder --dir",
+    "dist:win": "npm run prepare:resources -- --target=win32 && electron-builder --win nsis --x64 --publish never",
+    "dist:mac": "npm run prepare:resources && electron-builder --mac zip --arm64 --publish never"
+  },
+  "devDependencies": {"electron": "44.4.3", "electron-builder": "26.15.3"},
+  "build": {
+    "appId": "com.sovereignsignal.soulstone.play",
+    "icon": "ui/assets/Soul.png",
+    "asar": true,
+    "directories": {"output": "dist"},
+    "files": ["*.js", "*.cjs", "ui/**", "!ui/preview.*"],
+    "extraResources": [{"from":"resources", "to":"runtime", "filter":["**/*"]}],
+    "win": {"target":"nsis"},
+    "nsis": {"oneClick":true, "perMachine":false, "allowElevation":false, "createDesktopShortcut":true, "deleteAppDataOnUninstall":false},
+    "mac": {"target":"zip", "category":"public.app-category.games", "extendInfo":{"NSMicrophoneUsageDescription":"Talk to your Minecraft teammate when you press Talk.", "NSSpeechRecognitionUsageDescription":"Turn your spoken Minecraft requests into text."}}
+  }
+}

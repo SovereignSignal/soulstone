@@ -1,13 +1,14 @@
 // Emergency burrow: the shelter of last resort for a spawn with no base and no
-// weapon. Dig three cells straight down through a verified column, cap the shaft
-// with the dug earth, wait for daylight, then tunnel and pillar back out.
+// weapon. Seal the verified shaft as soon as three cells give headroom,
+// deepen under the cap, then watch protection and surface clearance.
 import {setTimeout as delay} from 'node:timers/promises'
 import pathfinding from 'mineflayer-pathfinder'
 import {Vec3} from 'vec3'
 import {DoorAwareMovements,SOFT_GROUND as SOFT,centreOn} from './navigation.js'
 import {fullCube} from './construction.js'
+import {assertNoHostileOccupants,inspectEmergencyShelter} from './shelter-occupants.js'
 import {survivalObservation,RANGED} from './survival.js'
-import {DEFENDABLE_MOBS,DEFENSE_HEALTH} from './combat.js'
+import {defenseDecision} from './combat.js'
 const {goals}=pathfinding
 // Four deep keeps a creeper standing on the rim outside its three-block
 // trigger distance; the cap goes on the top cell so nothing can drop in.
@@ -83,8 +84,14 @@ export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
  let site=found.site
  if(found.move){
   progress('Stepping to a sound column to dig in');stage('walking')
-  const timer=setTimeout(()=>bot.pathfinder.setGoal(null),6000)
-  try{await bot.pathfinder.goto(new goals.GoalBlock(found.move.x,found.move.y,found.move.z))}finally{clearTimeout(timer)}
+  // Our own deadline clears the goal, which rejects the in-flight goto as
+  // GoalChanged. Name it Timeout: this is an emergency path and a stalled step
+  // is worth retrying, not terminal.
+  let expired=false
+  const timer=setTimeout(()=>{expired=true;bot.pathfinder.setGoal(null)},6000)
+  try{await bot.pathfinder.goto(new goals.GoalBlock(found.move.x,found.move.y,found.move.z))}
+  catch(error){if(expired)throw Object.assign(new Error('Stepping to the burrow column timed out'),{name:'Timeout'});throw error}
+  finally{clearTimeout(timer)}
   check();site=burrowSite(bot,found.move);if(!site.ok)throw new Error('No safe burrow here: '+site.reason)
  }
  // Stand squarely over the column: the body is 0.6 wide, so more than 0.2 off
@@ -94,8 +101,28 @@ export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
  await centreOn(bot,site.surface,check)
  stage('burrowing');progress('Digging in to wait out the danger')
  const inColumn=()=>{const p=bot.entity.position;return Math.floor(p.x)===site.surface.x&&Math.floor(p.z)===site.surface.z}
+ async function seal(){
+  assertNoHostileOccupants(bot,site.cells)
+  const cap=capItem(bot)
+  if(cap){
+   // The block-update event can be missed through the version bridge; judge the
+   // cap by the block being there, and try each solid side as the reference.
+   const capped=()=>solid(bot,bot.blockAt(site.cap))
+   await bot.equip(cap,'hand');check()
+   for(const ref of SIDES.map(([dx,dy,dz])=>bot.blockAt(site.cap.offset(dx,dy,dz))).filter(b=>solid(bot,b))){
+    if(capped())break
+    try{await bot.placeBlock(ref,site.cap.minus(ref.position))}catch(error){check();progress(`Cap placement unconfirmed: ${error.message.slice(0,60)}`)}
+    check()
+    try{await settle(capped,'cap',{check,ms:1500})}catch{}
+    if(capped())break
+   }
+   if(capped())return true
+  }
+  return false
+ }
+ let sealed=false
  for(const [index,c] of site.cells.entries()){
-  check();const block=bot.blockAt(c)
+  check();assertNoHostileOccupants(bot,site.cells);const block=bot.blockAt(c)
   if(block&&block.name!=='air'){
    if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(block,{requireHarvest:false,getFromChest:false})
    check();await bot.dig(block);check()
@@ -114,6 +141,11 @@ export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
    progress('Re-centring over the shaft');await centreOn(bot,c,check);check()
    await settle(()=>Math.floor(bot.entity.position.y)<=c.y&&inColumn()&&bot.entity.onGround!==false,`Did not land in the dug cell at ${key(c)}`,{check})
   }
+  // Close the entrance before spending another dig exposed to pursuit.
+  if(index+1===BURROW_MIN_DEPTH&&capItem(bot)){
+   sealed=await seal()
+   if(!sealed)throw new Error('Burrow cap could not be verified; protection is not established')
+  }
   task.progress={cells:index+1,of:site.cells.length,health:bot.health};persist()
   progress(`Dug ${index+1}/${site.cells.length}; health ${bot.health}`)
  }
@@ -129,25 +161,12 @@ export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
    if(capItem(bot))break
   }
  }
- let receipt='burrowed_open'
- const cap=capItem(bot)
- if(cap){
-  // The block-update event can be missed through the version bridge; judge the
-  // cap by the block being there, and try each solid side as the reference.
-  const capped=()=>solid(bot,bot.blockAt(site.cap))
-  await bot.equip(cap,'hand');check()
-  for(const ref of SIDES.map(([dx,dy,dz])=>bot.blockAt(site.cap.offset(dx,dy,dz))).filter(b=>solid(bot,b))){
-   if(capped())break
-   try{await bot.placeBlock(ref,site.cap.minus(ref.position))}catch(error){check();progress(`Cap placement unconfirmed: ${error.message.slice(0,60)}`)}
-   check()
-   try{await settle(capped,'cap',{check,ms:1500})}catch{}
-   if(capped())break
-  }
-  if(capped())receipt='burrowed_capped'
- }
- progress(receipt==='burrowed_capped'?'Dug in and capped; waiting for daylight':'Dug in without a cap block; waiting for daylight')
+ if(!sealed)sealed=await seal()
+ if(!sealed)throw new Error('Burrow cap could not be verified; protection is not established')
+ const protection=inspectEmergencyShelter(bot),receipt='burrowed_capped'
+ progress('Closed, unoccupied burrow verified; watching protection and the surface')
  const s=survivalObservation(bot),p=bot.entity.position
- return {item:'safety',count:1,receipt,shelterName:'burrow',capped:receipt==='burrowed_capped',position:{x:p.x,y:p.y,z:p.z},
+ return {item:'safety',count:1,receipt,protection,shelterName:'burrow',capped:receipt==='burrowed_capped',position:{x:p.x,y:p.y,z:p.z},
   surface:{x:site.surface.x,y:site.surface.y,z:site.surface.z},cap:{x:site.cap.x,y:site.cap.y,z:site.cap.z},health:s.health,timeOfDay:s.timeOfDay}
 }
 // Daylight is 1000–12000 ticks: undead burn and nothing new spawns on the surface.
@@ -193,7 +212,9 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  const scope='Loaded entities within 16 blocks and the world clock; not proof of a safe surface'
  if(!near.length)return {clear:true,health:s.health,timeOfDay:s.timeOfDay,scope}
  const lone=near.length===1?near[0]:null
- const ready=!!lone&&DEFENDABLE_MOBS.has(lone.name)&&s.health>=DEFENSE_HEALTH[lone.name]&&Number.isFinite(s.food)&&s.food>=10
+ // Leaving cover to confront requires the executor's current capability
+ // checks, including a serviceable weapon and an identified target.
+ const ready=!!lone&&defenseDecision(bot).engage
  if(!ready){
   // Neither fight nor hide. Unarmed against numbers or a crossbow, healthy, in
   // daylight, with nothing in melee reach and the threat sat still past the

@@ -1,4 +1,5 @@
 import {spawn} from 'node:child_process'
+import {stopProcessTree} from './platform.js'
 import {mkdtemp,rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -8,9 +9,9 @@ import {validateProfile} from './providers.js'
 // Metadata only: never send a user turn, prompt or inference request.
 export function readCliMetadata(binary,args,kind,{cwd,timeout=15000}={}) {
  return new Promise((resolve,reject)=>{
-  const child=spawn(binary,args,{cwd,env:subscriptionEnv(),stdio:['pipe','pipe','pipe'],detached:true})
+  const child=spawn(binary,args,{cwd,env:subscriptionEnv(),stdio:['pipe','pipe','pipe'],detached:process.platform!=='win32',windowsHide:true})
   let pending='',bytes=0,settled=false,models=[],nextId=2
-  const stop=()=>{try{process.kill(-child.pid,'SIGTERM')}catch{};const t=setTimeout(()=>{try{process.kill(-child.pid,'SIGKILL')}catch{}},500);t.unref();child.once('close',()=>clearTimeout(t))}
+  const stop=()=>{stopProcessTree(child);const t=setTimeout(()=>stopProcessTree(child,{signal:'SIGKILL'}),500);t.unref();child.once('close',()=>clearTimeout(t))}
   const finish=(error,result)=>{if(settled)return;settled=true;clearTimeout(timer);stop();error?reject(error):resolve(result)}
   const timer=setTimeout(()=>finish(new Error('Model discovery timed out. Check provider sign-in and retry.')),timeout)
   const send=value=>child.stdin.write(JSON.stringify(value)+'\n')

@@ -50,3 +50,34 @@ test('an open side at the surface cell is tolerated; deeper open sides move the 
  const result=await quarryStone(cave.bot,{name:'cobblestone',total:4,path:[]},api(cave))
  assert.ok(result.mined>=4);assert.equal(walked[0][1],64)
 })
+
+test('a refused quarry says why it was refused',async()=>{
+ // `No sound quarry column here or beside it` was the whole message. The reason
+ // quarryColumn had already computed was thrown away, and the reason matters:
+ // "Shaft side is open at ..." is what standing on your own tower looks like
+ // from below, and it never once reached the log.
+ const tower=world()
+ for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]])tower.cells.set(new Vec3(10+dx,62,10+dz).toString(),'air')
+ const found=findQuarryColumn(tower.bot)
+ assert.equal(found.surface,undefined,'nowhere here is usable')
+ assert.match(found.reason,/Shaft side is open at 11,62,10/)
+ await assert.rejects(quarryStone(tower.bot,{name:'cobblestone',total:4,path:[]},api(tower)),
+  /No sound quarry column here or beside it: Shaft side is open at 11,62,10/)
+})
+
+test('a cancelled walk to the quarry column reports our own stopwatch, not the world',async()=>{
+ // The deadline clears the goal, so goto REJECTS with GoalChanged. Unconverted,
+ // the pathfinder's report of our own cancel escapes into a classifier that does
+ // not list it, and a transient stall becomes a terminal failure.
+ const cave=world();cave.cells.set(new Vec3(11,62,10).toString(),'air')
+ cave.bot.pathfinder.goto=async()=>{throw Object.assign(new Error('The goal was changed before it could be completed!'),{name:'GoalChanged'})}
+ const original=global.setTimeout
+ global.setTimeout=fn=>{fn();return {unref(){}}}
+ try{
+  await assert.rejects(quarryStone(cave.bot,{name:'cobblestone',total:4,path:[]},api(cave)),e=>{
+   assert.equal(e.name,'Timeout',`a stalled step must stay retryable, got ${e.name}: ${e.message}`)
+   assert.match(e.message,/quarry/i)
+   return true
+  })
+ }finally{global.setTimeout=original}
+})

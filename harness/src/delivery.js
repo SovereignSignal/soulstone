@@ -13,8 +13,13 @@ export async function deliverItem(bot,task,{check,progress,stage,movements,persi
   if(!target())throw new Error('Recipient is not visible; ask them to come into view')
   check();stage('walking');progress(`Bringing ${count} ${item.replaceAll('_',' ')} to ${player}`)
   bot.pathfinder.setMovements(movements)
-  const timer=setTimeout(()=>bot.pathfinder.setGoal(null),15000)
+  // Our own fifteen second clock clears the goal, and that rejects the walk as
+  // GoalChanged: reported raw it reads as terminal when the recipient has
+  // simply moved and another try would work.
+  let expired=false
+  const timer=setTimeout(()=>{expired=true;bot.pathfinder.setGoal(null)},15000)
   try {await bot.pathfinder.goto(new goals.GoalFollow(target(),1.5))}
+  catch(error){if(expired)throw Object.assign(new Error('Walking to the recipient timed out; no items sent'),{name:'Timeout'});throw error}
   finally {clearTimeout(timer);bot.pathfinder.setGoal(null)}
   bot.clearControlStates()
   check()

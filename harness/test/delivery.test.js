@@ -81,3 +81,21 @@ test('an attempted delivery remains non-replayable after task state reload',asyn
  await assert.rejects(deliverItem(f.bot,loaded,f.context),/already attempted/)
  assert.equal(f.tosses,0)
 })
+
+test('a cancelled walk to the recipient reports our own stopwatch, not the world',async()=>{
+ // Fifteen seconds to reach a player who may be walking away is a clock we set
+ // ourselves. Clearing the goal rejects the in-flight goto as GoalChanged, and
+ // reported raw that is terminal rather than worth another try.
+ const f=fixture()
+ f.bot.pathfinder.goto=async()=>{throw Object.assign(new Error('The goal was changed before it could be completed!'),{name:'GoalChanged'})}
+ const original=global.setTimeout
+ global.setTimeout=fn=>{fn();return {unref(){}}}
+ try{
+  await assert.rejects(deliverItem(f.bot,f.task,f.context),e=>{
+   assert.equal(e.name,'Timeout',`a stalled walk must stay retryable, got ${e.name}: ${e.message}`)
+   assert.match(e.message,/deliver|recipient/i)
+   return true
+  })
+  assert.equal(f.tosses,0,'nothing was thrown')
+ }finally{global.setTimeout=original}
+})

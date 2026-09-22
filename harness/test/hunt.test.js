@@ -30,10 +30,11 @@ test('hunting closes on the nearest cow, strikes with the axe, collects the drop
  const result=await executeSkill(bot,{kind:'hunt',goal:{item:'beef',count:2}},{check(){},stage(){},progress(){},persist(){},movements:{}})
  assert.equal(result.receipt,'hunt_target_reached');assert.equal(result.count,2);assert.equal(result.kills,1);assert.equal(bot.attacks,2)
 })
-test('hunting stops with a partial result when no animal is in range and pauses for a hostile',async()=>{
+test('hunting fails when no animal is in range, and pauses for a hostile',async()=>{
+ // Was asserted as a partial result until 2026-09-22. A hunt that acquires
+ // nothing is a failure; see 'a hunt that kills nothing fails' below.
  const {bot}=fixture();bot.entities={}
- const none=await huntFor(bot,{kind:'hunt',goal:{item:'beef',count:2}},{check(){},stage(){},progress(){},persist(){}})
- assert.equal(none.receipt,'hunt_partial');assert.equal(none.count,0)
+ await assert.rejects(huntFor(bot,{kind:'hunt',goal:{item:'beef',count:2}},{check(){},stage(){},progress(){},persist(){}}),/Found no beef/)
  const {bot:b2}=fixture();b2.entities[5]={id:5,name:'zombie',type:'hostile',position:new Vec3(4,64,4)}
  await assert.rejects(huntFor(b2,{kind:'hunt',goal:{item:'beef',count:2}},{check(){},stage(){},progress(){},persist(){}}),/Hostile zombie nearby/)
 })
@@ -56,9 +57,11 @@ test('an empty area ends the hunt after six legs, naming any other animals it fo
   bot.entity.position=new Vec3(g.x,64,g.z)
   if(g.y===undefined&&++walked===6)bot.entities[11]={id:11,name:'pig',type:'animal',position:new Vec3(g.x+2,64,g.z)}
  }
- const result=await huntFor(bot,{kind:'hunt',goal:{item:'beef',count:2}},{check(){},stage(){},progress:m=>messages.push(m),persist(){}})
- assert.equal(result.receipt,'hunt_partial');assert.equal(result.legs,6)
- assert.deepEqual(result.nearbyAnimals,['pig'])
+ // The legs walked and the animals seen still have to reach the planner; they
+ // now travel in the refusal rather than in a completed receipt.
+ await assert.rejects(huntFor(bot,{kind:'hunt',goal:{item:'beef',count:2}},{check(){},stage(){},progress:m=>messages.push(m),persist(){}}),
+  e=>{assert.match(e.message,/6 search legs/,e.message);assert.match(e.message,/pig/,'it still names what it did see');return true})
+ assert.equal(walked,6)
  assert.ok(messages.some(m=>/after 6 exploring legs \(nearby animals: pig\)/.test(m)),messages.at(-1))
 })
 test('the search walk never sprints, since sprinting burns the hunger the hunt is meant to restore',async()=>{
@@ -66,7 +69,8 @@ test('the search walk never sprints, since sprinting burns the hunger the hunt i
  const policies=[];let walks=0
  bot.pathfinder.setMovements=m=>policies.push(m.allowSprinting)
  bot.pathfinder.goto=async g=>{bot.entity.position=new Vec3(g.x,64,g.z);if(g.y===undefined)walks++}
- await huntFor(bot,{kind:'hunt',goal:{item:'beef',count:1}},{check(){},stage(){},progress(){},persist(){}})
+ // The empty search now ends in a refusal; the movement policy is what this test is about.
+ await huntFor(bot,{kind:'hunt',goal:{item:'beef',count:1}},{check(){},stage(){},progress(){},persist(){}}).catch(()=>{})
  assert.equal(walks,6)
  assert.ok(policies.includes(false),'a non-sprinting policy is used for the search')
  assert.equal(policies.at(-1),true,'the chase policy is restored afterwards')
@@ -78,4 +82,21 @@ test('every huntable drop and safe food is a real item in the game registry',()=
  for(const item of SAFE_FOODS)assert.ok(reg.foodsByName[item],`SAFE_FOODS names something edible: ${item}`)
  assert.equal(SAFE_FOODS.has('chicken'),false,'raw chicken causes food poisoning')
  assert.deepEqual(HUNTABLE.porkchop,['pig'])
+})
+
+test('a hunt that kills nothing fails; it does not report a partial success',async()=>{
+ // Live evidence from the persistent world: twelve consecutive hunts returned
+ // status "completed" carrying {count:0, kills:0, acquired:false} while the
+ // agent sat at 0/20 hunger and 10/20 health. Because the step completed, the
+ // planner had no reason to try berries, a different area, or anywhere above
+ // ground, and it starved holding a receipt that said food was handled.
+ // Partial means "I got some of what I wanted". Zero is a failure.
+ const {bot}=fixture();bot.entities={}
+ await assert.rejects(
+  huntFor(bot,{kind:'hunt',goal:{item:'beef',count:2}},{check(){},stage(){},progress(){},persist(){}}),
+  e=>{
+   assert.match(e.message,/no beef/i,`the refusal names what it was after: ${e.message}`)
+   assert.match(e.message,/leg/i,'and how far it looked, so the planner can judge trying elsewhere')
+   return true
+  })
 })

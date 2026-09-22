@@ -15,14 +15,11 @@ python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))' || fail "Python 3.9
 node -e 'process.exit(Number(process.versions.node.split(".")[0]) < 22 || process.arch !== "arm64" ? 1 : 0)' || fail "Install an arm64 Node.js release, version 22 or newer."
 xcrun --find swiftc >/dev/null 2>&1 || fail "Install Apple command-line tools with xcode-select --install."
 python3 - <<'PY'
-from pathlib import Path
-import hashlib,sys
-base=Path.home()/'Library/Application Support/minecraft/runtime'
-found=any((base/n/'mac-os-arm64'/n/'jre.bundle/Contents/Home/bin/javac').is_file() for n in ['java-runtime-epsilon','java-runtime-delta'])
-if not found:sys.exit('Setup: launch Minecraft Java 1.21.4 or 26.2 once to install its Java runtime, then retry. See docs/SETUP.md.')
-jar=Path('harness/bridge/ViaProxy-3.4.12.jar')
-if not jar.is_file() or hashlib.sha256(jar.read_bytes()).hexdigest()!='32ce9ad871aeb03286823c29da262ebd75992864e7857db283f103525c7fc0cb':
-    sys.exit('Setup: the pinned compatibility helper is missing or changed. Restore it from this repository.')
+import sys
+sys.path.insert(0, 'companion/scripts')
+from bridge_support import verify, java_tool
+java_tool('javac')
+verify('harness/bridge')
 PY
 if [ "$mode" = --check ]; then
     echo 'PASS: native build prerequisites. No installs, account login, game connection or model call.'

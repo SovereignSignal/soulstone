@@ -2,13 +2,27 @@ import {spawn} from 'node:child_process'
 import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises'
 import {accessSync,statSync,constants} from 'node:fs'
 import {tmpdir,homedir} from 'node:os'
-import {join,isAbsolute,delimiter} from 'node:path'
+import {join,isAbsolute,delimiter,win32} from 'node:path'
+import {stopProcessTree} from './platform.js'
 export const subscriptionKinds = ['codex','claude']
 function executable(path) {
  try {accessSync(path,constants.X_OK);return statSync(path).isFile()}catch{return false}
 }
-export function clientBinary(kind,{searchPath=process.env.PATH,canExecute=executable}={}) {
+export function clientBinary(kind,{searchPath=process.env.PATH,canExecute=executable,platform=process.platform,home=homedir(),env=process.env}={}) {
  if(!subscriptionKinds.includes(kind))throw new Error('Choose a supported subscription client')
+ if(platform==='win32') {
+  const folders=[win32.join(home,'.local','bin'),env.APPDATA&&win32.join(env.APPDATA,'npm'),...(searchPath||'').split(';')].filter(x=>x&&win32.isAbsolute(x))
+  const candidates=folders.flatMap(folder=>{
+   const binaries=[win32.join(folder,kind+'.exe')]
+   if(kind==='codex')for(const [pkg,target] of [['codex-win32-x64','x86_64-pc-windows-msvc'],['codex-win32-arm64','aarch64-pc-windows-msvc']]) {
+    for(const root of [win32.join(folder,'node_modules','@openai',pkg),win32.join(folder,'node_modules','@openai','codex','node_modules','@openai',pkg),win32.join(folder,'node_modules','@openai','codex')])binaries.push(win32.join(root,'vendor',target,'codex','codex.exe'))
+   }
+   return binaries
+  })
+  const found=candidates.find(canExecute)
+  if(!found)throw new Error(`Install the native ${kind} CLI, sign in, then reopen SoulStone`)
+  return found
+ }
  const candidates = kind==='codex' ? ['/Applications/ChatGPT.app/Contents/Resources/codex','/Applications/Codex.app/Contents/Resources/codex',join(homedir(),'.local/bin/codex')]
  : [join(homedir(),'.local/bin/claude'),'/opt/homebrew/bin/claude']
  candidates.push(`/opt/homebrew/bin/${kind}`,`/usr/local/bin/${kind}`)
@@ -22,7 +36,7 @@ export function clientBinary(kind,{searchPath=process.env.PATH,canExecute=execut
 export function subscriptionEnv(env=process.env) {
  // Never inherit API keys, provider overrides, current Codex task context or
  // third-party billing credentials. The official CLI owns its saved login.
- return Object.fromEntries(['HOME','USER','LOGNAME','PATH','TMPDIR','LANG','LC_ALL','SSL_CERT_FILE'].filter(k=>env[k]).map(k=>[k,env[k]]))
+ return Object.fromEntries(['HOME','USER','LOGNAME','PATH','TMPDIR','LANG','LC_ALL','SSL_CERT_FILE','USERPROFILE','APPDATA','LOCALAPPDATA','SystemRoot','SYSTEMROOT','WINDIR','TEMP','TMP','PATHEXT'].filter(k=>env[k]).map(k=>[k,env[k]]))
 }
 export const PLAN_TIMEOUT_MS=300000
 // The structured-output endpoint requires every object in a response schema to
@@ -40,22 +54,23 @@ export function strictSchema(node){
 export function runClient(binary,args,{cwd,input='',signal,timeout=120000}={}) {
  return new Promise((resolve,reject)=>{
   if(signal?.aborted){reject(new Error('Cancelled'));return}
-  const child=spawn(binary,args,{cwd,env:subscriptionEnv(),stdio:['pipe','pipe','pipe'],detached:true})
+  const child=spawn(binary,args,{cwd,env:subscriptionEnv(),stdio:['pipe','pipe','pipe'],detached:process.platform!=='win32',windowsHide:true})
   let out='',err='',failed=null,killTimer
-  const stop=()=>{try{process.kill(-child.pid,'SIGTERM')}catch{};killTimer=setTimeout(()=>{try{process.kill(-child.pid,'SIGKILL')}catch{}},1000);killTimer.unref()}
+  const stop=()=>{stopProcessTree(child);killTimer=setTimeout(()=>stopProcessTree(child,{signal:'SIGKILL'}),1000);killTimer.unref()}
   // Name the cause. One message for three different failures sent a whole
   // evening's debugging at the wrong problem: a run reported "timed out" while
   // the client was in fact answering in seconds.
   const abort=reason=>{if(failed)return;failed=reason;stop()}
   const timer=setTimeout(()=>abort(`Subscription client exceeded its ${Math.round(timeout/1000)} second budget`),timeout)
-  signal?.addEventListener('abort',abort.bind(null,'Cancelled'),{once:true})
+  const onAbort=()=>abort('Cancelled')
+  signal?.addEventListener('abort',onAbort,{once:true})
   child.stdout.on('data',b=>{out+=b;if(out.length>8000000)abort('Subscription client returned more output than the harness will read')})
   // Diagnostic chatter is not a failure. Keep the tail and let the client finish.
   child.stderr.on('data',b=>{err+=b;if(err.length>400000)err=err.slice(-200000)})
   child.stdin.on('error',()=>{});child.stdin.end(input)
-  const cleanup=()=>{clearTimeout(timer);clearTimeout(killTimer);signal?.removeEventListener('abort',abort)}
+  const cleanup=()=>{clearTimeout(timer);clearTimeout(killTimer);signal?.removeEventListener('abort',onAbort)}
   child.on('error',()=>{cleanup();reject(new Error('Could not start the selected subscription client'))})
-  child.on('close',code=>{if(failed){try{process.kill(-child.pid,'SIGKILL')}catch{}}cleanup();if(failed)reject(new Error(signal?.aborted?'Cancelled':failed));else resolve({code,out,err})})
+  child.on('close',code=>{if(failed)stopProcessTree(child,{signal:'SIGKILL'});cleanup();if(failed)reject(new Error(signal?.aborted?'Cancelled':failed));else resolve({code,out,err})})
  })
 }
 export async function subscriptionStatus(kind) {

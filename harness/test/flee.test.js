@@ -1,3 +1,4 @@
+import {executeWithShelter} from './emergency-shelter-fixture.js'
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {EventEmitter} from 'node:events'
@@ -37,7 +38,7 @@ test('an unarmed bot sprints clear of a creeper before digging in',async()=>{
  const said=[]
  const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,burrowWait:{quietMs:20,limitMs:2000},
   say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
-  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,async resume(){this.requestProgress.status='running'}}
+  execute:executeWithShelter,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,async resume(){this.requestProgress.status='running'}}
  const started=c.seekSafety(THREAT_INTERRUPTION);await new Promise(r=>setTimeout(r,300));bot.time.timeOfDay=6000;await started
  assert.deepEqual(commands.filter(a=>a!=='stop'),['flee','burrow','unburrow'])
  assert.ok(said.some(t=>/creeper is 12 blocks away/i.test(t)),said.join(' | '))
@@ -55,7 +56,7 @@ test('in daylight a lone zombie the bot cannot strike is left behind on open gro
  const said=[];let resumed=0
  const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,openGroundWait:{quietMs:20,limitMs:2000},
   say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
-  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,async resume(){resumed++;this.requestProgress.status='running'}}
+  execute:executeWithShelter,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,async resume(){resumed++;this.requestProgress.status='running'}}
  await c.seekSafety(THREAT_INTERRUPTION)
  assert.deepEqual(commands.filter(a=>a!=='stop'),['flee'])
  assert.equal(resumed,1);assert.equal(c.requestProgress.safetyContinuations[0].shelter,'open_ground');assert.equal(c.safety,null)
@@ -86,7 +87,7 @@ test('after sprinting clear of a daylight creeper the bot watches open ground an
  const c={runner,projects:{base:{build:{origin:{x:0,y:64,z:0}},stations:{torch:{position:{x:1,y:65,z:1},confirmed:true}},built:true}},epoch:1,abort:null,phase:'acting',activity:'',
   requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,openGroundWait:{quietMs:20,limitMs:2000},
   say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
-  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
+  execute:executeWithShelter,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
   async resume(){resumed++;this.requestProgress.status='running'}}
  await c.seekSafety(THREAT_INTERRUPTION)
  assert.deepEqual(commands.filter(a=>a!=='stop'),['flee'],commands.join(','))
@@ -125,4 +126,14 @@ test('a flight that is losing blood stops and lets the shelter chain take over',
   pathfinder:{setMovements(){},setGoal(){},async goto(g){safe.entity.position=new Vec3(g.x+.5,64,g.z+.5)}}}
  const ok=await fleeFrom(safe,{kind:'flee',goal:{from:{x:10,y:64,z:10},distance:24}},{check(){},stage(){},progress(){}})
  assert.equal(ok.receipt,'fled')
+})
+
+test('a partial path that moved four blocks still tries another bearing',async()=>{
+ let calls=0
+ const bot={registry,food:20,health:20,entity:{position:new Vec3(.5,64,.5)},setControlState(){},pathfinder:{setMovements(){},setGoal(){},async goto(g){
+  if(++calls===1){bot.entity.position=new Vec3(5.5,64,.5);throw new Error('route interrupted')}
+  bot.entity.position=new Vec3(g.x+.5,64,g.z+.5)
+ }}}
+ const result=await fleeFrom(bot,{goal:{from:{x:-5,y:64,z:0},distance:24}},{check(){},stage(){},progress(){}})
+ assert.equal(calls,2);assert.equal(result.destinationReached,true)
 })

@@ -1,3 +1,4 @@
+import {executeWithShelter} from './emergency-shelter-fixture.js'
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {EventEmitter} from 'node:events'
@@ -61,7 +62,7 @@ test('when the burrow is refused, safety walls in, waits, opens up and continues
  const said=[];let resumed=0
  const c={runner,projects:{},epoch:1,abort:null,phase:'acting',activity:'',requestProgress:{id:'r1',status:'running',feedback:[],completed:[]},safety:null,burrowWait:{quietMs:20,limitMs:2000},
   say:t=>said.push(t),persist(){},emit(){},cancel(){},interrupt(){this.requestProgress.status='interrupted'},dispatch(cmd){runner.command(cmd)},
-  execute:Teammate.prototype.execute,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
+  execute:executeWithShelter,leaveOccupiedShelter:async()=>{},seekSafety:Teammate.prototype.seekSafety,lastResortShelter:Teammate.prototype.lastResortShelter,moveOutOfDanger:Teammate.prototype.moveOutOfDanger,leaveOnOpenGround:Teammate.prototype.leaveOnOpenGround,waitInBurrow:Teammate.prototype.waitInBurrow,
   async resume(){resumed++;this.requestProgress.status='running'}}
  const started=c.seekSafety(THREAT_INTERRUPTION)
  await new Promise(r=>setTimeout(r,300));w.bot.time.timeOfDay=6000

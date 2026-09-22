@@ -25,4 +25,13 @@ companion/build/
 harness/bridge/SoulStoneBridge*.jar
 harness/bridge/source/
 # Keep the matching upstream source beside its pinned binary and license.
-!harness/bridge/ViaProxy-3.4.12-source.zip
+!harness/bridge/ViaProxy-*-source.zip
+
+# ViaProxy writes its own config and account store next to the jar it runs from.
+# The tracked source config is companion/bridge/viaproxy.yml; these are runtime.
+harness/*.yml
+harness/bridge/*.yml
+harness/saves.json
+harness/bridge/saves.json
+harness/viabedrock/
+harness/bridge/viabedrock/

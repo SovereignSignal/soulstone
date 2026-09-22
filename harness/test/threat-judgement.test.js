@@ -159,10 +159,11 @@ test('in control mode an unsure Jev defers to the rule',async()=>{
 })
 test('a judged evade flees the nearest hostile and resumes the request when nothing followed',async()=>{
  const bot=arena({health:20,food:20,distance:8});const {c,commands,said,resumed}=seekScaffold(bot,{onCommand:cmd=>{if(cmd.action==='flee')bot.entities={}}})
+ c.leaveOnOpenGround=Teammate.prototype.leaveOnOpenGround;c.openGroundWait={quietMs:20,limitMs:1500}
  const [judge]=controlled(c,{interruption:{response:'evade',confidence:.6,interrupt:.7,danger:1.2,winnable:.3}});c.threatJudge=judge
  await c.seekSafety(THREAT_INTERRUPTION)
  assert.deepEqual(commands.filter(a=>a!=='stop'),['flee']);assert.equal(resumed(),1);assert.equal(c.safety,null)
- assert.equal(c.requestProgress.safetyContinuations[0].shelter,'judged_evade');assert.ok(said.some(t=>/Judged evade/.test(t)))
+ assert.equal(c.requestProgress.safetyContinuations[0].shelter,'open_ground');assert.ok(said.some(t=>/Judged evade/.test(t)))
 })
 test('the gate lets a judged continue keep the bot working, holds for a while, and interrupts when Jev says so or the floors do',async()=>{
  const bot=arena({health:20,food:20,distance:9});const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.profile='p';runner.owner='Sov';runner.position=()=>({x:10,y:64,z:10});const logged=[];runner.log=(t,d)=>logged.push([t,d])
@@ -185,4 +186,22 @@ test('a judged shelter skips the rule\'s daylight open-ground detour',async()=>{
  assert.equal(detours,0);assert.ok(!commands.includes('flee'))
  const rule=seekScaffold(arena({health:20,food:20,distance:8}));let ruleDetours=0;rule.c.leaveOnOpenGround=async()=>{ruleDetours++;return 'skipped'}
  await Promise.race([rule.c.seekSafety(THREAT_INTERRUPTION),new Promise(r=>setTimeout(r,1500))]);assert.equal(ruleDetours,1)
+})
+
+test('danger returning during judged escape clearance hands back immediately, before the watch timeout',async()=>{
+ const bot=arena({health:20,food:20,distance:8}),threats=bot.entities
+ const {c,resumed}=seekScaffold(bot,{onCommand:cmd=>{if(cmd.action==='flee'){bot.entities={};setTimeout(()=>{bot.entities=threats},30)}}})
+ c.safety={status:'fleeing'};c.requestProgress.status='interrupted'
+ c.leaveOnOpenGround=Teammate.prototype.leaveOnOpenGround;c.openGroundWait={quietMs:1000,limitMs:5000}
+ const started=Date.now(),result=await c.judgedEvade(1,new AbortController().signal,bot,true)
+ assert.equal(result,'skipped');assert.equal(resumed(),0);assert.equal(c.safety.continuation.code,'clearance_lost');assert.ok(Date.now()-started<2000)
+})
+
+
+test('rich Jev observations retain occlusion and relative elevation without assuming an escape route',()=>{
+ const o={...observation,nearbyThreats:[{name:'skeleton',distance:20,risk:'potential_hostile',verticalOffset:-9,sightline:{status:'blocked',block:'stone'}}]}
+ const rich=threatState(o);assert.equal(rich.threats[0].sightline.status,'blocked');assert.equal(rich.threats[0].verticalOffset,-9)
+ assert.ok(rich.mechanics.some(m=>m.includes('not that pursuit or every attack is impossible')))
+ assert.equal(threatState(o,{contextMode:'legacy'}).threats[0].sightline,undefined)
+ assert.equal(threatState(observation).threats[0].sightline.status,'unknown')
 })

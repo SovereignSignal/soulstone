@@ -1,25 +1,36 @@
+import {validateUseGoal,interactableObservation,useTargetNames} from '../use-item.js'
+import {updateMission,syncMissionStatus,missionFocus} from './milestones.js'
+import {SkillControl,selectSkill} from './skill-control.js'
+import {eatOnClearGround} from './food-recovery.js'
+import {validateObservedTravelGoal} from '../travel.js'
+import {berryObservation} from '../foraging.js'
+import {shelteredPlanning} from './sheltered-planning.js'
+import {adaptiveRecovery} from './adaptive-recovery.js'
+import {recoveryContext,recoveryState,recentRecovery,recordRecovery} from './recovery-context.js'
 import {THREAT_INTERRUPTION,clearanceObservation,awaitClearance,openGroundClearance} from './hazard-clearance.js'
 import {alternativeShelters,occupiedAlternative} from '../alternate-shelter.js'
 import {shelteredObservation,inspectRetreatShelter} from '../retreat.js'
 import {fullCube} from '../construction.js'
+import {canopyLandings} from '../canopy.js'
 import {setTimeout as delay} from 'node:timers/promises'
 // Four expired windows is an hour of watching; past that a person should look.
 const BURROW_WATCHES=4
 const SAFETY_RETRIES=3
 const NIGHT_HOLD_MS=14*60*1000
-import {survivalObservation,emergencyReason,WATER_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY} from '../survival.js'
+import {survivalObservation,emergencyReason,WATER_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY} from '../survival.js'
 import {burrowClearance} from '../burrow.js'
+import {inspectEmergencyShelter} from '../shelter-occupants.js'
 import {defenseDecision,combatClearance,DEFENDABLE_MOBS,meleeWeapon} from '../combat.js'
 import {ThreatJudge,harnessVerdict,wornArmour,forcedInterruption,gateVerdict,chooseResponse} from '../threat-judgement.js'
 import {projectFootprints} from '../site-survey.js'
 import {reviseArchitecture} from '../construction.js'
 import {evaluateGoal,enforceProjectIntent,validateContract,constructionLimits,vacuousContract} from './goal-contract.js'
 import {ExperienceStore,experienceEvidence} from './experience.js'
-import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,shouldContinueAfterBudget,canContinueAfterSafety,shouldRetryPlanning} from './continuity.js'
+import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,withinBuildReach,AUTO_RESPAWN_LIMIT,STALL_CONTINUATIONS,STALL_RETRY_MS,shouldContinueAfterBudget,canContinueAfterSafety,shouldRetryPlanning} from './continuity.js'
 import {PREPARE_ACTIONS} from '../supplies.js'
 import {EXPEDITION_ACTIONS,remainingDurability,expeditionObservation} from '../prospecting.js'
 import {STATION_ACTIONS} from '../stations.js'
-import {nearbyResources,terrainSummary} from '../observations.js'
+import {nearbyResources,terrainSummary,footingObservation} from '../observations.js'
 import {LOG_ITEMS} from '../resources.js'
 import { resourceCount, resourceLabel } from '../resources.js'
 import { EventEmitter } from 'node:events'
@@ -35,10 +46,12 @@ export class Teammate extends EventEmitter {
   constructor(runner, planner, statePath, recorder = null) {
     super(); this.runner = runner; this.planner = planner; this.statePath = statePath; this.recorder = recorder
     this.messages = []; this.places = {}; this.phase = 'ready'; this.plan = []; this.stepIndex = -1; this.epoch = 0
+    this.skillControlMode=process.env.MC_SKILL_CONTROL==='jev'?'jev':'planner'
+    this.shelterPlanning=process.env.MC_SHELTER_PLANNING==='1';this.recoveryHistory=[];this.recoveryMode=process.env.MC_RECOVERY_MODE==='adaptive'?'adaptive':'existing';this.threatContextMode=process.env.MC_THREAT_CONTEXT==='legacy'?'legacy':'rich'
     this.safety = null; this.requestProgress = null; this.projects = {};this.experience=new ExperienceStore(join(dirname(statePath),'experience.json'),runner.profile)
     // Shadow mode: Jev's opinion is logged beside every safety decision and changes nothing yet.
     this.threatJudge=new ThreatJudge({log:(type,data)=>runner.log?.(type,data)})
-    try { const s = JSON.parse(readFileSync(statePath, 'utf8')); if (s.profile === runner.profile) { this.safety=s.safety||null;if(['retreating','defending'].includes(this.safety?.status))this.safety.status='interrupted';this.messages = s.messages.slice(-60); this.places = s.places; this.projects=s.projects||{}; this.requestProgress=s.requestProgress||null; if(this.requestProgress?.status==='running')this.requestProgress.status='interrupted' } }
+    try { const s = JSON.parse(readFileSync(statePath, 'utf8')); if (s.profile === runner.profile) { this.recoveryHistory=Array.isArray(s.recoveryHistory)?s.recoveryHistory.slice(-16):[];this.safety=s.safety||null;if(['retreating','defending'].includes(this.safety?.status))this.safety.status='interrupted';this.messages = s.messages.slice(-60); this.places = s.places; this.projects=s.projects||{}; this.requestProgress=s.requestProgress||null; if(this.requestProgress?.status==='running')this.requestProgress.status='interrupted' } }
     catch (e) { if (e.code !== 'ENOENT') throw e }
     if(this.safety?.continuation?.status==='watching')this.safety.continuation={status:'paused',reason:'Service restarted; explicit Resume is required'}
     // A restart while dug in must not strand the bot underground: resume the wait on spawn.
@@ -57,6 +70,7 @@ export class Teammate extends EventEmitter {
       this.requestProgress.inFlight=null
     }
     if(this.requestProgress?.status==='interrupted'){this.requestProgress.reviewRequired=interruptedEffect(runner.task);this.requestProgress.blocker=this.requestProgress.reviewRequired||'Service restarted. Resume to re-observe and continue.';this.phase='blocked'}
+    syncMissionStatus(this.requestProgress)
     if(runner.task?.kind==='build'&&runner.task.goal?.origin&&!this.projects.base)this.projects.base={build:structuredClone(runner.task.goal),stations:{},built:runner.task.status==='completed'}
     if(runner.task?.kind==='construct'&&runner.task.goal?.name)this.projects[runner.task.goal.name]={construction:structuredClone(runner.task.goal),progress:runner.task.progress,result:runner.task.result,status:runner.task.status}
     if(runner.task?.goal?.project)this.projects.base=structuredClone(runner.task.goal.project)
@@ -64,6 +78,19 @@ export class Teammate extends EventEmitter {
     runner.on('event', e => {
       if(e.type==='survival_tick'&&runner.ready){
         const bot=runner.bot
+        // Recovery can finish an inventory, hunger or health goal while the
+        // agent remains sheltered. Completion need not wait for a departure.
+        const request=this.requestProgress
+        if(request?.status==='interrupted'&&!request.reviewRequired&&request.goal?.kind==='task'&&this.safety?.protection?.verified){
+          let protectedNow=false
+          try{protectedNow=inspectEmergencyShelter(bot).verified}catch{}
+          const verdict=protectedNow?this.verifyGoal():null
+          if(verdict?.verdict==='passed'){
+            request.verification=verdict;request.status='verified';request.pending=[];request.inFlight=null;request.blocker=null
+            this.say('Your saved goal checks have passed. I am staying sheltered while the safety watch continues.')
+            runner.log?.('goal_verified_during_recovery',{requestId:request.id,verification:verdict})
+          }
+        }
         // Shelter means a built base with a recorded light: the retreat refuses an unlit one.
         // A torch station is recorded before placement; only a confirmed one lights
         // the base, and a base players have damaged is not shelter at all.
@@ -72,11 +99,29 @@ export class Teammate extends EventEmitter {
         // Only a base we can actually inspect can be judged damaged; no design means no evidence.
         if(shelterAvailable&&base.build?.design?.length){try{inspectRetreatShelter(runner.bot,base,{occupants:false})}catch{shelterAvailable=false}}
         const sheltered=shelterAvailable&&(()=>{try{return shelteredObservation(runner.bot,base).passed}catch{return false}})()
-        const observation=survivalObservation(runner.bot),reason=emergencyReason({...observation,shelterAvailable,sheltered})
+        const observation=survivalObservation(runner.bot)
+        // Health over time is something only this tick can see. A single
+        // snapshot cannot tell "hurt and stable, go find food" from "hurt and
+        // still being hit", and the difference decides whether stopping helps.
+        if(Number.isFinite(observation.health)){
+          if(Number.isFinite(this.lastHealth)&&observation.health<this.lastHealth)this.lastDamageAt=Date.now()
+          this.lastHealth=observation.health
+        }
+        const recentDamageMs=Number.isFinite(this.lastDamageAt)?Date.now()-this.lastDamageAt:null
+        if(this.phase==='blocked'&&canResume(this.requestProgress)){this.blockedSince??=Date.now()}else this.blockedSince=null
+        const reason=emergencyReason({...observation,shelterAvailable,sheltered,recentDamageMs})
+        if(!reason){this.noteProgress();void this.stallRetry()}
         if(this.safety?.reason===WATER_EMERGENCY&&['failed','afloat'].includes(this.safety.status)&&observation.headSubmerged===false&&observation.inWater===false&&runner.bot.entity.onGround){
           this.safety=null;this.activity='';runner.bot.clearControlStates();this.phase=canResume(this.requestProgress)?'blocked':'ready'
           if(canResume(this.requestProgress))this.requestProgress.blocker='On dry ground. Review current inventory before resuming the saved task.'
           this.say('I am on dry ground and can breathe. The saved task remains paused.')
+        }
+        // Exhaustion applies to one observed situation, not to a new attacker
+        // or a material change in health, equipment or shelter. Keep the same
+        // retry budget while the fingerprint is unchanged and respect Stop.
+        if(reason&&this.safety?.status==='failed'&&this.unsafeSignature&&!this.snapshot().dead&&
+          (reason!==this.unsafeSignature.reason||this.safetyBlockKey()!==this.unsafeSignature.key)){
+          this.safety=null;this.threatHold=null
         }
         if(reason&&(!this.safety||reason===WATER_EMERGENCY&&this.safety.reason!==WATER_EMERGENCY&&this.safety.status!=='cancelled')){
           // Control mode: whether a hostile in radius stops work is Jev's call,
@@ -108,7 +153,7 @@ export class Teammate extends EventEmitter {
         }
         // A failed recovery never leaves the bot standing still while the danger
         // persists: after a short pause the chain runs again, a bounded number of times.
-        else if(reason&&this.safety?.status==='failed'&&this.safety.error!=='Agent died'&&!this.snapshot().dead&&(this.safety.retries||0)<SAFETY_RETRIES&&Date.now()-(this.safety.failedAt||0)>=3000){const retries=(this.safety.retries||0)+1;this.safety=null;void this.seekSafety(reason,{retries})}
+        else if(reason&&this.safety?.status==='failed'&&this.safety.error!=='Agent died'&&!this.snapshot().dead&&(this.safety.retries||0)<SAFETY_RETRIES&&Date.now()-(this.safety.failedAt||0)>=3000){const retries=(this.safety.retries||0)+1,resumeInterrupted=this.safety.resumeRequestId===this.requestProgress?.id&&this.requestProgress?.status==='interrupted'&&canResume(this.requestProgress);this.safety=null;void this.seekSafety(reason,{retries,resumeInterrupted})}
       }
       if(['task_started','task_finished'].includes(e.type)&&e.task?.goal?.project){this.projects.base=structuredClone(e.task.goal.project);this.persist()}
       if(['task_started','task_finished'].includes(e.type)&&e.task?.kind==='construct'&&e.task.goal?.name){this.projects[e.task.goal.name]={construction:structuredClone(e.task.goal),progress:structuredClone(e.task.progress||null),result:structuredClone(e.task.result||null),status:e.task.status};this.persist()}
@@ -120,30 +165,60 @@ export class Teammate extends EventEmitter {
       if (e.type === 'death') {
         const recovery=['retreating','defending'].includes(this.phase),action=this.phase==='defending'?'defense':'retreat'
         this.cancel(false,'interrupted');this.safety={...this.safety,status:'failed',error:recovery?'Died during '+action:'Agent died',deathPosition:runner.position()};this.phase='blocked'
+        // The drop pile is the only thing worth going back for, and it despawns in
+        // five minutes. `safety` already carries deathPosition, but the respawn
+        // branch below nulls it before any reader sees it, so keep a copy that
+        // survives the clear and reaches observe().
+        this.lastDeath={position:runner.position()}
         if(canResume(this.requestProgress)){this.requestProgress.blocker='The agent died. Respawn first, then review the lost inventory before resuming.';this.persist()}
         this.say('I died. Use Respawn agent to return to the world. The saved request will stay paused; inventory may have been dropped.')
+        // The drop pile despawns in five minutes, and on 20 September nobody was
+        // watching: the agent sat dead through the whole window and a full kit
+        // was lost. Come back automatically while a saved request is still live.
+        if(canResume(this.requestProgress)&&(this.requestProgress.autoRespawns||0)<AUTO_RESPAWN_LIMIT){
+          this.requestProgress.autoRespawns=(this.requestProgress.autoRespawns||0)+1;this.persist()
+          try{this.respawn()}catch(error){this.runner.log?.('auto_respawn_failed',{error:error.message})}
+        }
       }
       if(e.type==='spawn'&&this.restoreBurrow&&runner.ready){this.restoreBurrow=false;this.phase='blocked';this.safety.status='burrowed';delete this.safety.error;this.persist();const abort=this.abort=new AbortController();this.say('Service restarted while I was dug in. Waiting for daylight before digging out.');void this.waitInBurrow(this.epoch,abort.signal,runner.bot,this.requestProgress?.status==='interrupted')}
       if(e.type==='spawn'&&this.restoreRequest&&runner.ready&&!this.snapshot().dead){this.restoreRequest=false;this.requestProgress.restartContinuations=(this.requestProgress.restartContinuations||0)+1;this.persist();this.say('Service restarted while a request was running. Continuing it automatically.');setTimeout(()=>{this.resume({automatic:true}).catch(error=>{this.requestProgress.blocker=error.message;this.persist()})},1500)}
       if(e.type==='spawn'&&this.respawning){this.respawning=false;this.safety=null;this.phase=canResume(this.requestProgress)?'blocked':'ready';if(canResume(this.requestProgress))this.requestProgress.blocker='Respawned. Review current inventory before resuming the saved task.';this.say('I respawned. Check my current inventory before resuming the saved request.')}
     })
   }
-  persist() { mkdirSync(dirname(this.statePath), { recursive: true }); writeFileSync(this.statePath + '.tmp', JSON.stringify({ profile: this.runner.profile, places: this.places, messages: this.messages.slice(-60), requestProgress:this.requestProgress,canResume:canResume(this.requestProgress),projects:this.projects,experienceCount:this.experience.entries.length,safety:this.safety }), { mode: 0o600 }); renameSync(this.statePath + '.tmp', this.statePath) }
+  verifyGoal() {
+    const request=this.requestProgress
+    if(!request)return null
+    request.verification=evaluateGoal(request.goal,this.snapshot(),this.runner.bot,request.feedback||[])
+    updateMission(request,request.verification,{connected:this.runner.ready})
+    return request.verification
+  }
+  persist() { syncMissionStatus(this.requestProgress); mkdirSync(dirname(this.statePath), { recursive: true }); writeFileSync(this.statePath + '.tmp', JSON.stringify({ profile: this.runner.profile, places: this.places, messages: this.messages.slice(-60), requestProgress:this.requestProgress,canResume:canResume(this.requestProgress),projects:this.projects,experienceCount:this.experience.entries.length,recoveryHistory:this.recoveryHistory,safety:this.safety }), { mode: 0o600 }); renameSync(this.statePath + '.tmp', this.statePath) }
   say(text, role = 'assistant') { const m = { id: randomUUID(), role, text: String(text).slice(0,2000), at: new Date().toISOString() }; this.messages.push(m); this.messages = this.messages.slice(-60); this.persist(); this.emit('change'); return m }
   playingAsOwner() { return !!this.runner.bot?.username && this.runner.bot.username.toLowerCase() === this.runner.owner.toLowerCase() }
   snapshot() {
     const b = this.runner.bot, owner = this.playingAsOwner() ? null : b?.players?.[this.runner.owner]?.entity
     const inventory = {}; for (const i of (b?.currentWindow||b?.inventory)?.items() || []) inventory[i.name] = (inventory[i.name] || 0) + i.count
     const dead=!!b&&b.health===0&&b.isAlive===false
-    return { phase: this.phase, connected: this.runner.ready, dead, respawning:!!this.runner.respawnPending, connectionId:this.runner.connectionId, owner: this.runner.owner, ownerVisible: !!owner, playingAsOwner:this.playingAsOwner(), position: this.runner.position(), ownerPosition: owner?.position || null,
-      health: b?.health ?? null, survival:survivalObservation(b), tools:(b?.inventory?.items()||[]).filter(i=>i.maxDurability).map(i=>({name:i.name,remaining:remainingDurability(i),maximum:i.maxDurability})), inventory, places: this.places, task: this.runner.task, plan: this.plan, stepIndex: this.stepIndex,
+    let litShelterVerified=false
+    const base=this.projects.base
+    if(base?.built===true&&base.stations?.torch?.confirmed===true){try{litShelterVerified=!!inspectRetreatShelter(b,base,{occupants:false})}catch{}}
+    return { lastDeath:this.lastDeath??null, skillControl:{mode:this.skillControlMode,budget:this.requestProgress?.skillControl||null}, recovery:{shelterPlanning:!!this.shelterPlanning,mode:this.recoveryMode,context:this.threatContextMode,recentAttempts:recentRecovery(this)},litShelterVerified, threatJudge:{mode:this.threatJudge.enabled?(this.threatJudge.control?'control':'shadow'):'off',model:this.threatJudge.model}, phase: this.phase, connected: this.runner.ready, dead, respawning:!!this.runner.respawnPending, connectionId:this.runner.connectionId, owner: this.runner.owner, ownerVisible: !!owner, playingAsOwner:this.playingAsOwner(), position: this.runner.position(), ownerPosition: owner?.position || null,
+      health: b?.health ?? null, survival:survivalObservation(b), footing:footingObservation(b), tools:(b?.inventory?.items()||[]).filter(i=>i.maxDurability).map(i=>({name:i.name,remaining:remainingDurability(i),maximum:i.maxDurability})), inventory, places: this.places, task: this.runner.task, plan: this.plan, stepIndex: this.stepIndex,
       safety:this.safety, activity: this.activity || '', messages: this.messages, model: this.planner.model, requestProgress:this.requestProgress,canResume:!dead&&!this.runner.respawnPending&&!['retreating','defending'].includes(this.phase)&&canResume(this.requestProgress),projects:this.projects,experienceCount:this.experience.entries.length }
   }
   dispatch(command) { this.dispatching = true; try { this.runner.command(command) } finally { this.dispatching = false } }
   cancel(stop = true, disposition = 'cancelled') { if(['retreating','defending'].includes(this.safety?.status))this.safety.status=disposition; ++this.epoch; if(this.requestProgress?.status==='running'){this.requestProgress.status=disposition;this.persist()} this.episode?.end(disposition); this.episode = null; this.abort?.abort(); this.abort = null; this.phase = 'ready'; this.plan = []; this.stepIndex = -1; this.activity = ''; if (stop) this.dispatch({ action: 'stop' }); this.emit('change') }
   stop() { const unfinished=['running','blocked','interrupted','paused'].includes(this.requestProgress?.status);this.cancel();if(unfinished){this.requestProgress.status='cancelled';this.persist()} this.safety={status:'cancelled',reason:'Operator stop'};this.say('Stopped. I will wait for your next instruction.') }
   interrupt(reason='Service stopped. Resume to continue the saved request.') {
-    const active=this.requestProgress?.status==='running';this.cancel(false,'interrupted')
+    const active=this.requestProgress?.status==='running',request=this.requestProgress,task=this.runner.task
+    // Recovery replaces the runner task. Preserve the interrupted work's observed
+    // progress before that replacement so replanning does not start from zero.
+    if(active&&request.inFlight?.taskId===task?.id&&task?.status==='running'){
+      const receipt={action:request.inFlight.step.action,step:structuredClone(request.inFlight.step),taskId:task.id,status:'interrupted',reason,
+        observed:{kind:task.kind,position:this.runner.position(),...(task.hunt?{hunt:structuredClone(task.hunt)}:{}),...(task.kind==='harvest'?{harvest:{attempt:structuredClone(task.harvestAttempt||null),completed:structuredClone(task.harvested||[]),rejected:structuredClone(task.harvestRejected||[]),carried:this.snapshot().inventory.sweet_berries||0}}:{}),...(task.progress?{progress:structuredClone(task.progress)}:{}),...(task.result?{result:structuredClone(task.result)}:{})}}
+      ;(request.feedback??=[]).push(receipt);this.episode?.write('interrupted_work',receipt)
+    }
+    this.cancel(false,'interrupted')
     if(active){this.requestProgress.status='interrupted';this.requestProgress.reviewRequired=interruptedEffect(this.runner.task);this.requestProgress.blocker=this.requestProgress.reviewRequired||reason;this.persist()}
   }
   // What could change the outcome of a failed recovery: the tools and blocks it
@@ -181,20 +256,20 @@ export class Teammate extends EventEmitter {
     const origin=this.projects?.base?.build?.origin,p=bot?.entity?.position
     const baseDistance=origin&&p?Math.hypot(origin.x-p.x,origin.z-p.z):null
     const items=bot?.inventory?.items?.()||[]
-    return {weapon:meleeWeapon(bot)?.name||null,armour:wornArmour(bot),tools:items.filter(i=>/_(pickaxe|axe|shovel|sword|hoe)$/.test(i.name)).map(i=>i.name),inventory:items.reduce((m,i)=>({...m,[i.name]:(m[i.name]||0)+i.count}),{}),sheltered,shelterAvailable,baseDistance}
+    return {contextMode:this.threatContextMode,evidence:this.threatContextMode==='legacy'?null:recoveryContext(this,bot),weapon:meleeWeapon(bot)?.name||null,armour:wornArmour(bot),tools:items.filter(i=>/_(pickaxe|axe|shovel|sword|hoe)$/.test(i.name)).map(i=>i.name),inventory:items.reduce((m,i)=>({...m,[i.name]:(m[i.name]||0)+i.count}),{}),sheltered,shelterAvailable,baseDistance}
   }
-  async seekSafety(reason,{retries=0}={}) {
+  async seekSafety(reason,{retries=0,resumeInterrupted=false}={}) {
     if(this.safety&&(reason!==WATER_EMERGENCY||this.safety.reason===WATER_EMERGENCY||this.safety.status==='cancelled'))return
     // A recovery that already failed, with nothing changed that could make it
     // succeed, must not run again: it produces the same messages and no safety,
     // and it preempts every instruction the operator types in the meantime.
     if(reason!==WATER_EMERGENCY&&this.unsafeSignature?.reason===reason&&this.unsafeSignature.key===this.safetyBlockKey())return
-    const interruptedActiveRequest=this.requestProgress?.status==='running'
+    const interruptedActiveRequest=this.requestProgress?.status==='running'||resumeInterrupted&&canResume(this.requestProgress)
     const previousFollow=this.runner.task?.kind==='follow'&&this.runner.task.status==='running'?this.runner.task.goal.player:null
     this.interrupt('Safety interruption: '+reason)
     const epoch=this.epoch,abort=this.abort=new AbortController()
     this.unsafeSignature=null
-    this.safety={status:'retreating',reason,startedAt:new Date().toISOString(),retries};this.phase='retreating'
+    this.safety={status:'retreating',reason,startedAt:new Date().toISOString(),retries,resumeRequestId:interruptedActiveRequest?this.requestProgress?.id:null};this.phase='retreating'
     this.say(reason+'. '+(reason===WATER_EMERGENCY?'I am stopping work and swimming up for air.':reason===THREAT_INTERRUPTION?'I am pausing work and assessing self-defense.':'I am pausing work and looking for a verified lit shelter.'))
     try{
       this.dispatch({action:'stop'})
@@ -220,7 +295,28 @@ export class Teammate extends EventEmitter {
       if(recoveryBot?.waitForChunksToLoad){let timer;try{await Promise.race([recoveryBot.waitForChunksToLoad(),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Retreat chunks did not load within 15 seconds')),15000)})])}finally{clearTimeout(timer)}}
       if(epoch!==this.epoch||abort.signal.aborted)return
       if(this.runner.bot!==recoveryBot||!this.runner.ready)throw new Error('Connection changed before retreat')
-      if(reason===THREAT_INTERRUPTION){
+      if(reason===FOOD_EMERGENCY){
+        if(await eatOnClearGround(this,epoch,abort.signal,recoveryBot,interruptedActiveRequest))return
+        if(epoch!==this.epoch||abort.signal.aborted)return
+        if(this.runner.bot!==recoveryBot||!this.runner.ready)throw new Error('Connection changed during recovery eating')
+      }
+      let adaptive='fallback'
+      if(reason===THREAT_INTERRUPTION&&this.recoveryMode==='adaptive'&&interruptedActiveRequest&&typeof this.planner.recover==='function'){
+        adaptive=await adaptiveRecovery(this,epoch,abort.signal,recoveryBot)
+        if(adaptive==='cancelled'||epoch!==this.epoch||abort.signal.aborted)return
+        if(adaptive==='cleared'){
+          const request=this.requestProgress,result={status:'cleared',shelter:'adaptive_recovery',health:recoveryBot.health}
+          this.runner.log?.('recovery_complete',result)
+          const continuing=canResume(request)&&canContinueAfterSafety(request)
+          ;(request.feedback??=[]).push({action:'recovery',status:'completed',result,automatic:true})
+          ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:this.runner.connectionId,completedAt:request.completed?.length||0})
+          this.safety=null;this.activity='';this.phase='blocked';this.persist()
+          if(continuing){this.say('Recovery verified. Continuing the saved objective.');await this.resume({automatic:true})}
+          else this.say('Recovery verified. The continuation budget is exhausted; the saved objective remains paused.')
+          return
+        }
+      }
+      if(reason===THREAT_INTERRUPTION&&adaptive!=='shelter'){
         let decision=defenseDecision(recoveryBot)
         // Landing from a jump or closing a window takes a moment; re-judge briefly before choosing shelter.
         for(let i=0;i<4&&!decision.engage&&/^Not ready/.test(decision.reason);i++){await delay(250);if(epoch!==this.epoch||abort.signal.aborted)return;decision=defenseDecision(recoveryBot)}
@@ -317,21 +413,21 @@ export class Teammate extends EventEmitter {
       // bot starves holding the food that would clear it.
       {
         const carried=survivalObservation(this.runner.bot).carriedFood[0]
-        if(this.runner.bot.food<20&&carried){
+        if(this.runner.bot.food<20&&carried&&!this.requestProgress?.reviewRequired){
           try{await this.execute({action:'eat',goal:{item:carried.name,count:Math.min(8,carried.count)},timeoutMs:30000},abort.signal);if(epoch!==this.epoch||abort.signal.aborted)return;this.safety.eating=structuredClone(this.runner.task.result)}
-          catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;this.safety.eating={failed:error.message}}
+          catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;this.safety.eating={failed:error.message};const review=interruptedEffect(this.runner.task);if(review&&this.requestProgress){this.requestProgress.reviewRequired=review;this.requestProgress.blocker=review;this.persist()}}
         }
       }
       if(['burrow','hut'].includes(this.safety.retreat.shelterName)){
         this.safety.status='burrowed';this.phase='blocked';this.persist()
         this.say((this.safety.retreat.shelterName==='hut'?'I am walled in.':this.safety.retreat.capped?'I am dug in below the surface with the shaft capped.':'I am dug in below the surface; no cap block was available.')+' I will wait for daylight and a clear area before opening up.')
-        await this.waitInBurrow(epoch,abort.signal,recoveryBot,interruptedActiveRequest&&[THREAT_INTERRUPTION,NIGHT_EXPOSURE,HEALTH_EMERGENCY].includes(reason))
+        await this.waitInBurrow(epoch,abort.signal,recoveryBot,interruptedActiveRequest&&[THREAT_INTERRUPTION,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY].includes(reason))
         return
       }
       this.safety.status='sheltered';this.phase=this.requestProgress?.status==='interrupted'?'blocked':'ready'
       // A health retreat deserves the same watch-and-continue as a threat retreat;
       // otherwise every hurt evening ends the request until an operator resumes it.
-      const eligible=interruptedActiveRequest&&[THREAT_INTERRUPTION,HEALTH_EMERGENCY].includes(reason)&&canResume(this.requestProgress)&&canContinueAfterSafety(this.requestProgress)
+      const eligible=interruptedActiveRequest&&[THREAT_INTERRUPTION,HEALTH_EMERGENCY,FOOD_EMERGENCY].includes(reason)&&canResume(this.requestProgress)&&canContinueAfterSafety(this.requestProgress)
       this.say('I reached '+(this.safety.retreat.shelterName||'the lit base')+' and closed the door. '+(eligible?'I will watch for a clear area before continuing your request.':this.requestProgress?.status==='interrupted'?'Your request is paused; Resume will re-observe and continue.':'Waiting for your next instruction.'))
       if(eligible)await this.continueAfterClearance(epoch,abort.signal,recoveryBot)
 
@@ -340,7 +436,7 @@ export class Teammate extends EventEmitter {
       this.safety.status='failed';this.safety.error=error.message;this.safety.failedAt=Date.now();this.phase='blocked';this.activity=''
       const last=this.safety.retries>=SAFETY_RETRIES
       if(last){this.unsafeSignature={reason,key:this.safetyBlockKey(),at:Date.now()};this.persist()}
-      this.say(last?`I cannot make myself safe here: ${this.unsafeAdvice(this.safety.attempts)} Standing still will not fix any of that, so I am carrying on with the work.`
+      this.say(last?`I cannot make myself safe here: ${this.unsafeAdvice(this.safety.attempts)} ${canResume(this.requestProgress)?'Standing still will not fix any of that, so I am carrying on with the work.':'No work request is active. I need help reaching safe ground.'}`
         :'Safety recovery failed: '+error.message+'. I will try again in a few seconds if the danger persists.')
 
     }
@@ -357,18 +453,7 @@ export class Teammate extends EventEmitter {
     catch(error){if(epoch!==this.epoch||signal.aborted)return 'cancelled';(this.safety.flights??=[]).push({failed:error.message});this.persist();this.say('Could not get clear: '+error.message+'. Sheltering instead.');return 'skipped'}
     const after=survivalObservation(bot)
     if((after.nearbyThreats||[]).some(t=>t.risk==='potential_hostile'&&t.distance<=16)){this.say('The threat followed me. Sheltering instead.');return 'skipped'}
-    const request=this.requestProgress,connection=this.runner.connectionId
-    const result={status:'cleared',shelter:'judged_evade',health:after.health,timeOfDay:after.timeOfDay}
-    this.safety.continuation=result;this.safety.status='clear';this.persist()
-    const continuing=interruptedActiveRequest&&canResume(request)&&canContinueAfterSafety(request)
-    this.safety=null;this.activity='';this.phase=canResume(request)?'blocked':'ready'
-    if(continuing){
-      ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,resumeSerial:request.resumeSerial||0,completedAt:request.completed?.length||0})
-      ;(request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations.at(-1)});this.persist()
-      this.say('Clear after moving away. I am continuing your saved request.')
-      await this.resume({automatic:true})
-    }else this.say('Clear after moving away. '+(canResume(request)?'Resume is available if the saved request can safely continue.':'Ready for your next instruction.'))
-    return 'continued'
+    return await this.leaveOnOpenGround(epoch,signal,bot,interruptedActiveRequest)
   }
   async leaveOnOpenGround(epoch,signal,bot,interruptedActiveRequest) {
     const s=survivalObservation(bot),near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=16),lone=near.length===1?near[0]:null
@@ -395,7 +480,7 @@ export class Teammate extends EventEmitter {
     }
     const {quietMs=10000,limitMs=45000}=this.openGroundWait||{}
     let result
-    try{result=await awaitClearance({check,observe:()=>openGroundClearance(bot),quietMs,limitMs,onUpdate:record=>{safety.continuation=record;this.persist();this.emit('change')}})}
+    try{result=await awaitClearance({check,observe:()=>openGroundClearance(bot),quietMs,limitMs,stopOnUnsafe:true,onUpdate:record=>{safety.continuation=record;this.persist();this.emit('change')}})}
     catch(error){if(epoch!==this.epoch||signal.aborted)return 'cancelled';safety.continuation={status:'paused',reason:error.message};this.persist();return 'skipped'}
     if(result.status!=='cleared'){safety.continuation=result;this.persist();this.say('The threat followed me into the open. Sheltering instead.');return 'skipped'}
     safety.continuation=result;safety.status='clear';this.persist()
@@ -450,9 +535,13 @@ export class Teammate extends EventEmitter {
     const attempt={name:'move',status:'trying'};this.safety.attempts.push(attempt);this.persist()
     this.say('No shelter here. Moving away'+(threat?` from the ${threat.name}`:'')+' before trying again.')
     let climbed=false
-    try{await this.execute({action:'climb',goal:{},timeoutMs:45000},signal);if(epoch!==this.epoch||signal.aborted)return false;climbed=true;attempt.climbed=structuredClone(this.runner.task.result)}
-    catch(error){if(epoch!==this.epoch||signal.aborted)return false;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);if(epoch!==this.epoch||signal.aborted)return false}
-    if(!threat){attempt.status=climbed?'moved':'rejected';attempt.reason=climbed?undefined:'No pit exit and no threat to sprint from';this.persist();return climbed}
+    // Ask the descent itself whether there is anywhere to descend to, rather
+    // than testing the block underfoot for leaves. A bot on its own placed dirt
+    // failed that test and was sent to `climb`, which is how it got up there.
+    const descendable=(()=>{try{return canopyLandings(bot).length>0}catch{return false}})()
+    try{await this.execute({action:descendable?'descend':'climb',goal:{},timeoutMs:45000},signal);if(epoch!==this.epoch||signal.aborted)return false;climbed=true;attempt[descendable?'descended':'climbed']=structuredClone(this.runner.task.result)}
+    catch(error){if(epoch!==this.epoch||signal.aborted)return false;attempt.terrainFailure=error.message;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);if(epoch!==this.epoch||signal.aborted)return false}
+    if(!threat){attempt.status=climbed?'moved':'rejected';attempt.reason=climbed?undefined:'No safe terrain exit and no threat to sprint from';this.persist();return climbed}
     try{
       await this.execute({action:'flee',goal:{from:threat.position,distance:24},timeoutMs:15000},signal);if(epoch!==this.epoch||signal.aborted)return false
       const result=structuredClone(this.runner.task.result);(this.safety.flights??=[]).push(result);attempt.status='moved';attempt.moved=result.moved;this.persist();return true
@@ -464,17 +553,47 @@ export class Teammate extends EventEmitter {
   }
   async waitInBurrow(epoch,signal,bot,eligible) {
     const request=this.requestProgress,safety=this.safety,connection=this.runner.connectionId
+    if(eligible&&request?.status==='interrupted'){safety.resumeRequestId=request.id;this.persist()}
     const {quietMs=20000,limitMs=14*60*1000,patienceMs,relocateAfterMs,watches=BURROW_WATCHES}=this.burrowWait||{}
     let lingerSince=null
     // The relocate decision is derived from how long the threat has held, so
     // clearing the timer the moment it fires un-decides it on the next poll and
     // the wait oscillates for ever, never accumulating the quiet period it needs.
-    const observe=()=>{const r=burrowClearance(bot,{lingeredMs:lingerSince?Date.now()-lingerSince:0,patienceMs,relocateAfterMs});if(r.lingering||r.confront||r.relocate)lingerSince??=Date.now();else lingerSince=null;return r}
+    // A brief clear reading is still inside the quiet-area verification window.
+    // Keep elapsed patience until clearance succeeds; night starts a fresh wait.
+    let protectedHealth=bot.health
+    const observe=()=>{
+      safety.protection=inspectEmergencyShelter(bot)
+      if(bot.health<protectedHealth)throw new Error('Health fell inside the emergency shelter; protection is not established')
+      protectedHealth=bot.health
+      const r=burrowClearance(bot,{lingeredMs:lingerSince?Date.now()-lingerSince:0,patienceMs,relocateAfterMs});if(r.lingering||r.confront||r.relocate)lingerSince??=Date.now();else if(r.holding)lingerSince=null;return r}
     const check=()=>{
       if(signal.aborted||epoch!==this.epoch||this.safety!==safety)throw new Error('Burrow wait cancelled')
       if(!this.runner.ready||this.runner.bot!==bot||this.runner.connectionId!==connection)throw new Error('Connection changed while burrowed')
     }
     try{
+      // Login can announce spawn before local chunks arrive. Unknown ground is
+      // not a destroyed shelter and must not start another excavation.
+      if(!bot.blockAt?.(bot.entity.position.floored().offset(0,-1,0))&&bot.waitForChunksToLoad){
+        const waiting=new AbortController(),loadedSignal=AbortSignal.any([signal,waiting.signal])
+        try{await Promise.race([bot.waitForChunksToLoad(),delay(10000,undefined,{signal:loadedSignal}).then(()=>{throw new Error('Shelter chunks did not load within ten seconds')})]);check()}
+        finally{waiting.abort()}
+      }
+      if(this.shelterPlanning&&eligible&&canResume(request)&&canContinueAfterSafety(request,undefined,{protectedPlanning:true})&&typeof this.planner.sheltered==='function'){
+        const planned=await shelteredPlanning(this,epoch,signal,bot,this.shelteredLimits)
+        if(planned.status==='cancelled')return
+        check()
+        if(planned.status==='unsafe'){
+          this.safety=null;await this.seekSafety(THREAT_INTERRUPTION,{resumeInterrupted:true});return
+        }
+        if(planned.status==='departed'){
+          ;(request.safetyContinuations??=[]).push({...planned.clearance,requestId:request.id,connectionId:connection,shelter:'planned_departure',resumeSerial:request.resumeSerial||0,completedAt:request.completed?.length||0})
+          ;(request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations.at(-1)})
+          this.safety=null;this.phase='blocked';this.persist()
+          this.say('Departure verified. Continuing with the work plan prepared while sheltered.')
+          await this.resume({automatic:true,prepared:planned.prepared});return
+        }
+      }
       // One expired window used to end the watch for good: sheltered, safe, and
       // waiting for a person to notice. Working unattended that is where the day
       // ends. Keep watching a bounded number of times, carrying the linger clock
@@ -515,7 +634,8 @@ export class Teammate extends EventEmitter {
       }else this.say('Back on the surface. '+(canResume(request)?'Resume is available if the saved request can safely continue.':'Ready for your next instruction.'))
     }catch(error){
       if(epoch!==this.epoch)return
-      safety.status='failed';safety.error=error.message;this.phase='blocked';this.activity='';this.persist()
+      safety.status='failed';safety.error=error.message;safety.failedAt=Date.now();safety.protection={verified:false,reason:error.message};this.phase='blocked';this.activity='';this.persist()
+      if(!signal.aborted&&this.runner.ready&&this.runner.bot===bot&&this.runner.connectionId===connection)recordRecovery(this,{at:new Date().toISOString(),connectionId:connection,requestId:request?.id||null,action:'shelter_watch',status:'failed',error:error.message,after:recoveryState(bot)})
       this.say('Burrow recovery failed: '+error.message+'. I have stopped; safety is not established.')
     }finally{if(epoch===this.epoch){this.abort=null;this.persist();this.emit('change')}}
   }
@@ -552,20 +672,56 @@ export class Teammate extends EventEmitter {
       safety.continuation={status:'paused',reason:error.message};this.persist();this.say('Automatic continuation paused: '+error.message+(review?'. Check inventory before giving a new instruction.':'. Resume when ready.'))
     }
   }
-  async resume({automatic=false}={}) {
+  async resume({automatic=false,prepared=null}={}) {
     if(this.snapshot().dead||this.runner.respawnPending)throw new Error('Respawn the agent before resuming a task')
     if(!canResume(this.requestProgress))throw new Error(this.requestProgress?.reviewRequired||'No interrupted request can be resumed. Stop cancels a request; enter a new instruction.')
     // Dug in or walled in: the shelter wait continues the request at daylight
     // with a clear area. An explicit Resume makes that continuation eligible,
     // or re-arms a wait that timed out, instead of planning from underground.
     if(!automatic&&['burrow','hut'].includes(this.safety?.retreat?.shelterName)&&!this.safety.exit&&this.safety.status!=='cancelled'){
-      const safety=this.safety;safety.resumeRequested=true;this.phase='blocked';this.persist()
+      const safety=this.safety;safety.resumeRequested=true;safety.resumeRequestId=this.requestProgress.id;this.phase='blocked';this.persist()
       this.say('I am still dug in. I will continue your request once it is daylight and the area is clear.')
       if(!this.abort){safety.status='burrowed';delete safety.error;const abort=this.abort=new AbortController();void this.waitInBurrow(this.epoch,abort.signal,this.runner.bot,true)}
       return
     }
     const saved=structuredClone(this.requestProgress)
-    return this.submit(saved.request,saved,{automatic})
+    return this.submit(saved.request,saved,{automatic,prepared})
+  }
+  // Three recoveries is the right cap for "stuck" and the wrong one for "has
+  // been working all afternoon". A run that legitimately mines for hours spent
+  // its budget on transient blocks along the way and then parked permanently
+  // while still making progress, so observable progress earns it back.
+  noteProgress() {
+    const now=progressFingerprint(this.snapshot())
+    if(this.progressMark===now)return false
+    this.progressMark=now
+    if(this.requestProgress?.stallContinuations){
+      this.requestProgress.stallContinuations=0
+      delete this.requestProgress.stallExhausted
+      this.persist()
+    }
+    return true
+  }
+  // Retry a request that blocked while nothing is actually wrong. Bounded, and
+  // it never runs behind a human: a request marked reviewRequired, a dead or
+  // disconnected agent, and an exhausted budget all stop it.
+  async stallRetry() {
+    const request=this.requestProgress
+    if(this.phase!=='blocked'||!canResume(request))return false
+    if(this.snapshot().dead||!this.runner.ready)return false
+    if(!Number.isFinite(this.blockedSince)||Date.now()-this.blockedSince<STALL_RETRY_MS)return false
+    const spent=request.stallContinuations||0
+    if(spent>=STALL_CONTINUATIONS){
+      if(!request.stallExhausted){
+        request.stallExhausted=true;this.persist()
+        this.say(`Still blocked after ${STALL_CONTINUATIONS} attempts: ${request.blocker||'no progress'}. I have stopped retrying and am waiting for you.`)
+      }
+      return false
+    }
+    request.stallContinuations=spent+1;this.blockedSince=null;this.persist()
+    this.say(`Blocked and nothing else is wrong, so I am trying again (${spent+1} of ${STALL_CONTINUATIONS}): ${request.blocker||''}`)
+    await this.resume({automatic:true}).catch(error=>{request.blocker=error.message;this.persist()})
+    return true
   }
   respawn() {
     if(!this.snapshot().dead)throw new Error('The agent is not dead')
@@ -584,7 +740,7 @@ export class Teammate extends EventEmitter {
     this.experience.record({requestId:r.id,summary:r.goal.summary,criteria:r.goal.criteria,version:this.runner.bot?.version||'unknown',evidence,reflection,verdict:r.verification?.verdict||'blocked'})
     this.episode?.write('experience_saved',{requestId:r.id,evidence,reflection,verdict:r.verification?.verdict||'blocked'})
   }
-  async submit(text,continuation=null,{automatic=false}={}) {
+  async submit(text,continuation=null,{automatic=false,prepared=null}={}) {
     if (typeof text !== 'string' || !text.trim() || text.length > 2000) throw new Error('Enter a message of 1–2000 characters')
     text = text.trim()
     if (/^(?:please )?(?:stop|stop now|stop bot|cancel|hold on|stop everything|wait)[.!]?$/i.test(text)) { this.say(text, 'user'); this.stop(); return }
@@ -592,7 +748,8 @@ export class Teammate extends EventEmitter {
     if(this.snapshot().dead||this.runner.respawnPending){this.say('Respawn the agent first. Your saved task stays paused until you choose Resume.');return}
     if(!continuation&&/^(?:resume|continue)(?: (?:task|request|the task|the request))?[.!]?$/i.test(text)){await this.resume();return}
     if(!continuation&&/^(?:what(?:'s| is) (?:your progress|the status)|what are you doing|how(?:'s| is) it going|status|progress)[?.!]*$/i.test(text)){
-      this.say(text,'user');const r=this.requestProgress,check=r?.verification
+      this.say(text,'user');const r=this.requestProgress,check=r?.verification,milestone=r?.mission?.nodes.find(n=>n.id===r.mission.activeId)
+      if(milestone)this.say(`Current milestone: ${milestone.description}. ${r.mission.nodes.filter(n=>n.status==='verified').length}/${r.mission.nodes.length} milestones last verified.${r.mission.requiresObservation?' I will recheck them before continuing.':''}`)
       this.say(r?.status==='running'?`${r.goal?.summary||r.request}. ${this.activity||'Planning the next step'}.${check?` ${check.checks.filter(c=>c.passed).length}/${check.checks.length} goal checks passed.`:''}`:this.phase==='blocked'?`Blocked: ${r?.blocker||'Waiting for a new instruction'}`:'Ready for your next instruction.');return
     }
     // An operator instruction may well have changed the world, so it clears a
@@ -607,19 +764,34 @@ export class Teammate extends EventEmitter {
     const requestTasks=new Set()
     const existingTask=structuredClone(this.runner.task?.kind==='build'?this.runner.task:(this.projects.base?{kind:'build',status:'completed',goal:this.projects.base.build}:this.runner.task))
     const feedback=this.requestProgress.feedback??=[],completedAtStart=this.requestProgress.completed?.length||0
-    // Failures recorded before a pause describe the world as it was. Mark them
-    // so the planner retries the prerequisite once instead of asking for help.
+    // Explicit Resume may follow an operator change. Automatic recovery alone
+    // does not invalidate resource or route failures from the same request.
     if(continuation&&feedback.length){
-      for(const f of feedback)if(f.status==='failed'&&!f.beforeResume)f.beforeResume=true
-      feedback.push({action:'resume',status:'completed',automatic,reason:'Resumed after a pause. Earlier failures are marked beforeResume and may no longer apply; retry that prerequisite once before treating it as blocked or asking for help.'})
+      if(!automatic)for(const f of feedback)if(f.status==='failed'&&!f.beforeResume)f.beforeResume=true
+      feedback.push({action:'resume',status:'completed',automatic,reason:automatic?'Automatic continuation preserves earlier failure evidence. Compare fresh observations with the failed attempt before retrying; a shelter exit or elapsed time alone does not establish a new resource or route. Choose a different supported approach when its prerequisite remains absent.':'Resumed after a pause. Earlier failures are marked beforeResume and may no longer apply; retry that prerequisite once before treating it as blocked or asking for help.'})
       this.persist()
+    }
+    let planningRound=0,skillControl=null
+    const observe=()=>{
+        const { connected, owner, ownerVisible, position, ownerPosition, health, survival, tools, inventory, places, task, lastDeath } = this.snapshot()
+        const b=this.runner.bot
+        const nearby=nearbyResources(b,[...LOG_ITEMS,'stone','coal_ore','iron_ore','crafting_table'])
+        // Completed work from an earlier request cannot fulfill a fresh one.
+        // Keep unfinished tasks available for explicitly requested build resume.
+        const currentTask=currentRequestTask(task,requestTasks)
+        this.verifyGoal()
+        const experience=this.experience.retrieve(text,this.requestProgress.goal,b?.version||'unknown')
+        this.requestProgress.retrievedExperience=experience.map(e=>e.id);this.persist()
+        const observation=expeditionObservation({...(this.threatContextMode==='legacy'?{}:{recovery:recoveryContext(this,b)}),goal:this.requestProgress.goal,verification:this.requestProgress.verification,activeMilestone:missionFocus(this.requestProgress.mission),experience,terrain:this.requestProgress.goal?terrainSummary(b,{near:ownerPosition||position,projects:this.projects}):null,connected,owner,ownerVisible,position,ownerPosition,health,survival,foraging:berryObservation(b),footing:footingObservation(b),interactables:interactableObservation(b,{names:useTargetNames(this.requestProgress.goal)}),localTerrain:terrainSummary(b,{projects:this.projects}),tools,inventory,places,task:currentTask,nearby,feedback:feedback.slice(-24),projects:structuredClone(this.projects),existingBuild:existingTask?.kind==='build'?existingTask:null,requestProgress:structuredClone(this.requestProgress),lastDeath,remainingPlanningRounds:PLANNING_ROUNDS-planningRound})
+        return observation
     }
     const activeStarted=Date.now();let stagnant=0,lastFingerprint=progressFingerprint(this.snapshot())
     let repeatFailure='',failureCount=0,lastRejection='',rejections=0,invalidPlans=0
     try {
+      if(this.skillControlMode==='jev'&&!this.skillSelect&&!this.threatJudge.key)throw new Error('Jev skill control requires the configured TypeSafe key')
       let vacuousRetried=false,contractRejection=null
       for(let attempt=0;attempt<2&&!this.requestProgress.goal&&this.planner.formulate;attempt++){
-        const initial={...this.snapshot(),task:currentRequestTask(this.runner.task,requestTasks),terrain:terrainSummary(this.runner.bot,{near:this.snapshot().ownerPosition||this.runner.position(),projects:this.projects}),experience:this.experience.retrieve(text,null,this.runner.bot?.version||'unknown'),...(contractRejection?{contractRejection}:{})}
+        const initial={...this.snapshot(),foraging:berryObservation(this.runner.bot),task:currentRequestTask(this.runner.task,requestTasks),terrain:terrainSummary(this.runner.bot,{near:this.snapshot().ownerPosition||this.runner.position(),projects:this.projects}),experience:this.experience.retrieve(text,null,this.runner.bot?.version||'unknown'),...(contractRejection?{contractRejection}:{})}
         const interpreted=await this.planner.formulate(text,initial,history,abort.signal,result=>episode?.write('goal_interpretation',result))
         if(epoch!==this.epoch)return
         if(interpreted){
@@ -637,34 +809,42 @@ export class Teammate extends EventEmitter {
           this.say(interpreted.summary)
         }
       }
+      if(this.skillControlMode==='jev'&&this.requestProgress.goal?.kind==='task'){
+        const request=this.requestProgress,bot=this.runner.bot,connection=this.runner.connectionId
+        request.skillControl??={}
+        skillControl=new SkillControl({signal:abort.signal,budget:request.skillControl,persist:()=>this.persist(),
+          current:()=>this.epoch===epoch&&this.requestProgress===request&&request.status==='running'&&!request.reviewRequired&&this.runner.ready&&this.runner.bot===bot&&this.runner.connectionId===connection,
+          observe,plan:(o,signal)=>this.planner.plan(text,o,history,signal,'',decision=>episode?.write('skill_planning',decision)),
+          select:this.skillSelect||((o,options,signal)=>selectSkill(o,options,{signal,key:this.threatJudge.key,model:this.threatJudge.model})),
+          eligible:(step,o)=>{
+            if(satisfiedStep(step,feedback,o,bot))return false
+            if(step.action==='eat'&&(!(o.inventory[step.item]>0)||o.survival?.food===20))return false
+            if([...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(step.action)&&!o.projects.base)return false
+            try{if(step.action==='travel')validateObservedTravelGoal(bot,step.target);if(step.action==='construct')enforceProjectIntent(request.goal,step,this.projects)}catch{return false}
+            return true
+          },trace:(type,data)=>{episode?.write(type,data);this.runner.log?.(type,data)}})
+      }
       for(let round=0;round<PLANNING_ROUNDS;round++) {
         if(Date.now()-activeStarted>=ACTIVE_BUDGET_MS)throw new Error('Active planning time limit reached. Progress is saved; use Resume to continue.')
         this.requestProgress.rounds=(this.requestProgress.rounds||0)+1;this.persist()
-        const { connected, owner, ownerVisible, position, ownerPosition, health, survival, tools, inventory, places, task } = this.snapshot()
-        const b=this.runner.bot
-        const nearby=nearbyResources(b,[...LOG_ITEMS,'stone','coal_ore','iron_ore','crafting_table'])
-        // Completed work from an earlier request cannot fulfill a fresh one.
-        // Keep unfinished tasks available for explicitly requested build resume.
-        const currentTask=currentRequestTask(task,requestTasks)
-        this.requestProgress.verification=evaluateGoal(this.requestProgress.goal,this.snapshot(),b,feedback)
-        const experience=this.experience.retrieve(text,this.requestProgress.goal,b?.version||'unknown')
-        this.requestProgress.retrievedExperience=experience.map(e=>e.id);this.persist()
-        const observation=expeditionObservation({goal:this.requestProgress.goal,verification:this.requestProgress.verification,experience,terrain:this.requestProgress.goal?terrainSummary(b,{near:ownerPosition||position,projects:this.projects}):null,connected,owner,ownerVisible,position,ownerPosition,health,survival,tools,inventory,places,task:currentTask,nearby,feedback:feedback.slice(-24),projects:structuredClone(this.projects),existingBuild:existingTask?.kind==='build'?existingTask:null,requestProgress:structuredClone(this.requestProgress),remainingPlanningRounds:PLANNING_ROUNDS-round})
+        planningRound=round
+        const observation=observe(),milestoneId=observation.activeMilestone?.id
         this.phase='thinking';this.emit('change')
         episode?.write('observation', { round, observation: structuredClone(observation) })
         let plan
-        try{plan=validatePlan(await this.planner.plan(text,observation,history,abort.signal,'',decision=>episode?.write('decision',{round,...decision})));invalidPlans=0}
+        try{const cached=round===0&&prepared?.requestId===this.requestProgress.id&&prepared.connectionId===this.runner.connectionId&&Date.now()-prepared.createdAt<90000;plan=validatePlan(skillControl?await skillControl.next():cached?prepared.plan:await this.planner.plan(text,observation,history,abort.signal,'',decision=>episode?.write('decision',{round,...decision})));if(cached&&!skillControl)episode?.write('prepared_plan_used',{requestId:prepared.requestId,connectionId:prepared.connectionId,plan});invalidPlans=0}
         catch(error){if(epoch!==this.epoch)return;if(!error.invalidPlan||++invalidPlans>2)throw error;feedback.push({action:'plan',status:'failed',reason:'Plan validation failed before execution: '+error.message});this.requestProgress.blocker=error.message;this.persist();continue}
         if(epoch!==this.epoch)return
         episode?.write('plan', { round, plan })
         if(!plan.steps.length){
-          const verdict=evaluateGoal(this.requestProgress.goal,this.snapshot(),b,feedback);this.requestProgress.verification=verdict
+          const verdict=this.verifyGoal()
           if(verdict?.verdict==='needs_work'){
             const signature=JSON.stringify([verdict.checks,progressFingerprint(this.snapshot())]);rejections=signature===lastRejection?rejections+1:1;lastRejection=signature
             if(rejections>=2)throw new Error('Goal still incomplete. '+(plan.reply||this.requestProgress.blocker||verdict.missing.join('; ')))
             feedback.push({action:'goal_check',status:'failed',reason:'Goal unfinished. Reassess the failed prerequisite and use a different supported recovery before requesting help. Remaining requirements: '+verdict.missing.join('; '),explanation:plan.reply,verification:verdict});this.persist();continue
           }
           if(verdict){
+            skillControl?.close()
             this.activity='Saving lessons';await this.rememberExperience(epoch,abort.signal);if(epoch!==this.epoch)return
             this.phase='ready';this.activity='';this.requestProgress.status=verdict.verdict==='passed'?'verified':'needs_review';this.requestProgress.pending=[]
             this.say(verdict.verdict==='passed'?(plan.reply||'The goal checks passed.'):'The executable checks passed. Still needs your review: '+verdict.missing.join('; '));episode?.end(this.requestProgress.status,{verification:verdict});return
@@ -677,13 +857,17 @@ export class Teammate extends EventEmitter {
         }
         this.dispatch({action:'stop'});this.plan=plan.steps
         this.requestProgress.pending=structuredClone(plan.steps);this.persist()
-        const labels={leave_base:()=> 'leave the base and close its door',retreat:()=> 'enter the verified lit base and close its door',harvest:s=>`harvest renewable berries until I carry ${s.count}`,hunt:s=>`hunt nearby animals for ${s.count} ${String(s.item).replaceAll('_',' ')}`,eat:s=>`eat up to ${s.count} ${s.item.replaceAll('_',' ')} while hungry`,revise:s=>`revise ${s.name} while preserving the rest of its saved structure`,construct:s=>{const r=this.projects[s.name]?.result;return r&&!r.partial?`verify ${s.name} and walk its access routes`:r?`continue ${s.name} from ${r.verifiedBlocks} of ${r.totalBlocks} blocks`:`build ${s.name} and check its access when finished`},prepare:s=>`prepare ${s.count} serviceable ${s.item.replaceAll('_',' ')}`,stow:()=> 'unload excavation rubble into the base chest',prospect:s=>`prospect for ${s.count} ${s.item.replaceAll('_',' ')} and return to base`,return_base:()=>'return along the saved route to base',place:s=>`place a base ${s.item.replaceAll('_',' ')}`,deposit:s=>`store a total of ${s.count} ${s.item.replaceAll('_',' ')} in the base chest`,withdraw:s=>`retrieve ${s.item.replaceAll('_',' ')} until I carry ${s.count}`,smelt:s=>`smelt ${s.item.replaceAll('_',' ')} until I carry ${s.count}`,check_base:()=> 'verify base access, workstations, lighting and storage',remember:s=>`save your location as ${s.name}`,return:s=>`return to ${s.name}`,come:()=> 'come to you',follow:()=> 'follow you',gather:s=>`collect a total of ${s.count} ${resourceLabel(s.item||'oak_log')}`,inspect:()=> 'inspect my surroundings',acquire:s=>`obtain ${s.count} ${s.item.replaceAll('_',' ')}`,give:s=>`hand you ${s.count} ${s.item.replaceAll('_',' ')}`,build:s=>`obtain any missing materials and construct the ${s.design.length}-block design`}
+        const labels={travel:s=>`walk to observed ground at ${s.target.x}, ${s.target.y}, ${s.target.z}`,descend:()=> 'find a checked route down from the canopy',climb:()=> 'climb to an observed exit from this pit',leave_base:()=> 'leave the base and close its door',retreat:()=> 'enter the verified lit base and close its door',harvest:s=>`harvest renewable berries until I carry ${s.count}`,hunt:s=>`hunt nearby animals for ${s.count} ${String(s.item).replaceAll('_',' ')}`,eat:s=>`eat up to ${s.count} ${s.item.replaceAll('_',' ')} while hungry`,sleep:()=> 'sleep the night through in a bed',use:s=>`use the ${String(s.item).replaceAll('_',' ')} ${s.target?.how==='point'?'in the air at':'on the block at'} ${s.target?.x}, ${s.target?.y}, ${s.target?.z}`,revise:s=>`revise ${s.name} while preserving the rest of its saved structure`,construct:s=>{const r=this.projects[s.name]?.result;return r&&!r.partial?`verify ${s.name} and walk its access routes`:r?Number.isInteger(r.verifiedBlocks)?`continue ${s.name} from ${r.verifiedBlocks} of ${r.totalBlocks} blocks`:`continue ${s.name} after checking its saved prerequisites`:`build ${s.name} and check its access when finished`},prepare:s=>`prepare ${s.count} serviceable ${s.item.replaceAll('_',' ')}`,stow:()=> 'unload excavation rubble into the base chest',prospect:s=>`prospect for ${s.count} ${s.item.replaceAll('_',' ')} and return to base`,return_base:()=>'return along the saved route to base',place:s=>`place a base ${s.item.replaceAll('_',' ')}`,deposit:s=>`store a total of ${s.count} ${s.item.replaceAll('_',' ')} in the base chest`,withdraw:s=>`retrieve ${s.item.replaceAll('_',' ')} until I carry ${s.count}`,smelt:s=>`smelt ${s.item.replaceAll('_',' ')} until I carry ${s.count}`,check_base:()=> 'verify base access, workstations, lighting and storage',remember:s=>`save your location as ${s.name}`,return:s=>`return to ${s.name}`,come:()=> 'come to you',follow:()=> 'follow you',gather:s=>`collect a total of ${s.count} ${resourceLabel(s.item||'oak_log')}`,inspect:()=> 'inspect my surroundings',acquire:s=>`obtain ${s.count} ${s.item.replaceAll('_',' ')}`,give:s=>`hand you ${s.count} ${s.item.replaceAll('_',' ')}`,build:s=>`obtain any missing materials and construct the ${s.design.length}-block design`}
         // Every planner action needs a spoken label; an unlabelled one must not end the round.
         const label=s=>(labels[s.action]||(x=>`${x.action.replaceAll('_',' ')}${x.item?` ${x.count||''} ${String(x.item).replaceAll('_',' ')}`.replace(/\s+/g,' '):''}`))(s)
         this.say('I will '+plan.steps.map(label).join(', then ')+'.');this.phase='acting'
         let failed=false,executed=0
         for(let i=0;i<plan.steps.length;i++) {
           if(epoch!==this.epoch)return
+          // A stage boundary or lost prerequisite invalidates the rest of a
+          // batch. Re-observe and ask for work on the newly eligible milestone.
+          this.verifyGoal()
+          if(milestoneId!==missionFocus(this.requestProgress.mission)?.id)break
           this.stepIndex=i;const step=plan.steps[i];this.activity=step.action;this.emit('change')
           episode?.write('action_started', { round, stepIndex: i, step })
           try {
@@ -693,6 +877,11 @@ export class Teammate extends EventEmitter {
               this.requestProgress.pending=plan.steps.slice(i+1);this.persist();continue
             }
             if(step.action==='eat'&&feedback.some(f=>f.action==='eat'&&f.status==='failed'&&f.task?.consumption?.uncertain))throw new Error('Previous consumption is uncertain. Inspect hunger and inventory before a new request.')
+            // Keyed on the receipt of a COMPLETED entry, not a failed one: a
+            // failed step carries no task for most actions, which is what made
+            // the first version of this guard dead code.
+            if(step.action==='use'&&feedback.some(f=>f.action==='use'&&f.result?.receipt==='use_effect_unobserved'&&f.result.item===step.item&&JSON.stringify(f.result.target)===JSON.stringify(step.target)))
+              throw new Error(`A previous ${step.item} at ${step.target.x}, ${step.target.y}, ${step.target.z} was charged without a confirmed effect. Re-observe that block before using there again.`)
             if(step.action==='give'&&feedback.some(f=>f.action==='give'&&f.step?.item===step.item&&f.status==='failed'&&f.task?.delivery?.attempted))throw new Error('Delivery was already attempted without confirmation. Check receipt before sending more.')
             executed++
             if(this.playingAsOwner() && ['follow','come','give'].includes(step.action))throw new Error('I am playing as your account. Use the app for tasks, or use a second account to follow you and hand you items.')
@@ -711,6 +900,9 @@ export class Teammate extends EventEmitter {
               let command
               if(step.action==='gather')command={action:'gather',goal:{item:step.item||'oak_log',count:step.count},timeoutMs:180000}
               else if(['acquire','prepare','eat','harvest','hunt'].includes(step.action))command={action:step.action,goal:{item:step.item,count:step.count},timeoutMs:600000}
+              else if(step.action==='travel')command={action:'travel',goal:validateObservedTravelGoal(this.runner.bot,step.target),timeoutMs:180000}
+              else if(step.action==='use')command={action:'use',goal:validateUseGoal({item:step.item,count:1,expect:step.name,target:step.target,protectedSites:projectFootprints(this.projects)}),timeoutMs:120000}
+              else if(['descend','climb'].includes(step.action))command={action:step.action,goal:{},timeoutMs:45000}
               else if(step.action==='sleep')command={action:'sleep',goal:this.projects.base?{project:structuredClone(this.projects.base)}:{},timeoutMs:180000}
               else if(step.action==='give')command={action:'give',goal:{item:step.item,count:step.count-deliveredCount(feedback,step.item)},timeoutMs:30000}
               else if([...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(step.action)){
@@ -741,8 +933,12 @@ export class Teammate extends EventEmitter {
                   // A shelter build with a saved base repairs that base. Searching for a
                   // fresh site abandons a lit, furnished one: the new origin wipes the
                   // station records, and 140 of 143 'no recorded light' refusals in a
-                  // single session followed exactly that.
-                  const saved=shelter&&this.projects.base?.build?.origin?this.projects.base.build:null
+                  // single session followed exactly that. Only a base within reach can
+                  // be tonight's shelter, though: anchoring to one 387 blocks away walked
+                  // the agent to a site that had gone stale, and the contract that
+                  // mandates the build action forbids named construction as a fallback.
+                  const base=this.projects.base?.build
+                  const saved=shelter&&base?.origin&&withinBuildReach(near,base.origin)?base:null
                   const from=prior?.task?.goal?.origin?prior.task.goal:saved
                   return from?{origin:from.origin,...(from.wood?{wood:from.wood}:{})}:{protectedSites:projectFootprints(this.projects)}
                 }).call(this)},timeoutMs:600000}
@@ -754,15 +950,15 @@ export class Teammate extends EventEmitter {
                 // real distances in stages instead.
                 const here=this.runner.position()
                 const far=here&&Math.hypot(p.x-here.x,p.z-here.z)>64
-                command=far?{action:'travel',goal:{x:p.x,y:p.y,z:p.z},timeoutMs:600000}
+                command=step.action==='come'?{action:'travel',goal:{x:p.x,y:p.y,z:p.z,player:this.runner.owner},timeoutMs:180000}:far?{action:'travel',goal:{x:p.x,y:p.y,z:p.z},timeoutMs:600000}
                              :{action:'navigate',goal:{x:p.x,y:p.y,z:p.z},timeoutMs:120000}
               }
               await this.execute(command,abort.signal,id=>{requestTasks.add(id);this.requestProgress.inFlight={taskId:id,step};this.persist()})
             }
             if(epoch!==this.epoch)return
-            const result=['gather','acquire','build','construct','revise','give','eat','harvest','hunt','sleep',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(step.action)?structuredClone(this.runner.task?.result||null):null
+            const result=['come','gather','acquire','build','construct','revise','give','eat','harvest','hunt','sleep','descend','climb','travel','use',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(step.action)?structuredClone(this.runner.task?.result||null):null
             feedback.push({action:step.action,step,taskId:this.requestProgress.inFlight?.taskId,status:'completed',result,inventory:this.snapshot().inventory,...(['build','construct','revise'].includes(step.action)?{task:structuredClone(this.runner.task)}:{})})
-            this.requestProgress.completed.push({step,result,taskId:this.requestProgress.inFlight?.taskId});this.requestProgress.inFlight=null;this.requestProgress.pending=plan.steps.slice(i+1);this.requestProgress.blocker=null;this.persist()
+            this.requestProgress.completed.push({step,result,taskId:this.requestProgress.inFlight?.taskId});this.requestProgress.inFlight=null;this.requestProgress.pending=plan.steps.slice(i+1);this.requestProgress.blocker=null;this.verifyGoal();this.persist()
             episode?.write('action_result', { round, stepIndex: i, step, outcome: feedback.at(-1), evidence: step.action==='follow'?'Follow started; continued proximity is not independently verified.':'Executor/client observation; no independent server verification.' })
             // A returned expedition may have only part of its resource target.
             // Let the planner repair prerequisites before dependent steps run.
@@ -775,16 +971,17 @@ export class Teammate extends EventEmitter {
             this.requestProgress.blocker=error.message;this.requestProgress.reviewRequired=interruptedEffect(this.runner.task);this.persist()
             episode?.write('action_result', { round, stepIndex: i, step, outcome: feedback.at(-1), evidence: 'Executor/client observation' })
             if(step.action==='give'&&this.runner.task?.delivery?.attempted||['deposit','withdraw','stow'].includes(step.action)&&this.runner.task?.transfer?.uncertain)throw error
-            const adaptive=plan.steps.some(s=>['acquire','build','construct','revise','inspect','give','eat','harvest','hunt','sleep',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action))
+            const adaptive=plan.steps.some(s=>['come','acquire','build','construct','revise','inspect','give','eat','harvest','hunt','sleep','descend','climb','travel','use',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action))
             if(!adaptive||failureCount>=2)throw error
             this.dispatch({action:'stop'});this.say(`Blocked: ${error.message}. I will inspect the result and revise the plan.`);failed=true;break
           }
         }
         if(epoch!==this.epoch)return
+        if(executed||failed)skillControl?.outcome(feedback.at(-1))
         if(!executed&&!failed&&!this.requestProgress.goal){this.phase='ready';this.activity='';this.requestProgress.status='steps_completed';this.requestProgress.pending=[];this.say('I checked those steps; they are already satisfied.');episode?.end('actions_finished',{feedback});this.emit('change');return}
         const fingerprint=progressFingerprint(this.snapshot());stagnant=fingerprint===lastFingerprint?stagnant+1:0;lastFingerprint=fingerprint
         if(stagnant>=3)throw new Error('No observed progress for three planning rounds. Progress is saved; resolve the blocker and Resume.')
-        if(this.requestProgress.goal||failed||plan.steps.some(s=>['acquire','build','construct','revise','inspect','give','eat','harvest','hunt','sleep',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action))){this.phase='thinking';continue}
+        if(this.requestProgress.goal||failed||plan.steps.some(s=>['come','use','acquire','build','construct','revise','inspect','give','eat','harvest','hunt','sleep','descend','climb','travel',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action))){this.phase='thinking';continue}
         this.phase='ready';this.activity='';this.stepIndex=plan.steps.length
         this.requestProgress.status='steps_completed';this.requestProgress.pending=[]
         this.say(plan.steps.at(-1).action==='follow'?'I am following you.':`Finished. ${plan.steps.some(s=>s.action==='gather')?`I have ${resourceCount(this.snapshot().inventory,plan.steps.find(s=>s.action==='gather').item||'oak_log')} logs.`:'Ready for the next task.'}`)
@@ -792,10 +989,12 @@ export class Teammate extends EventEmitter {
       }
       throw new Error('Planning limit reached after 24 rounds. Progress is saved; use Resume to continue.')
     } catch(e) {
+      skillControl?.close()
       if(epoch!==this.epoch)return
       if(this.phase==='acting')this.dispatch({action:'stop'})
       this.requestProgress.status='blocked';this.requestProgress.blocker=e.message
-      this.requestProgress.verification=evaluateGoal(this.requestProgress.goal,this.snapshot(),this.runner.bot,feedback)
+      this.verifyGoal()
+      this.persist()
       await this.rememberExperience(epoch,abort.signal);if(epoch!==this.epoch)return
       this.phase='blocked';this.activity='';this.say(`I could not finish: ${e.message==='fetch failed'?'The selected model could not be reached. Check its connection in Models.':e.message}`)
       episode?.end('blocked', { reason: e.message, feedback })
@@ -809,7 +1008,7 @@ export class Teammate extends EventEmitter {
         this.say('Steps were still completing when the budget ran out. Continuing the saved request automatically.')
         try{await this.resume({automatic:true})}catch(error){if(epoch!==this.epoch)return;this.requestProgress.blocker=error.message;this.persist()}
       }
-    }
+    } finally { skillControl?.close() }
   }
 
   async leaveOccupiedShelter(signal,destinationName=null){
@@ -825,6 +1024,15 @@ export class Teammate extends EventEmitter {
       }
   }
   async execute(command, signal, started = () => {}) {
+    const tracked=!!this.safety&&['defend','flee','retreat','burrow','hut','climb','descend'].includes(command.action)
+    const bot=this.runner.bot,connectionId=this.runner.connectionId,requestId=this.requestProgress?.id||null
+    const before=tracked?recoveryState(bot):null,at=new Date().toISOString(),expectation=this.safety?.adaptiveDecision?.expectation||null
+    let outcome='completed',reason=null
+    try{return await Teammate.prototype.executeCommand.call(this,command,signal,started)}
+    catch(error){outcome=signal.aborted?'cancelled':'failed';reason=error.message;throw error}
+    finally{if(tracked&&this.runner.bot===bot&&this.runner.connectionId===connectionId)recordRecovery(this,{at,connectionId,requestId,action:command.action,expectation,status:outcome,reason,before,after:recoveryState(bot)})}
+  }
+  async executeCommand(command, signal, started = () => {}) {
     await this.runner.waitForIdle?.(signal)
     if(!['defend','eat','craft','stop','leave_base','burrow','unburrow'].includes(command.action))await this.leaveOccupiedShelter(signal,command.action==='retreat'?command.goal?.shelter?.name:null)
     return new Promise((resolve, reject) => {

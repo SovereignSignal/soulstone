@@ -4,6 +4,8 @@ A Minecraft teammate for macOS. Give it a goal in text or voice, follow its prog
 
 **Current alpha: Apple Silicon Mac, macOS 14+ build target, Minecraft Java.** Gameplay has scoped checks on Java 1.21.4 and 26.2. Windows, Linux, Intel Mac, Bedrock and modpacks are not validated app targets. See [support and limits](docs/STATUS.md).
 
+A separate [SoulStone Play desktop preview](desktop/README.md) is being developed for Windows and Mac, with child-facing controls and voice. It has passed installation and startup in a Windows 11 ARM VM. Real speech accuracy and gameplay acceptance are still pending.
+
 ## Quick start from source
 
 You need access to this private repository, Apple command-line tools, Python 3.9+, an arm64 Node.js release version 22+, and Minecraft Launcher. **Launch Minecraft Java 1.21.4 or 26.2 once** so its Java runtime is installed. The [setup guide](docs/SETUP.md) has prerequisite instructions.
@@ -49,6 +51,7 @@ Inspect the inventory and try **Stop bot** during work. [First play session](com
 | [Connections](companion/CONNECTIONS.md) | LAN, remote servers, Java accounts and saved worlds |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Build failures, missing models, account errors and connection problems |
 | [Companion controls](companion/README.md) | Text, voice, Stop, Resume and model selection |
+| [Minecraft upgrades](docs/COMPATIBILITY.md) | Check, stage, verify and adopt new server compatibility |
 | [Support and limits](docs/STATUS.md) | Tested scope and what remains unverified |
 | [Packaging](companion/PACKAGING.md) | Self-contained builds, checks and distribution boundaries |
 | [Harness](harness/README.md) | Terminal lab use and implementation details |

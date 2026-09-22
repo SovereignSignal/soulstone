@@ -1,0 +1,7 @@
+node_modules/
+resources/
+dist/
+ui/assets/
+native/bin/
+native/obj/
+*.log

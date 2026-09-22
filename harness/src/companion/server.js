@@ -2,7 +2,7 @@ import {Vec3} from 'vec3'
 import {DayRoutine} from './day-routine.js'
 import {loadSetup} from './setup.js'
 import {MinecraftAccounts,linkedAccountAuth} from './minecraft-accounts.js'
-import {startVersionBridge,bridgeVersion} from './version-bridge.js'
+import {startVersionBridge,bridgeRouteForVersion} from './version-bridge.js'
 import {connectionFailure,checkConnection} from './connection-check.js'
 import {subscriptionKinds,subscriptionStatus} from './subscriptions.js'
 import {ModelProfiles} from './providers.js'
@@ -140,13 +140,13 @@ async function startGame() {
  startingGame=true
  try {
   if(versionBridge){await versionBridge.close();versionBridge=null}
-  if(setup && (setup.version==='auto'||setup.version===bridgeVersion)) {
+  if(setup && (setup.version==='auto'||bridgeRouteForVersion(setup.version))) {
    const status=await checkConnection(setup)
    if(status.status!=='reachable')throw new Error(status.message)
    if(status.route==='bridge') {
-    if(setup.auth!=='microsoft'||!setup.minecraftAccountId)throw new Error('Link a Minecraft Java account in Worlds to use 26.2 compatibility mode.')
-    connectionIssue='Starting Minecraft 26.2 compatibility mode…'
-    versionBridge=await startVersionBridge({host:setup.host,port:setup.port,store:new MinecraftAccounts(process.env.MC_ACCOUNTS_DIR),accountId:setup.minecraftAccountId,onFailure:message=>{
+    if(setup.auth!=='microsoft'||!setup.minecraftAccountId)throw new Error(`Link a Minecraft Java account in Worlds to use ${status.serverVersion} compatibility mode.`)
+    connectionIssue=`Starting Minecraft ${status.serverVersion} compatibility mode…`
+    versionBridge=await startVersionBridge({host:setup.host,port:setup.port,serverVersion:status.serverVersion,store:new MinecraftAccounts(process.env.MC_ACCOUNTS_DIR),accountId:setup.minecraftAccountId,onFailure:message=>{
      if(closing)return
      lastConnectionFailure=message;runner.close();runner.connectionExhausted=true;connectionIssue=message
     }})

@@ -99,5 +99,12 @@ export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},move
   }
  }finally{bot.pathfinder.setGoal(null);bot.clearControlStates?.();if(movements)bot.pathfinder.setMovements(movements)}
  const seen=[...new Set(Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&e.position&&EDIBLE.includes(e.name)&&distance(e.position,bot.entity.position)<=32).map(e=>e.name))]
+ // Partial means "I got some of what I wanted". Zero is a failure, and saying
+ // otherwise starved the agent: twelve hunts in a row reported completed
+ // carrying {count:0,kills:0,acquired:false} while hunger sat at 0/20, so the
+ // planner never tried berries, a different area, or the surface.
+ if(count()===0)throw new Error(`Found no ${String(item).replaceAll('_',' ')} after ${legs} search ${legs===1?'leg':'legs'}`+
+  (seen.length?`; animals seen nearby: ${[...new Set(seen.map(a=>a.name||a))].join(', ')}`:' and no animals in range')+
+  '. Try a different area, the surface, or another food source.')
  return {item,count:count(),target:total,kills:record.kills,legs,nearbyAnimals:seen,position:point(bot.entity.position),acquired:count()>=total,partial:count()<total,receipt:count()>=total?'hunt_target_reached':'hunt_partial'}
 }

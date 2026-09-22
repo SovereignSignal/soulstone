@@ -1,13 +1,17 @@
+import {milestonePlanSchema,validateMilestonePlan} from './milestones.js'
 import {shelteredObservation} from '../retreat.js'
 import {compileArchitecture,architectureMaterials,projectName,reviseArchitecture} from '../construction.js'
 import {Vec3} from 'vec3'
+import {parseBlockState,matchesExpected,dimensionOf} from '../use-item.js'
+import {wornArmour} from '../threat-judgement.js'
 import {usableToolCount} from '../supplies.js'
 import {deliveredCount} from './progress.js'
 import {resourceCount} from '../resources.js'
 
-const kinds=['inventory','tools','delivered','stored','shelter','construction','furniture','reach_height','max_blocks','material_only','at_place','at_owner','at_base','base_ready','sheltered','review','slept','health','ate']
-export const contractSchema={type:'object',additionalProperties:false,required:['kind','summary','projectMode','milestones','constraints','criteria'],properties:{
+const kinds=['inventory','tools','delivered','stored','shelter','construction','furniture','reach_height','max_blocks','material_only','at_place','at_owner','at_base','base_ready','sheltered','block_at','review','slept','health','hunger','ate']
+export const contractSchema={type:'object',additionalProperties:false,required:['kind','summary','projectMode','milestones','milestonePlan','constraints','criteria'],properties:{
  kind:{type:'string',enum:['task','question','clarification']},summary:{type:'string',minLength:1,maxLength:600},projectMode:{type:'string',enum:['new','continue','modify','inspect','none']},
+ milestonePlan:milestonePlanSchema,
  milestones:{type:'array',items:{type:'string',maxLength:300},maxItems:8},constraints:{type:'array',items:{type:'string',maxLength:300},maxItems:12},
  criteria:{type:'array',maxItems:12,items:{type:'object',additionalProperties:false,required:['kind','description','target','item','count'],properties:{kind:{type:'string',enum:kinds},description:{type:'string',minLength:1,maxLength:300},target:{type:'string',maxLength:40},item:{type:'string',maxLength:256},count:{type:'integer',minimum:0,maximum:2048}}}}
 }}
@@ -32,16 +36,22 @@ export function validateContract(v,projects={}) {
   }
   if(c.kind==='sheltered'&&(c.target!=='base'||c.count!==1))throw new Error('Sheltered criterion needs target base and count 1')
   if(c.kind==='slept'&&c.count!==1)throw new Error('Slept criterion needs count 1')
-  if(c.kind==='health'&&(c.count<1||c.count>20))throw new Error('Health criterion needs a target of 1 to 20')
+  if(['health','hunger'].includes(c.kind)&&(c.count<1||c.count>20))throw new Error('Health or hunger criterion needs a target of 1 to 20')
   if(c.kind==='ate'&&!(/^[a-z0-9_]{1,64}$/.test(c.item)&&c.count>0))throw new Error('Ate criterion needs a food item and a positive count')
   if(c.kind==='furniture'&&(!/^[a-z0-9_]{1,64}$/.test(c.item)||c.count<1))throw new Error('Furniture criterion needs item and count')
   if(c.kind==='material_only'&&!/^[a-z0-9_]+(?:,[a-z0-9_]+)*$/.test(c.item))throw new Error('Material constraint must list comma-separated item IDs')
   if(['reach_height','max_blocks'].includes(c.kind)&&c.count<1)throw new Error('Positive construction constraint required')
+  if(c.kind==='block_at'){
+   if(c.count<1||c.count>12||c.count>1&&c.target!=='')throw new Error('Block criterion needs count 1-12, and a counted one names no single position')
+   if(c.target!==''&&!/^-?\d{1,8},-?\d{1,8},-?\d{1,8}$/.test(c.target))throw new Error('Block criterion target is "" or "x,y,z"')
+   parseBlockState(c.item)
+  }
   return {...c}
  })
  for(const c of criteria)if(aliases[c.target])c.target=aliases[c.target]
  for(const c of criteria.filter(c=>['furniture','reach_height','max_blocks','material_only'].includes(c.kind)))if(!criteria.some(p=>p.kind==='construction'&&p.target===c.target))throw new Error('A construction constraint needs its construction completion criterion')
- return {...v,criteria,baselineProjects:Object.keys(projects)}
+ const milestonePlan=validateMilestonePlan(v.milestonePlan,criteria,v.kind)
+ return {...v,criteria,milestonePlan,baselineProjects:Object.keys(projects)}
 }
 export function enforceProjectIntent(contract,step,projects) {
  if(step.action==='revise'&&!contract)throw new Error('Revision requires an interpreted modification goal')
@@ -79,7 +89,16 @@ export function evaluateGoal(contract,snapshot,bot,feedback=[]) {
   let passed=false,observed=null,source='current observation'
   const construction=snapshot.projects?.[c.target],build=construction?.construction
   const receipt=current.findLast(f=>['construct','revise'].includes(f.action)&&f.result?.name===c.target&&!f.result.partial)
-  if(c.kind==='inventory'){observed=c.item==='logs'?resourceCount(snapshot.inventory,'logs'):snapshot.inventory[c.item]||0;passed=observed>=c.count}
+  if(c.kind==='inventory'){
+   // Worn armour is not in inventory.items(): armour occupies player-window
+   // slots 5-8 and items() starts at 9, verified live (carried reads 1, worn
+   // reads 0). Without this an "iron helmet" criterion failed the moment the
+   // agent put one on, and it crafted a spare to satisfy its own goal.
+   const worn=wornArmour(bot).filter(n=>n===c.item).length
+   observed=(c.item==='logs'?resourceCount(snapshot.inventory,'logs'):snapshot.inventory[c.item]||0)+worn
+   passed=observed>=c.count
+   if(worn)source='carried inventory plus worn equipment'
+  }
   if(c.kind==='tools'){observed=usableToolCount(bot?.inventory?.items()||[],c.item);passed=observed>=c.count}
   if(c.kind==='delivered'){observed=deliveredCount(current,c.item);passed=observed>=c.count;source='current request pickup receipts'}
   if(c.kind==='stored'){
@@ -105,7 +124,28 @@ export function evaluateGoal(contract,snapshot,bot,feedback=[]) {
   if(c.kind==='shelter'){observed=current.some(f=>f.action==='build'&&f.result?.usability?.status==='usable');passed=observed;source='current request shelter blocks, door and walkthrough receipt'}
   if(c.kind==='slept'){const f=current.findLast(f=>f.action==='sleep');observed=f?.result?.receipt||null;passed=observed==='slept_until_morning';source='current request sleep receipt with an observed morning wake'}
   if(c.kind==='health'){observed=snapshot.survival?.health??snapshot.health??null;passed=Number.isFinite(observed)&&observed>=c.count;source='live health observation'}
+  if(c.kind==='hunger'){observed=snapshot.survival?.food??null;passed=Number.isFinite(observed)&&observed>=c.count;source='current server hunger observation'}
   if(c.kind==='ate'){observed=current.filter(f=>f.action==='eat'&&f.result?.item===c.item).reduce((n,f)=>n+(f.result?.count||0),0);passed=observed>=c.count;source='current request eating receipts'}
+  // Receipt-anchored, like `construction` and `sheltered`. A bare live read would
+  // mean walking through the portal you just lit un-completes the goal that
+  // lighting it satisfied, and two identical needs_work verdicts become a throw.
+  if(c.kind==='block_at'){
+   const want=parseBlockState(c.item),here=dimensionOf(bot)
+   const hits=current.filter(f=>f.action==='use'&&f.result?.receipt&&f.result.receipt!=='use_effect_unobserved'
+     &&matchesExpected(f.result.observed,want)
+     &&(c.target===''||c.target===`${f.result.target.x},${f.result.target.y},${f.result.target.z}`))
+   const distinct=new Set(hits.map(f=>JSON.stringify(f.result.target))).size
+   // null is unloaded, not a contradiction: the same loaded-versus-absent
+   // distinction the executor refuses to blur.
+   const contradicted=hits.some(f=>{
+    if(f.result.target.dimension!==here)return false
+    const b=bot?.blockAt?.(new Vec3(f.result.target.x,f.result.target.y,f.result.target.z))
+    return !!b&&!matchesExpected(b,want)
+   })
+   observed={receipts:distinct,liveCheck:hits.some(f=>f.result.target.dimension===here)?(contradicted?'contradicted':'confirmed'):'not readable from here'}
+   passed=distinct>=c.count&&!contradicted
+   source='use receipts from this request, re-read live when the agent is in the same dimension'
+  }
   if(c.kind==='review'){source='human review required';observed=c.description}
   return {...c,passed,observed,source}
  })
