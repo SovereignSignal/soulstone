@@ -8,7 +8,7 @@ import pathfinding from 'mineflayer-pathfinder'
 import {Vec3} from 'vec3'
 import {DoorAwareMovements,allowGroundBreaking,requireReachedGoal,breakableWhileTravelling} from './navigation.js'
 const {goals}=pathfinding
-export const LEG=32,ARRIVE=3,LEG_TIMEOUT_MS=25000
+export const LEG=32,ARRIVE=3,LEG_TIMEOUT_MS=25000,CLOSED_PER_LEG=1
 const point=p=>new Vec3(p.x,p.y,p.z)
 export function validateTravelGoal(goal){
  if(!goal||!['x','y','z'].every(k=>Number.isFinite(goal[k])))throw new Error('Travel needs a finite x, y and z')
@@ -139,7 +139,13 @@ export async function travelTo(bot,task,{check,stage,progress,movements}){
       :error?.name==='NoPath'?`no route to ${to.x},${to.z}`:error?.message||String(error)}
     finally{clearTimeout(timer);bot.pathfinder.setGoal(null)}
     check()
-     if(before-flat()>0){moved=true;break}
+     // Closing ground is progress; moving is not. `>0` let a bot oscillating in
+     // place buy a fresh stall budget with a few centimetres in the right
+     // direction: live on 22 September, 4 legs and 9 detours over 343 seconds
+     // with "12 blocks to go" on every progress line and the counter never
+     // reaching 3. A leg is a 25 second walk, so a real approach closes far
+     // more than one block and a dig through soft ground still clears it.
+     if(before-flat()>=CLOSED_PER_LEG){moved=true;break}
    }
    record.legs++
    if(!moved){

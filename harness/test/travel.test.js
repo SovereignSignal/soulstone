@@ -311,3 +311,46 @@ test('a broken world read never replaces the refusal it was meant to explain',()
  const angry={registry,blockAt(){throw new TypeError('chunk not loaded')}}
  assert.equal(lineObstruction(angry,{x:0,y:64,z:0},{x:9,y:64,z:0}),null,'a throwing world read is silence, not a second failure')
 })
+
+test('a leg that shuffled is not a leg that made progress',async()=>{
+ // Live, 2026-09-22 14:57Z: 4 legs, 9 detours, 343 seconds, "12 blocks to go"
+ // on every single progress line, and the stall counter never reached 3. A leg
+ // counted as movement on `before-flat()>0`, so a bot oscillating in place
+ // bought itself a fresh budget with a few centimetres in the right direction
+ // and travel burned its whole eight minutes instead of refusing in ninety
+ // seconds. This is C7's defect one level up: closing ground is progress,
+ // moving is not.
+ let walks=0
+ const bot={entity:{position:new Vec3(0.5,64,0.5)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},
+  blockAt:()=>({name:'air',boundingBox:'empty'}),
+  pathfinder:{setMovements(){},setGoal(){},async goto(){
+   walks++
+   // The escape hatch keeps this test bounded: if the stall budget never fires,
+   // travel arrives instead of spinning out its real eight minute deadline, and
+   // assert.rejects fails immediately rather than hanging the suite.
+   if(walks>12){bot.entity.position=new Vec3(60.5,64,0.5);return}
+   // a shuffle: a few centimetres closer, then back again
+   bot.entity.position=new Vec3(0.5+(walks%2?0.2:0.05),64,0.5)
+   throw Object.assign(new Error('No path to the goal!'),{name:'NoPath'})
+  }}}
+ await assert.rejects(travelTo(bot,{kind:'travel',goal:{x:60,y:64,z:0}},{check(){},stage(){},progress(){}}),/No way forward/)
+ assert.ok(walks<=12,`three legs of three attempts at most, not a full budget of shuffling: ${walks}`)
+})
+
+test('a leg that closed real ground still buys another leg',async()=>{
+ // The guard against over-tightening: a slow approach that is genuinely
+ // arriving must not be called a stall.
+ let walks=0
+ const bot={entity:{position:new Vec3(0.5,64,0.5)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},
+  blockAt:()=>({name:'air',boundingBox:'empty'}),
+  pathfinder:{setMovements(){},setGoal(){},async goto(goal){
+   walks++
+   const p=bot.entity.position
+   if(p.x>=9.5){bot.entity.position=new Vec3(10.5,64,0.5);return}
+   bot.entity.position=new Vec3(p.x+2,64,0.5)          // two blocks closer each leg
+   throw Object.assign(new Error('No path to the goal!'),{name:'NoPath'})
+  }}}
+ const r=await travelTo(bot,{kind:'travel',goal:{x:10,y:64,z:0}},{check(){},stage(){},progress(){}})
+ assert.equal(r.receipt,'arrived')
+ assert.ok(walks>3,`it kept going past the stall budget because it was actually arriving: ${walks}`)
+})
