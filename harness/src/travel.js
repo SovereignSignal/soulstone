@@ -6,7 +6,7 @@ import {setTimeout as delay} from 'node:timers/promises'
 import {fullCube} from './construction.js'
 import pathfinding from 'mineflayer-pathfinder'
 import {Vec3} from 'vec3'
-import {DoorAwareMovements,allowGroundBreaking,requireReachedGoal} from './navigation.js'
+import {DoorAwareMovements,allowGroundBreaking,requireReachedGoal,breakableWhileTravelling} from './navigation.js'
 const {goals}=pathfinding
 export const LEG=32,ARRIVE=3,LEG_TIMEOUT_MS=25000
 const point=p=>new Vec3(p.x,p.y,p.z)
@@ -23,6 +23,38 @@ export function validateObservedTravelGoal(bot,goal){
  const open=b=>b&&b.boundingBox==='empty'&&['air','cave_air','short_grass','tall_grass','fern','large_fern'].includes(b.name)
  if(!floor||!fullCube(bot.registry,floor.name)||floor.name==='magma_block'||!open(feet)||!open(head))throw new Error('Travel destination needs observed solid support and clear, dry headroom')
  return target
+}
+// What is on the straight line that this skill cannot dig through? travel breaks
+// soft ground and leaves and never stone, so a stone wall across the line is not
+// something a fourth detour solves: it is a fact for whoever chooses the next
+// action. A refusal that names no alternative is the shape this codebase keeps
+// paying for, and the live loop of 22 September was two accurate refusals,
+// `No way forward` and `No pit exit judged from here`, neither of which
+// mentioned that the target was behind rock.
+//
+// This reports an observation, never a verdict: the pathfinder searches in three
+// dimensions and a clear line does not make a goal reachable.
+export function lineObstruction(bot,from,to,{reach=24}={}) {
+ const dx=to.x-from.x,dz=to.z-from.z,flat=Math.hypot(dx,dz)
+ if(!flat||typeof bot?.blockAt!=='function'||!bot?.registry)return null
+ // This only ever runs inside a refusal, where the message we already have is
+ // the evidence. It may add to that and must never replace it, so anything
+ // unexpected here is silence rather than a TypeError over the real reason.
+ try {
+  const ux=dx/flat,uz=dz/flat,steps=Math.min(reach,Math.max(1,Math.round(flat)))
+  let first=null,solid=0,sampled=0
+  for(let i=1;i<=steps;i++) {
+   const y=Math.round(from.y+(to.y-from.y)*(i/steps))
+   for(const dy of [0,1]) {
+    const b=bot.blockAt(new Vec3(Math.round(from.x+ux*i),y+dy,Math.round(from.z+uz*i)))
+    sampled++
+    if(!b||b.boundingBox!=='block'||!fullCube(bot.registry,b.name)||breakableWhileTravelling(b))continue
+    solid++
+    if(!first)first={name:b.name,away:i}
+   }
+  }
+  return first?{...first,solid,sampled}:null
+ }catch{return null}
 }
 // Waypoints along the straight line, plus lateral alternatives for each, so a
 // wall, lake or ravine across the line costs a detour rather than the journey.
@@ -59,12 +91,19 @@ export async function travelTo(bot,task,{check,stage,progress,movements}){
  const arrival=()=>new goals.GoalNear(target.x,target.y,target.z,ARRIVE)
  const arrived=()=>{const g=arrival(),f=bot.entity.position.floored();return g.isEnd(f)||g.isEnd(f.offset(0,1,0))}
  const started=Date.now(),record=task.travel={legs:0,detours:0,startedAt:started}
+ // Said once, at the point of refusal: what the straight line holds that this
+ // skill does not break, so the planner can reach for the verb that does.
+ const onTheLine=()=>{
+  const blocked=lineObstruction(bot,bot.entity.position.floored(),target)
+  if(!blocked)return ' The straight line is clear, so whatever refused the route is above, below or beside it.'
+  return ` The straight line runs into ${blocked.name} ${blocked.away} blocks ahead and travel does not break ${blocked.name}.`
+ }
  try{
   let stalls=0
   while(true){
    check();target=locate();record.target={...target}
    if(flat()<=ARRIVE||arrived())break
-   if(Date.now()-started>8*60*1000)throw new Error(`Travel time limit reached ${Math.round(flat())} blocks short of ${target.x},${target.y},${target.z}`)
+   if(Date.now()-started>8*60*1000)throw new Error(`Travel time limit reached ${Math.round(flat())} blocks short of ${target.x},${target.y},${target.z}.${onTheLine()}`)
    const here=bot.entity.position.floored()
    const next=legs(here,target)[0]
    const before=flat()
@@ -104,7 +143,7 @@ export async function travelTo(bot,task,{check,stage,progress,movements}){
    }
    record.legs++
    if(!moved){
-    if(++stalls>=3)throw new Error(`No way forward ${Math.round(flat())} blocks short of ${target.x},${target.y},${target.z} ${detourable?'after three detours':'with no room to detour'}${refusal?`: ${refusal}`:''}`)
+    if(++stalls>=3)throw new Error(`No way forward ${Math.round(flat())} blocks short of ${target.x},${target.y},${target.z} ${detourable?'after three detours':'with no room to detour'}${refusal?`: ${refusal}`:''}.${onTheLine()}`)
     await delay(400)
    }else stalls=0
   }

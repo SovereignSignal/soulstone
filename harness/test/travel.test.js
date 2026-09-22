@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs'
 import {Vec3} from 'vec3'
 import minecraftData from 'minecraft-data'
 const registry=minecraftData('1.21.4')
-import {legs,validateTravelGoal,travelTo,LEG,LEG_TIMEOUT_MS} from '../src/travel.js'
+import {legs,validateTravelGoal,travelTo,lineObstruction,LEG,LEG_TIMEOUT_MS} from '../src/travel.js'
 import {DoorAwareMovements,allowGroundBreaking,breakableWhileTravelling,TRAVERSAL_DIG_COST} from '../src/navigation.js'
 import {validateTaskGoal} from '../src/task-store.js'
 import {goalTarget} from '../src/world-skills.js'
@@ -258,4 +258,56 @@ test('a detour is scaled to the gap, and skipped when there is no gap',async()=>
   e=>{assert.match(e.message,/no room to detour/,`a 5-block gap has no room for a detour: ${e.message}`);return true})
  const far=tried.filter(t=>Math.hypot(t.x,t.z)>8)
  assert.equal(far.length,0,`no attempt should land further out than the target: ${JSON.stringify(far)}`)
+})
+
+test('a refusal names what is on the straight line that travel cannot break',async()=>{
+ // Live, 2026-09-22 07:30 PDT: the agent spent twenty minutes alternating
+ // `travel` ("No way forward 7 blocks short of -731,55,-274 after three
+ // detours") with `climb` ("No pit exit judged from here"), while the target
+ // sat behind solid stone. Both refusals were accurate and neither named the
+ // one verb that could have worked. travel breaks soft ground and leaves and
+ // never stone, so stone across the line is not something a fourth detour
+ // solves: it is a fact for whoever picks the next action.
+ const wall=x=>x>=3
+ const bot={entity:{position:new Vec3(0.5,64,0.5)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},
+  blockAt:p=>wall(p.x)&&(p.y===64||p.y===65)?{name:'stone',boundingBox:'block'}:{name:'air',boundingBox:'empty'},
+  pathfinder:{setMovements(){},setGoal(){},goto(){return Promise.reject(Object.assign(new Error('No path to the goal!'),{name:'NoPath'}))}}}
+ await assert.rejects(travelTo(bot,{kind:'travel',goal:{x:10,y:64,z:0}},{check(){},stage(){},progress(){}}),e=>{
+  assert.match(e.message,/No way forward/)
+  assert.match(e.message,/stone 3 blocks ahead/,`the planner needs the obstacle named, got: ${e.message}`)
+  return true
+ })
+})
+
+test('an open line is reported as open, never as an obstruction that is not there',async()=>{
+ // The pathfinder searches in three dimensions, so a clear straight line does
+ // not mean the goal is reachable. Say what was observed, not a verdict.
+ const bot={entity:{position:new Vec3(0.5,64,0.5)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},
+  blockAt:()=>({name:'air',boundingBox:'empty'}),
+  pathfinder:{setMovements(){},setGoal(){},goto(){return Promise.reject(Object.assign(new Error('No path to the goal!'),{name:'NoPath'}))}}}
+ await assert.rejects(travelTo(bot,{kind:'travel',goal:{x:10,y:64,z:0}},{check(){},stage(){},progress(){}}),e=>{
+  assert.doesNotMatch(e.message,/blocks ahead/,`nothing is in the way, got: ${e.message}`)
+  assert.match(e.message,/straight line is clear/)
+  return true
+ })
+})
+
+test('leaves on the line are not an obstruction, because travel digs them',()=>{
+ const bot={entity:{position:new Vec3(0.5,64,0.5)},registry,
+  blockAt:p=>p.x>=3&&(p.y===64||p.y===65)?{name:'spruce_leaves',boundingBox:'block'}:{name:'air',boundingBox:'empty'}}
+ assert.equal(lineObstruction(bot,{x:0,y:64,z:0},{x:10,y:64,z:0}),null,'leaves are breakable while travelling')
+ bot.blockAt=p=>p.x>=5&&(p.y===64||p.y===65)?{name:'deepslate',boundingBox:'block'}:{name:'air',boundingBox:'empty'}
+ assert.deepEqual({...lineObstruction(bot,{x:0,y:64,z:0},{x:10,y:64,z:0}),solid:undefined,sampled:undefined},
+  {name:'deepslate',away:5,solid:undefined,sampled:undefined})
+})
+
+test('a broken world read never replaces the refusal it was meant to explain',()=>{
+ // This runs only inside a failure, where the message already in hand IS the
+ // evidence. Yesterday's progressFingerprint bug was exactly this: code that
+ // was harmless everywhere it was called before threw a TypeError the moment it
+ // was called from a new place.
+ assert.equal(lineObstruction({entity:{},registry},{x:0,y:64,z:0},{x:9,y:64,z:0}),null,'no blockAt')
+ assert.equal(lineObstruction({blockAt:()=>({name:'stone',boundingBox:'block'})},{x:0,y:64,z:0},{x:9,y:64,z:0}),null,'no registry')
+ const angry={registry,blockAt(){throw new TypeError('chunk not loaded')}}
+ assert.equal(lineObstruction(angry,{x:0,y:64,z:0},{x:9,y:64,z:0}),null,'a throwing world read is silence, not a second failure')
 })
