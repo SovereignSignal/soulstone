@@ -3,6 +3,7 @@ import {updateMission,syncMissionStatus,missionFocus} from './milestones.js'
 import {SkillControl,selectSkill} from './skill-control.js'
 import {eatOnClearGround} from './food-recovery.js'
 import {validateObservedTravelGoal} from '../travel.js'
+import {validateGotoGoal,validateDigGoal} from '../primitives.js'
 import {berryObservation} from '../foraging.js'
 import {shelteredPlanning} from './sheltered-planning.js'
 import {adaptiveRecovery} from './adaptive-recovery.js'
@@ -26,7 +27,7 @@ import {projectFootprints} from '../site-survey.js'
 import {reviseArchitecture} from '../construction.js'
 import {evaluateGoal,enforceProjectIntent,validateContract,constructionLimits,vacuousContract} from './goal-contract.js'
 import {ExperienceStore,experienceEvidence} from './experience.js'
-import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,withinBuildReach,AUTO_RESPAWN_LIMIT,STALL_CONTINUATIONS,STALL_RETRY_MS,shouldContinueAfterBudget,canContinueAfterSafety,shouldRetryPlanning} from './continuity.js'
+import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,withinBuildReach,AUTO_RESPAWN_LIMIT,STALL_CONTINUATIONS,STALL_RETRY_MS,shouldContinueAfterBudget,canContinueAfterSafety,shouldRetryPlanning,noteCriterionStall} from './continuity.js'
 import {PREPARE_ACTIONS} from '../supplies.js'
 import {EXPEDITION_ACTIONS,remainingDurability,expeditionObservation} from '../prospecting.js'
 import {STATION_ACTIONS} from '../stations.js'
@@ -828,6 +829,20 @@ export class Teammate extends EventEmitter {
         if(Date.now()-activeStarted>=ACTIVE_BUDGET_MS)throw new Error('Active planning time limit reached. Progress is saved; use Resume to continue.')
         this.requestProgress.rounds=(this.requestProgress.rounds||0)+1;this.persist()
         planningRound=round
+        // One request ran 295 rounds with no goal criterion ever changing state;
+        // progressFingerprint refreshes on any movement, so the stagnation stop
+        // never fired. Count rounds in which the criteria themselves stood still
+        // and halt for review, which stallRetry never resurrects. Once per round,
+        // here, so repeated verification inside a round cannot double count.
+        this.verifyGoal();const stall=noteCriterionStall(this.requestProgress)
+        if(stall.stalled){
+          const missing=this.requestProgress.verification?.missing||[]
+          const message=`No goal criterion has changed in ${stall.rounds} planning rounds (last change at round ${stall.since}). Halting rather than looping. Remaining: ${missing.join('; ')}. Send a new instruction to continue.`
+          skillControl?.close()
+          this.phase='blocked';this.activity='';this.requestProgress.status='blocked';this.requestProgress.pending=[];this.requestProgress.blocker=message;this.requestProgress.reviewRequired=message;this.persist()
+          episode?.write('criterion_stall_halt',{rounds:stall.rounds,since:stall.since,missing})
+          this.say(message);episode?.end('blocked',{reason:'criterion_stall',rounds:stall.rounds,missing});this.emit('change');return
+        }
         const observation=observe(),milestoneId=observation.activeMilestone?.id
         this.phase='thinking';this.emit('change')
         episode?.write('observation', { round, observation: structuredClone(observation) })
@@ -857,7 +872,7 @@ export class Teammate extends EventEmitter {
         }
         this.dispatch({action:'stop'});this.plan=plan.steps
         this.requestProgress.pending=structuredClone(plan.steps);this.persist()
-        const labels={travel:s=>`walk to observed ground at ${s.target.x}, ${s.target.y}, ${s.target.z}`,descend:()=> 'find a checked route down from the canopy',climb:()=> 'climb to an observed exit from this pit',leave_base:()=> 'leave the base and close its door',retreat:()=> 'enter the verified lit base and close its door',harvest:s=>`harvest renewable berries until I carry ${s.count}`,hunt:s=>`hunt nearby animals for ${s.count} ${String(s.item).replaceAll('_',' ')}`,eat:s=>`eat up to ${s.count} ${s.item.replaceAll('_',' ')} while hungry`,sleep:()=> 'sleep the night through in a bed',use:s=>`use the ${String(s.item).replaceAll('_',' ')} ${s.target?.how==='point'?'in the air at':'on the block at'} ${s.target?.x}, ${s.target?.y}, ${s.target?.z}`,revise:s=>`revise ${s.name} while preserving the rest of its saved structure`,construct:s=>{const r=this.projects[s.name]?.result;return r&&!r.partial?`verify ${s.name} and walk its access routes`:r?Number.isInteger(r.verifiedBlocks)?`continue ${s.name} from ${r.verifiedBlocks} of ${r.totalBlocks} blocks`:`continue ${s.name} after checking its saved prerequisites`:`build ${s.name} and check its access when finished`},prepare:s=>`prepare ${s.count} serviceable ${s.item.replaceAll('_',' ')}`,stow:()=> 'unload excavation rubble into the base chest',prospect:s=>`prospect for ${s.count} ${s.item.replaceAll('_',' ')} and return to base`,return_base:()=>'return along the saved route to base',place:s=>`place a base ${s.item.replaceAll('_',' ')}`,deposit:s=>`store a total of ${s.count} ${s.item.replaceAll('_',' ')} in the base chest`,withdraw:s=>`retrieve ${s.item.replaceAll('_',' ')} until I carry ${s.count}`,smelt:s=>`smelt ${s.item.replaceAll('_',' ')} until I carry ${s.count}`,check_base:()=> 'verify base access, workstations, lighting and storage',remember:s=>`save your location as ${s.name}`,return:s=>`return to ${s.name}`,come:()=> 'come to you',follow:()=> 'follow you',gather:s=>`collect a total of ${s.count} ${resourceLabel(s.item||'oak_log')}`,inspect:()=> 'inspect my surroundings',acquire:s=>`obtain ${s.count} ${s.item.replaceAll('_',' ')}`,give:s=>`hand you ${s.count} ${s.item.replaceAll('_',' ')}`,build:s=>`obtain any missing materials and construct the ${s.design.length}-block design`}
+        const labels={travel:s=>`walk to observed ground at ${s.target.x}, ${s.target.y}, ${s.target.z}`,goto:s=>`Going to ${s.target.x},${s.target.y},${s.target.z}${s.target.dig?', digging through':''}`,dig:s=>`Digging ${s.count} blocks toward ${s.target.x},${s.target.y},${s.target.z}`,descend:()=> 'find a checked route down from the canopy',climb:()=> 'climb to an observed exit from this pit',leave_base:()=> 'leave the base and close its door',retreat:()=> 'enter the verified lit base and close its door',harvest:s=>`harvest renewable berries until I carry ${s.count}`,hunt:s=>`hunt nearby animals for ${s.count} ${String(s.item).replaceAll('_',' ')}`,eat:s=>`eat up to ${s.count} ${s.item.replaceAll('_',' ')} while hungry`,sleep:()=> 'sleep the night through in a bed',use:s=>`use the ${String(s.item).replaceAll('_',' ')} ${s.target?.how==='point'?'in the air at':'on the block at'} ${s.target?.x}, ${s.target?.y}, ${s.target?.z}`,revise:s=>`revise ${s.name} while preserving the rest of its saved structure`,construct:s=>{const r=this.projects[s.name]?.result;return r&&!r.partial?`verify ${s.name} and walk its access routes`:r?Number.isInteger(r.verifiedBlocks)?`continue ${s.name} from ${r.verifiedBlocks} of ${r.totalBlocks} blocks`:`continue ${s.name} after checking its saved prerequisites`:`build ${s.name} and check its access when finished`},prepare:s=>`prepare ${s.count} serviceable ${s.item.replaceAll('_',' ')}`,stow:()=> 'unload excavation rubble into the base chest',prospect:s=>`prospect for ${s.count} ${s.item.replaceAll('_',' ')} and return to base`,return_base:()=>'return along the saved route to base',place:s=>`place a base ${s.item.replaceAll('_',' ')}`,deposit:s=>`store a total of ${s.count} ${s.item.replaceAll('_',' ')} in the base chest`,withdraw:s=>`retrieve ${s.item.replaceAll('_',' ')} until I carry ${s.count}`,smelt:s=>`smelt ${s.item.replaceAll('_',' ')} until I carry ${s.count}`,check_base:()=> 'verify base access, workstations, lighting and storage',remember:s=>`save your location as ${s.name}`,return:s=>`return to ${s.name}`,come:()=> 'come to you',follow:()=> 'follow you',gather:s=>`collect a total of ${s.count} ${resourceLabel(s.item||'oak_log')}`,inspect:()=> 'inspect my surroundings',acquire:s=>`obtain ${s.count} ${s.item.replaceAll('_',' ')}`,give:s=>`hand you ${s.count} ${s.item.replaceAll('_',' ')}`,build:s=>`obtain any missing materials and construct the ${s.design.length}-block design`}
         // Every planner action needs a spoken label; an unlabelled one must not end the round.
         const label=s=>(labels[s.action]||(x=>`${x.action.replaceAll('_',' ')}${x.item?` ${x.count||''} ${String(x.item).replaceAll('_',' ')}`.replace(/\s+/g,' '):''}`))(s)
         this.say('I will '+plan.steps.map(label).join(', then ')+'.');this.phase='acting'
@@ -901,6 +916,8 @@ export class Teammate extends EventEmitter {
               if(step.action==='gather')command={action:'gather',goal:{item:step.item||'oak_log',count:step.count},timeoutMs:180000}
               else if(['acquire','prepare','eat','harvest','hunt'].includes(step.action))command={action:step.action,goal:{item:step.item,count:step.count},timeoutMs:600000}
               else if(step.action==='travel')command={action:'travel',goal:validateObservedTravelGoal(this.runner.bot,step.target),timeoutMs:180000}
+              else if(step.action==='goto')command={action:'goto',goal:validateGotoGoal({...step.target,protectedSites:projectFootprints(this.projects)}),timeoutMs:180000}
+              else if(step.action==='dig')command={action:'dig',goal:validateDigGoal({...step.target,count:step.count,protectedSites:projectFootprints(this.projects)}),timeoutMs:120000}
               else if(step.action==='use')command={action:'use',goal:validateUseGoal({item:step.item,count:1,expect:step.name,target:step.target,protectedSites:projectFootprints(this.projects)}),timeoutMs:120000}
               else if(['descend','climb'].includes(step.action))command={action:step.action,goal:{},timeoutMs:45000}
               else if(step.action==='sleep')command={action:'sleep',goal:this.projects.base?{project:structuredClone(this.projects.base)}:{},timeoutMs:180000}
@@ -956,7 +973,7 @@ export class Teammate extends EventEmitter {
               await this.execute(command,abort.signal,id=>{requestTasks.add(id);this.requestProgress.inFlight={taskId:id,step};this.persist()})
             }
             if(epoch!==this.epoch)return
-            const result=['come','gather','acquire','build','construct','revise','give','eat','harvest','hunt','sleep','descend','climb','travel','use',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(step.action)?structuredClone(this.runner.task?.result||null):null
+            const result=['come','gather','acquire','build','construct','revise','give','eat','harvest','hunt','sleep','descend','climb','travel','goto','dig','use',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(step.action)?structuredClone(this.runner.task?.result||null):null
             feedback.push({action:step.action,step,taskId:this.requestProgress.inFlight?.taskId,status:'completed',result,inventory:this.snapshot().inventory,...(['build','construct','revise'].includes(step.action)?{task:structuredClone(this.runner.task)}:{})})
             this.requestProgress.completed.push({step,result,taskId:this.requestProgress.inFlight?.taskId});this.requestProgress.inFlight=null;this.requestProgress.pending=plan.steps.slice(i+1);this.requestProgress.blocker=null;this.verifyGoal();this.persist()
             episode?.write('action_result', { round, stepIndex: i, step, outcome: feedback.at(-1), evidence: step.action==='follow'?'Follow started; continued proximity is not independently verified.':'Executor/client observation; no independent server verification.' })
@@ -971,7 +988,7 @@ export class Teammate extends EventEmitter {
             this.requestProgress.blocker=error.message;this.requestProgress.reviewRequired=interruptedEffect(this.runner.task);this.persist()
             episode?.write('action_result', { round, stepIndex: i, step, outcome: feedback.at(-1), evidence: 'Executor/client observation' })
             if(step.action==='give'&&this.runner.task?.delivery?.attempted||['deposit','withdraw','stow'].includes(step.action)&&this.runner.task?.transfer?.uncertain)throw error
-            const adaptive=plan.steps.some(s=>['come','acquire','build','construct','revise','inspect','give','eat','harvest','hunt','sleep','descend','climb','travel','use',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action))
+            const adaptive=plan.steps.some(s=>['come','acquire','build','construct','revise','inspect','give','eat','harvest','hunt','sleep','descend','climb','travel','goto','dig','use',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action))
             if(!adaptive||failureCount>=2)throw error
             this.dispatch({action:'stop'});this.say(`Blocked: ${error.message}. I will inspect the result and revise the plan.`);failed=true;break
           }
@@ -981,7 +998,7 @@ export class Teammate extends EventEmitter {
         if(!executed&&!failed&&!this.requestProgress.goal){this.phase='ready';this.activity='';this.requestProgress.status='steps_completed';this.requestProgress.pending=[];this.say('I checked those steps; they are already satisfied.');episode?.end('actions_finished',{feedback});this.emit('change');return}
         const fingerprint=progressFingerprint(this.snapshot());stagnant=fingerprint===lastFingerprint?stagnant+1:0;lastFingerprint=fingerprint
         if(stagnant>=3)throw new Error('No observed progress for three planning rounds. Progress is saved; resolve the blocker and Resume.')
-        if(this.requestProgress.goal||failed||plan.steps.some(s=>['come','use','acquire','build','construct','revise','inspect','give','eat','harvest','hunt','sleep','descend','climb','travel',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action))){this.phase='thinking';continue}
+        if(this.requestProgress.goal||failed||plan.steps.some(s=>['come','use','goto','dig','acquire','build','construct','revise','inspect','give','eat','harvest','hunt','sleep','descend','climb','travel',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action))){this.phase='thinking';continue}
         this.phase='ready';this.activity='';this.stepIndex=plan.steps.length
         this.requestProgress.status='steps_completed';this.requestProgress.pending=[]
         this.say(plan.steps.at(-1).action==='follow'?'I am following you.':`Finished. ${plan.steps.some(s=>s.action==='gather')?`I have ${resourceCount(this.snapshot().inventory,plan.steps.find(s=>s.action==='gather').item||'oak_log')} logs.`:'Ready for the next task.'}`)

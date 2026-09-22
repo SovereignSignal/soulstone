@@ -7,6 +7,7 @@ import {descendFromCanopy} from './canopy.js'
 import {climbSkill} from './route-recovery.js'
 import {sleepThroughNight} from './sleep.js'
 import {travelTo} from './travel.js'
+import {gotoPosition,digToward} from './primitives.js'
 import {huntFor} from './hunt.js'
 import {defendAgainstMob} from './combat.js'
 import {EXPEDITION_ACTIONS} from './prospecting.js'
@@ -35,6 +36,8 @@ export async function executeSkill(bot, task, context) {
   if(task.kind==='climb')return climbSkill(bot,task,context)
   if(task.kind==='sleep')return sleepThroughNight(bot,task,context)
   if(task.kind==='travel')return travelTo(bot,task,context)
+  if(task.kind==='goto')return gotoPosition(bot,task,context)
+  if(task.kind==='dig')return digToward(bot,task,context)
   if(task.kind==='hunt')return huntFor(bot,task,context)
   if(task.kind==='defend')return defendAgainstMob(bot,task,context)
   if(task.kind==='eat')return eatFood(bot,task,context)

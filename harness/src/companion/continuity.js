@@ -70,6 +70,36 @@ export function progressFingerprint(snapshot){
  // each need identical consecutive fingerprints to fire.
  position:snapshot.position?{x:Math.floor(snapshot.position.x),y:Math.floor(snapshot.position.y),z:Math.floor(snapshot.position.z)}:null})
 }
+// progressFingerprint refreshes on any movement or a travel that completes, so a
+ // request can churn for hundreds of rounds while no goal criterion ever flips.
+ // This fingerprint ignores position and feedback; only check outcomes and
+ // milestone status count. After CRITERION_STALL_ROUNDS identical rounds the
+ // controller halts with reviewRequired so stallRetry cannot resurrect it.
+ // Below PLANNING_ROUNDS on purpose: one loop can reach it, so a single run is
+ // enough to halt and a test can drive it without a 90 second stall retry.
+export const CRITERION_STALL_ROUNDS=20
+const coarseObserved=v=>{
+ if(v===null||v===undefined)return 'null'
+ if(typeof v==='object')return JSON.stringify(v)
+ return v
+}
+export function criterionFingerprint(verification,mission){
+ const checks=(verification?.checks||[]).map(c=>[c.kind,c.item,c.target,!!c.passed,coarseObserved(c.observed)])
+ const nodes=(mission?.nodes||[]).map(n=>`${n.id}:${n.status}`)
+ return JSON.stringify({checks,nodes})
+}
+export function criterionStall(request){
+ const rounds=request?.criterionStallRounds||0
+ return {stalled:rounds>=CRITERION_STALL_ROUNDS,rounds,since:request?.criterionStallSince??null}
+}
+export function noteCriterionStall(request){
+ if(!request)return criterionStall(request)
+ const fp=criterionFingerprint(request.verification,request.mission)
+ const round=request.rounds||0
+ if(request.criterionFingerprint===fp)request.criterionStallRounds=(request.criterionStallRounds||0)+1
+ else{request.criterionFingerprint=fp;request.criterionStallRounds=0;request.criterionStallSince=round}
+ return criterionStall(request)
+}
 export function interruptedEffect(task){
  if(task?.consumption?.uncertain)return 'Interrupted eating needs hunger and inventory review before a new request.'
  if(task?.use?.uncertain)return 'An interrupted use may have charged the item without a confirmed effect. Re-observe the target block and the inventory before continuing.'
