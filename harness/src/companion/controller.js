@@ -835,7 +835,7 @@ export class Teammate extends EventEmitter {
         // never fired. Count rounds in which the criteria themselves stood still
         // and halt for review, which stallRetry never resurrects. Once per round,
         // here, so repeated verification inside a round cannot double count.
-        this.verifyGoal();const stall=noteCriterionStall(this.requestProgress)
+        this.verifyGoal();const stall=noteCriterionStall(this.requestProgress,this.snapshot().inventory)
         if(stall.stalled){
           const missing=this.requestProgress.verification?.missing||[]
           const message=`No goal criterion has changed in ${stall.rounds} planning rounds (last change at round ${stall.since}). Halting rather than looping. Remaining: ${missing.join('; ')}. Send a new instruction to continue.`

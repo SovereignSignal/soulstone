@@ -48,11 +48,32 @@ test('criterion stall counter increments on a stable fingerprint and resets on c
   assert.equal(request.criterionStallSince,4)
 })
 
+// Trial 2, 2026-09-23: the agent mined its first raw iron, coal and 28
+// cobblestone across 20 rounds and the guard halted it, because none of those
+// is a goal criterion. Acquiring something new is progress; walking is not.
+test('a new inventory high resets the criterion stall; moving, spending and re-gaining do not',()=>{
+  const request={rounds:1,verification:verdict(),mission:mission()}
+  noteCriterionStall(request,{cobblestone:5})
+  for(let r=2;r<=6;r++){request.rounds=r;noteCriterionStall(request,{cobblestone:5})}
+  assert.equal(criterionStall(request).rounds,5)
+  request.rounds=7;noteCriterionStall(request,{cobblestone:5,raw_iron:1})
+  assert.equal(criterionStall(request).rounds,0,'first raw iron is progress')
+  assert.equal(request.criterionStallSince,7)
+  request.rounds=8;noteCriterionStall(request,{cobblestone:2,raw_iron:1})
+  assert.equal(criterionStall(request).rounds,1,'spending cobblestone is not progress')
+  request.rounds=9;noteCriterionStall(request,{cobblestone:5,raw_iron:1})
+  assert.equal(criterionStall(request).rounds,2,'regaining a count already reached is not progress')
+  request.rounds=10;noteCriterionStall(request,{cobblestone:6,raw_iron:1})
+  assert.equal(criterionStall(request).rounds,0,'a new high of an existing item is progress')
+  request.rounds=11;noteCriterionStall(request)
+  assert.equal(criterionStall(request).rounds,1,'no inventory supplied leaves the highs alone')
+})
+
 test('criterion stall reports true at exactly CRITERION_STALL_ROUNDS and false one below',()=>{
   const request={rounds:0,verification:verdict(),mission:mission()}
-  request.criterionFingerprint=criterionFingerprint(request.verification,request.mission)
-  request.criterionStallRounds=0
-  request.criterionStallSince=0
+  // Seed through the function rather than by writing its private fields.
+  noteCriterionStall(request)
+  assert.equal(criterionStall(request).rounds,0)
   for(let i=0;i<CRITERION_STALL_ROUNDS-1;i++){
     request.rounds=i+1
     noteCriterionStall(request)

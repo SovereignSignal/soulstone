@@ -92,9 +92,17 @@ export function criterionStall(request){
  const rounds=request?.criterionStallRounds||0
  return {stalled:rounds>=CRITERION_STALL_ROUNDS,rounds,since:request?.criterionStallSince??null}
 }
-export function noteCriterionStall(request){
+// Acquiring something new is progress even when no criterion names it: trial 2
+// mined its first raw iron and 28 cobblestone in twenty rounds and was halted.
+// High-water marks only ever rise, so spending, dropping and regaining a count
+// already reached leave the fingerprint alone, and walking never touches it.
+export function noteCriterionStall(request,inventory){
  if(!request)return criterionStall(request)
- const fp=criterionFingerprint(request.verification,request.mission)
+ if(inventory&&typeof inventory==='object'){
+  const highs=request.inventoryHighs||(request.inventoryHighs={})
+  for(const [name,count] of Object.entries(inventory))if(Number.isFinite(count)&&count>(highs[name]||0))highs[name]=count
+ }
+ const fp=criterionFingerprint(request.verification,request.mission)+JSON.stringify(Object.entries(request.inventoryHighs||{}).sort())
  const round=request.rounds||0
  if(request.criterionFingerprint===fp)request.criterionStallRounds=(request.criterionStallRounds||0)+1
  else{request.criterionFingerprint=fp;request.criterionStallRounds=0;request.criterionStallSince=round}
