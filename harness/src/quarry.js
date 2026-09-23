@@ -97,7 +97,7 @@ export async function quarryStone(bot,{name='cobblestone',total,path=[]},{check,
    stage('surfacing');progress('Climbing out of the quarry')
    const movement=new DoorAwareMovements(bot)
    Object.assign(movement,{canDig:true,allow1by1towers:true,allowParkour:false,allowSprinting:false,maxDropDown:1,
-    scafoldingBlocks:[...new Set(bot.inventory.items().filter(i=>fullCube(bot.registry,i.name)&&!GRAVITY.has(i.name)).map(i=>bot.registry.blocksByName[i.name]?.id).filter(Number.isInteger))]})
+    scafoldingBlocks:[...new Set(bot.inventory.items().filter(i=>fullCube(bot.registry,i.name)&&!GRAVITY.has(i.name)).map(i=>bot.registry.itemsByName[i.name]?.id??i.type).filter(Number.isInteger))]}) // item ids: the pathfinder matches item.type, not the block table
    bot.pathfinder.setMovements(movement)
    const timer=setTimeout(()=>bot.pathfinder.setGoal(null),60000)
    let pathError=null

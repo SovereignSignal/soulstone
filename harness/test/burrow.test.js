@@ -96,7 +96,8 @@ test('digging out lets the pathfinder tunnel and pillar back to the recorded sur
  let movements,goal
  w.bot.pathfinder={setMovements(m){movements=m},setGoal(){},async goto(g){goal=g;w.bot.entity.position=new Vec3(10.5,64,10.5)}}
  const result=await executeSkill(w.bot,{kind:'unburrow',goal:validateTaskGoal('unburrow',{surface:{x:10,y:64,z:10}})},api)
- assert.equal(movements.canDig,true);assert.equal(movements.allow1by1towers,true);assert.ok(movements.scafoldingBlocks.includes(registry.blocksByName.dirt.id))
+ assert.equal(movements.canDig,true);assert.equal(movements.allow1by1towers,true);// Was `registry.blocksByName.dirt.id` (block 9): the pathfinder matches item.type, so that list never counted a single block. Item id (28) is what towering needs.
+ assert.ok(movements.scafoldingBlocks.includes(registry.itemsByName.dirt.id))
  assert.deepEqual([goal.x,goal.y,goal.z],[10,64,10]);assert.equal(result.receipt,'surfaced')
  assert.throws(()=>validateTaskGoal('unburrow',{}),/finite/)
 })

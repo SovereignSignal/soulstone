@@ -266,7 +266,7 @@ export async function unburrow(bot,task,{check,stage,progress}){
  check();const {surface}=task.goal
  const movement=new DoorAwareMovements(bot)
  Object.assign(movement,{canDig:true,allow1by1towers:true,allowParkour:false,allowSprinting:false,maxDropDown:1,
-  scafoldingBlocks:[...new Set(bot.inventory.items().filter(i=>fullCube(bot.registry,i.name)&&!GRAVITY.has(i.name)).map(i=>bot.registry.blocksByName[i.name]?.id).filter(Number.isInteger))]})
+  scafoldingBlocks:[...new Set(bot.inventory.items().filter(i=>fullCube(bot.registry,i.name)&&!GRAVITY.has(i.name)).map(i=>bot.registry.itemsByName[i.name]?.id??i.type).filter(Number.isInteger))]}) // item ids: the pathfinder matches item.type, not the block table
  stage('surfacing');progress('Digging back out to the surface')
  bot.pathfinder.setMovements(movement)
  const goal=new goals.GoalBlock(surface.x,surface.y,surface.z)

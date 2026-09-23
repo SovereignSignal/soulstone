@@ -235,6 +235,12 @@ test('goto dig:true enables canDig and scaffold; dig:false matches travel soft-b
   assert.equal(digging.canDig, true)
   assert.ok(digging.scafoldingBlocks?.length > 0, 'carried full cubes become scaffold')
   assert.equal(digging.allow1by1towers, true)
+  // Live, trial 4: goto dig:true could not rise two blocks with 55 dirt in the
+  // bag. The pathfinder counts scaffold by item.type === id, an ITEM id; block
+  // ids are a different table (dirt is block 9, item 28), so it counted zero.
+  assert.ok(digging.scafoldingBlocks.includes(registry.itemsByName.cobblestone.id), 'scaffold ids are item ids')
+  assert.ok(!digging.scafoldingBlocks.includes(registry.blocksByName.cobblestone.id) || registry.blocksByName.cobblestone.id === registry.itemsByName.cobblestone.id, 'no block ids in the scaffold list')
+  assert.ok(digging.countScaffoldingItems() >= 8, 'the pathfinder can see the eight cobblestone as scaffold')
   // Live, trial 3: `goto dig:true` reported "no route" with stone two blocks
   // ahead. mineflayer's canDigBlock also tests reach, so every block beyond
   // arm's length read as unbreakable and no tunnel could ever be planned. The

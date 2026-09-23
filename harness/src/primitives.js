@@ -77,10 +77,13 @@ export function inventoryDelta(before, after) {
   return drops
 }
 
+// ITEM ids, not block ids: the pathfinder counts scaffold by item.type === id,
+// and the two tables differ (dirt is block 9, item 28). With block ids it saw
+// zero scaffold and could never tower, however much dirt was carried.
 function scaffoldIds(bot) {
   return [...new Set(bot.inventory.items()
     .filter(i => fullCube(bot.registry, i.name) && !GRAVITY.has(i.name))
-    .map(i => bot.registry.blocksByName[i.name]?.id)
+    .map(i => bot.registry.itemsByName[i.name]?.id ?? i.type)
     .filter(Number.isInteger))]
 }
 
