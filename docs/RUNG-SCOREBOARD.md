@@ -6,7 +6,7 @@ The scoreboard measures **natural progression**: per run, time to each tech-tree
 
 Ordered rungs (client-side evidence from companion `GET /state` only):
 
-`wood_tools` → `stone_tools` → `shelter` → `iron` → `iron_pickaxe` → `diamond` → `obsidian` → `portal_lit` → `nether` → `blaze_rods` → `ender_pearls` → `eyes` → `end` → `dragon`
+`wood_tools` → `stone_tools` → `shelter` → `raw_iron` → `iron` (ingot) → `iron_pickaxe` → `diamond` → `obsidian` → `portal_lit` → `nether` → `blaze_rods` → `ender_pearls` → `eyes` → `end` → `dragon`
 
 Predicates use inventory counts, `litShelterVerified` / verification checks, and `survival.dimension`. Worn armour is not in `inventory` and never counts. A rung stays reached once true; `lost_at` records a later false reading.
 

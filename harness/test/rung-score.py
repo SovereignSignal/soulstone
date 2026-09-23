@@ -68,8 +68,15 @@ RUNG_LADDER = (
         ),
     },
     {
+        # Trials 3 and 4 mined the first iron this world has seen the agent hold
+        # and the board showed nothing, because iron counted only as an ingot.
+        'id': 'raw_iron',
+        'label': 'Raw iron',
+        'pred': lambda s: _count(s, 'raw_iron') >= 1 or _count(s, 'iron_ingot') >= 1 or _has(s, 'iron_pickaxe'),
+    },
+    {
         'id': 'iron',
-        'label': 'Iron',
+        'label': 'Iron ingot',
         'pred': lambda s: _count(s, 'iron_ingot') >= 1 or _has(s, 'iron_pickaxe'),
     },
     {

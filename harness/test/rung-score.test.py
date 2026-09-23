@@ -37,6 +37,8 @@ class PredicateTests(unittest.TestCase):
             ('shelter', snap(requestProgress={
                 'verification': {'checks': [{'kind': 'shelter', 'passed': True}]},
             })),
+            ('raw_iron', snap(inventory={'raw_iron': 1})),
+            ('raw_iron', snap(inventory={'iron_ingot': 1})),
             ('iron', snap(inventory={'iron_ingot': 1})),
             ('iron', snap(inventory={'iron_pickaxe': 1})),
             ('iron_pickaxe', snap(inventory={'iron_pickaxe': 1})),
