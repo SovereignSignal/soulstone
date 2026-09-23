@@ -197,7 +197,12 @@ export async function executeWorldSkill(bot,task,context,gather) {
  }
  async function tableFor(path) {
   let table=bot.findBlock({matching:bot.registry.blocksByName.crafting_table.id,maxDistance:32})
-  if(table){await walk(new goals.GoalLookAtBlock(table.position,bot.world,{reach:3}));return table}
+  // A table up and out of a pit is a failed walk, not a missing table. One
+  // carried, or four planks, beats a terrain watch toward the far one.
+  if(table){
+   try{await walk(new goals.GoalLookAtBlock(table.position,bot.world,{reach:3}),!count('crafting_table'));return table}
+   catch(error){check();if(!navigationFailure(error))throw error;progress(`Table at ${key(table.position)} is out of reach (${error.message}); placing one here`)}
+  }
   await acquire('crafting_table',1,path)
   const pos=tableSite(bot)
   if(!pos)throw new Error('No clear place for a crafting table within three blocks')

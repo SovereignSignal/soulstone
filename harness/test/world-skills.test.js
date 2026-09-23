@@ -103,6 +103,32 @@ test('acquisition replenishes shared ingredients consumed by a prerequisite reci
  assert.equal(client.listenerCount('packet'),0)
 })
 
+test('an unreachable distant table gives way at once to the one the agent carries',async()=>{
+ // Trial 7, 23 September: three stone pickaxe acquires failed "Walking attempt
+ // timed out" walking to a table outside the pit, one just after crafting a
+ // table of its own. A carried table beats a terrain watch toward a far one.
+ const names=['oak_planks','stick','stone_pickaxe','crafting_table','cobblestone']
+ const items=names.map((name,id)=>({id,name})),itemsByName=Object.fromEntries(items.map(i=>[i.name,i]))
+ const recipes={2:[{result:{id:2,count:1},requiresTable:true,delta:[{id:4,count:-3},{id:1,count:-2},{id:2,count:1}]}]}
+ const inventory=new Map([[1,2],[3,1],[4,3]]),far={name:'crafting_table',position:new Vec3(30,64,0)}
+ const walks=[]
+ const bot={registry:{items,itemsByName,blocksByName:{crafting_table:{id:3},stone:{id:9}}},_client:new EventEmitter(),
+  inventory:{items:()=>[...inventory].filter(([,count])=>count>0).map(([id,count])=>({type:id,name:names[id],count}))},
+  findBlocks:()=>[],findBlock:()=>far,blockAt:()=>({name:'stone',boundingBox:'block'}),
+  entity:{position:new Vec3(0.5,64,0.5),onGround:true},world:{raycast:()=>null},clearControlStates(){},
+  pathfinder:{setMovements(){},setGoal(){},async goto(goal){walks.push(goal);throw Object.assign(new Error('No path to the goal!'),{name:'NoPath'})}},
+  recipesAll:id=>recipes[id]||[],recipesFor:id=>recipes[id]||[],async craft(){throw new Error('must not craft without a table')}
+ }
+ Object.setPrototypeOf(bot,new EventEmitter())
+ const progress=[],started=Date.now()
+ await assert.rejects(
+  executeWorldSkill(bot,{kind:'acquire',goal:{item:'stone_pickaxe',count:1}},{check(){},stage(){},persist(){},progress:m=>progress.push(m),movements:{}},()=>{throw new Error('must not gather')}),
+  /No clear place for a crafting table/,'the fallback to its own table ran; the far walk failure did not end the acquire')
+ assert.equal(walks.length,1,'one attempt at the far table, no terrain watch and retry')
+ assert.ok(Date.now()-started<5000,`gave up on the far table promptly (${Date.now()-started} ms)`)
+ assert.ok(progress.some(m=>/30,64,0/.test(m)&&/placing/i.test(m)),JSON.stringify(progress))
+})
+
 test('log acquisition bounds the per-trip shortfall, not the carry target',async()=>{
  function fixture(carried){
   const items=[{id:0,name:'spruce_log'}],inventory=new Map([[0,carried]])
