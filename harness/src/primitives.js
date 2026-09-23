@@ -148,7 +148,7 @@ function subscribeDigPlace(bot) {
   }
 }
 
-async function walkNear(bot, target, { dig, protectedSites, check, stage, progress, movements, timeoutMs = 8 * 60 * 1000 }) {
+export async function walkNear(bot, target, { dig, protectedSites, check, stage, progress, movements, timeoutMs = 8 * 60 * 1000 }) {
   const dest = point(target), start = bot.entity.position.clone()
   const distance = start.distanceTo(dest)
   if (distance > GOTO_MAX)

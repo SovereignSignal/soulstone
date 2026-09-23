@@ -970,6 +970,24 @@ test('terrain recovery is validated, selected from local footing and returns a d
  assert.equal(receipt.status,'completed');assert.equal(receipt.result.receipt,'descended_to_ground');assert.equal(rounds,2)
 })
 
+test('an inspect naming blocks widens the next round\'s world scan to them',async()=>{
+ const {guardIntent}=await import('../src/companion/intent.js')
+ let rounds=0,second
+ const [r,c]=setup(async(_text,observation)=>{
+  rounds++
+  if(rounds===1){assert.ok(observation.world?.column,'the world channel reaches the planner');return guardIntent(validatePlan({reply:'Looking for obsidian',steps:[{action:'inspect',name:'',item:'obsidian',count:0,design:[]}]}),_text)}
+  second=observation;return {reply:'Seen',steps:[]}
+ })
+ r.bot.entity={position:new Vec3(0.5,64,0.5),onGround:true};r.bot.entities={}
+ r.bot.blockAt=p=>p.x===12&&p.y===64&&p.z===0?{name:'obsidian',boundingBox:'block'}:p.y<64?{name:'stone',boundingBox:'block'}:{name:'air',boundingBox:'empty',skyLight:15}
+ await c.submit('Find obsidian nearby')
+ assert.equal(rounds,2,JSON.stringify(c.messages))
+ assert.deepEqual(c.requestProgress.requestedBlocks,['obsidian'])
+ // Twelve blocks out is beyond the default look; only the request brings it into view.
+ assert.ok(second.world.blocks.blocks.some(b=>b.name==='obsidian'&&b.x===12),JSON.stringify(second.world.blocks))
+ assert.equal(second.world.blocks.scanned.radius,16)
+})
+
 test('failed shelter retry carries only the same interrupted request eligibility and respects Stop',()=>{
  const [r,c]=setup(async()=>({reply:'',steps:[]}))
  r.bot.game={gameMode:'survival',difficulty:'normal'};r.bot.time={timeOfDay:6000};r.bot.health=20;r.bot.food=20;r.bot.entity={position:new Vec3(0,64,0),onGround:true};r.bot.entities={1:{name:'zombie',position:new Vec3(5,64,0)}}

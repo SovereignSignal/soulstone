@@ -21,7 +21,7 @@ const dangerNearby=(bot,range=8)=>survivalObservation(bot).nearbyThreats.filter(
 function swordBystander(bot,target){
  return Object.values(bot.entities||{}).some(e=>e!==bot.entity&&e!==target&&(['player','mob'].includes(e.type)||bot.registry?.entitiesByName[e.name]?.metadataKeys?.includes('health'))&&(!knownPoint(e.position)||distance(e.position,target.position)<=4||distance(e.position,bot.entity.position)<=4))
 }
-function weaponFor(bot,target){
+export function weaponFor(bot,target){
  return bot.inventory.items().filter(i=>weapons[i.name]&&Number.isFinite(i.maxDurability)&&remainingDurability(i)>=16&&(!i.name.endsWith('_sword')||!swordBystander(bot,target)))
   .sort((a,b)=>weapons[b.name]-weapons[a.name]||remainingDurability(b)-remainingDurability(a))[0]
 }

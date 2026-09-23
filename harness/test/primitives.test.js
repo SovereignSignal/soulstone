@@ -6,6 +6,27 @@ import minecraftData from 'minecraft-data'
 import { validatePlan, schema } from '../src/companion/planner.js'
 import { validateGotoGoal, validateDigGoal, gotoPosition, digToward } from '../src/primitives.js'
 import { validateTaskGoal } from '../src/task-store.js'
+import { Runner } from '../src/runner.js'
+
+// Live, 2026-09-22: eleven consecutive dig steps and four goto steps each ran
+// their full deadline with no skill_progress at all. runner.applyGoal keeps a
+// hardcoded list of task kinds that run as skills; anything else falls through
+// to the legacy bare-navigation branch, which walked at a solid block forever.
+test('goto and dig dispatch as skills, never as bare navigation', () => {
+  for (const kind of ['goto', 'dig']) {
+    const calls = []
+    const runner = {
+      ready: true, connectionId: 'c1',
+      task: { kind, status: 'running', goal: { x: 1, y: 64, z: 1, dig: true, count: 1 }, deadline: Date.now() + 10000 },
+      bot: { pathfinder: { setGoal: g => calls.push(['navigate', g]) } },
+      log: (type, data) => calls.push([type]),
+      finish: (status, reason) => calls.push(['finish', status, reason]),
+      runSkill: () => calls.push(['runSkill']),
+    }
+    Runner.prototype.applyGoal.call(runner)
+    assert.deepEqual(calls, [['runSkill']], `${kind} must run as a skill, got ${JSON.stringify(calls)}`)
+  }
+})
 
 const registry = minecraftData('1.21.4')
 const air = (p) => ({ name: 'air', boundingBox: 'empty', position: p?.clone?.() || p, diggable: false, harvestTools: {} })

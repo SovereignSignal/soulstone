@@ -31,7 +31,7 @@ import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interrupt
 import {PREPARE_ACTIONS} from '../supplies.js'
 import {EXPEDITION_ACTIONS,remainingDurability,expeditionObservation} from '../prospecting.js'
 import {STATION_ACTIONS} from '../stations.js'
-import {nearbyResources,terrainSummary,footingObservation} from '../observations.js'
+import {nearbyResources,terrainSummary,footingObservation,worldObservation,applyInspectBlockRequest} from '../observations.js'
 import {LOG_ITEMS} from '../resources.js'
 import { resourceCount, resourceLabel } from '../resources.js'
 import { EventEmitter } from 'node:events'
@@ -783,7 +783,7 @@ export class Teammate extends EventEmitter {
         this.verifyGoal()
         const experience=this.experience.retrieve(text,this.requestProgress.goal,b?.version||'unknown')
         this.requestProgress.retrievedExperience=experience.map(e=>e.id);this.persist()
-        const observation=expeditionObservation({...(this.threatContextMode==='legacy'?{}:{recovery:recoveryContext(this,b)}),goal:this.requestProgress.goal,verification:this.requestProgress.verification,activeMilestone:missionFocus(this.requestProgress.mission),experience,terrain:this.requestProgress.goal?terrainSummary(b,{near:ownerPosition||position,projects:this.projects}):null,connected,owner,ownerVisible,position,ownerPosition,health,survival,foraging:berryObservation(b),footing:footingObservation(b),interactables:interactableObservation(b,{names:useTargetNames(this.requestProgress.goal)}),localTerrain:terrainSummary(b,{projects:this.projects}),tools,inventory,places,task:currentTask,nearby,feedback:feedback.slice(-24),projects:structuredClone(this.projects),existingBuild:existingTask?.kind==='build'?existingTask:null,requestProgress:structuredClone(this.requestProgress),lastDeath,remainingPlanningRounds:PLANNING_ROUNDS-planningRound})
+        const observation=expeditionObservation({...(this.threatContextMode==='legacy'?{}:{recovery:recoveryContext(this,b)}),goal:this.requestProgress.goal,verification:this.requestProgress.verification,activeMilestone:missionFocus(this.requestProgress.mission),experience,terrain:this.requestProgress.goal?terrainSummary(b,{near:ownerPosition||position,projects:this.projects}):null,connected,owner,ownerVisible,position,ownerPosition,health,survival,foraging:berryObservation(b),footing:footingObservation(b),world:worldObservation(b,{goal:this.requestProgress.goal,requestedBlocks:this.requestProgress.requestedBlocks}),interactables:interactableObservation(b,{names:useTargetNames(this.requestProgress.goal)}),localTerrain:terrainSummary(b,{projects:this.projects}),tools,inventory,places,task:currentTask,nearby,feedback:feedback.slice(-24),projects:structuredClone(this.projects),existingBuild:existingTask?.kind==='build'?existingTask:null,requestProgress:structuredClone(this.requestProgress),lastDeath,remainingPlanningRounds:PLANNING_ROUNDS-planningRound})
         return observation
     }
     const activeStarted=Date.now();let stagnant=0,lastFingerprint=progressFingerprint(this.snapshot())
@@ -911,6 +911,8 @@ export class Teammate extends EventEmitter {
               await this.runner.waitForIdle?.(abort.signal)
               if(epoch!==this.epoch||abort.signal.aborted)return
               this.dispatch({action:'follow',player:this.runner.owner})
+            } else if(step.action==='inspect') {
+              if(step.item){applyInspectBlockRequest(this.requestProgress,step.item);this.persist()}
             } else if(step.action!=='inspect') {
               let command
               if(step.action==='gather')command={action:'gather',goal:{item:step.item||'oak_log',count:step.count},timeoutMs:180000}

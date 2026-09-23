@@ -1,6 +1,7 @@
 import {recoverySchema,recoveryInstructions,validateRecovery} from './adaptive-recovery.js'
 import {validateUseStep} from '../use-item.js'
 import {validateGotoStep,validateDigStep} from '../primitives.js'
+import {inspectBlockNames} from '../observations.js'
 import {validateHarvest} from '../foraging.js'
 import {validateEatGoal} from '../survival.js'
 import {contractSchema,validateContract} from './goal-contract.js'
@@ -35,6 +36,7 @@ export function validatePlan(value) {
     if(s.action==='dig')validateDigStep(s)
     if(!['travel','use','goto','dig'].includes(s.action)&&s.target!=null)throw new Error('Only travel, use, goto and dig accept a target')
     if(s.action==='use')validateUseStep(s)
+    if(s.action==='inspect'&&s.item)inspectBlockNames(s.item)
     if(s.action==='harvest')validateHarvest(s)
     if(s.action==='hunt')validateHuntGoal(s)
     if(s.action==='eat')validateEatGoal(s)
@@ -51,7 +53,7 @@ export function validatePlan(value) {
     if(s.action==='acquire'&&(!/^[a-z0-9_]{1,64}$/.test(s.item||'')||!Number.isInteger(s.count)||s.count<1||s.count>128))throw new Error('Acquire requires an item ID and count 1–128')
     if(s.action==='prepare'&&(!toolName(s.item)||!Number.isInteger(s.count)||s.count<1||s.count>4))throw new Error('Prepare requires 1–4 serviceable tools')
     if(s.action==='give'&&(!/^[a-z0-9_]{1,64}$/.test(s.item||'')||!Number.isInteger(s.count)||s.count<1||s.count>64))throw new Error('Give requires an item ID and count 1–64')
-    if (!['acquire','give','eat','harvest','hunt','use',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action) && s.item !== undefined && s.item !== '' && (!['gather', 'gather_and_return'].includes(s.action) || !validResource(s.item))) throw new Error('Invalid gather resource')
+    if (!['acquire','give','eat','harvest','hunt','use','inspect',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action) && s.item !== undefined && s.item !== '' && (!['gather', 'gather_and_return'].includes(s.action) || !validResource(s.item))) throw new Error('Invalid gather resource')
     if (s.action === 'follow' && i !== value.steps.length - 1) throw new Error('Following must be the final step')
     if (!['remember', 'return', 'gather_and_return'].includes(s.action) && s.action!=='use' && s.name && ![...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action) && !(s.action==='build'&&s.name==='shelter') && !['construct','revise'].includes(s.action)) throw new Error('Only location-saving or return actions accept a location name')
     if (['gather', 'gather_and_return'].includes(s.action) && (!Number.isInteger(s.count) || s.count < 1 || s.count > 32)) throw new Error('Gather target must be 1–32 logs')

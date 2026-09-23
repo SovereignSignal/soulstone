@@ -181,7 +181,7 @@ export class Runner extends EventEmitter {
       this.runSkill();return
     }
     if (this.task.kind === 'follow') { this.applyFollow(); return }
-    if (['gather', 'craft','acquire','build','construct','give','eat','harvest','use','surface','burrow','unburrow','hut','unhut','flee','hunt','climb','descend','sleep','travel',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(this.task.kind)) { this.runSkill(); return }
+    if (['gather', 'craft','acquire','build','construct','give','eat','harvest','use','surface','burrow','unburrow','hut','unhut','flee','hunt','climb','descend','sleep','travel','goto','dig',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(this.task.kind)) { this.runSkill(); return }
     const g = this.task.goal
     this.bot.pathfinder.setGoal(new goals.GoalNear(g.x, g.y, g.z, 1))
     this.log('navigating', { task: this.task })
