@@ -179,7 +179,14 @@ test('collect walks to the nearest matching drops and reports what it gained', a
       }
     },
   })
+  // Live, trial 3: collect stopped two blocks from a drop (goto's arrival radius)
+  // and pickup needs about one. Every walk must aim at the drop's own cell.
+  const goals = []
+  const realGoto = bot.pathfinder.goto.bind(bot.pathfinder)
+  bot.pathfinder.goto = async g => { goals.push(g); return realGoto(g) }
   const r = await collectDrops(bot, collectTask({ item: 'raw_iron', count: 2 }), deps())
+  assert.ok(goals.length >= 2)
+  for (const g of goals) assert.ok(g.rangeSq <= 1, `walk goal must be within one block of the drop, got rangeSq ${g.rangeSq}`)
   assert.equal(r.receipt, 'collected')
   assert.equal(r.gained, 2)
   assert.equal(r.requested, 2)

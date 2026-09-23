@@ -99,7 +99,10 @@ function movementProfile(bot, { dig, protectedSites = [] }) {
       if (inProtectedSite(block.position, protectedSites)) return 100
       const above = bot.blockAt(block.position.offset(0, 1, 0))
       if (above && (LIQUID.has(above.name) || GRAVITY.has(above.name))) return 100
-      if (typeof bot.canDigBlock === 'function' && !bot.canDigBlock(block) && block.boundingBox === 'block') return 100
+      // Judge the block, never the bot's reach: canDigBlock also tests distance,
+      // which read every block past arm's length as unbreakable and left the
+      // pathfinder no tunnel to plan. Bedrock and the like carry diggable:false.
+      if (block.diggable === false && block.boundingBox === 'block') return 100
       return 0
     })
   } else {
@@ -148,17 +151,17 @@ function subscribeDigPlace(bot) {
   }
 }
 
-export async function walkNear(bot, target, { dig, protectedSites, check, stage, progress, movements, timeoutMs = 8 * 60 * 1000 }) {
+export async function walkNear(bot, target, { dig, protectedSites, check, stage, progress, movements, timeoutMs = 8 * 60 * 1000, range = GOTO_RANGE }) {
   const dest = point(target), start = bot.entity.position.clone()
   const distance = start.distanceTo(dest)
   if (distance > GOTO_MAX)
     throw new Error(`Goto refuses ${Math.round(distance)} blocks away (cap ${GOTO_MAX}). Use an intermediate goto closer to ${dest.x},${dest.y},${dest.z}.`)
   const movement = movementProfile(bot, { dig, protectedSites })
   bot.pathfinder.setMovements(movement)
-  const arrival = () => new goals.GoalNear(dest.x, dest.y, dest.z, GOTO_RANGE)
+  const arrival = () => new goals.GoalNear(dest.x, dest.y, dest.z, range)
   const arrived = () => {
     const g = arrival(), f = bot.entity.position.floored()
-    return g.isEnd(f) || g.isEnd(f.offset(0, 1, 0)) || bot.entity.position.distanceTo(dest) <= GOTO_RANGE
+    return g.isEnd(f) || g.isEnd(f.offset(0, 1, 0)) || bot.entity.position.distanceTo(dest) <= range
   }
   const counters = subscribeDigPlace(bot)
   const started = Date.now()

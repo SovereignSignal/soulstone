@@ -181,7 +181,8 @@ export async function collectDrops(bot, task, { check, stage, progress, movement
     tried.add(next.id)
     stage('walking'); progress(`Collecting ${next.count} ${next.name} ${next.d} blocks away (${gained}/${goal.count} ${label} so far)`)
     try {
-      await walkNear(bot, next.position.floored(), { dig: false, protectedSites: [], check, stage, progress, movements, timeoutMs: 45000 })
+      // Pickup needs the bot's box to touch the item: stand on its cell, not near it.
+      await walkNear(bot, next.position.floored(), { dig: false, protectedSites: [], check, stage, progress, movements, timeoutMs: 45000, range: 1 })
       walked++
     } catch (error) {
       progress(`Could not reach the ${next.name} at ${key(next.position.floored())}: ${error.message}`)

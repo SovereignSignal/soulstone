@@ -202,6 +202,16 @@ test('goto dig:true enables canDig and scaffold; dig:false matches travel soft-b
   assert.equal(digging.canDig, true)
   assert.ok(digging.scafoldingBlocks?.length > 0, 'carried full cubes become scaffold')
   assert.equal(digging.allow1by1towers, true)
+  // Live, trial 3: `goto dig:true` reported "no route" with stone two blocks
+  // ahead. mineflayer's canDigBlock also tests reach, so every block beyond
+  // arm's length read as unbreakable and no tunnel could ever be planned. The
+  // profile must judge breakability by the block, not by where the bot stands.
+  bot.canDigBlock = () => false
+  const farStone = stone(new Vec3(12, 64, 0))
+  const bedrock = { name: 'bedrock', boundingBox: 'block', position: new Vec3(12, 63, 0), diggable: false }
+  const cost = block => digging.exclusionAreasBreak.reduce((n, f) => n + f(block), 0)
+  assert.equal(cost(farStone), 0, 'diggable stone out of reach is still a candidate for the pathfinder')
+  assert.equal(cost(bedrock), 100, 'bedrock is never a candidate')
 
   profiles.length = 0
   bot.entity.position = new Vec3(0.5, 64, 0.5)
