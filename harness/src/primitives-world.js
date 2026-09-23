@@ -6,11 +6,15 @@ import { setTimeout as delay } from 'node:timers/promises'
 import pathfinding from 'mineflayer-pathfinder'
 import { Vec3 } from 'vec3'
 import { fullCube } from './construction.js'
+import { DoorAwareMovements } from './navigation.js'
+import { weaponFor, clearStrike } from './combat.js'
 import { walkNear, inProtectedSite, inventoryCounts, inventoryDelta, LIQUID, AIR, DIG_REACH, key, point } from './primitives.js'
 
 const { goals } = pathfinding
 export const PLACE_REACH = DIG_REACH, COLLECT_RADIUS = 16, COLLECT_MAX = 64
+export const ATTACK_RADIUS = 24, ATTACK_REACH = 3.2, ATTACK_MS = 90000, ATTACK_LEASH = 32, ATTACK_HEALTH_START = 8, ATTACK_HEALTH_STOP = 6, ATTACK_FOOD_START = 6, REACQUIRE_RADIUS = 8
 const ITEM_ID = /^[a-z0-9_]{1,64}$/
+const ENTITY_TYPE = /^[a-z_]{1,40}$/
 // Cells the server treats as replaceable by a placement.
 const REPLACEABLE = new Set([...AIR, 'water', 'lava', 'short_grass', 'grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush', 'snow', 'vine', 'seagrass', 'tall_seagrass', 'fire', 'light'])
 const FACES = [new Vec3(0, -1, 0), new Vec3(0, 1, 0), new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)]
@@ -35,6 +39,18 @@ export function validateCollectGoal(goal) {
   const item = goal.item || ''
   if (item !== '' && !ITEM_ID.test(item)) throw new Error('Collect item must be an item ID or empty for anything')
   return { item, count: goal.count }
+}
+
+export function validateAttackGoal(goal) {
+  if (!goal || !ENTITY_TYPE.test(goal.type || '')) throw new Error('Attack needs an entity type name such as zombie, cow or enderman')
+  if (goal.type === 'player') throw new Error('attack never targets players')
+  return { type: goal.type }
+}
+
+export function validateAttackStep(s) {
+  if (s.name !== '' || s.count !== 1 || (s.design !== undefined && (!Array.isArray(s.design) || s.design.length)) || s.target != null)
+    throw new Error('Attack requires empty name and design, count 1 and no target')
+  validateAttackGoal({ type: s.item })
 }
 
 export function validatePlaceAtStep(s) {
@@ -181,4 +197,79 @@ export async function collectDrops(bot, task, { check, stage, progress, movement
     throw new Error(`Collected nothing: saw ${seen.length} ${label} drop${seen.length === 1 ? '' : 's'}, nearest ${nearest.count} ${nearest.name} at ${key(nearest.position.floored())}, walked to ${walked}; check for a full inventory or an unreachable ledge`)
   }
   return { receipt: 'collected', item: goal.item, gained, requested: goal.count, remainingDrops: remaining, partial: gained < goal.count }
+}
+
+const knownPoint = p => p && ['x', 'y', 'z'].every(k => Number.isFinite(p[k]))
+const nearestOfType = (bot, type, from, radius) => Object.values(bot.entities || {})
+  .filter(e => e && e !== bot.entity && e.name === type && e.type !== 'player' && knownPoint(e.position) && e.position.distanceTo(from) <= radius)
+  .sort((a, b) => a.position.distanceTo(from) - b.position.distanceTo(from))[0]
+
+// Planner-directed melee against the nearest entity of a named type. The
+// automatic defend path keeps its own allow-list and margins; this is the verb
+// a plan reaches for (a cow for leather, an enderman for a pearl, a blaze for a
+// rod). Verification is the server's entityDead for the entity we struck.
+export async function attackEntity(bot, task, { check, stage, progress, movements }) {
+  const goal = validateAttackGoal(task.goal)
+  const here = bot.entity.position
+  if (!(bot.health >= ATTACK_HEALTH_START)) throw new Error(`Health ${Math.round(bot.health)} is below ${ATTACK_HEALTH_START}; eat or shelter before attacking`)
+  if (!(bot.food >= ATTACK_FOOD_START)) throw new Error(`Hunger ${bot.food} is below ${ATTACK_FOOD_START}; eat before attacking`)
+  let target = nearestOfType(bot, goal.type, here, ATTACK_RADIUS)
+  if (!target) {
+    const others = Object.values(bot.entities || {})
+      .filter(e => e && e !== bot.entity && e.name && e.type !== 'player' && !e.getDroppedItem?.() && knownPoint(e.position) && e.position.distanceTo(here) <= ATTACK_RADIUS)
+      .sort((a, b) => a.position.distanceTo(here) - b.position.distanceTo(here)).slice(0, 3)
+      .map(e => `${e.name} ${Math.round(e.position.distanceTo(here))}`)
+    throw new Error(`No ${goal.type} within ${ATTACK_RADIUS} blocks${others.length ? `; nearest loaded entities: ${others.join(', ')}` : ''}`)
+  }
+  const weapon = weaponFor(bot, target) || null
+  const cooldown = weapon ? (weapon.name.endsWith('_axe') ? 1300 : 700) : 500
+  const before = inventoryCounts(bot), start = here.clone(), started = Date.now()
+  let swings = 0, reacquired = 0, dead = false, lastSeen = target.position.clone()
+  const killed = e => { if (e && e.id === target.id) dead = true }
+  bot.on('entityDead', killed)
+  const movement = new DoorAwareMovements(bot)
+  Object.assign(movement, { canDig: false, allow1by1towers: false, allowParkour: false, allowSprinting: true, maxDropDown: 2, scafoldingBlocks: [] })
+  let following = false, nextSwing = 0
+  const strikeable = () => bot.entity.position.distanceTo(target.position) <= ATTACK_REACH && (typeof bot.world?.raycast !== 'function' || clearStrike(bot, target))
+  try {
+    stage('arming')
+    if (weapon) await bot.equip(weapon, 'hand')
+    check()
+    bot.pathfinder.setMovements(movement)
+    stage('attacking'); progress(`Attacking the nearest ${goal.type} ${Math.round(target.position.distanceTo(here))} blocks away with ${weapon ? weapon.name.replaceAll('_', ' ') : 'fists'}`)
+    for (;;) {
+      check()
+      if (dead) break
+      const elapsed = Date.now() - started
+      if (bot.health < ATTACK_HEALTH_STOP) throw new Error(`Health ${Math.round(bot.health)}: broke off the attack on the ${goal.type} after ${swings} swings; shelter or eat`)
+      if (elapsed >= ATTACK_MS) throw new Error(`Gave up after ${Math.round(elapsed / 1000)}s: ${goal.type} last seen ${Math.round(lastSeen.distanceTo(bot.entity.position))} blocks away, ${swings} swings landed, health ${Math.round(bot.health)}`)
+      if (bot.entity.position.distanceTo(start) > ATTACK_LEASH) throw new Error(`The ${goal.type} led the chase ${Math.round(bot.entity.position.distanceTo(start))} blocks from where it began (cap ${ATTACK_LEASH}); ${swings} swings landed`)
+      if (bot.entities?.[target.id] !== target) {
+        // An enderman teleports, a mob despawns: re-acquire the nearest of the
+        // same type near where it was last seen rather than abandoning the plan.
+        const again = nearestOfType(bot, goal.type, lastSeen, REACQUIRE_RADIUS)
+        if (!again) throw new Error(`Lost the ${goal.type}: last seen ${Math.round(lastSeen.distanceTo(bot.entity.position))} blocks away, none within ${REACQUIRE_RADIUS} blocks of there; ${swings} swings landed, no kill confirmed`)
+        target = again; reacquired++; following = false
+        progress(`Re-acquired a ${goal.type} ${Math.round(target.position.distanceTo(bot.entity.position))} blocks away`)
+      }
+      lastSeen = target.position.clone()
+      if (strikeable()) {
+        if (following) { bot.pathfinder.setGoal(null); following = false }
+        await bot.lookAt?.(point(target.position).offset(0, Math.min(1.2, (target.height || 1.8) / 2), 0), true)
+        check()
+        if (!dead && Date.now() >= nextSwing && strikeable()) { bot.attack(target); swings++; nextSwing = Date.now() + cooldown }
+      } else if (!following || !bot.pathfinder.goal) {
+        bot.pathfinder.setGoal(new goals.GoalFollow(target, 2), true); following = true
+      }
+      await delay(50)
+    }
+  } finally {
+    ;(bot.removeListener || bot.off)?.call(bot, 'entityDead', killed)
+    bot.pathfinder.setGoal(null); bot.clearControlStates?.()
+    if (movements) bot.pathfinder.setMovements(movements)
+  }
+  if (!swings) throw new Error(`The ${goal.type} died before any swing landed; no kill can be attributed`)
+  // Drops land a few ticks after death.
+  for (let i = 0; i < 20; i++) { check(); await delay(100); if (Object.keys(inventoryDelta(before, inventoryCounts(bot))).length) break }
+  return { receipt: 'target_death_observed', type: goal.type, weapon: weapon ? weapon.name : 'fists', swings, reacquired, drops: inventoryDelta(before, inventoryCounts(bot)), attribution: 'Server death observed after our attacks; exclusive kill attribution requires server statistics' }
 }

@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs'
 import { Vec3 } from 'vec3'
 import minecraftData from 'minecraft-data'
 import { validatePlan, schema } from '../src/companion/planner.js'
-import { validatePlaceAtGoal, validateCollectGoal, placeAt, collectDrops } from '../src/primitives-world.js'
+import { validatePlaceAtGoal, validateCollectGoal, validateAttackGoal, placeAt, collectDrops, attackEntity } from '../src/primitives-world.js'
+import { EventEmitter } from 'node:events'
 import { validateTaskGoal } from '../src/task-store.js'
 import { Runner } from '../src/runner.js'
 
@@ -194,4 +195,82 @@ test('collect with no matching drops throws naming what else is lying about; col
   // A drop it can stand on but never receives (full inventory) is a failure, not a partial.
   const stuck = fakeBot({ entities: { 7: dropEntity(7, 'raw_iron', 1, 4.5, 64, 0.5) } })
   await assert.rejects(() => collectDrops(stuck, collectTask({ item: 'raw_iron', count: 1 }), deps()), /Collected nothing: saw 1 raw_iron drop, nearest 1 raw_iron at 4,64,0, walked to 1/)
+})
+
+const attackStep = (over = {}) => ({ action: 'attack', name: '', count: 1, item: 'zombie', design: [], target: null, ...over })
+
+test('validatePlan accepts a well-formed attack step and rejects player, count 2 and a target', () => {
+  const a = validatePlan({ reply: 'Fighting.', steps: [attackStep()] })
+  assert.deepEqual(a.steps[0], { action: 'attack', name: '', count: 1, item: 'zombie' })
+  assert.deepEqual(validateTaskGoal('attack', { type: 'cow' }), { type: 'cow' })
+  assert.throws(() => validatePlan({ reply: 'x', steps: [attackStep({ item: 'player' })] }), /never targets players/)
+  assert.throws(() => validatePlan({ reply: 'x', steps: [attackStep({ count: 2 })] }), /count 1/)
+  assert.throws(() => validatePlan({ reply: 'x', steps: [attackStep({ target: { x: 1, y: 2, z: 3 } })] }), /no target|accept a target/)
+  assert.ok(schema.properties.steps.items.properties.action.enum.includes('attack'))
+})
+
+test('attack passes intent and skill-control admission and dispatches as a skill', async () => {
+  const { guardIntent } = await import('../src/companion/intent.js')
+  const { SKILL_ACTIONS } = await import('../src/companion/skill-control.js')
+  const plan = validatePlan({ reply: 'ok', steps: [attackStep({ item: 'cow' })] })
+  assert.deepEqual(guardIntent(plan, 'kill a cow for leather'), plan)
+  assert.ok(SKILL_ACTIONS.has('attack'))
+  const calls = []
+  const runner = { ready: true, connectionId: 'c1', task: { kind: 'attack', status: 'running', goal: { type: 'cow' }, deadline: Date.now() + 10000 },
+    bot: { pathfinder: { setGoal: g => calls.push(['navigate', g]) } }, log: t => calls.push([t]), finish: (s, r) => calls.push(['finish', s, r]), runSkill: () => calls.push(['runSkill']) }
+  Runner.prototype.applyGoal.call(runner)
+  assert.deepEqual(calls, [['runSkill']])
+})
+
+function fightBot({ entities, health = 20, food = 20, items } = {}) {
+  const bot = new EventEmitter()
+  Object.assign(bot, {
+    entity: { position: new Vec3(0.5, 64, 0.5), eyeHeight: 1.62 },
+    entities, health, food, registry,
+    inventory: { items: () => items || [{ name: 'stone_axe', count: 1, type: registry.itemsByName.stone_axe.id, maxDurability: 131, durabilityUsed: 0 }] },
+    pathfinder: { goal: null, setMovements() {}, setGoal(g) { this.goal = g; if (g?.entity) bot.entity.position = g.entity.position.offset(1, 0, 0) } },
+    equip: async i => { bot._held = i.name }, lookAt: async () => {}, clearControlStates() {},
+    attack: t => { bot._swings = (bot._swings || 0) + 1; bot._hit?.(t) },
+  })
+  return bot
+}
+const mob = (id, name, x, y, z) => ({ id, name, type: 'mob', position: new Vec3(x, y, z), height: 1.95 })
+const attackTask = type => ({ kind: 'attack', goal: validateAttackGoal({ type }) })
+
+test('attack finds the nearest of the type, swings, and resolves on the server death with drops', async () => {
+  const zombie = mob(5, 'zombie', 6.5, 64, 0.5), far = mob(6, 'zombie', 20.5, 64, 0.5), cow = mob(7, 'cow', 2.5, 64, 0.5)
+  const items = [{ name: 'stone_axe', count: 1, type: registry.itemsByName.stone_axe.id, maxDurability: 131, durabilityUsed: 0 }]
+  const bot = fightBot({ entities: { 5: zombie, 6: far, 7: cow }, items })
+  bot._hit = t => { assert.equal(t, zombie); if (bot._swings >= 2) { delete bot.entities[5]; items.push({ name: 'rotten_flesh', count: 1, type: 3 }); bot.emit('entityDead', zombie) } }
+  const r = await attackEntity(bot, attackTask('zombie'), deps())
+  assert.equal(r.receipt, 'target_death_observed')
+  assert.equal(r.type, 'zombie'); assert.equal(r.weapon, 'stone_axe'); assert.equal(r.swings, 2); assert.equal(r.reacquired, 0)
+  assert.deepEqual({ ...r.drops }, { rotten_flesh: 1 })
+  assert.equal(bot._held, 'stone_axe')
+})
+
+test('attack re-acquires the same type nearby when the tracked entity vanishes (enderman)', async () => {
+  const first = mob(11, 'enderman', 5.5, 64, 0.5)
+  const bot = fightBot({ entities: { 11: first } })
+  let swings = 0
+  bot._hit = t => {
+    swings++
+    if (swings === 1) { delete bot.entities[11]; const again = mob(12, 'enderman', bot.entity.position.x + 4, 64, 0.5); bot.entities[12] = again }
+    if (swings === 3) { const cur = bot.entities[12]; delete bot.entities[12]; bot.emit('entityDead', cur) }
+  }
+  const r = await attackEntity(bot, attackTask('enderman'), deps())
+  assert.equal(r.receipt, 'target_death_observed'); assert.equal(r.reacquired, 1); assert.equal(r.swings, 3)
+})
+
+test('attack refuses at low health, throws when none of the type is loaded, and breaks off when health falls', async () => {
+  await assert.rejects(() => attackEntity(fightBot({ entities: { 5: mob(5, 'zombie', 3.5, 64, 0.5) }, health: 7 }), attackTask('zombie'), deps()), /Health 7 is below 8; eat or shelter/)
+  await assert.rejects(() => attackEntity(fightBot({ entities: { 7: mob(7, 'cow', 3.5, 64, 0.5), 8: mob(8, 'sheep', 9.5, 64, 0.5) } }), attackTask('zombie'), deps()), /No zombie within 24 blocks; nearest loaded entities: cow 3, sheep 9/)
+  const zombie = mob(5, 'zombie', 3.5, 64, 0.5)
+  const hurt = fightBot({ entities: { 5: zombie } })
+  hurt._hit = () => { hurt.health = 5 }
+  await assert.rejects(() => attackEntity(hurt, attackTask('zombie'), deps()), /Health 5: broke off the attack on the zombie after 1 swings; shelter or eat/)
+  // A lost target with nothing of its type nearby is a named failure, not a hang.
+  const gone = fightBot({ entities: { 5: mob(5, 'zombie', 3.5, 64, 0.5) } })
+  gone._hit = () => { delete gone.entities[5] }
+  await assert.rejects(() => attackEntity(gone, attackTask('zombie'), deps()), /Lost the zombie.*none within 8 blocks.*1 swings landed, no kill confirmed/)
 })
