@@ -167,6 +167,39 @@ test('dig breaks a 3-step tunnel (feet and head each step) and reports broken:3'
   assert.ok(bot._dug >= 6, `feet and head broken each step, dug=${bot._dug}`)
 })
 
+// Trial 3 live: told to dig toward a cell above it, the agent cut a chimney it
+// could not climb, then spent rounds on goto legs that timed out three blocks
+// short, straight up. Stepping into a cleared column must use the profile that
+// carries scaffold and may tower one block, or an upward dig strands the digger.
+test('dig steps into each cleared column with the scaffold-capable profile and follows an upward line', async () => {
+  const profiles = []
+  const fills = []
+  for (let y = 65; y <= 69; y++) fills.push([0, y, 0, stone])
+  fills.push([0, 63, 0, stone])
+  const bot = fakeBot({
+    fills,
+    items: [
+      { name: 'wooden_pickaxe', count: 1, type: registry.itemsByName.wooden_pickaxe.id },
+      { name: 'dirt', count: 20, type: registry.itemsByName.dirt.id },
+    ],
+    pathfinder: {
+      movements: null,
+      setMovements(m) { profiles.push(m); this.movements = m },
+      setGoal() {},
+      async goto(goal) { bot.entity.position = new Vec3((goal.x ?? 0) + 0.5, goal.y ?? 64, (goal.z ?? 0) + 0.5) },
+    },
+  })
+  const result = await digToward(bot, { kind: 'dig', goal: validateDigGoal({ x: 0, y: 68, z: 0, count: 4 }) }, deps())
+  assert.equal(result.receipt, 'dug')
+  assert.equal(result.broken, 4, `broken=${result.broken} reason=${result.reason}`)
+  assert.ok(profiles.length >= 3, 'stepped into columns')
+  for (const p of profiles) {
+    assert.equal(p.canDig, true, 'stepping into a column uses the dig profile')
+    assert.ok(p.scafoldingBlocks?.length > 0, 'carried dirt is scaffold for towering into the column')
+  }
+  assert.equal(Math.floor(bot.entity.position.y), 68, 'the digger rose with its own chimney')
+})
+
 test('dig stops before a lava-adjacent cell and names lava in the reason', async () => {
   const fills = [
     [1, 64, 0, stone], [1, 65, 0, stone], [1, 63, 0, stone],

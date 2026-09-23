@@ -332,10 +332,13 @@ export async function digToward(bot, task, context) {
       }
       if (dugThis < 0 || reason) break
       broken++
-      // Step into the cleared column so the next cell is in reach.
+      // Step into the cleared column so the next cell is in reach. With the dig
+      // profile: an upward line is a chimney, and only a profile that carries
+      // scaffold and may tower one block can follow it. Without this the digger
+      // cuts a shaft it cannot climb and every later goto times out beneath it.
       if (i < goal.count || bot.entity.position.floored().distanceTo(feet) > 0.1) {
         try {
-          await walkNear(bot, feet, { dig: false, protectedSites: sites, check, stage, progress, movements, timeoutMs: 30000 })
+          await walkNear(bot, feet, { dig: true, protectedSites: sites, check, stage, progress, movements, timeoutMs: 30000, range: 0 })
         } catch (error) {
           // Column is open; standing short is not a dig failure if we already broke it.
           progress(`Could not step into ${key(feet)}: ${error.message}`)
