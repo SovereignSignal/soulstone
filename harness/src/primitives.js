@@ -6,7 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import pathfinding from 'mineflayer-pathfinder'
 import { Vec3 } from 'vec3'
 import { fullCube } from './construction.js'
-import { DoorAwareMovements, allowGroundBreaking, requireReachedGoal } from './navigation.js'
+import { DoorAwareMovements, allowGroundBreaking, requireReachedGoal, TRAVERSAL_DIG_COST } from './navigation.js'
 import { lineObstruction, LEG_TIMEOUT_MS, CLOSED_PER_LEG } from './travel.js'
 
 const { goals } = pathfinding
@@ -14,6 +14,19 @@ export const GOTO_RANGE = 2, GOTO_MAX = 64, DIG_REACH = 4.5, DIG_COUNT_MAX = 32,
 export const LIQUID = new Set(['water', 'lava', 'bubble_column'])
 export const GRAVITY = new Set(['sand', 'red_sand', 'gravel', 'suspicious_sand', 'suspicious_gravel'])
 export const AIR = new Set(['air', 'cave_air', 'void_air'])
+// Things a player would not want a tunnel through: workstations, storage,
+// lights, beds, doors, signs and other placed fixtures. Entries starting with
+// '_' match any block name ending with them. Obsidian is absent on purpose:
+// the planner mines it.
+export const PROTECTED_BLOCKS = new Set([
+  'furnace', 'blast_furnace', 'smoker', 'crafting_table', 'chest', 'trapped_chest', 'barrel',
+  'torch', 'wall_torch', 'soul_torch', 'soul_wall_torch', 'ladder',
+  'bell', 'lectern', 'enchanting_table', 'anvil', 'chipped_anvil', 'damaged_anvil',
+  'brewing_stand', 'beacon', 'spawner', 'end_portal_frame',
+  '_bed', '_door', '_trapdoor', '_fence_gate', '_sign', '_wall_sign', '_hanging_sign', '_shulker_box',
+])
+const protectedBlock = name => !!name && (PROTECTED_BLOCKS.has(name)
+  || [...PROTECTED_BLOCKS].some(s => s.startsWith('_') && name.endsWith(s)))
 export const key = p => `${p.x},${p.y},${p.z}`
 export const point = p => new Vec3(p.x, p.y, p.z)
 const floored = p => ({ x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) })
@@ -93,12 +106,15 @@ function movementProfile(bot, { dig, protectedSites = [] }) {
     Object.assign(movement, {
       canDig: true, allow1by1towers: true, allowParkour: false, allowSprinting: false, maxDropDown: 3,
       scafoldingBlocks: scaffoldIds(bot),
+      // Travel's price: at the default 1 the pathfinder tunnels through
+      // anything rather than take a short detour.
+      digCost: TRAVERSAL_DIG_COST,
     })
     // Pathfinder may break any harvestable block the tools can dig, except
-    // liquids, falling overhead, and saved project footprints.
+    // liquids, falling overhead, fixtures, and saved project footprints.
     movement.exclusionAreasBreak.push(block => {
       if (!block?.position) return 100
-      if (LIQUID.has(block.name) || GRAVITY.has(block.name)) return 100
+      if (LIQUID.has(block.name) || GRAVITY.has(block.name) || protectedBlock(block.name)) return 100
       if (inProtectedSite(block.position, protectedSites)) return 100
       const above = bot.blockAt(block.position.offset(0, 1, 0))
       if (above && (LIQUID.has(above.name) || GRAVITY.has(above.name))) return 100
@@ -114,6 +130,8 @@ function movementProfile(bot, { dig, protectedSites = [] }) {
     if (protectedSites.length)
       movement.exclusionAreasBreak.push(block => block?.position && inProtectedSite(block.position, protectedSites) ? 100 : 0)
   }
+  if (protectedSites.length)
+    movement.exclusionAreasPlace.push(block => block?.position && inProtectedSite(block.position, protectedSites) ? 100 : 0)
   return movement
 }
 
@@ -233,6 +251,7 @@ function refuseDigCell(bot, cell, { protectedSites = [], role = 'target' } = {})
   }
   if (LIQUID.has(block.name)) return `${role} is liquid (${block.name}) at ${key(cell)}`
   if (inProtectedSite(cell, protectedSites)) return `${key(cell)} is inside a saved project footprint; dig does not modify saved builds. Choose a cell outside it, or revise the project.`
+  if (protectedBlock(block.name)) return `${block.name} at ${key(cell)} is a workstation or fixture; dig does not break those. Use revise for a saved build, or choose another cell.`
   if (AIR.has(block.name) || block.boundingBox === 'empty') return null // already open
   const above = bot.blockAt(cell.offset(0, 1, 0))
   if (above && LIQUID.has(above.name)) return `${key(cell)} directly supports liquid (${above.name}) at ${key(above.position || cell.offset(0, 1, 0))}`

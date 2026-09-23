@@ -84,7 +84,8 @@ const coarseObserved=v=>{
  return v
 }
 export function criterionFingerprint(verification,mission){
- const checks=(verification?.checks||[]).map(c=>[c.kind,c.item,c.target,!!c.passed,coarseObserved(c.observed)])
+ // at_* checks observe a raw float distance, so any step would reset the count.
+ const checks=(verification?.checks||[]).map(c=>[c.kind,c.item,c.target,!!c.passed,String(c.kind).startsWith('at_')?null:coarseObserved(c.observed)])
  const nodes=(mission?.nodes||[]).map(n=>`${n.id}:${n.status}`)
  return JSON.stringify({checks,nodes})
 }
@@ -98,15 +99,26 @@ export function criterionStall(request){
 // dig raised a high. So the fingerprint carries every item NAME ever held, and
 // the COUNT only for items the criteria name. High-water marks only rise, so
 // spending, dropping and regaining leave it alone, and walking never touches it.
-export function noteCriterionStall(request,inventory){
+// A long build with materials in hand moves none of those until it finishes, so
+// each project's verified block count keeps its own high-water mark too.
+export function noteCriterionStall(request,inventory,projects){
  if(!request)return criterionStall(request)
  if(inventory&&typeof inventory==='object'){
   const highs=request.inventoryHighs||(request.inventoryHighs={})
   for(const [name,count] of Object.entries(inventory))if(Number.isFinite(count)&&count>(highs[name]||0))highs[name]=count
  }
+ const built=[]
+ for(const f of request.feedback||[])
+  if(['construct','build','revise'].includes(f?.action)&&Number.isFinite(f.result?.verifiedBlocks))built.push([f.result.project||f.step?.name||'build',f.result.verifiedBlocks])
+ for(const [name,p] of Object.entries(projects&&typeof projects==='object'?projects:{}))
+  for(const n of [p?.progress?.verifiedBlocks,p?.result?.verifiedBlocks])if(Number.isFinite(n))built.push([name,n])
+ if(built.length){
+  const highs=request.buildHighs||(request.buildHighs={})
+  for(const [name,n] of built)if(n>(highs[name]||0))highs[name]=n
+ }
  const named=new Set((request.verification?.checks||[]).map(c=>c.item).filter(Boolean))
  const highs=Object.entries(request.inventoryHighs||{}).sort().map(([name,count])=>named.has(name)?[name,count]:name)
- const fp=criterionFingerprint(request.verification,request.mission)+JSON.stringify(highs)
+ const fp=criterionFingerprint(request.verification,request.mission)+JSON.stringify(highs)+(request.buildHighs?JSON.stringify(Object.entries(request.buildHighs).sort()):'')
  const round=request.rounds||0
  if(request.criterionFingerprint===fp)request.criterionStallRounds=(request.criterionStallRounds||0)+1
  else{request.criterionFingerprint=fp;request.criterionStallRounds=0;request.criterionStallSince=round}

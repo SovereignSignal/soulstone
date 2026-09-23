@@ -261,6 +261,57 @@ test('goto dig:true enables canDig and scaffold; dig:false matches travel soft-b
   assert.equal(soft.allow1by1towers, false)
 })
 
+async function gotoProfile(goal) {
+  const profiles = []
+  const bot = fakeBot({
+    items: [
+      { name: 'wooden_pickaxe', count: 1, type: registry.itemsByName.wooden_pickaxe.id },
+      { name: 'cobblestone', count: 8, type: registry.itemsByName.cobblestone.id },
+    ],
+    pathfinder: {
+      movements: null,
+      setMovements(m) { profiles.push(m); this.movements = m },
+      setGoal() {},
+      async goto(g) { bot.entity.position = new Vec3((g.x ?? 0) + 0.5, g.y ?? 64, (g.z ?? 0) + 0.5) },
+    },
+  })
+  await gotoPosition(bot, { kind: 'goto', goal: validateGotoGoal(goal) }, deps())
+  return profiles.at(-1)
+}
+
+test('neither goto profile places scaffold inside a saved project footprint', async () => {
+  const protectedSites = [{ minX: 10, maxX: 14, minZ: -2, maxZ: 2 }]
+  for (const dig of [true, false]) {
+    const profile = await gotoProfile({ x: 4, y: 64, z: 0, dig, protectedSites })
+    assert.ok(profile.exclusionPlace(air(new Vec3(12, 65, 0))) >= 100, `dig:${dig} must not place inside the footprint`)
+    assert.equal(profile.exclusionPlace(air(new Vec3(20, 65, 0))), 0, `dig:${dig} may place outside the footprint`)
+  }
+})
+
+test('goto dig:true will not tunnel through workstations, storage, lights or doors', async () => {
+  const digging = await gotoProfile({ x: 4, y: 64, z: 0, dig: true })
+  const block = name => ({ name, boundingBox: 'block', position: new Vec3(8, 64, 0), diggable: true })
+  for (const name of ['furnace', 'crafting_table', 'barrel', 'torch', 'red_bed', 'oak_door', 'spruce_trapdoor', 'oak_fence_gate', 'oak_wall_sign', 'white_shulker_box', 'anvil'])
+    assert.ok(digging.exclusionBreak(block(name)) >= 100, `${name} must not be a tunnel candidate`)
+  for (const name of ['stone', 'obsidian', 'deepslate'])
+    assert.equal(digging.exclusionBreak(block(name)), 0, `${name} stays breakable`)
+})
+
+test('goto dig:true prices digging like travel, so a short detour beats a tunnel', async () => {
+  const { TRAVERSAL_DIG_COST } = await import('../src/navigation.js')
+  const digging = await gotoProfile({ x: 4, y: 64, z: 0, dig: true })
+  assert.equal(digging.digCost, TRAVERSAL_DIG_COST)
+})
+
+test('dig refuses a workstation by name and says what to do instead', async () => {
+  const bot = fakeBot({ fills: [[1, 64, 0, { name: 'crafting_table', boundingBox: 'block', diggable: true }], [1, 63, 0, stone]] })
+  await assert.rejects(
+    () => digToward(bot, { kind: 'dig', goal: validateDigGoal({ x: 1, y: 64, z: 0, count: 1 }) }, deps()),
+    { message: 'crafting_table at 1,64,0 is a workstation or fixture; dig does not break those. Use revise for a saved build, or choose another cell.' },
+  )
+  assert.equal(bot._dug || 0, 0)
+})
+
 test('goto refuses destinations beyond 64 blocks and names the distance', async () => {
   const bot = fakeBot()
   await assert.rejects(

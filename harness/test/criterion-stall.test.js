@@ -81,6 +81,37 @@ test('a new inventory high resets the criterion stall; moving, spending and re-g
   assert.equal(criterionStall(named).rounds,0,'a second raw iron toward a raw_iron criterion is progress')
 })
 
+test('a distance criterion keys on passed alone, so walking does not reset the stall',()=>{
+  const near=o=>verdict([check({kind:'at_owner',item:'',observed:o,passed:false})])
+  assert.equal(criterionFingerprint(near(7.31415),mission()),criterionFingerprint(near(5.02718),mission()))
+  assert.notEqual(criterionFingerprint(near(7.3),mission()),criterionFingerprint(verdict([check({kind:'at_owner',item:'',observed:1.2,passed:true})]),mission()))
+})
+
+// A construct that places 64 blocks a round with materials already carried
+// changes no check, node or inventory high until it finishes; twenty such
+// rounds on a big build would halt it while it was visibly working.
+test('a rising verified block count on a saved project resets the criterion stall; a flat one does not',()=>{
+  const request={rounds:1,verification:verdict(),mission:mission()}
+  const projects=n=>({tower:{construction:true,result:{partial:true,verifiedBlocks:n,totalBlocks:2000}}})
+  noteCriterionStall(request,{cobblestone:900},projects(64))
+  for(let r=2;r<=5;r++){request.rounds=r;noteCriterionStall(request,{cobblestone:900},projects(64*r))}
+  assert.equal(criterionStall(request).rounds,0,'every round laid more verified blocks')
+  request.rounds=6;noteCriterionStall(request,{cobblestone:900},projects(320))
+  assert.equal(criterionStall(request).rounds,1,'the same count again is not progress')
+  request.rounds=7;noteCriterionStall(request,{cobblestone:900},projects(100))
+  assert.equal(criterionStall(request).rounds,2,'a lower count does not lower the high-water mark')
+})
+
+test('verified blocks reported in construct feedback count even without a projects argument',()=>{
+  const request={rounds:1,verification:verdict(),mission:mission(),feedback:[]}
+  const round=n=>request.feedback.push({action:'construct',step:{action:'construct',name:'tower'},status:'completed',result:{project:'tower',partial:true,verifiedBlocks:n}})
+  round(64);noteCriterionStall(request)
+  request.rounds=2;round(128);noteCriterionStall(request)
+  assert.equal(criterionStall(request).rounds,0)
+  request.rounds=3;noteCriterionStall(request)
+  assert.equal(criterionStall(request).rounds,1)
+})
+
 test('criterion stall reports true at exactly CRITERION_STALL_ROUNDS and false one below',()=>{
   const request={rounds:0,verification:verdict(),mission:mission()}
   // Seed through the function rather than by writing its private fields.
