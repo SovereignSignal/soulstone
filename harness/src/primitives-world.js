@@ -8,7 +8,7 @@ import { Vec3 } from 'vec3'
 import { fullCube } from './construction.js'
 import { DoorAwareMovements } from './navigation.js'
 import { weaponFor, clearStrike } from './combat.js'
-import { walkNear, inProtectedSite, inventoryCounts, inventoryDelta, LIQUID, AIR, DIG_REACH, key, point } from './primitives.js'
+import { walkNear, inProtectedSite, validateProtectedSites, inventoryCounts, inventoryDelta, LIQUID, AIR, DIG_REACH, key, point } from './primitives.js'
 
 const { goals } = pathfinding
 export const PLACE_REACH = DIG_REACH, COLLECT_RADIUS = 16, COLLECT_MAX = 64
@@ -18,14 +18,6 @@ const ENTITY_TYPE = /^[a-z_]{1,40}$/
 // Cells the server treats as replaceable by a placement.
 const REPLACEABLE = new Set([...AIR, 'water', 'lava', 'short_grass', 'grass', 'tall_grass', 'fern', 'large_fern', 'dead_bush', 'snow', 'vine', 'seagrass', 'tall_seagrass', 'fire', 'light'])
 const FACES = [new Vec3(0, -1, 0), new Vec3(0, 1, 0), new Vec3(1, 0, 0), new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 0, -1)]
-
-function validateProtectedSites(sites) {
-  if (sites === undefined) return
-  if (!Array.isArray(sites) || sites.length > 128) throw new Error('Invalid protected construction sites')
-  for (const site of sites)
-    if (!site || !['minX', 'maxX', 'minZ', 'maxZ'].every(k => Number.isInteger(site[k]) && Math.abs(site[k]) <= 29999900) || site.minX > site.maxX || site.minZ > site.maxZ)
-      throw new Error('Invalid protected construction rectangle')
-}
 
 export function validatePlaceAtGoal(goal) {
   if (!goal || !['x', 'y', 'z'].every(k => Number.isSafeInteger(goal[k]))) throw new Error('Place_at needs a target with integer x, y and z')
@@ -38,7 +30,8 @@ export function validateCollectGoal(goal) {
   if (!goal || !Number.isInteger(goal.count) || goal.count < 1 || goal.count > COLLECT_MAX) throw new Error(`Collect count must be 1–${COLLECT_MAX}`)
   const item = goal.item || ''
   if (item !== '' && !ITEM_ID.test(item)) throw new Error('Collect item must be an item ID or empty for anything')
-  return { item, count: goal.count }
+  validateProtectedSites(goal.protectedSites)
+  return { item, count: goal.count, ...(goal.protectedSites?.length ? { protectedSites: goal.protectedSites } : {}) }
 }
 
 const NOT_CREATURE = new Set(['item', 'experience_orb', 'arrow', 'spectral_arrow', 'trident', 'fishing_bobber', 'ender_dragon_part'])
@@ -206,7 +199,8 @@ export async function collectDrops(bot, task, { check, stage, progress, movement
     stage('walking'); progress(`Collecting ${next.count} ${next.name} ${next.d} blocks away (${gained}/${goal.count} ${label} so far)`)
     try {
       // Pickup needs the bot's box to touch the item: stand on its cell, not near it.
-      await walkNear(bot, next.position.floored(), { dig: false, protectedSites: [], check, stage, progress, movements, timeoutMs: 45000, range: 1 })
+      // A drop mined through reach lies behind whatever was between: dig to it.
+      await walkNear(bot, next.position.floored(), { dig: true, protectedSites: goal.protectedSites || [], check, stage, progress, movements, timeoutMs: 45000, range: 1 })
       walked++
     } catch (error) {
       progress(`Could not reach the ${next.name} at ${key(next.position.floored())}: ${error.message}`)

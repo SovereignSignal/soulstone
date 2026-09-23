@@ -31,7 +31,7 @@ export const key = p => `${p.x},${p.y},${p.z}`
 export const point = p => new Vec3(p.x, p.y, p.z)
 const floored = p => ({ x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) })
 
-function validateProtectedSites(sites) {
+export function validateProtectedSites(sites) {
   if (sites === undefined) return
   if (!Array.isArray(sites) || sites.length > 128) throw new Error('Invalid protected construction sites')
   for (const site of sites)

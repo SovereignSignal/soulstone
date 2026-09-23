@@ -249,6 +249,32 @@ test('collect with no matching drops throws naming what else is lying about; col
   await assert.rejects(() => collectDrops(stuck, collectTask({ item: 'raw_iron', count: 1 }), deps()), /Collected nothing: saw 1 raw_iron drop, nearest 1 raw_iron at 4,64,0, walked to 1/)
 })
 
+test('collect digs to a drop behind stone, but never inside a saved footprint', async () => {
+  // Trial 7, 23 September, from an empty inventory: the first raw iron dropped
+  // into the ore's own cell, mined through reach from 3.2 blocks with stone in
+  // between. collect walked without digging, the pathfinder found no route
+  // ("Took to long to decide path"), walked to 0, and the iron was left behind.
+  const profiles = []
+  const bot = fakeBot({ items: [{ name: 'stone_pickaxe', count: 1, type: registry.itemsByName.stone_pickaxe.id }], entities: { 7: dropEntity(7, 'raw_iron', 1, 4.5, 64, 0.5) } })
+  bot.pathfinder.setMovements = m => { profiles.push(m); bot.pathfinder.movements = m }
+  const protectedSites = [{ minX: 10, maxX: 14, minZ: -2, maxZ: 2 }]
+  await collectDrops(bot, collectTask({ item: 'raw_iron', count: 1, protectedSites }), deps()).catch(() => {})
+  const m = profiles.at(-1)
+  assert.ok(m, 'collect set a movement profile')
+  assert.equal(m.canDig, true, 'a drop behind a block is reached by digging to it')
+  const block = (x, name = 'stone') => ({ name, boundingBox: 'block', position: new Vec3(x, 64, 0), diggable: true })
+  assert.ok(m.exclusionBreak(block(12)) >= 100, 'a saved footprint is never dug for a drop')
+  assert.equal(m.exclusionBreak(block(3)), 0, 'plain stone on the way is fair game')
+  assert.ok(m.exclusionBreak(block(3, 'crafting_table')) >= 100, 'nor a workstation')
+})
+
+test('validateCollectGoal carries footprints through and rejects a malformed one', () => {
+  const sites = [{ minX: 1, maxX: 2, minZ: 3, maxZ: 4 }]
+  assert.deepEqual(validateCollectGoal({ item: 'raw_iron', count: 1, protectedSites: sites }), { item: 'raw_iron', count: 1, protectedSites: sites })
+  assert.deepEqual(validateTaskGoal('collect', { item: 'raw_iron', count: 1, protectedSites: sites }).protectedSites, sites)
+  assert.throws(() => validateCollectGoal({ item: 'raw_iron', count: 1, protectedSites: [{ minX: 5, maxX: 1, minZ: 0, maxZ: 1 }] }), /rectangle/)
+})
+
 const attackStep = (over = {}) => ({ action: 'attack', name: '', count: 1, item: 'zombie', design: [], target: null, ...over })
 
 test('validatePlan accepts a well-formed attack step and rejects player, count 2 and a target', () => {

@@ -988,6 +988,22 @@ test('an inspect naming blocks widens the next round\'s world scan to them',asyn
  assert.equal(second.world.blocks.scanned.radius,16)
 })
 
+test('a collect step carries the saved base footprint, since collect may dig',async()=>{
+ const {guardIntent}=await import('../src/companion/intent.js')
+ let rounds=0
+ const [r,c]=setup(async(_text)=>{
+  if(++rounds===1)return guardIntent(validatePlan({reply:'Picking up the iron',steps:[{action:'collect',name:'',item:'raw_iron',count:1,design:[],target:null}]}),_text)
+  return {reply:'Collected',steps:[]}
+ })
+ c.projects={base:{build:{origin:{x:10,y:64,z:0},design:[{x:0,y:0,z:0,block:'cobblestone'}]}}}
+ r.bot.entity={position:new Vec3(0.5,64,0.5),onGround:true};r.bot.entities={};r.bot.blockAt=p=>({name:p.y<64?'stone':'air',boundingBox:p.y<64?'block':'empty'})
+ r.command=function(command){this.commands.push(command);this.task={id:String(this.commands.length),kind:command.action,status:'running'};if(command.action!=='stop')queueMicrotask(()=>{this.task={...this.task,status:'completed',result:{receipt:'collected',gained:1}};this.emit('event',{type:'task_finished',task:this.task})})}
+ await c.submit('Pick up the raw iron')
+ const command=r.commands.find(x=>x.action==='collect')
+ assert.ok(command,JSON.stringify(c.messages))
+ assert.deepEqual(command.goal.protectedSites,[{minX:10,maxX:10,minZ:0,maxZ:0}])
+})
+
 test('failed shelter retry carries only the same interrupted request eligibility and respects Stop',()=>{
  const [r,c]=setup(async()=>({reply:'',steps:[]}))
  r.bot.game={gameMode:'survival',difficulty:'normal'};r.bot.time={timeOfDay:6000};r.bot.health=20;r.bot.food=20;r.bot.entity={position:new Vec3(0,64,0),onGround:true};r.bot.entities={1:{name:'zombie',position:new Vec3(5,64,0)}}

@@ -922,7 +922,7 @@ export class Teammate extends EventEmitter {
               else if(step.action==='goto')command={action:'goto',goal:validateGotoGoal({...step.target,protectedSites:projectFootprints(this.projects)}),timeoutMs:180000}
               else if(step.action==='dig')command={action:'dig',goal:validateDigGoal({...step.target,count:step.count,protectedSites:projectFootprints(this.projects)}),timeoutMs:120000}
               else if(step.action==='place_at')command={action:'place_at',goal:validatePlaceAtGoal({...step.target,item:step.item,protectedSites:projectFootprints(this.projects)}),timeoutMs:90000}
-              else if(step.action==='collect')command={action:'collect',goal:validateCollectGoal({item:step.item||'',count:step.count}),timeoutMs:120000}
+              else if(step.action==='collect')command={action:'collect',goal:validateCollectGoal({item:step.item||'',count:step.count,protectedSites:projectFootprints(this.projects)}),timeoutMs:120000}
               else if(step.action==='attack')command={action:'attack',goal:validateAttackGoal({type:step.item}),timeoutMs:120000}
               else if(step.action==='use')command={action:'use',goal:validateUseGoal({item:step.item,count:1,expect:step.name,target:step.target,protectedSites:projectFootprints(this.projects)}),timeoutMs:120000}
               else if(['descend','climb'].includes(step.action))command={action:step.action,goal:{},timeoutMs:45000}
