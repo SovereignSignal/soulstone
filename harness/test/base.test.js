@@ -83,7 +83,7 @@ test('smelting counts output in the active furnace window, then verifies the clo
  let bag={},closed=0,output=null
  const items=()=>Object.entries(bag).filter(([,count])=>count).map(([name,count])=>({name,count}))
  let inventorySnapshot=[]
- const bot={registry:{itemsByName:{oak_log:{id:1},oak_planks:{id:2}}},inventory:{items:()=>inventorySnapshot},world:{},blockAt:p=>({name:'furnace',position:p}),async unequip(){},async openFurnace(){
+ const bot={registry:{itemsByName:{oak_log:{id:1},oak_planks:{id:2}}},inventory:{items:()=>inventorySnapshot},world:{},entity:{position:new Vec3(0,64,0)},blockAt:p=>({name:'furnace',position:p}),async unequip(){},async openFurnace(){
   const w={id:1,items, inputItem:()=>null,fuelItem:()=>null,outputItem:()=>output,
    async putFuel(_,__,n){bag.oak_planks-=n},async putInput(_,__,n){bag.oak_log-=n;output={name:'charcoal',count:n}},async takeOutput(){bag.charcoal=(bag.charcoal||0)+output.count;output=null},close(){inventorySnapshot=items();bot.currentWindow=null;closed++}}
   bot.currentWindow=w;return w
@@ -97,7 +97,7 @@ test('charcoal preparation preserves furnace input when crafting fuel consumes t
  const p=structuredClone(project);p.stations.furnace={position:{x:-2,y:64,z:1},confirmed:true}
  const bag={oak_log:2};let output=null
  const items=()=>Object.entries(bag).filter(([,n])=>n>0).map(([name,count])=>({name,count}))
- const bot={registry:{itemsByName:{oak_log:{id:1},oak_planks:{id:2}}},inventory:{items},world:{},blockAt:p=>({name:'furnace',position:p}),async unequip(){},async openFurnace(){
+ const bot={registry:{itemsByName:{oak_log:{id:1},oak_planks:{id:2}}},inventory:{items},world:{},entity:{position:new Vec3(0,64,0)},blockAt:p=>({name:'furnace',position:p}),async unequip(){},async openFurnace(){
   const w={id:1,items,inputItem:()=>null,fuelItem:()=>null,outputItem:()=>output,
    async putFuel(_,__,n){assert.ok(bag.oak_planks>=n);bag.oak_planks-=n},
    async putInput(_,__,n){assert.ok(bag.oak_log>=n,'Fuel crafting consumed the charcoal input');bag.oak_log-=n;output={name:'charcoal',count:n}},
@@ -116,7 +116,7 @@ test('resuming smelting counts stored fuel and ready output without consuming sp
  const p=structuredClone(project);p.stations.furnace={position:{x:-2,y:64,z:1},confirmed:true}
  const bag={oak_planks:2};let output={name:'iron_ingot',count:2},input={name:'raw_iron',count:4},taken=0
  const items=()=>Object.entries(bag).filter(([,n])=>n>0).map(([name,count])=>({name,count}))
- const bot={registry:{itemsByName:{raw_iron:{id:1},oak_planks:{id:2}}},inventory:{items},world:{},blockAt:p=>({name:'furnace',position:p}),async unequip(){},async openFurnace(){
+ const bot={registry:{itemsByName:{raw_iron:{id:1},oak_planks:{id:2}}},inventory:{items},world:{},entity:{position:new Vec3(0,64,0)},blockAt:p=>({name:'furnace',position:p}),async unequip(){},async openFurnace(){
   const w={id:1,items,fuel:0.6,inputItem:()=>input,fuelItem:()=>({name:'oak_planks',count:2}),outputItem:()=>output,
    async putFuel(){assert.fail('The furnace already has enough stored/burning fuel')},async putInput(){assert.fail('All required input is already in the furnace')},
    async takeOutput(){bag.iron_ingot=(bag.iron_ingot||0)+output.count;output=++taken===1?{name:'iron_ingot',count:4}:null;input=null},close(){bot.currentWindow=null}}

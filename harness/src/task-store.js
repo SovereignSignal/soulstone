@@ -43,6 +43,11 @@ export function validateTaskGoal(kind, goal) {
   }
   if(kind==='harvest')return validateHarvest(goal)
   if(kind==='eat')return validateEatGoal(goal)
+  // Smelt finds or places its own furnace, so it runs without a base that has an origin.
+  if(kind==='smelt'&&!goal?.project?.build?.origin){
+    if(!Object.hasOwn(SMELTING,goal?.item)||!Number.isInteger(goal.count)||goal.count<1||goal.count>16)throw new Error('Unsupported furnace recipe or count outside 1–16')
+    return {project:null,item:goal.item,count:goal.count}
+  }
   if([...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(kind)) {
     const p=goal?.project
     if(!p?.build?.origin||!isLog(p.build.wood))throw new Error('A saved base with an origin and wood material is required')

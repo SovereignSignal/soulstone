@@ -821,7 +821,7 @@ export class Teammate extends EventEmitter {
           eligible:(step,o)=>{
             if(satisfiedStep(step,feedback,o,bot))return false
             if(step.action==='eat'&&(!(o.inventory[step.item]>0)||o.survival?.food===20))return false
-            if([...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(step.action)&&!o.projects.base)return false
+            if([...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(step.action)&&step.action!=='smelt'&&!o.projects.base)return false
             try{if(step.action==='travel')validateObservedTravelGoal(bot,step.target);if(step.action==='construct')enforceProjectIntent(request.goal,step,this.projects)}catch{return false}
             return true
           },trace:(type,data)=>{episode?.write(type,data);this.runner.log?.(type,data)}})
@@ -930,8 +930,8 @@ export class Teammate extends EventEmitter {
               else if(step.action==='give')command={action:'give',goal:{item:step.item,count:step.count-deliveredCount(feedback,step.item)},timeoutMs:30000}
               else if([...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(step.action)){
                 const occupied=step.action==='leave_base'?occupiedAlternative(this.runner.bot,this.projects):null
-                if(!this.projects.base&&!occupied)throw new Error('No saved base; build or identify a shelter first')
-                command={action:step.action,goal:occupied?{shelter:structuredClone(occupied)}:{item:step.item,count:step.count,project:structuredClone(this.projects.base)},timeoutMs:600000}
+                if(!this.projects.base&&!occupied&&step.action!=='smelt')throw new Error('No saved base; build or identify a shelter first')
+                command={action:step.action,goal:occupied?{shelter:structuredClone(occupied)}:{item:step.item,count:step.count,project:this.projects.base?structuredClone(this.projects.base):null},timeoutMs:600000}
               } else if(['construct','revise'].includes(step.action)) {
                 enforceProjectIntent(this.requestProgress.goal,step,this.projects)
                 const saved=this.projects[step.name]?.construction

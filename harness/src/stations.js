@@ -6,6 +6,7 @@ import {setTimeout as delay} from 'node:timers/promises'
 import {withWindowState} from './crafting.js'
 import {shelterLayout,shelterAccessLayout,finishShelter} from './shelter.js'
 import {shelterLightBounds} from './lighting.js'
+import {isLog} from './resources.js'
 const {goals}=pathfinding
 export const STATIONS=['crafting_table','furnace','chest','torch']
 export const STATION_ACTIONS=['place','deposit','withdraw','smelt','check_base','stow','retreat','leave_base']
@@ -55,11 +56,29 @@ export async function withStationWindow(bot,name,p,{check,walk,stage},operation)
   }finally{clearTimeout(timer);if(w&&bot.currentWindow?.id===w.id)w.close()}
  },check)
 }
+const FURNACE_REACH=48,FURNACE_NEARBY=8
+const plain=p=>({x:p.x,y:p.y,z:p.z})
+export async function resolveFurnace(bot,project,api) {
+ const saved=project?.stations?.furnace?.position
+ if(saved&&bot.blockAt(vec(saved))?.name==='furnace'&&bot.entity.position.distanceTo(vec(saved))<=FURNACE_REACH)return {position:plain(saved),source:'base'}
+ const near=bot.findBlock({matching:bot.registry.blocksByName.furnace.id,maxDistance:FURNACE_NEARBY})
+ if(near)return {position:plain(near.position),source:'nearby'}
+ if(!bot.inventory.items().some(i=>i.name==='furnace')){await api.acquire('furnace',1);api.check()}
+ const feet=bot.entity.position.floored(),open=p=>['air','cave_air'].includes(bot.blockAt(p)?.name)
+ const cell=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]].map(([x,z])=>feet.offset(x,0,z))
+  .find(p=>open(p)&&open(p.offset(0,1,0))&&bot.blockAt(p.offset(0,-1,0))?.boundingBox==='block')
+ if(!cell)throw new Error('No open cell beside me to place a furnace on; dig or move to level ground first')
+ // Lazy: primitives-world reaches this module back through construction.js and building-blocks.js.
+ const {placeAt,validatePlaceAtGoal}=await import('./primitives-world.js')
+ await placeAt(bot,{kind:'place_at',goal:validatePlaceAtGoal({item:'furnace',x:cell.x,y:cell.y,z:cell.z})},api)
+ return {position:plain(cell),source:'placed'}
+}
 export async function executeStationSkill(bot,task,api) {
  const {check,progress,stage,persist,walk,settle,acquire}=api
  if(['retreat','leave_base'].includes(task.kind))return task.goal.shelter?retreatToConstruction(bot,task,api):retreatToShelter(bot,task,api)
- const project=task.goal.project;project.stations ||= {}
- delete project.verification;persist()
+ const project=task.goal.project
+ if(project){project.stations ||= {};delete project.verification}
+ persist()
  const inventory=name=>sum((bot.currentWindow?.items?bot.currentWindow:bot.inventory).items(),name)
  async function openWindow(name,operation){
   const saved=project.stations[name];if(!saved)throw new Error(`Place the base ${name} first`)
@@ -118,44 +137,54 @@ export async function executeStationSkill(bot,task,api) {
   return {item:'rubble',count:receipts.reduce((n,r)=>n+r.count,0),receipt:'rubble_stowed',transfers:receipts,container:contents,reservedCobblestone:32,freeSlots:bot.inventory.emptySlotCount()}
  }
  if(task.kind==='smelt') {
-  const {item,count}=task.goal,source=SMELTING[item],input=source==='wood_log'?project.build.wood:source
+  const {item,count}=task.goal,carried=bot.inventory.items().map(i=>i.name),source=SMELTING[item]
+  const input=source==='wood_log'?project?.build?.wood||carried.find(isLog)||'oak_log':source
   const needed=Math.max(0,count-inventory(item));if(!needed)return {item,count:inventory(item),receipt:'inventory_target_satisfied'}
+  const furnace=await resolveFurnace(bot,project,api);check()
+  const at=vec(furnace.position),openFurnace=operation=>withStationWindow(bot,'furnace',at,api,operation)
+  // Burning the output would undo the smelt, so charcoal is never fuel for charcoal.
+  const coalFuels=['coal','charcoal'].filter(f=>f!==item),planks=project?.build?.wood?.replace('_log','_planks')||carried.find(n=>n.endsWith('_planks'))||'oak_planks'
+  const burns=name=>['coal','charcoal'].includes(name)?8:1.5,burnable=name=>['coal','charcoal'].includes(name)||name.endsWith('_planks')
+  const nextFuel=remaining=>{const name=[...coalFuels,planks].find(f=>inventory(f)>0);return name&&{id:bot.registry.itemsByName[name].id,count:Math.min(Math.ceil(remaining/burns(name)),inventory(name))}}
   let pending=0,readyOutput=0,storedFuelCapacity=0
-  await openWindow('furnace',async w=>{
+  await openFurnace(async w=>{
    if(w.inputItem()&&w.inputItem().name!==input||w.outputItem()&&w.outputItem().name!==item)throw new Error('Furnace contains a different recipe; existing contents preserved')
    pending=(w.inputItem()?.count||0)+(w.outputItem()?.count||0)
    readyOutput=w.outputItem()?.count||0
    const fuel=w.fuelItem()
-   if(fuel&&!['coal','charcoal',project.build.wood.replace('_log','_planks')].includes(fuel.name))throw new Error('Furnace has a different fuel; preserve it and inspect')
-   storedFuelCapacity=(fuel?.count||0)*(['coal','charcoal'].includes(fuel?.name)?8:1.5)
+   if(fuel&&!burnable(fuel.name))throw new Error('Furnace has a different fuel; preserve it and inspect')
+   storedFuelCapacity=(fuel?.count||0)*burns(fuel?.name)
   })
-  const fuel=project.build.wood.replace('_log','_planks'),fuelCount=Math.ceil(Math.max(0,needed-readyOutput-storedFuelCapacity)/1.5)
+  if(furnace.source!=='base'&&project?.build?.origin&&project.stations&&!project.stations.furnace&&at.distanceTo(vec(project.build.origin))<=32){project.stations.furnace={position:furnace.position,confirmed:true};persist()}
+  const shortfall=Math.max(0,needed-readyOutput-storedFuelCapacity)
+  const plankCount=Math.ceil(Math.max(0,shortfall-coalFuels.reduce((n,f)=>n+inventory(f)*8,0))/1.5)
   // Fuel crafting can consume the same logs that charcoal needs as input.
   // Reserve fuel first, then replenish the actual furnace ingredient.
-  await acquire(fuel,fuelCount)
+  if(plankCount)await acquire(planks,plankCount)
   await acquire(input,Math.max(0,needed-pending))
-  await openWindow('furnace',async w=>{
+  await openFurnace(async w=>{
    check();if(w.inputItem()&&w.inputItem().name!==input||w.outputItem()&&w.outputItem().name!==item)throw new Error('Furnace contents changed; retry after inspection')
    const add=Math.max(0,count-inventory(item)-(w.inputItem()?.count||0)-(w.outputItem()?.count||0))
-   if(w.fuelItem()&&!['coal','charcoal',fuel].includes(w.fuelItem().name))throw new Error('Furnace has a different fuel; preserve it and inspect')
-   if(!w.fuelItem()&&!(w.fuel>0)&&fuelCount>0){check();await w.putFuel(bot.registry.itemsByName[fuel].id,null,fuelCount);check()}
+   if(w.fuelItem()&&!burnable(w.fuelItem().name))throw new Error('Furnace has a different fuel; preserve it and inspect')
+   const first=!w.fuelItem()&&!(w.fuel>0)&&shortfall>0&&nextFuel(shortfall)
+   if(first){check();await w.putFuel(first.id,null,first.count);check()}
    if(add){check();await w.putInput(bot.registry.itemsByName[input].id,null,add);check()}
-   task.smelting={input,output:item,target:count,position:project.stations.furnace.position};persist();progress(`Smelting ${item}: ${inventory(item)}/${count}`)
+   task.smelting={input,output:item,target:count,position:furnace.position};persist();progress(`Smelting ${item}: ${inventory(item)}/${count}`)
    const deadline=Date.now()+Math.min(240000,needed*12000+20000)
    while(inventory(item)<count){
-    check();if(Date.now()>deadline)throw new Error('Smelting timed out; ingredients remain in the saved furnace')
+    check();if(Date.now()>deadline)throw new Error(`Smelting timed out; ingredients remain in the furnace at ${at.x}, ${at.y}, ${at.z}`)
     if(w.outputItem()?.name===item){await w.takeOutput();check();progress(`Smelting ${item}: ${inventory(item)}/${count}`)}
     // An empty fuel slot can still be burning. Loading the full original
     // batch again here stranded spare crafting planks after a restart.
-    if(inventory(item)<count&&!w.fuelItem()&&w.fuel===0&&inventory(fuel)>0){
-     const remaining=Math.max(0,count-inventory(item)-(w.outputItem()?.count||0))
-     if(remaining){await w.putFuel(bot.registry.itemsByName[fuel].id,null,Math.min(Math.ceil(remaining/1.5),inventory(fuel)));check()}
+    if(inventory(item)<count&&!w.fuelItem()&&w.fuel===0){
+     const remaining=Math.max(0,count-inventory(item)-(w.outputItem()?.count||0)),next=remaining&&nextFuel(remaining)
+     if(next){await w.putFuel(next.id,null,next.count);check()}
     }
     await delay(200)
    }
   })
   await settle(()=>inventory(item)>=count,'Smelted output inventory not confirmed')
-  return {item,count:inventory(item),receipt:'smelted_output_collected',furnace:project.stations.furnace.position}
+  return {item,count:inventory(item),receipt:'smelted_output_collected',furnace:furnace.position,furnaceSource:furnace.source}
  }
  if(task.kind==='check_base') {
   for(const name of STATIONS)if(!project.stations[name]?.confirmed||bot.blockAt(vec(project.stations[name].position))?.name!==name)throw new Error(`Base is missing a verified ${name}`)
