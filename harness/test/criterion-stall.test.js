@@ -63,10 +63,22 @@ test('a new inventory high resets the criterion stall; moving, spending and re-g
   assert.equal(criterionStall(request).rounds,1,'spending cobblestone is not progress')
   request.rounds=9;noteCriterionStall(request,{cobblestone:5,raw_iron:1})
   assert.equal(criterionStall(request).rounds,2,'regaining a count already reached is not progress')
+  // Was: 'a new high of an existing item is progress'. Trial 6 mined 253
+  // cobblestone after its goal was in hand and the guard never fired, because
+  // every dig raised a high. Only a NEW kind of item, or more of an item the
+  // criteria name, counts now.
   request.rounds=10;noteCriterionStall(request,{cobblestone:6,raw_iron:1})
-  assert.equal(criterionStall(request).rounds,0,'a new high of an existing item is progress')
+  assert.equal(criterionStall(request).rounds,3,'more of an item the goal does not name is not progress')
   request.rounds=11;noteCriterionStall(request)
-  assert.equal(criterionStall(request).rounds,1,'no inventory supplied leaves the highs alone')
+  assert.equal(criterionStall(request).rounds,4,'no inventory supplied leaves the highs alone')
+  request.rounds=12;noteCriterionStall(request,{cobblestone:6,raw_iron:1,coal:1})
+  assert.equal(criterionStall(request).rounds,0,'a first coal is progress')
+  // An item the criteria name counts by count, not just by first appearance.
+  const named={rounds:1,verification:verdict([check({item:'raw_iron',count:3,observed:0})]),mission:mission()}
+  noteCriterionStall(named,{raw_iron:1});named.rounds=2;noteCriterionStall(named,{raw_iron:1})
+  assert.equal(criterionStall(named).rounds,1)
+  named.rounds=3;noteCriterionStall(named,{raw_iron:2})
+  assert.equal(criterionStall(named).rounds,0,'a second raw iron toward a raw_iron criterion is progress')
 })
 
 test('criterion stall reports true at exactly CRITERION_STALL_ROUNDS and false one below',()=>{

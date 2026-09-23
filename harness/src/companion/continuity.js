@@ -93,16 +93,20 @@ export function criterionStall(request){
  return {stalled:rounds>=CRITERION_STALL_ROUNDS,rounds,since:request?.criterionStallSince??null}
 }
 // Acquiring something new is progress even when no criterion names it: trial 2
-// mined its first raw iron and 28 cobblestone in twenty rounds and was halted.
-// High-water marks only ever rise, so spending, dropping and regaining a count
-// already reached leave the fingerprint alone, and walking never touches it.
+// mined its first raw iron in twenty rounds and was halted. But trial 6 mined
+// 253 cobblestone after its goal was in hand and never halted, because every
+// dig raised a high. So the fingerprint carries every item NAME ever held, and
+// the COUNT only for items the criteria name. High-water marks only rise, so
+// spending, dropping and regaining leave it alone, and walking never touches it.
 export function noteCriterionStall(request,inventory){
  if(!request)return criterionStall(request)
  if(inventory&&typeof inventory==='object'){
   const highs=request.inventoryHighs||(request.inventoryHighs={})
   for(const [name,count] of Object.entries(inventory))if(Number.isFinite(count)&&count>(highs[name]||0))highs[name]=count
  }
- const fp=criterionFingerprint(request.verification,request.mission)+JSON.stringify(Object.entries(request.inventoryHighs||{}).sort())
+ const named=new Set((request.verification?.checks||[]).map(c=>c.item).filter(Boolean))
+ const highs=Object.entries(request.inventoryHighs||{}).sort().map(([name,count])=>named.has(name)?[name,count]:name)
+ const fp=criterionFingerprint(request.verification,request.mission)+JSON.stringify(highs)
  const round=request.rounds||0
  if(request.criterionFingerprint===fp)request.criterionStallRounds=(request.criterionStallRounds||0)+1
  else{request.criterionFingerprint=fp;request.criterionStallRounds=0;request.criterionStallSince=round}
