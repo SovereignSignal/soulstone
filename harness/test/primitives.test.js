@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { Vec3 } from 'vec3'
 import minecraftData from 'minecraft-data'
 import { validatePlan, schema } from '../src/companion/planner.js'
-import { validateGotoGoal, validateDigGoal, gotoPosition, digToward } from '../src/primitives.js'
+import { validateGotoGoal, validateDigGoal, gotoPosition, digToward, walkNear } from '../src/primitives.js'
 import { validateTaskGoal } from '../src/task-store.js'
 import { Runner } from '../src/runner.js'
 
@@ -279,4 +279,133 @@ test('goto arrival receipt reports arrived shape with dug/placed counts', async 
   assert.equal(typeof result.dug, 'number')
   assert.equal(typeof result.placed, 'number')
   assert.ok(result.countsFrom === 'events' || result.countsFrom === 'inventory_delta')
+})
+
+// Live, 2026-09-23: goto, dig, collect and place_at all logged "Goto leg
+// exceeded its 25 second budget". An expired leg threw, so every walk was one
+// leg long and the 30s-8min walk budgets were never reached.
+function steppingPathfinder(bot, { step, resolveEachLeg = false, legs }) {
+  return {
+    movements: null,
+    setMovements(m) { this.movements = m },
+    setGoal() {},
+    goto(goal) {
+      legs.push(goal)
+      const p = bot.entity.position, dx = goal.x + 0.5 - p.x
+      bot.entity.position = new Vec3(p.x + Math.sign(dx) * Math.min(step, Math.abs(dx)), p.y, p.z)
+      const near = bot.entity.position.distanceTo(new Vec3(goal.x, goal.y, goal.z)) <= 2
+      return near || resolveEachLeg ? Promise.resolve() : new Promise(() => {})
+    },
+  }
+}
+
+test('a walk continues past a timed-out leg that closed ground and arrives', async () => {
+  const legs = []
+  const bot = fakeBot()
+  bot.pathfinder = steppingPathfinder(bot, { step: 5, legs })
+  const result = await walkNear(bot, { x: 30, y: 64, z: 0 }, { dig: false, ...deps(), timeoutMs: 10000, legTimeoutMs: 50 })
+  assert.equal(result.receipt, 'arrived')
+  assert.ok(legs.length >= 2, `legs=${legs.length}`)
+  assert.equal(Math.floor(bot.entity.position.x), 30)
+})
+
+test('a walk continues past a partial path that closed ground, and refuses one that closed none', async () => {
+  const legs = []
+  const bot = fakeBot()
+  bot.pathfinder = steppingPathfinder(bot, { step: 5, legs, resolveEachLeg: true })
+  const result = await walkNear(bot, { x: 20, y: 64, z: 0 }, { dig: false, ...deps(), timeoutMs: 10000, legTimeoutMs: 50 })
+  assert.equal(result.receipt, 'arrived')
+  assert.ok(legs.length >= 2, `legs=${legs.length}`)
+  const stuck = fakeBot()
+  stuck.pathfinder = steppingPathfinder(stuck, { step: 0, legs: [], resolveEachLeg: true })
+  await assert.rejects(() => walkNear(stuck, { x: 20, y: 64, z: 0 }, { dig: false, ...deps(), legTimeoutMs: 50 }), /Navigation ended without reaching the target/)
+})
+
+test('a timed-out leg that closed no ground fails as a named Timeout within the leg budget', async () => {
+  const bot = fakeBot()
+  bot.pathfinder = steppingPathfinder(bot, { step: 0, legs: [] })
+  const started = Date.now()
+  await assert.rejects(
+    () => walkNear(bot, { x: 30, y: 64, z: 0 }, { dig: false, ...deps(), legTimeoutMs: 50 }),
+    error => error.name === 'Timeout' && /without closing ground/.test(error.message) && /30 blocks short of 30,64,0/.test(error.message),
+  )
+  assert.ok(Date.now() - started < 1000, `took ${Date.now() - started}ms`)
+})
+
+test('the whole-walk budget bounds a walk of slow legs and names how far short it stopped', async () => {
+  const bot = fakeBot()
+  bot.pathfinder = steppingPathfinder(bot, { step: 1.5, legs: [] })
+  await assert.rejects(
+    () => walkNear(bot, { x: 40, y: 64, z: 0 }, { dig: false, ...deps(), timeoutMs: 120, legTimeoutMs: 50 }),
+    /Goto time limit reached \d+ blocks short of 40,64,0\. The straight line is clear/,
+  )
+})
+
+test('dig refuses to open the floor under the bot over a drop, and allows it over solid ground', async () => {
+  const drop = fakeBot({ fills: [[0, 63, 0, stone], [0, 62, 0, lava]] })
+  await assert.rejects(
+    () => digToward(drop, { kind: 'dig', goal: validateDigGoal({ x: 0, y: 63, z: 0, count: 1 }) }, deps()),
+    /0,63,0 has no solid floor under it \(lava\); digging it opens a drop/,
+  )
+  assert.equal(drop._dug || 0, 0)
+  const floor = fakeBot({ fills: [[0, 63, 0, stone], [0, 62, 0, stone]] })
+  const result = await digToward(floor, { kind: 'dig', goal: validateDigGoal({ x: 0, y: 63, z: 0, count: 1 }) }, deps())
+  assert.equal(result.broken, 1)
+})
+
+test('dig refuses a cell with lava beside it, naming where the lava is', async () => {
+  const bot = fakeBot({ fills: [[1, 64, 0, stone], [1, 63, 0, stone], [2, 64, 0, lava]] })
+  await assert.rejects(
+    () => digToward(bot, { kind: 'dig', goal: validateDigGoal({ x: 1, y: 64, z: 0, count: 1 }) }, deps()),
+    /1,64,0 borders lava at 2,64,0; digging it lets liquid in/,
+  )
+  assert.equal(bot._dug || 0, 0)
+})
+
+test('dig refuses a block that would take longer than its dig budget, naming the tool', async () => {
+  const bot = fakeBot({ fills: [[1, 64, 0, stone], [1, 63, 0, stone]] })
+  bot.digTime = () => 60000
+  await assert.rejects(
+    () => digToward(bot, { kind: 'dig', goal: validateDigGoal({ x: 1, y: 64, z: 0, count: 1 }) }, deps()),
+    /stone at 1,64,0 needs 60s with bare hands; get a better tool/,
+  )
+  assert.equal(bot._dug || 0, 0)
+})
+
+test('a tunnel that meets a too-slow block returns a partial receipt with the reason', async () => {
+  const fills = []
+  for (let x = 1; x <= 3; x++) fills.push([x, 64, 0, stone], [x, 65, 0, stone], [x, 63, 0, stone])
+  const bot = fakeBot({ fills })
+  bot.digTime = block => block.position.x >= 2 ? 60000 : 500
+  const result = await digToward(bot, { kind: 'dig', goal: validateDigGoal({ x: 3, y: 64, z: 0, count: 3 }) }, deps())
+  assert.equal(result.broken, 1)
+  assert.match(result.reason, /needs 60s .*get a better tool/)
+  assert.deepEqual(result.stoppedAt, { x: 2, y: 64, z: 0 })
+})
+
+test('a dig the server undoes is not counted and is named', async () => {
+  const bot = fakeBot({ fills: [[1, 64, 0, stone], [1, 63, 0, stone]] })
+  bot.dig = async () => { bot._dug = (bot._dug || 0) + 1 }
+  await assert.rejects(
+    () => digToward(bot, { kind: 'dig', goal: validateDigGoal({ x: 1, y: 64, z: 0, count: 1 }) }, deps()),
+    /the server restored stone at 1,64,0/,
+  )
+})
+
+test('a primitive receipt without count and item completes with its receipt, not "undefined undefined"', async () => {
+  const bot = fakeBot({ fills: [[1, 64, 0, stone], [1, 63, 0, stone]] })
+  bot.collectBlock = { movements: {} }
+  bot.equip = async () => {}
+  const task = { id: 't', kind: 'dig', status: 'running', goal: validateDigGoal({ x: 1, y: 64, z: 0, count: 1 }), deadline: Date.now() + 10000 }
+  const finished = []
+  const runner = Object.assign(Object.create(Runner.prototype), {
+    bot, ready: true, task, work: null, movements: null,
+    log() {}, persist() {}, say() {}, extend() {},
+    finish(status, reason) { finished.push([status, reason]) },
+  })
+  await runner.runSkill()
+  assert.equal(finished.length, 1)
+  assert.equal(finished[0][0], 'completed', finished[0][1])
+  assert.match(finished[0][1], /dug/)
+  assert.doesNotMatch(finished[0][1], /undefined/)
 })

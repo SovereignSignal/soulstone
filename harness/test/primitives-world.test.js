@@ -8,6 +8,7 @@ import { validatePlaceAtGoal, validateCollectGoal, validateAttackGoal, placeAt, 
 import { EventEmitter } from 'node:events'
 import { validateTaskGoal } from '../src/task-store.js'
 import { Runner } from '../src/runner.js'
+import { LEG_TIMEOUT_MS } from '../src/travel.js'
 
 const registry = minecraftData('1.21.4')
 const air = p => ({ name: 'air', boundingBox: 'empty', position: p })
@@ -146,6 +147,50 @@ test('place_at steps aside when standing in the target, and refuses when there i
   await assert.rejects(() => placeAt(pillar, placeTask({ item: 'cobblestone', x: 0, y: 64, z: 0 }), deps()), /Standing in 0,64,0 with no open cell beside it/)
 })
 
+test('place_at equips the stack carried at placement time, and refuses if the item is gone by then', async () => {
+  const first = { name: 'cobblestone', count: 8, type: registry.itemsByName.cobblestone.id, slot: 36 }
+  const items = [first]
+  const moved = { ...first, slot: 40 }
+  const bot = fakeBot({ items, fills: [[9, 63, 0, stone], [8, 63, 0, stone]], onArrive: () => { items.splice(0, items.length, moved) } })
+  bot.entity.position = new Vec3(3.5, 64, 0.5)
+  let equipped = null
+  bot.equip = async item => { equipped = item; bot._held = item.name }
+  bot.pathfinder.goto = async goal => { bot.entity.position = new Vec3(goal.x + 0.5 - 1, goal.y, goal.z + 0.5); items.splice(0, items.length, moved) }
+  const r = await placeAt(bot, placeTask({ item: 'cobblestone', x: 9, y: 64, z: 0 }), deps())
+  assert.equal(r.receipt, 'placed')
+  assert.equal(equipped, moved, 'the stack in the inventory now, not the one seen before walking')
+  const gone = fakeBot({ items: [{ ...first }], fills: [[9, 63, 0, stone], [8, 63, 0, stone]] })
+  gone.entity.position = new Vec3(3.5, 64, 0.5)
+  gone.pathfinder.goto = async goal => { gone.entity.position = new Vec3(goal.x + 0.5 - 1, goal.y, goal.z + 0.5); gone.inventory.items = () => [] }
+  await assert.rejects(() => placeAt(gone, placeTask({ item: 'cobblestone', x: 9, y: 64, z: 0 }), deps()), /No longer carrying cobblestone at 9,64,0; acquire it again/)
+})
+
+test('place_at ignores items, orbs and arrows in the target cell but refuses a creature standing there', async () => {
+  const centre = new Vec3(1.5, 64.2, 0.5)
+  const litter = {
+    7: { id: 7, name: 'item', type: 'object', position: centre, getDroppedItem: () => ({ name: 'dirt', count: 1 }) },
+    8: { id: 8, name: 'experience_orb', type: 'other', position: centre },
+    9: { id: 9, name: 'arrow', type: 'projectile', position: centre },
+  }
+  const clear = fakeBot({ fills: [[1, 63, 0, stone]], entities: litter })
+  assert.equal((await placeAt(clear, placeTask({ item: 'cobblestone', x: 1, y: 64, z: 0 }), deps())).receipt, 'placed')
+  const blocked = fakeBot({ fills: [[1, 63, 0, stone]], entities: { 5: { id: 5, name: 'zombie', type: 'hostile', position: centre } } })
+  await assert.rejects(() => placeAt(blocked, placeTask({ item: 'cobblestone', x: 1, y: 64, z: 0 }), deps()), /zombie is standing in 1,64,0/)
+})
+
+test('place_at step-aside is a bounded walk: a step that never finishes fails by name', async () => {
+  const bot = fakeBot({ fills: [[0, 63, 0, stone], [1, 63, 0, stone]] })
+  bot.pathfinder.goto = () => new Promise(() => {})
+  const original = global.setTimeout
+  global.setTimeout = (fn, ms, ...rest) => original(fn, ms === LEG_TIMEOUT_MS ? 1 : ms, ...rest)
+  const started = Date.now()
+  try {
+    await assert.rejects(() => placeAt(bot, placeTask({ item: 'cobblestone', x: 0, y: 64, z: 0 }), deps()),
+      /Could not step aside to 1,64,0 before placing at 0,64,0: Goto leg exceeded .* without closing ground/)
+  } finally { global.setTimeout = original }
+  assert.ok(Date.now() - started < 2000)
+})
+
 test('place_at walks into reach first when far', async () => {
   // Walking lands the stub in the cell itself, so a floor cell beside it is needed to step onto.
   const far = fakeBot({ fills: [[9, 63, 0, stone], [10, 63, 0, stone]] })
@@ -214,6 +259,20 @@ test('validatePlan accepts a well-formed attack step and rejects player, count 2
   assert.throws(() => validatePlan({ reply: 'x', steps: [attackStep({ count: 2 })] }), /count 1/)
   assert.throws(() => validatePlan({ reply: 'x', steps: [attackStep({ target: { x: 1, y: 2, z: 3 } })] }), /no target|accept a target/)
   assert.ok(schema.properties.steps.items.properties.action.enum.includes('attack'))
+})
+
+// Hitting an item frame, a villager or a golem is griefing or a kick, not a hunt.
+test('attack refuses non-creatures, placed objects and village creatures, naming why', async () => {
+  assert.throws(() => validatePlan({ reply: 'x', steps: [attackStep({ item: 'item' })] }), /attack refuses item: it is not a creature/)
+  assert.throws(() => validatePlan({ reply: 'x', steps: [attackStep({ item: 'experience_orb' })] }), /not a creature/)
+  assert.throws(() => validatePlan({ reply: 'x', steps: [attackStep({ item: 'armor_stand' })] }), /armor_stand: it is a placed object or vehicle/)
+  assert.throws(() => validatePlan({ reply: 'x', steps: [attackStep({ item: 'villager' })] }), /villager: hitting it turns the village against you/)
+  assert.throws(() => validatePlan({ reply: 'x', steps: [attackStep({ item: 'iron_golem' })] }), /iron_golem: hitting it turns the village against you/)
+  assert.throws(() => validateAttackGoal({ type: 'oak_boat' }, registry), /oak_boat: the registry lists it as other, not a creature/)
+  assert.throws(() => validateAttackGoal({ type: 'grue' }, registry), /no entity named grue/)
+  assert.deepEqual(validateAttackGoal({ type: 'blaze' }, registry), { type: 'blaze' })
+  const boat = fightBot({ entities: { 5: mob(5, 'oak_boat', 3.5, 64, 0.5) } })
+  await assert.rejects(() => attackEntity(boat, attackTask('oak_boat'), deps()), /oak_boat: the registry lists it as other/)
 })
 
 test('attack passes intent and skill-control admission and dispatches as a skill', async () => {

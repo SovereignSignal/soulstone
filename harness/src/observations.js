@@ -48,16 +48,31 @@ export function blocksNear(bot,{names=[],radius=8,limit=24}={}){
  // groups are merged round-robin below rather than pooled and cut by distance.
  const groups=[]
  if(bot.findBlocks&&patterns.length){
-  for(const pattern of patterns){
-   // Over-fetch per name: findBlocks walks chunk sections outward, so its order
-   // is only roughly by distance, and the sort below needs a margin to be honest.
-   const found=bot.findBlocks({matching:b=>matches(b,pattern),maxDistance:r,count:cap*2})||[]
-   const hits=[]
-   for(const pos of found){const b=bot.blockAt(pos);if(!b){loaded=false;continue}if(matches(b,pattern))hits.push(entry(pos.x,pos.y,pos.z,b))}
-   hits.sort(byDistance)
-   if(hits.length>cap)truncated=true
-   if(hits.length)groups.push(hits)
+  // ONE findBlocks walk for every name: a walk per name re-read each section
+  // whose palette held that name, ~100k blockAt calls per sparse name at
+  // radius 16, every planning round. Each name keeps its own quota of cap*2
+  // (over-fetch, since findBlocks walks sections outward and is only roughly
+  // by distance), so abundant stone stops counting while the walk goes on to
+  // the one crafting table. This trades completeness for a bounded scan: a
+  // name's hits past its quota are dropped in walk order, not by distance, and
+  // the walk stops once every quota is full. inspect with a block list widens
+  // the radius to 16. A palette probe (position null) only asks whether a
+  // section is worth reading and is never counted.
+  const quota=cap*2,taken=patterns.map(()=>0)
+  const found=bot.findBlocks({maxDistance:r,count:quota*patterns.length,matching:b=>{
+   if(b?.position===null)return patterns.some(q=>matches(b,q))
+   if(b?.position&&b.position.distanceTo(origin)>r)return false
+   const i=patterns.findIndex((q,j)=>taken[j]<quota&&matches(b,q))
+   if(i<0)return false
+   taken[i]++;return true
+  }})||[]
+  const byPattern=patterns.map(()=>[])
+  for(const pos of found){
+   const b=bot.blockAt(pos);if(!b){loaded=false;continue}
+   const i=patterns.findIndex((q,j)=>byPattern[j].length<quota&&matches(b,q))
+   if(i>=0)byPattern[i].push(entry(pos.x,pos.y,pos.z,b))
   }
+  for(const hits of byPattern){hits.sort(byDistance);if(hits.length>cap)truncated=true;if(hits.length)groups.push(hits)}
   // Probe the cube's corners and centre on each axis: every 16-aligned chunk
   // column inside radius <= 16 contains one of them, so an unloaded chunk that
   // findBlocks silently skipped is still reported as unknown, never as air.
@@ -115,7 +130,7 @@ export function columnAbove(bot){
 
 const entityKind=e=>{
  if(e?.type==='player')return 'player'
- if(e?.type==='mob'||e?.type==='hostile')return 'mob'
+ if(['mob','hostile','animal','passive','water_creature','ambient'].includes(e?.type))return 'mob'
  if(e?.name==='item'||e?.type==='object'&&typeof e.getDroppedItem==='function')return 'item'
  if(e?.type==='object'&&e?.name==='item')return 'item'
  return 'other'

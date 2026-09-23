@@ -7,10 +7,10 @@ import pathfinding from 'mineflayer-pathfinder'
 import { Vec3 } from 'vec3'
 import { fullCube } from './construction.js'
 import { DoorAwareMovements, allowGroundBreaking, requireReachedGoal } from './navigation.js'
-import { lineObstruction, LEG_TIMEOUT_MS } from './travel.js'
+import { lineObstruction, LEG_TIMEOUT_MS, CLOSED_PER_LEG } from './travel.js'
 
 const { goals } = pathfinding
-export const GOTO_RANGE = 2, GOTO_MAX = 64, DIG_REACH = 4.5, DIG_COUNT_MAX = 32
+export const GOTO_RANGE = 2, GOTO_MAX = 64, DIG_REACH = 4.5, DIG_COUNT_MAX = 32, DIG_BLOCK_MS = 20000
 export const LIQUID = new Set(['water', 'lava', 'bubble_column'])
 export const GRAVITY = new Set(['sand', 'red_sand', 'gravel', 'suspicious_sand', 'suspicious_gravel'])
 export const AIR = new Set(['air', 'cave_air', 'void_air'])
@@ -154,7 +154,7 @@ function subscribeDigPlace(bot) {
   }
 }
 
-export async function walkNear(bot, target, { dig, protectedSites, check, stage, progress, movements, timeoutMs = 8 * 60 * 1000, range = GOTO_RANGE }) {
+export async function walkNear(bot, target, { dig, protectedSites, check, stage, progress, movements, timeoutMs = 8 * 60 * 1000, range = GOTO_RANGE, legTimeoutMs = LEG_TIMEOUT_MS }) {
   const dest = point(target), start = bot.entity.position.clone()
   const distance = start.distanceTo(dest)
   if (distance > GOTO_MAX)
@@ -168,21 +168,33 @@ export async function walkNear(bot, target, { dig, protectedSites, check, stage,
   }
   const counters = subscribeDigPlace(bot)
   const started = Date.now()
+  const gap = () => bot.entity.position.distanceTo(dest)
+  const short = () => `${Math.round(gap())} blocks short of ${key(dest)}.${lineRefusal(bot, bot.entity.position.floored(), dest)}`
   try {
     while (!arrived()) {
       check()
-      if (Date.now() - started > timeoutMs)
-        throw new Error(`Goto time limit reached ${Math.round(bot.entity.position.distanceTo(dest))} blocks short of ${key(dest)}.${lineRefusal(bot, bot.entity.position.floored(), dest)}`)
-      stage('walking'); progress(`Going to ${key(dest)}: ${Math.round(bot.entity.position.distanceTo(dest))} blocks to go`)
-      let expired = false
-      const timer = setTimeout(() => { expired = true; bot.pathfinder.setGoal(null) }, LEG_TIMEOUT_MS)
+      if (Date.now() - started > timeoutMs) throw new Error(`Goto time limit reached ${short()}`)
+      stage('walking'); progress(`Going to ${key(dest)}: ${Math.round(gap())} blocks to go`)
+      // A leg is one bounded pathfinder call. One that runs out of time, or
+      // resolves on a partial path, may still have closed ground: that walk
+      // continues under timeoutMs, and only a leg that closed none refuses.
+      const before = gap()
+      let expired = false, timer
+      const expiry = new Promise((_, reject) => { timer = setTimeout(() => { expired = true; bot.pathfinder.setGoal(null); reject(new Error('leg expired')) }, legTimeoutMs) })
+      const walking = (async () => bot.pathfinder.goto(arrival()))()
+      expiry.catch(() => {}); walking.catch(() => {})
       try {
-        await bot.pathfinder.goto(arrival())
+        await Promise.race([walking, expiry])
         check(); requireReachedGoal(bot, arrival())
       } catch (error) {
-        if (expired) throw Object.assign(new Error(`Goto leg exceeded its ${Math.round(LEG_TIMEOUT_MS / 1000)} second budget`), { name: 'Timeout' })
-        const reason = error?.name === 'NoPath' ? `no route to ${key(dest)}` : error?.message || String(error)
-        throw new Error(`${reason}.${lineRefusal(bot, bot.entity.position.floored(), dest)}`)
+        check()
+        const closed = before - gap() >= CLOSED_PER_LEG
+        if (expired && !closed)
+          throw Object.assign(new Error(`Goto leg exceeded its ${Math.round(legTimeoutMs / 1000)} second budget without closing ground; ${short()}`), { name: 'Timeout' })
+        if (!(closed && (expired || error?.code === 'NAVIGATION_INCOMPLETE'))) {
+          const reason = error?.name === 'NoPath' ? `no route to ${key(dest)}` : error?.message || String(error)
+          throw new Error(`${reason}.${lineRefusal(bot, bot.entity.position.floored(), dest)}`)
+        }
       } finally { clearTimeout(timer); bot.pathfinder.setGoal(null) }
       check()
       if (!arrived()) await delay(50)
@@ -225,6 +237,18 @@ function refuseDigCell(bot, cell, { protectedSites = [], role = 'target' } = {})
   const above = bot.blockAt(cell.offset(0, 1, 0))
   if (above && LIQUID.has(above.name)) return `${key(cell)} directly supports liquid (${above.name}) at ${key(above.position || cell.offset(0, 1, 0))}`
   if (above && GRAVITY.has(above.name)) return `${key(cell)} directly supports falling ${above.name} above`
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const side = bot.blockAt(cell.offset(dx, 0, dz))
+    if (side && LIQUID.has(side.name)) return `${key(cell)} borders ${side.name} at ${key(cell.offset(dx, 0, dz))}; digging it lets liquid in. Dig a different cell or block the ${side.name} first.`
+  }
+  // A cell the bot stands on or steps into (feet level or below, within one
+  // column) becomes its floor's hole: what lies under it is where it lands.
+  const feet = bot.entity?.position?.floored()
+  if (feet && role !== 'head' && cell.y <= feet.y && (role === 'feet' || Math.max(Math.abs(cell.x - feet.x), Math.abs(cell.z - feet.z)) <= 1)) {
+    const under = bot.blockAt(cell.offset(0, -1, 0))
+    if (!under || under.boundingBox !== 'block' || LIQUID.has(under.name))
+      return `${key(cell)} has no solid floor under it (${under?.name ?? 'unloaded'}); digging it opens a drop. Fill ${key(cell.offset(0, -1, 0))} first or dig a different cell.`
+  }
   if (typeof bot.canDigBlock === 'function' && !bot.canDigBlock(block) && bot.entity.position.distanceTo(cell.offset(0.5, 0.5, 0.5)) <= DIG_REACH + 0.5)
     return `Cannot dig ${block.name} at ${key(cell)} with carried tools from here`
   return null
@@ -235,7 +259,14 @@ async function digOne(bot, block, check) {
   const harvestable = !block.harvestTools || Object.keys(block.harvestTools).length === 0
     || bot.inventory.items().some(i => Object.prototype.hasOwnProperty.call(block.harvestTools, String(i.type)) || Object.prototype.hasOwnProperty.call(block.harvestTools, i.type))
   if (bot.tool?.equipForBlock) await bot.tool.equipForBlock(block, { requireHarvest: false, getFromChest: false })
+  const at = key(block.position), ms = bot.digTime?.(block)
+  if (ms > DIG_BLOCK_MS)
+    throw Object.assign(new Error(`${block.name} at ${at} needs ${Math.round(ms / 1000)}s with ${bot.heldItem?.name ?? 'bare hands'}${harvestable ? '' : ' and drops nothing'}; get a better tool`), { code: 'DIG_REFUSED' })
   check(); await bot.dig(block); check()
+  await delay(150)
+  const after = bot.blockAt(block.position)
+  if (after && after.name === block.name && !AIR.has(after.name))
+    throw Object.assign(new Error(`the server restored ${block.name} at ${at} after digging it; the area may be protected, so dig somewhere else`), { code: 'DIG_REFUSED' })
   return { dug: true, harvestable }
 }
 
@@ -315,7 +346,7 @@ export async function digToward(bot, task, context) {
       for (const cell of [feet, head]) {
         const b = bot.blockAt(cell)
         if (!b || AIR.has(b.name) || b.boundingBox === 'empty') continue
-        const refuse = refuseDigCell(bot, cell, { protectedSites: sites })
+        const refuse = refuseDigCell(bot, cell, { protectedSites: sites, role: cell === head ? 'head' : 'feet' })
         if (refuse) { failOrStop(refuse, cell); dugThis = -1; break }
         if (typeof bot.canDigBlock === 'function' && !bot.canDigBlock(b)) {
           // Step adjacent once more, then recheck.
@@ -330,7 +361,12 @@ export async function digToward(bot, task, context) {
         if (typeof bot.canDigBlock === 'function' && !bot.canDigBlock(live)) {
           failOrStop(`Cannot reach ${live.name} at ${key(cell)} to dig it`, cell); dugThis = -1; break
         }
-        const result = await digOne(bot, live, check)
+        let result
+        try { result = await digOne(bot, live, check) }
+        catch (error) {
+          if (error?.code !== 'DIG_REFUSED') throw error
+          failOrStop(error.message, cell); dugThis = -1; break
+        }
         if (result.dug) { dugThis++; lastHarvestable = result.harvestable }
       }
       if (dugThis < 0 || reason) break

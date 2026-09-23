@@ -257,7 +257,7 @@ export class Runner extends EventEmitter {
         stage: value => { work.stage = value; this.extend() },
         progress: message => { check(); this.extend(); this.log('skill_progress', { message }); this.say(message) } })
       check(); work.finished = true
-      task.result=task.navigationRecovery?{...result,navigationRecovery:structuredClone(task.navigationRecovery)}:result;this.finish('completed', task.kind==='construct'?`${result.verifiedBlocks}/${result.totalBlocks} blocks${result.partial?' (more to build)':''}`:`${result.count} ${result.item}`, result)
+      task.result=task.navigationRecovery?{...result,navigationRecovery:structuredClone(task.navigationRecovery)}:result;this.finish('completed', task.kind==='construct'?`${result.verifiedBlocks}/${result.totalBlocks} blocks${result.partial?' (more to build)':''}`:result.count===undefined||result.item===undefined?String(result.receipt):`${result.count} ${result.item}`, result)
     } catch (error) {
       work.finished = true
       if (!work.cancelled && this.bot === bot && this.task === task && task.status === 'running') this.finish('failed', error.message)

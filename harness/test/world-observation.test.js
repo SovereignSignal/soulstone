@@ -103,6 +103,31 @@ test('blocksNear gives every requested name a fair share, so common stone cannot
   assert.ok(p.blocks.some(b => b.name === 'crafting_table'))
 })
 
+test('entitiesNear reports animals, passive, water and ambient creatures as mobs', () => {
+  const at = (x) => new Vec3(x, 64, 0)
+  const bot = stubBot({ entities: {
+    2: { id: 2, name: 'cow', type: 'animal', position: at(2) },
+    3: { id: 3, name: 'villager', type: 'passive', position: at(3) },
+    4: { id: 4, name: 'cod', type: 'water_creature', position: at(4) },
+    5: { id: 5, name: 'bat', type: 'ambient', position: at(5) },
+    6: { id: 6, name: 'oak_boat', type: 'other', position: at(6) },
+  } })
+  const kinds = Object.fromEntries(entitiesNear(bot, { radius: 24 }).entities.map(e => [e.type, e.kind]))
+  assert.deepEqual(kinds, { cow: 'mob', villager: 'mob', cod: 'mob', bat: 'mob', oak_boat: 'other' })
+})
+
+// Every planning round scans the ~25 default names; one findBlocks walk per
+// name re-read every palette section that held any of them, synchronously.
+test('blocksNear walks the world once per call, however many names it is asked for', () => {
+  const bot = stubBot({ cells: { '3,64,0': solid('stone'), '1,64,0': solid('dirt'), '0,64,2': solid('coal_ore') } })
+  const scan = bot.findBlocks.bind(bot)
+  let calls = 0
+  bot.findBlocks = options => { calls++; return scan(options) }
+  const o = blocksNear(bot, { names: ['stone', 'dirt', 'coal_ore', 'lava', 'iron_ore'], radius: 8, limit: 24 })
+  assert.equal(calls, 1)
+  assert.deepEqual(o.blocks.map(b => b.name), ['dirt', 'coal_ore', 'stone'])
+})
+
 test('blocksNear reports loaded:false for an unloaded chunk without claiming air', () => {
   const bot = stubBot({
     cells: { '1,64,0': solid('stone') },

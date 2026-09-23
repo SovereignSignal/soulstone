@@ -41,10 +41,27 @@ export function validateCollectGoal(goal) {
   return { item, count: goal.count }
 }
 
-export function validateAttackGoal(goal) {
+const NOT_CREATURE = new Set(['item', 'experience_orb', 'arrow', 'spectral_arrow', 'trident', 'fishing_bobber', 'ender_dragon_part'])
+const PLACED = new Set(['item_frame', 'glow_item_frame', 'painting', 'armor_stand', 'boat', 'minecart'])
+const VILLAGE = new Set(['villager', 'wandering_trader', 'iron_golem', 'snow_golem'])
+const CREATURE_TYPES = new Set(['hostile', 'passive', 'animal', 'water_creature', 'ambient', 'mob'])
+const choose = ' Choose a mob such as zombie, cow or enderman.'
+
+// Planner validation has no bot, so only the name and a fixed refusal list;
+// with a registry the entity's own category decides as well.
+export function validateAttackGoal(goal, registry) {
   if (!goal || !ENTITY_TYPE.test(goal.type || '')) throw new Error('Attack needs an entity type name such as zombie, cow or enderman')
-  if (goal.type === 'player') throw new Error('attack never targets players')
-  return { type: goal.type }
+  const type = goal.type
+  if (type === 'player') throw new Error('attack never targets players')
+  if (NOT_CREATURE.has(type)) throw new Error(`attack refuses ${type}: it is not a creature, so there is nothing to kill.${choose}`)
+  if (PLACED.has(type)) throw new Error(`attack refuses ${type}: it is a placed object or vehicle, and breaking it is not a hunt.${choose}`)
+  if (VILLAGE.has(type)) throw new Error(`attack refuses ${type}: hitting it turns the village against you.${choose}`)
+  if (registry?.entitiesByName) {
+    const category = registry.entitiesByName[type]?.type
+    if (!category) throw new Error(`attack refuses ${type}: there is no entity named ${type} in this game version.${choose}`)
+    if (!CREATURE_TYPES.has(category)) throw new Error(`attack refuses ${type}: the registry lists it as ${category}, not a creature.${choose}`)
+  }
+  return { type }
 }
 
 export function validateAttackStep(s) {
@@ -78,9 +95,12 @@ function occupiedByBot(bot, cell) {
   return cell.equals(feet) || cell.equals(feet.offset(0, 1, 0))
 }
 
+// Items, orbs and projectiles do not block a placement; creatures and vehicles do.
+const PASS_THROUGH = new Set(['item', 'experience_orb', 'area_effect_cloud', 'marker', 'interaction', 'item_display', 'block_display', 'text_display', 'lightning_bolt'])
 function occupantAt(bot, cell) {
   const centre = cell.offset(0.5, 0.5, 0.5)
-  return Object.values(bot.entities || {}).find(e => e && e !== bot.entity && e.position && !e.getDroppedItem?.() && e.position.distanceTo(centre) < 0.9)
+  return Object.values(bot.entities || {}).find(e => e && e !== bot.entity && e.position && !e.getDroppedItem?.()
+    && e.type !== 'projectile' && e.type !== 'orb' && !PASS_THROUGH.has(e.name) && e.position.distanceTo(centre) < 0.9)
 }
 
 export async function placeAt(bot, task, { check, stage, progress, movements }) {
@@ -123,7 +143,9 @@ export async function placeAt(bot, task, { check, stage, progress, movements }) 
       .find(n => replaceable(bot.blockAt(n)) && replaceable(bot.blockAt(n.offset(0, 1, 0))) && isSolid(bot.blockAt(n.offset(0, -1, 0))))
     if (!aside) throw new Error(`Standing in ${key(target)} with no open cell beside it to step onto; move first, then place`)
     stage('walking'); progress(`Stepping aside to ${key(aside)} before placing at ${key(target)}`)
-    await bot.pathfinder.goto(new goals.GoalBlock(aside.x, aside.y, aside.z)); check()
+    try { await walkNear(bot, aside, { dig: false, protectedSites: sites, check, stage, progress, movements, timeoutMs: 20000, range: 0 }) }
+    catch (error) { check(); throw new Error(`Could not step aside to ${key(aside)} before placing at ${key(target)}: ${error.message}`) }
+    check()
     if (occupiedByBot(bot, target)) throw new Error(`Still standing in ${key(target)} after stepping aside; move first, then place`)
   }
   const occupant = occupantAt(bot, target)
@@ -134,7 +156,9 @@ export async function placeAt(bot, task, { check, stage, progress, movements }) 
   stage('placing'); progress(`Placing ${goal.item} at ${key(target)} against ${key(chosen.against)}`)
   check()
   const before = inventoryCounts(bot)
-  await bot.equip(carried, 'hand'); check()
+  const stack = bot.inventory.items().find(i => i.name === goal.item)
+  if (!stack) throw new Error(`No longer carrying ${goal.item} at ${key(target)}; acquire it again, then place`)
+  await bot.equip(stack, 'hand'); check()
   await bot.lookAt?.(target.offset(0.5, 0.5, 0.5), true)
   try { await bot.placeBlock(chosen.reference, chosen.faceVector) }
   catch (error) { throw new Error(`Placement of ${goal.item} at ${key(target)} was refused: ${error.message}`) }
@@ -210,7 +234,7 @@ const nearestOfType = (bot, type, from, radius) => Object.values(bot.entities ||
 // a plan reaches for (a cow for leather, an enderman for a pearl, a blaze for a
 // rod). Verification is the server's entityDead for the entity we struck.
 export async function attackEntity(bot, task, { check, stage, progress, movements }) {
-  const goal = validateAttackGoal(task.goal)
+  const goal = validateAttackGoal(task.goal, bot.registry)
   const here = bot.entity.position
   if (!(bot.health >= ATTACK_HEALTH_START)) throw new Error(`Health ${Math.round(bot.health)} is below ${ATTACK_HEALTH_START}; eat or shelter before attacking`)
   if (!(bot.food >= ATTACK_FOOD_START)) throw new Error(`Hunger ${bot.food} is below ${ATTACK_FOOD_START}; eat before attacking`)
