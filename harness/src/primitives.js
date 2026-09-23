@@ -11,11 +11,11 @@ import { lineObstruction, LEG_TIMEOUT_MS } from './travel.js'
 
 const { goals } = pathfinding
 export const GOTO_RANGE = 2, GOTO_MAX = 64, DIG_REACH = 4.5, DIG_COUNT_MAX = 32
-const LIQUID = new Set(['water', 'lava', 'bubble_column'])
-const GRAVITY = new Set(['sand', 'red_sand', 'gravel', 'suspicious_sand', 'suspicious_gravel'])
-const AIR = new Set(['air', 'cave_air', 'void_air'])
-const key = p => `${p.x},${p.y},${p.z}`
-const point = p => new Vec3(p.x, p.y, p.z)
+export const LIQUID = new Set(['water', 'lava', 'bubble_column'])
+export const GRAVITY = new Set(['sand', 'red_sand', 'gravel', 'suspicious_sand', 'suspicious_gravel'])
+export const AIR = new Set(['air', 'cave_air', 'void_air'])
+export const key = p => `${p.x},${p.y},${p.z}`
+export const point = p => new Vec3(p.x, p.y, p.z)
 const floored = p => ({ x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) })
 
 function validateProtectedSites(sites) {
@@ -62,13 +62,13 @@ export function validateDigStep(s) {
     throw new Error('Dig needs a target with integer x, y and z')
 }
 
-function inventoryCounts(bot) {
+export function inventoryCounts(bot) {
   const out = Object.create(null)
   for (const i of bot.inventory.items()) out[i.name] = (out[i.name] || 0) + i.count
   return out
 }
 
-function inventoryDelta(before, after) {
+export function inventoryDelta(before, after) {
   const drops = Object.create(null)
   for (const name of new Set([...Object.keys(before), ...Object.keys(after)])) {
     const d = (after[name] || 0) - (before[name] || 0)

@@ -8,6 +8,7 @@ import {climbSkill} from './route-recovery.js'
 import {sleepThroughNight} from './sleep.js'
 import {travelTo} from './travel.js'
 import {gotoPosition,digToward} from './primitives.js'
+import {placeAt,collectDrops} from './primitives-world.js'
 import {huntFor} from './hunt.js'
 import {defendAgainstMob} from './combat.js'
 import {EXPEDITION_ACTIONS} from './prospecting.js'
@@ -38,6 +39,8 @@ export async function executeSkill(bot, task, context) {
   if(task.kind==='travel')return travelTo(bot,task,context)
   if(task.kind==='goto')return gotoPosition(bot,task,context)
   if(task.kind==='dig')return digToward(bot,task,context)
+  if(task.kind==='place_at')return placeAt(bot,task,context)
+  if(task.kind==='collect')return collectDrops(bot,task,context)
   if(task.kind==='hunt')return huntFor(bot,task,context)
   if(task.kind==='defend')return defendAgainstMob(bot,task,context)
   if(task.kind==='eat')return eatFood(bot,task,context)

@@ -1,5 +1,6 @@
 import {validateTravelGoal} from './travel.js'
 import {validateGotoGoal,validateDigGoal} from './primitives.js'
+import {validatePlaceAtGoal,validateCollectGoal} from './primitives-world.js'
 import {validateHarvest} from './foraging.js'
 import {validateEatGoal} from './survival.js'
 import {validateDefenseGoal} from './combat.js'
@@ -26,6 +27,8 @@ export function validateTaskGoal(kind, goal) {
   if(kind==='travel')return validateTravelGoal(goal)
   if(kind==='goto')return validateGotoGoal(goal)
   if(kind==='dig')return validateDigGoal(goal)
+  if(kind==='place_at')return validatePlaceAtGoal(goal)
+  if(kind==='collect')return validateCollectGoal(goal)
   if(kind==='use')return validateUseGoal(goal)
   if(kind==='sleep')return goal?.project?{project:goal.project}:{}
   if(['climb','descend'].includes(kind))return {}
