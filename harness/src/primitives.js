@@ -268,8 +268,8 @@ function refuseDigCell(bot, cell, { protectedSites = [], role = 'target' } = {})
     if (!under || under.boundingBox !== 'block' || LIQUID.has(under.name))
       return `${key(cell)} has no solid floor under it (${under?.name ?? 'unloaded'}); digging it opens a drop. Fill ${key(cell.offset(0, -1, 0))} first or dig a different cell.`
   }
-  if (typeof bot.canDigBlock === 'function' && !bot.canDigBlock(block) && bot.entity.position.distanceTo(cell.offset(0.5, 0.5, 0.5)) <= DIG_REACH + 0.5)
-    return `Cannot dig ${block.name} at ${key(cell)} with carried tools from here`
+  // Reach is the caller's to fix by walking; only an unbreakable block is refused here.
+  if (block.diggable === false) return `${block.name} at ${key(cell)} cannot be broken`
   return null
 }
 
@@ -319,7 +319,8 @@ export async function digToward(bot, task, context) {
     const block = bot.blockAt(target)
     if (!block || AIR.has(block.name) || block.boundingBox === 'empty')
       throw new Error(`Nothing to dig at ${key(target)}; the cell is already open`)
-    if (bot.entity.position.distanceTo(target.offset(0.5, 0.5, 0.5)) > DIG_REACH) {
+    // canDigBlock measures from the eyes, so a cell below can be in reach of the feet and not the hand.
+    if (bot.entity.position.distanceTo(target.offset(0.5, 0.5, 0.5)) > DIG_REACH || (typeof bot.canDigBlock === 'function' && !bot.canDigBlock(block))) {
       stage('walking'); progress(`Walking within reach of ${key(target)}`)
       await walkNear(bot, target, { dig: false, protectedSites: sites, check, stage, progress, movements, timeoutMs: 60000 })
       check()

@@ -126,6 +126,37 @@ function fakeBot(over = {}) {
 }
 const deps = () => ({ check() {}, stage() {}, progress() {}, movements: null })
 
+// mineflayer 4.38's own rule: breakable, and the block centre within 5.1 of the eyes.
+const eyeReach = bot => b => !!b?.diggable && b.position.offset(0.5, 0.5, 0.5).distanceTo(bot.entity.position.offset(0, 1.65, 0)) <= 5.1
+
+test('dig walks to an ore just past eye reach instead of blaming the tools', async () => {
+  // Trial 7, 23 September: "Cannot dig iron_ore at -651,57,-295 with carried
+  // tools from here", holding a stone pickaxe. canDigBlock tests only
+  // breakability and eye reach; a cell below the feet is 4.4 from them and 5.2
+  // from the eyes, so it was refused before the walk that would have fixed it.
+  const ore = p => ({ name: 'iron_ore', boundingBox: 'block', diggable: true, position: p })
+  const bot = fakeBot({
+    items: [{ name: 'stone_pickaxe', count: 1, type: registry.itemsByName.stone_pickaxe.id }],
+    fills: [[4, 62, 1, ore]],
+    defaultBlock: p => (p.y < 64 ? stone(p) : { name: 'air', boundingBox: 'empty', position: p }),
+  })
+  bot.canDigBlock = eyeReach(bot)
+  assert.equal(bot.canDigBlock(bot.blockAt(new Vec3(4, 62, 1))), false, 'fixture: out of eye reach from the start')
+  const start = bot.entity.position.clone()
+  const r = await digToward(bot, { kind: 'dig', goal: validateDigGoal({ x: 4, y: 62, z: 1, count: 1 }) }, deps())
+  assert.equal(r.broken, 1)
+  assert.ok(bot.entity.position.distanceTo(start) > 0, 'it walked within reach first')
+})
+
+test('dig refuses an unbreakable block by saying so', async () => {
+  const bot = fakeBot({ fills: [[1, 64, 0, { name: 'bedrock', boundingBox: 'block', diggable: false }], [1, 63, 0, stone]] })
+  bot.canDigBlock = eyeReach(bot)
+  await assert.rejects(
+    () => digToward(bot, { kind: 'dig', goal: validateDigGoal({ x: 1, y: 64, z: 0, count: 1 }) }, deps()),
+    /bedrock at 1,64,0 cannot be broken/,
+  )
+})
+
 test('dig refuses a liquid target, a saved-project cell, and an unloaded target', async () => {
   const liquid = fakeBot({ fills: [[1, 64, 0, lava]] })
   assert.equal(liquid.blockAt(new Vec3(1, 64, 0))?.name, 'lava')
