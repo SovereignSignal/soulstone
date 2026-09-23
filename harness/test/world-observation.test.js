@@ -83,6 +83,26 @@ test('blocksNear supports *_ore wildcard and any_solid', () => {
   assert.ok(solids.blocks.some(b => b.name === 'dirt'))
 })
 
+test('blocksNear gives every requested name a fair share, so common stone cannot crowd out the one crafting table', () => {
+  // A 5x5x5 shell of stone (well over the cap) with a single crafting table
+  // at distance 7. Pure nearest-first would return 24 stone and no table.
+  const cells = {}
+  for (let x = -2; x <= 2; x++) for (let y = 62; y <= 66; y++) for (let z = -2; z <= 2; z++) {
+    if (Math.abs(x) === 2 || Math.abs(z) === 2 || y === 62 || y === 66) cells[`${x},${y},${z}`] = solid('stone')
+  }
+  cells['7,64,0'] = solid('crafting_table')
+  const bot = stubBot({ cells, registry: { stone: { id: 1 }, crafting_table: { id: 2 }, air: { id: 0 } } })
+  const o = blocksNear(bot, { names: ['stone', 'crafting_table'], radius: 8, limit: 24 })
+  assert.equal(o.blocks.length, 24)
+  assert.ok(o.blocks.some(b => b.name === 'crafting_table' && b.x === 7), 'the table must be reported')
+  assert.equal(o.blocks[0].name, 'stone', 'the nearest block still leads')
+  assert.equal(o.truncated, true)
+  // A name with no hits costs nothing and does not displace others.
+  const p = blocksNear(bot, { names: ['stone', 'crafting_table', 'diamond_ore'], radius: 8, limit: 24 })
+  assert.equal(p.blocks.length, 24)
+  assert.ok(p.blocks.some(b => b.name === 'crafting_table'))
+})
+
 test('blocksNear reports loaded:false for an unloaded chunk without claiming air', () => {
   const bot = stubBot({
     cells: { '1,64,0': solid('stone') },

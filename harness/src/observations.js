@@ -15,7 +15,6 @@ const matchName=(name,patterns)=>{
  }
  return false
 }
-const wantsSolid=patterns=>patterns.includes('any_solid')
 const round01=n=>Math.round(n*100)/100
 // Bound each resource kind separately: abundant underground stone must not
 // crowd nearby wood or workstations out of the planner and recipe observations.
@@ -40,50 +39,53 @@ export function blocksNear(bot,{names=[],radius=8,limit=24}={}){
  const p=bot?.entity?.position
  if(!p||!bot?.blockAt)return {blocks:[],truncated:false,scanned:{radius:r,loaded:false}}
  const origin=p.floored(),patterns=[...new Set((names||[]).filter(Boolean))]
- const solid=wantsSolid(patterns)
  let loaded=true,truncated=false
- const hits=[]
- const consider=(x,y,z,b)=>{
-  if(!b){loaded=false;return}
-  const ok=solid&&b.boundingBox==='block'&&!isAir(b)||matchName(b.name,patterns)
-  if(!ok)return
-  const d=Math.round(Math.hypot(x+0.5-p.x,y+0.5-p.y,z+0.5-p.z))
-  hits.push({name:b.name,x,y,z,d})
- }
+ const byDistance=(a,b)=>a.d-b.d||a.y-b.y||a.x-b.x||a.z-b.z
+ const entry=(x,y,z,b)=>({name:b.name,x,y,z,d:Math.round(Math.hypot(x+0.5-p.x,y+0.5-p.y,z+0.5-p.z))})
+ const matches=(b,pattern)=>!!b&&!isAir(b)&&(pattern==='any_solid'?b.boundingBox==='block':matchName(b.name,[pattern]))
+ // One group per requested name, each holding its own nearest hits. Abundant
+ // stone must not crowd the one crafting table out of a 24-entry cap, so the
+ // groups are merged round-robin below rather than pooled and cut by distance.
+ const groups=[]
  if(bot.findBlocks&&patterns.length){
-  const matching=b=>{
-   if(!b)return false
-   if(solid&&b.boundingBox==='block'&&!isAir(b))return true
-   return matchName(b.name,patterns)
+  for(const pattern of patterns){
+   // Over-fetch per name: findBlocks walks chunk sections outward, so its order
+   // is only roughly by distance, and the sort below needs a margin to be honest.
+   const found=bot.findBlocks({matching:b=>matches(b,pattern),maxDistance:r,count:cap*2})||[]
+   const hits=[]
+   for(const pos of found){const b=bot.blockAt(pos);if(!b){loaded=false;continue}if(matches(b,pattern))hits.push(entry(pos.x,pos.y,pos.z,b))}
+   hits.sort(byDistance)
+   if(hits.length>cap)truncated=true
+   if(hits.length)groups.push(hits)
   }
-  // Over-fetch so distance sorting can keep the nearest cap entries. findBlocks
-  // walks chunk sections outward, so its order is only roughly by distance; a
-  // fourfold margin is cheap and keeps "nearest first" honest.
-  const found=bot.findBlocks({matching,maxDistance:r,count:cap*4})||[]
-  if(found.length>cap)truncated=true
-  for(const pos of found)consider(pos.x,pos.y,pos.z,bot.blockAt(pos))
-  // Probe the cube corners so an unloaded chunk inside the radius is visible
-  // even when findBlocks simply skips it.
+  // Probe the cube's corners and centre on each axis: every 16-aligned chunk
+  // column inside radius <= 16 contains one of them, so an unloaded chunk that
+  // findBlocks silently skipped is still reported as unknown, never as air.
   for(const dx of [-r,0,r])for(const dy of [-r,0,r])for(const dz of [-r,0,r]){
    if(!bot.blockAt(origin.offset(dx,dy,dz)))loaded=false
   }
  }else{
+  const hitsByPattern=new Map(patterns.map(q=>[q,[]]))
   for(let x=origin.x-r;x<=origin.x+r;x++)for(let y=origin.y-r;y<=origin.y+r;y++)for(let z=origin.z-r;z<=origin.z+r;z++){
    const b=bot.blockAt(new Vec3(x,y,z))
    if(!b){loaded=false;continue}
-   const ok=solid&&b.boundingBox==='block'&&!isAir(b)||matchName(b.name,patterns)
-   if(!ok)continue
-   hits.push({name:b.name,x,y,z,d:Math.round(Math.hypot(x+0.5-p.x,y+0.5-p.y,z+0.5-p.z))})
-   if(hits.length>cap){truncated=true;break}
+   for(const pattern of patterns){if(matches(b,pattern)){hitsByPattern.get(pattern).push(entry(x,y,z,b));break}}
   }
+  for(const hits of hitsByPattern.values()){hits.sort(byDistance);if(hits.length>cap)truncated=true;if(hits.length)groups.push(hits)}
  }
- hits.sort((a,b)=>a.d-b.d||a.y-b.y||a.x-b.x||a.z-b.z)
- const blocks=hits.slice(0,cap)
- if(hits.length>cap)truncated=true
- // Dedup by cell in case findBlocks and corner probes overlapped.
- const seen=new Set(),unique=[]
- for(const b of blocks){const k=`${b.x},${b.y},${b.z}`;if(seen.has(k))continue;seen.add(k);unique.push(b)}
- return {blocks:unique.slice(0,cap),truncated:truncated||unique.length>cap&&hits.length>cap,scanned:{radius:r,loaded}}
+ // Round-robin merge, groups ordered by their nearest hit, so the nearest block
+ // overall still leads and every name with a hit appears before any name repeats.
+ groups.sort((a,b)=>byDistance(a[0],b[0]))
+ const seen=new Set(),blocks=[]
+ let remaining=groups.reduce((n,g)=>n+g.length,0)
+ for(let i=0;blocks.length<cap&&remaining>0;i=(i+1)%groups.length){
+  const g=groups[i];if(!g.length)continue
+  const b=g.shift();remaining--
+  const k=`${b.x},${b.y},${b.z}`;if(seen.has(k))continue
+  seen.add(k);blocks.push(b)
+ }
+ if(remaining>0)truncated=true
+ return {blocks,truncated,scanned:{radius:r,loaded}}
 }
 
 // Vertical escape clue: solids overhead, then where open sky begins.
