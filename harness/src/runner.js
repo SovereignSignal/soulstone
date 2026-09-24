@@ -18,6 +18,7 @@ import {wearBestArmor} from './armor.js'
 import { attachChatControl } from './chat-control.js'
 import { endClientTicks } from './tick-end.js'
 import {fireObservation} from './survival.js'
+import {correctToolTierMaterials} from './tool-tiers.js'
 
 const { pathfinder, goals } = pathfinding
 // A skill's deadline is an idle window: real progress slides it forward, up
@@ -61,6 +62,8 @@ export class Runner extends EventEmitter {
     bot.on('spawn', () => {
       if (this.bot !== bot || this.closed) return
       clearTimeout(this.joinTimer); clearTimeout(this.stableTimer)
+      // Before any dig or path search reads a dig time; see tool-tiers.js.
+      correctToolTierMaterials(bot.registry)
       this.ready = true
       this.respawnPending = false; clearTimeout(this.respawnTimer)
       const movements = new DoorAwareMovements(bot)
