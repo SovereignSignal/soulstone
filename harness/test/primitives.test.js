@@ -408,6 +408,28 @@ test('a stuck leg says what the pathfinder was doing', async () => {
   assert.deepEqual(handlers.path_update, [], 'listeners are removed after the leg')
 })
 
+test('a stuck leg says whether physics was running', async () => {
+  // Trial 10: stuck legs began with onGround false on solid ground and a
+  // position frozen for minutes. mineflayer skips physics before the server's
+  // first position, after respawn or mount, and over an unloaded chunk; the
+  // pathfinder then gives up every 3.5 seconds. Whether ticks ran is decisive.
+  const run = async ticks => {
+    const bot = fakeBot()
+    const handlers = {}
+    bot.on = (e, f) => { (handlers[e] ||= []).push(f) }
+    bot.off = (e, f) => { handlers[e] = (handlers[e] || []).filter(g => g !== f) }
+    bot.entity.onGround = false
+    bot.entity.velocity = new Vec3(0, -0.0784, 0)
+    bot.pathfinder = { setMovements() {}, setGoal() {}, goto() {
+      for (let i = 0; i < ticks; i++) (handlers.physicsTick || []).forEach(f => f())
+      return new Promise(() => {})
+    } }
+    return walkNear(bot, { x: 5, y: 64, z: 0 }, { dig: false, ...deps(), legTimeoutMs: 50 }).then(() => null, e => e.message)
+  }
+  assert.match(await run(0), /physics ticks 0; onGround false, velocity 0,-0.08,0/)
+  assert.match(await run(3), /physics ticks 3;/)
+})
+
 test('a walk continues past a timed-out leg that closed ground and arrives', async () => {
   const legs = []
   const bot = fakeBot()
