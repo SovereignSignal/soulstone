@@ -121,3 +121,20 @@ test('the planner can ask for it, and the executor accepts the task',async()=>{
  assert.throws(()=>validatePlan({reply:'x',steps:[step({item:'obsidian'})]}),/empty name and item/)
  assert.deepEqual(validateTaskGoal('make_obsidian',{count:10}),{count:10})
 })
+
+test('a bucket fills from a lake open only at the side, as cave water usually is',async()=>{
+ // Live, 2026-09-24: the only water near the VM bot was an underground lake,
+ // sources stacked from y=-4 to y=2 behind a tunnel wall. The fill search
+ // wanted air above a source, found none, and make_obsidian failed at once.
+ const {fillableWaterSource}=await import('../src/obsidian.js')
+ // A lake sunk in stone under a stone ceiling; a tunnel opens its x=2 wall.
+ const extra={}
+ for(let y=60;y<=63;y++)for(let x=3;x<=8;x++)for(let z=-3;z<=3;z++)extra[`${x},${y},${z}`]='water'
+ for(let x=3;x<=8;x++)for(let z=-3;z<=3;z++)extra[`${x},64,${z}`]='stone'
+ extra['2,62,0']='air';extra['2,63,0']='air'
+ const {bot}=fixture({pool:false,extra})
+ const source=fillableWaterSource(bot)
+ assert.ok(source,'the side-open source is found')
+ assert.deepEqual([source.x,source.z],[3,0],'the one facing the tunnel')
+ const {bot:dry}=fixture({pool:false});assert.equal(fillableWaterSource(dry),null)
+})

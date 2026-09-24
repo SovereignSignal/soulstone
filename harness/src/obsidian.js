@@ -48,6 +48,18 @@ export function pourSites(bot,{protectedSites=[],skip=new Set(),radius=32}={}){
  return sites.sort((a,b)=>a.distance-b.distance).slice(0,16)
 }
 
+// The nearest water source a bucket can reach: any open face will do. Cave water
+// is usually a lake behind a tunnel wall with rock overhead; asking for air
+// above found none beside a live lake, and make_obsidian failed at once. A big
+// lake is hundreds of sources, so search far enough not to run out on its interior.
+const OPEN_FACES=[[0,1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]
+export function fillableWaterSource(bot,{radius=32}={}){
+ const here=bot.entity.position
+ return (bot.findBlocks({matching:bot.registry.blocksByName.water.id,maxDistance:radius,count:1024})||[])
+  .filter(p=>isSource(bot.blockAt(p))&&OPEN_FACES.some(([x,y,z])=>AIR.has(bot.blockAt(p.offset(x,y,z))?.name)))
+  .sort((a,b)=>a.distanceTo(here)-b.distanceTo(here))[0]??null
+}
+
 // A bucket writes use_item, which the server raycasts along the look vector;
 // settle the look for a tick first, as `use` does.
 async function useBucket(bot,item,at,check){
