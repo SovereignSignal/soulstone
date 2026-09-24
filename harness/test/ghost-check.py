@@ -52,6 +52,21 @@ def server_name(x, y, z):
     return 'unlisted'
 
 
+FIELDS = ['Pos', 'OnGround', 'Motion', 'RootVehicle', 'SleepingX', 'playerGameType']
+VALUE = re.compile(r'has the following entity data: (.*)$')
+
+
+def field(output):
+    """The value from `data get entity`, or None when the server has no such element."""
+    m = VALUE.search((output or '').strip())
+    return m.group(1) if m else None
+
+
+def player_state(name='SoulStone303'):
+    """The server's own view of the player at a stuck moment: where it holds it, and why it might pin it."""
+    return {f: field(rcon(f'data get entity {name} {f}')) for f in FIELDS}
+
+
 def compare(cells, target):
     px, py, pz = target
     out = []
@@ -84,10 +99,11 @@ def follow(log, out_path):
             parsed = parse(text)
             if not parsed:
                 continue
+            server = player_state()
             diff = compare(*parsed)
             kind = row['task'].get('kind') if row.get('type') == 'task_finished' else 'gather-walk'
             with open(out_path, 'a') as o:
-                o.write(json.dumps({'at': row['at'], 'kind': kind, 'target': parsed[1], 'disagreements': diff}) + '\n')
+                o.write(json.dumps({'at': row['at'], 'kind': kind, 'target': parsed[1], 'server': server, 'disagreements': diff}) + '\n')
 
 
 if __name__ == '__main__':

@@ -16,6 +16,10 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(cells, {(-615, 68, -336): 'grass_block', (-615, 70, -335): 'spruce_leaves'})
         self.assertEqual(target, (-614.5, 69.0, -335.7))
 
+    def test_reads_a_data_get_value_and_treats_a_missing_element_as_none(self):
+        self.assertEqual(m.field('SoulStone303 has the following entity data: [-625.13d, 69.0d, -335.57d]'), '[-625.13d, 69.0d, -335.57d]')
+        self.assertIsNone(m.field('Found no elements matching RootVehicle'))
+
     def test_a_refusal_without_cells_is_skipped(self):
         self.assertIsNone(m.parse('Goto leg exceeded its 25 second budget without closing ground'))
 
