@@ -1,6 +1,7 @@
 import {harvestBerries} from './foraging.js'
 import {useHeldItem,dimensionOf} from './use-item.js'
-import {makeObsidian,fillableWaterSource,sealedWaterSource} from './obsidian.js'
+import {makeObsidian,fillableWaterSources,sealedWaterSource} from './obsidian.js'
+import {walkNear} from './primitives.js'
 import {fitConstructionSite} from './construction-site.js'
 import {surveyGround,candidateSites} from './site-survey.js'
 import {placeBuildingBlock} from './building-blocks.js'
@@ -321,21 +322,28 @@ export async function executeWorldSkill(bot,task,context,gather) {
  if(task.kind==='prepare')return prepareTools(bot,task.goal,{acquire,settle,check,progress})
  if(task.kind==='make_obsidian'){
   // The bucket fills only from a source cell, and `use` owns the aim and the receipt.
+  // goto's digging walk: bounded legs, and it refuses to break anything beside a liquid.
+  const dig=(p,range)=>walkNear(bot,p,{dig:true,protectedSites:task.goal.protectedSites||[],check,stage,progress,movements,timeoutMs:120000,range})
   const fill=async()=>{
-   let source=fillableWaterSource(bot)
-   if(!source){
-    const sealed=sealedWaterSource(bot,{protectedSites:task.goal.protectedSites||[]})
-    if(!sealed)throw new Error('No water source within 32 blocks, open or behind one block of rock, to fill the bucket from')
-    progress(`Opening ${key(sealed.wall)} to reach the water behind it`)
-    await walk(new goals.GoalLookAtBlock(sealed.wall,bot.world,{reach:4}))
-    const wall=bot.blockAt(sealed.wall)
-    await bot.tool.equipForBlock(wall,{requireHarvest:false,getFromChest:false});check();await bot.dig(wall);check()
-    source=sealed.source
+   const fillFrom=async source=>{
+    progress(`Filling the bucket at ${key(source)}`)
+    // The bucket's own walk cannot tunnel; get within reach first with one that can.
+    await dig(source,3);check()
+    await useHeldItem(bot,{goal:{item:'bucket',count:1,expect:'',target:{x:source.x,y:source.y,z:source.z,how:'point',dimension:dimensionOf(bot)||'overworld'}}},{check,stage,persist:context.persist,walk,settle,approach:approachPlacement})
    }
-   progress(`Filling the bucket at ${key(source)}`)
-   await useHeldItem(bot,{goal:{item:'bucket',count:1,expect:'',target:{x:source.x,y:source.y,z:source.z,how:'point',dimension:dimensionOf(bot)||'overworld'}}},{check,stage,persist:context.persist,walk,settle,approach:approachPlacement})
+   let failure=null
+   for(const source of fillableWaterSources(bot).slice(0,3)){
+    try{await fillFrom(source);return}catch(error){check();failure=error;progress(`Could not fill at ${key(source)}: ${error.message}`)}
+   }
+   const sealed=sealedWaterSource(bot,{protectedSites:task.goal.protectedSites||[]})
+   if(!sealed)throw failure||new Error('No water source within 32 blocks, open or behind one block of rock, to fill the bucket from')
+   progress(`Opening ${key(sealed.wall)} to reach the water behind it`)
+   await dig(sealed.wall,3)
+   const wall=bot.blockAt(sealed.wall)
+   await bot.tool.equipForBlock(wall,{requireHarvest:false,getFromChest:false});check();await bot.dig(wall);check()
+   await fillFrom(sealed.source)
   }
-  return makeObsidian(bot,task,{check,progress,stage,walk,settle,count,persist:context.persist,fill,mine:(name,total)=>mineExposed(name,total,[task.kind])})
+  return makeObsidian(bot,task,{check,progress,stage,walk,settle,count,persist:context.persist,fill,mine:(name,total)=>mineExposed(name,total,[task.kind]),approach:dig})
  }
  if(task.kind==='acquire'){await acquire(task.goal.item,task.goal.count);return {item:task.goal.item,count:count(task.goal.item)}}
  const design=validateDesign(task.goal.design)

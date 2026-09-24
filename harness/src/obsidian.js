@@ -56,11 +56,14 @@ const OPEN_FACES=[[0,1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]
 // A bucket's ray ignores flowing water, so a face of it is as open as air.
 const passable=b=>AIR.has(b?.name)||b?.name==='water'&&!isSource(b)
 const waterSources=(bot,radius)=>(bot.findBlocks({matching:bot.registry.blocksByName.water.id,maxDistance:radius,count:1024})||[]).filter(p=>isSource(bot.blockAt(p)))
-export function fillableWaterSource(bot,{radius=32}={}){
- const here=bot.entity.position
+// Nearest first, with climbing counted double: nine blocks up through deepslate
+// is a long tunnel even when the straight line is short.
+export function fillableWaterSources(bot,{radius=32}={}){
+ const here=bot.entity.position,cost=p=>p.distanceTo(here)+Math.abs(p.y-here.y)
  return waterSources(bot,radius).filter(p=>OPEN_FACES.some(([x,y,z])=>passable(bot.blockAt(p.offset(x,y,z)))))
-  .sort((a,b)=>a.distanceTo(here)-b.distanceTo(here))[0]??null
+  .sort((a,b)=>cost(a)-cost(b))
 }
+export const fillableWaterSource=(bot,options)=>fillableWaterSources(bot,options)[0]??null
 // Underground water is often a lake sealed from the tunnel beside it by one
 // block, as it was beside the VM bot. Name that block: a source, a diggable
 // solid beside it with open air on its far side, and no lava touching it.
@@ -90,7 +93,9 @@ const near=(bot,name,point,maxDistance,filter=()=>true)=>(bot.findBlocks({point,
 // `mine` is world-skills' mineExposed: it refuses any block with lava or water
 // beside it, so a drop never falls into lava. `fill` fills an empty bucket at
 // the nearest water source through `use`. Both are injected to avoid a cycle.
-export async function makeObsidian(bot,task,{check,progress,stage,walk,settle,mine,fill,count,persist}){
+// `approach(point,range)` is a walk that may tunnel (world-skills passes goto's
+// digging engine); without it the plain walk is used.
+export async function makeObsidian(bot,task,{check,progress,stage,walk,settle,mine,fill,count,persist,approach=p=>walk(new goals.GoalBlock(p.x,p.y,p.z))}){
  const goal=validateObsidianGoal(task.goal),total=goal.count,start=count('obsidian')
  const record=task.obsidian??={pours:0,converted:0,skipped:[]}
  const done=extra=>({item:'obsidian',count:count('obsidian'),requested:total,pours:record.pours,converted:record.converted,...extra})
@@ -111,7 +116,7 @@ export async function makeObsidian(bot,task,{check,progress,stage,walk,settle,mi
   if(!site){reason='no open lava source with a solid rim and a lava-free standing cell within 32 blocks';break}
   skip.add(key(site.rim));record.skipped=[...skip];persist?.()
   progress(`Converting lava at ${key(site.lava)}: pouring from ${key(site.stand)}`);stage('pouring')
-  try{await walk(new goals.GoalBlock(site.stand.x,site.stand.y,site.stand.z))}catch(error){check();reason=`the standing cell ${key(site.stand)} was not reached: ${error.message}`;continue}
+  try{await approach(site.stand,0)}catch(error){check();reason=`the standing cell ${key(site.stand)} was not reached: ${error.message}`;continue}
   const feet=bot.entity.position.floored()
   if(key(feet)!==key(site.stand)||lavaBeside(bot,feet)){reason=`the walk ended at ${key(feet)}, not the lava-free standing cell`;continue}
   const before=near(bot,'lava',site.water,8,isSource)

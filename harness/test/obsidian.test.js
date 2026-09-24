@@ -158,3 +158,12 @@ test('flowing water counts as an open face, and a lake sealed by one block names
  assert.deepEqual([found.wall.x,found.wall.z,found.source.x],[2,0,3],'the one stone block between tunnel and water')
  assert.equal(sealedWaterSource(fixture({pool:false}).bot),null)
 })
+
+test('a level source is tried before a nearer one high overhead',async()=>{
+ // Live, 2026-09-24: the fill chose water nine blocks up through deepslate and
+ // the path search gave up; a climb costs far more than its straight line.
+ const {fillableWaterSources}=await import('../src/obsidian.js')
+ const {bot}=fixture({pool:false,extra:{'-5,72,1':'water','3,64,1':'water'}})
+ const order=fillableWaterSources(bot).map(p=>`${p.x},${p.y},${p.z}`)
+ assert.deepEqual(order,['3,64,1','-5,72,1'])
+})
