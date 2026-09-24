@@ -449,6 +449,31 @@ test('a stuck leg counts server corrections and names what the client thinks is 
   assert.match(message, /underfoot air/)
 })
 
+test('a stuck leg reports how far each correction moved the bot and the solid cells the client sees around it', async () => {
+  // Trial 11: ~480 server corrections in 25 seconds, velocity zeroed each time.
+  // A snap-back of a few tenths each tick is the server refusing a move into
+  // what it holds solid; near zero is the server re-sending the same place.
+  // The client's solid cells beside the body, with coordinates, can then be
+  // checked against the server block by block.
+  const leaves = { name: 'spruce_leaves', boundingBox: 'block' }
+  const bot = fakeBot({ blockAt: p => (Math.floor(p.y) < 64 ? { name: 'grass_block', boundingBox: 'block' } : Math.floor(p.x) === 1 && Math.floor(p.y) === 65 ? leaves : { name: 'air', boundingBox: 'empty' }) })
+  bot.entity.position = new Vec3(0.5, 64, 0.5)
+  const handlers = {}
+  bot.on = (e, f) => { (handlers[e] ||= []).push(f) }
+  bot.off = (e, f) => { handlers[e] = (handlers[e] || []).filter(g => g !== f) }
+  const emit = e => (handlers[e] || []).forEach(f => f())
+  bot.pathfinder = { setMovements() {}, setGoal() {}, goto() {
+    for (let i = 0; i < 3; i++) {
+      bot.entity.position = new Vec3(0.8, 64, 0.5); emit('physicsTick')
+      bot.entity.position = new Vec3(0.5, 64, 0.5); emit('forcedMove')
+    }
+    return new Promise(() => {})
+  } }
+  const message = await walkNear(bot, { x: 5, y: 64, z: 0 }, { dig: false, ...deps(), legTimeoutMs: 50 }).then(() => null, e => e.message)
+  assert.match(message, /corrections moved it 0\.3 on average, last to 0\.5,64,0\.5/)
+  assert.match(message, /client solid cells: 0,63,0 grass_block; .*1,65,0 spruce_leaves/)
+})
+
 test('a walk continues past a timed-out leg that closed ground and arrives', async () => {
   const legs = []
   const bot = fakeBot()
