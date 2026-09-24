@@ -14,6 +14,7 @@ import { loadTask, saveTask, validateGoal, validateTaskGoal } from './task-store
 import { executeSkill } from './skills.js'
 import {wearBestArmor} from './armor.js'
 import { attachChatControl } from './chat-control.js'
+import { endClientTicks } from './tick-end.js'
 
 const { pathfinder, goals } = pathfinding
 // A skill's deadline is an idle window: real progress slides it forward, up
@@ -51,6 +52,7 @@ export class Runner extends EventEmitter {
     bot.loadPlugin(pathfinder)
     bot.on('path_update',result=>this.pathUpdated(bot,result))
     bot.loadPlugin(collection.plugin)
+    endClientTicks(bot)
     if (this.chatControl) attachChatControl(this, bot)
     this.joinTimer = setTimeout(() => bot.end('join timeout'), this.options.auth === 'microsoft' ? 1200000 : 30000)
     bot.on('spawn', () => {
