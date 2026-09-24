@@ -1,16 +1,20 @@
 {
   "schema": 1,
-  "release": "v3.4.12",
-  "jar": "ViaProxy-3.4.12.jar",
-  "sha256": "32ce9ad871aeb03286823c29da262ebd75992864e7857db283f103525c7fc0cb",
-  "source": "ViaProxy-3.4.12-source.zip",
-  "sourceSha256": "74466d5f11dac00054531ca403923bb53651c56344fff3943987737ab052654e",
+  "release": "v3.4.13",
+  "jar": "ViaProxy-3.4.13.jar",
+  "sha256": "4bbb6a6b9d3dd6a2028773ed44b97a98751e4a48e416aaad4bf6d9c860083be9",
+  "source": "ViaProxy-3.4.13-source.zip",
+  "sourceSha256": "01ad06a2369c6948ac21e5910e7f55ab20579fc0ca2d7d1fa913765621e48042",
   "clientVersion": "1.21.4",
   "clientProtocol": 769,
   "routes": [
     {
       "version": "26.2",
       "protocol": 776
+    },
+    {
+      "version": "26.3",
+      "protocol": 777
     }
   ]
 }

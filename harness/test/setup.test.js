@@ -26,8 +26,9 @@ test('Microsoft login accepts account identifier without weakening offline names
  assert.throws(()=>validateSetup({...value,username:'\n'}))
 })
 test('version selection accepts bundled old and new releases and rejects unknown protocols',()=>{
- for(const version of ['auto','1.16.5','1.21','1.21.4','1.21.11','26.1','26.2'])assert.equal(validateSetup({...base,version}).version,version)
- for(const version of ['1.7.10','1.99.9','26.3','99.1','26.1-snapshot','26.1\nsecret'])assert.throws(()=>validateSetup({...base,version}))
+ for(const version of ['auto','1.16.5','1.21','1.21.4','1.21.11','26.1','26.2','26.3'])assert.equal(validateSetup({...base,version}).version,version)
+ // 26.3 joined with ViaProxy 3.4.13; the next unreleased version stays refused.
+ for(const version of ['1.7.10','1.99.9','26.4','99.1','26.1-snapshot','26.1\nsecret'])assert.throws(()=>validateSetup({...base,version}))
 })
 test('runner preserves legacy offline profile keys and isolates Microsoft identity',()=>{
  const dir=mkdtempSync(join(tmpdir(),'soul-setup-'))
