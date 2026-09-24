@@ -282,7 +282,8 @@ def is_terminal(request_progress):
     if not request_progress:
         return False
     status = request_progress.get('status')
-    if status in ('verified', 'cancelled'):
+    # needs_review: every checkable criterion passed; only Sov's review remains.
+    if status in ('verified', 'cancelled', 'needs_review'):
         return True
     if status in ('blocked', 'interrupted', 'paused') and request_progress.get('reviewRequired'):
         return True
@@ -297,6 +298,8 @@ def terminal_reason(request_progress, fallback='time_limit'):
         return 'verified'
     if status == 'cancelled':
         return 'cancelled'
+    if status == 'needs_review':
+        return 'needs_review'
     if status in ('blocked', 'interrupted', 'paused') and request_progress.get('reviewRequired'):
         return f'{status}_review'
     return fallback
