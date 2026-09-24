@@ -173,6 +173,17 @@ test('the goal prompt refuses only when nothing at all can be attempted',()=>{
  assert.match(prompt,/handled automatically by the safety system and are never planner actions/)
 })
 
+test('success is what was asked for; survival needs are not finishing conditions unless named',()=>{
+ // Trial 12, 24 September: "craft an iron pickaxe" became a food reserve, a lit
+ // shelter and the pickaxe as hard criteria, and the run spent its second hour
+ // on the shelter. Sov: shelter matters, but it is a separate thing from
+ // crafting; one may require the other, and that is the survival layer's call.
+ const prompt=readFileSync(new URL('../src/companion/goal-prompt.txt',import.meta.url),'utf8')
+ assert.match(prompt,/Success is the outcome the request names/)
+ assert.match(prompt,/food reserve, a shelter, sleep/)
+ assert.match(prompt,/craft an iron pickaxe" is done when a serviceable iron pickaxe is carried/)
+})
+
 test('the capabilities brief tells the planner how a damaged base is repaired',()=>{
  const brief=readFileSync(new URL('../src/companion/survival-capabilities.txt',import.meta.url),'utf8')
  assert.match(brief,/DAMAGED BASE/)
