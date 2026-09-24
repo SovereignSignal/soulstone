@@ -3,6 +3,7 @@ import pathfinding from 'mineflayer-pathfinder'
 import {survivalObservation} from './survival.js'
 import {DoorAwareMovements,requireReachedGoal} from './navigation.js'
 import {fullCube} from './construction.js'
+import {Vec3} from 'vec3'
 const {goals}=pathfinding
 
 export function dryShoreGoals(bot,radius=12){
@@ -21,7 +22,7 @@ export function dryShoreGoals(bot,radius=12){
 
 // Air recovery never waits for a model or depends on a lit shelter. Reaching
 // dry ground and merely keeping the head above water have different receipts.
-export async function surfaceForAir(bot,task,{check,stage,progress,movements},{surfaceMs=12000,shoreMs=8000,pollMs=50}={}){
+export async function surfaceForAir(bot,task,{check,stage,progress,movements},{surfaceMs=12000,shoreMs=8000,climbMs=2500,pollMs=50}={}){
  let hold=false
  const observe=()=>survivalObservation(bot)
  const breathe=async()=>{
@@ -50,6 +51,19 @@ export async function surfaceForAir(bot,task,{check,stage,progress,movements},{s
    check()
    if(goal.isEnd(bot.entity.position.floored())&&bot.entity.onGround&&observe().headSubmerged===false){
     return {item:'safety',count:1,receipt:'dry_ground_reached',position:bot.entity.position.clone(),oxygen:bot.oxygenLevel??null}
+   }
+   // The path search has no jump-up move out of water, so a ledge one block above
+   // the surface is out of its reach: trial 24 trod water beside dry rock for most
+   // of an hour. A player faces the ledge and holds forward and jump.
+   for(const g of targets.slice(0,3)){
+    check();progress(`Climbing out toward ${g.x},${g.y},${g.z}`)
+    await bot.lookAt?.(new Vec3(g.x+.5,g.y+.5,g.z+.5),true)
+    bot.setControlState('forward',true);bot.setControlState('jump',true)
+    const end=Date.now()+climbMs
+    while(Date.now()<end&&!(bot.entity.onGround&&!bot.entity.isInWater)){check();await delay(pollMs)}
+    bot.clearControlStates()
+    if(bot.entity.onGround&&!bot.entity.isInWater&&observe().headSubmerged===false)
+     return {item:'safety',count:1,receipt:'dry_ground_reached',climbed:true,position:bot.entity.position.clone(),oxygen:bot.oxygenLevel??null}
    }
   }
   // If shore cannot be reached, keep swimming at the surface. Runner.halt()

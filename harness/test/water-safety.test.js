@@ -48,3 +48,16 @@ test('air recovery is bounded and cancels without leaving held movement controls
  const g=fixture();let calls=0;g.api.check=()=>{if(++calls===3)throw new Error('Cancelled')}
  await assert.rejects(surfaceForAir(g.bot,{},g.api,{pollMs:1,surfaceMs:100}),/Cancelled/);assert.equal(g.controls.jump,false)
 })
+
+test('a ledge the path search cannot reach from the water is climbed with forward and jump',async()=>{
+ // Trial 24: a narrow water shaft with dry rock one block above its surface.
+ // The pathfinder has no jump-up move out of water, so the air recovery found
+ // no route, trod water, and each stall retry walked the bot back under.
+ const f=fixture({shore:true})
+ f.bot.pathfinder.goto=async()=>{throw Object.assign(new Error('No path to the goal!'),{name:'NoPath'})}
+ f.bot.lookAt=async p=>{f.bot.lookTarget=p}
+ const hold=f.bot.setControlState
+ f.bot.setControlState=(k,v)=>{hold(k,v);if(k==='forward'&&v&&f.bot.lookTarget){const t=f.bot.lookTarget.floored();f.bot.entity.position=new Vec3(t.x+.5,t.y,t.z+.5);f.bot.entity.onGround=true;f.bot.entity.isInWater=false}}
+ const r=await surfaceForAir(f.bot,{},f.api,{pollMs:1,surfaceMs:100,shoreMs:50,climbMs:50})
+ assert.equal(r.receipt,'dry_ground_reached');assert.equal(f.bot.entity.onGround,true);assert.equal(f.controls.forward,false,'controls released')
+})
