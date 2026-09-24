@@ -1295,3 +1295,15 @@ test('the progress fingerprint ignores sub-block drift, so the stop rules can ac
  const moved=progressFingerprint({...base,position:{x:-725.1,y:53,z:-276.3}})
  assert.notEqual(a,moved,'but leaving the block still counts')
 })
+test('every command timeout the controller writes is one the runner accepts',async()=>{
+ // Trial 22: make_obsidian went out with timeoutMs 900000, the runner accepts at
+ // most 600000, and all five calls failed at once, so the planner fell back to
+ // composing goto and use for eighteen minutes. The planner validation and the
+ // skill were both tested; the command between them was not.
+ const {TASK_TIMEOUT_MAX_MS}=await import('../src/runner.js')
+ const source=readFileSync(new URL('../src/companion/controller.js',import.meta.url),'utf8')
+ const literals=[...source.matchAll(/timeoutMs:\s*(\d+)/g)].map(m=>Number(m[1]))
+ assert.ok(Number.isInteger(TASK_TIMEOUT_MAX_MS),'the runner exports its limit')
+ assert.ok(literals.length>20,'the scan found the command table')
+ assert.deepEqual(literals.filter(ms=>ms<1000||ms>TASK_TIMEOUT_MAX_MS),[])
+})

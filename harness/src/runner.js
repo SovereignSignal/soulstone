@@ -21,6 +21,8 @@ import {fireObservation} from './survival.js'
 import {correctToolTierMaterials} from './tool-tiers.js'
 
 const { pathfinder, goals } = pathfinding
+// The longest idle window a command may ask for; real progress slides it forward.
+export const TASK_TIMEOUT_MAX_MS = 600000
 // A skill's deadline is an idle window: real progress slides it forward, up
 // to a hard ceiling of three idle windows or thirty minutes, whichever is less.
 export const MAX_TASK_MS = 30 * 60 * 1000
@@ -200,7 +202,7 @@ export class Runner extends EventEmitter {
   }
   navigate(goal, timeoutMs = 120000) {
     goal = validateGoal(goal)
-    if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 600000) throw new Error('timeoutMs must be 1000–600000')
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > TASK_TIMEOUT_MAX_MS) throw new Error(`timeoutMs must be 1000–${TASK_TIMEOUT_MAX_MS}`)
     this.assertAvailable(); this.halt()
     this.task = { id: randomUUID(), goal, status: 'running', deadline: Date.now() + timeoutMs }
     this.persist(); this.log('task_started', { task: this.task }); this.applyGoal()
@@ -243,7 +245,7 @@ export class Runner extends EventEmitter {
   skill(kind, goal, timeoutMs = 180000) {
     if(kind==='give')goal={...goal,player:this.owner}
     goal = validateTaskGoal(kind, goal)
-    if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 600000) throw new Error('timeoutMs must be 1000–600000')
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > TASK_TIMEOUT_MAX_MS) throw new Error(`timeoutMs must be 1000–${TASK_TIMEOUT_MAX_MS}`)
     this.assertAvailable()
     const returnTo = this.task?.kind === 'follow' && this.task.status === 'running' ? this.task.goal.player : undefined
     this.halt()

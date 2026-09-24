@@ -951,7 +951,7 @@ export class Teammate extends EventEmitter {
               let command
               if(step.action==='gather'){const sites=projectFootprints(this.projects);command={action:'gather',goal:{item:step.item||'oak_log',count:step.count,...(sites.length?{protectedSites:sites}:{})},timeoutMs:180000}}
               else if(['acquire','prepare','eat','harvest','hunt'].includes(step.action))command={action:step.action,goal:{item:step.item,count:step.count},timeoutMs:600000}
-              else if(OBSIDIAN_ACTIONS.includes(step.action))command={action:'make_obsidian',goal:validateObsidianGoal({count:step.count,protectedSites:projectFootprints(this.projects)}),timeoutMs:900000}
+              else if(OBSIDIAN_ACTIONS.includes(step.action))command={action:'make_obsidian',goal:validateObsidianGoal({count:step.count,protectedSites:projectFootprints(this.projects)}),timeoutMs:600000}
               else if(step.action==='travel')command={action:'travel',goal:validateObservedTravelGoal(this.runner.bot,step.target),timeoutMs:180000}
               else if(step.action==='goto')command={action:'goto',goal:validateGotoGoal({...step.target,protectedSites:projectFootprints(this.projects)}),timeoutMs:180000}
               else if(step.action==='dig')command={action:'dig',goal:validateDigGoal({...step.target,count:step.count,protectedSites:projectFootprints(this.projects)}),timeoutMs:120000}
