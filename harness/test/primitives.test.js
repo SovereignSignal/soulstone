@@ -649,7 +649,7 @@ test('a wading walk may stand in shallow water; ordinary walks still may not', a
   // which treated all water as a wall, timed out on an unreachable goal.
   const { movementProfile } = await import('../src/primitives.js')
   const bot = fakeBot()
-  assert.equal(movementProfile(bot, { dig: true, wade: true }).surfaceWaterOnly, true)
-  assert.equal(movementProfile(bot, { dig: true }).surfaceWaterOnly, false)
+  assert.equal(movementProfile(bot, { dig: true, wade: true }).shallowWaterOnly, true)
+  assert.equal(movementProfile(bot, { dig: true }).shallowWaterOnly, false)
   assert.equal(movementProfile(bot, { dig: false }).surfaceWaterOnly, false)
 })

@@ -77,3 +77,18 @@ test('a cell beside lava costs extra to walk through, so routes keep off lava ed
  const clear=walker(p=>p.y<=63?'stone':'air').m.getNeighbors({x:0,y:64,z:0,remainingBlocks:0})
  assert.equal(clear.find(n=>n.x===1&&n.z===0&&n.y===64).cost,at(-1,0).cost,'no lava, no surcharge')
 })
+
+test('wading is shallow water over solid ground, never the surface of a deep pool',()=>{
+ // Trial 24: the fill waded into a cave pool, the surface layer of a deep pool
+ // counted as wadeable, the bot sank, and the air recovery found no shore:
+ // an hour of surfacing and walking back under.
+ const pool=p=>p.y<=60?'stone':(p.x>=4&&p.y<=63?'water':(p.y<=63&&p.x<4&&p.y===63?'water':(p.y<=62?'stone':'air')))
+ // x<4: one layer of water at y=63 over stone (shallow); x>=4: water y=61..63 (deep)
+ const bot={registry,inventory:{items:()=>[]},entity:{position:new Vec3(.5,64,.5),effects:[]},pathfinder:{bestHarvestTool:()=>null},
+  blockAt:p=>Object.assign(Block.fromStateId(registry.blocksByName[pool(p)].defaultState,0),{position:p.clone()})}
+ const wade=new DoorAwareMovements(bot,{shallowWaterOnly:true})
+ assert.equal(wade.getBlock(new Vec3(1,63,0),0,0,0).safe,true,'a foot of water over stone')
+ assert.equal(wade.getBlock(new Vec3(5,63,0),0,0,0).safe,false,'the surface of a deep pool')
+ assert.equal(wade.getBlock(new Vec3(5,62,0),0,0,0).safe,false,'under the surface')
+ assert.equal(new DoorAwareMovements(bot).getBlock(new Vec3(1,63,0),0,0,0).safe,false,'ordinary walks still avoid water')
+})

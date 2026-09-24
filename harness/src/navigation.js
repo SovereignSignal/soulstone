@@ -73,9 +73,11 @@ export function lavaBeside(bot,p){
  return null
 }
 export class DoorAwareMovements extends Movements {
- constructor(bot,{surfaceWaterOnly=false}={}){
-  super(bot);this.surfaceWaterOnly=surfaceWaterOnly;this.waterIDs=new Set([...WATER_BLOCKS].map(n=>bot.registry.blocksByName[n]?.id).filter(Number.isInteger))
-  if(!surfaceWaterOnly)for(const id of this.waterIDs)this.blocksToAvoid.add(id)
+ // shallowWaterOnly: wade water with air above and solid ground below, never a
+ // deep pool's surface, where the bot sinks (trial 24 spent an hour that way).
+ constructor(bot,{surfaceWaterOnly=false,shallowWaterOnly=false}={}){
+  super(bot);this.surfaceWaterOnly=surfaceWaterOnly||shallowWaterOnly;this.shallowWaterOnly=shallowWaterOnly;this.waterIDs=new Set([...WATER_BLOCKS].map(n=>bot.registry.blocksByName[n]?.id).filter(Number.isInteger))
+  if(!this.surfaceWaterOnly)for(const id of this.waterIDs)this.blocksToAvoid.add(id)
   this.exclusionAreasStep.push(block=>block?.position&&lavaBeside(bot,block.position)?LAVA_EDGE_COST:0)
   // Sov's limit: never step through a portal. A lit nether portal is open air to
   // the pathfinder, so any route through a frame would end in the Nether.
@@ -117,6 +119,7 @@ export class DoorAwareMovements extends Movements {
  getBlock(...args){
   const b=super.getBlock(...args)
   if(this.surfaceWaterOnly&&this.waterIDs.has(b.type)&&(!b.position||!this.bot.blockAt(b.position.offset(0,1,0))||this.waterIDs.has(this.bot.blockAt(b.position.offset(0,1,0))?.type)))return {...b,safe:false}
+  if(this.shallowWaterOnly&&this.waterIDs.has(b.type)){const floor=b.position&&this.bot.blockAt(b.position.offset(0,-1,0));if(!floor||floor.boundingBox!=='block'||this.waterIDs.has(floor.type))return {...b,safe:false}}
   return openDoorHasCenterClearance(b)?{...b,safe:!this.blocksToAvoid.has(b.type),physical:false}:b
  }
 }

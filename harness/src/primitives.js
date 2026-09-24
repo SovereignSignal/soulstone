@@ -105,7 +105,7 @@ function scaffoldIds(bot) {
 // `wade` lets the walk stand in water with air above it, as a player wades a
 // flooded tunnel; ordinary walks keep treating water as a wall.
 export function movementProfile(bot, { dig, protectedSites = [], wade = false }) {
-  const movement = new DoorAwareMovements(bot, { surfaceWaterOnly: wade })
+  const movement = new DoorAwareMovements(bot, { shallowWaterOnly: wade })
   if (dig) {
     Object.assign(movement, {
       canDig: true, allow1by1towers: true, allowParkour: false, allowSprinting: false, maxDropDown: 3,
