@@ -20,16 +20,20 @@ export function validateHarvest(goal){
 export async function harvestBerries(bot,task,{check,walk,settle,progress,stage,persist}){
  const {count}=validateHarvest(task.goal),total=()=>bot.inventory.items().filter(i=>i.name==='sweet_berries').reduce((n,i)=>n+i.count,0),id=bot.registry.blocksByName.sweet_berry_bush?.id
  if(id===undefined)throw new Error('Sweet berry bushes are unavailable in this version')
- const harvested=task.harvested??=[],rejected=task.harvestRejected??=[],visited=new Set(rejected.map(r=>new Vec3(r.position.x,r.position.y,r.position.z).toString()));let attempts=0
+ const harvested=task.harvested??=[],rejected=task.harvestRejected??=[],visited=new Set(rejected.map(r=>new Vec3(r.position.x,r.position.y,r.position.z).toString())),start=total();let attempts=0
+ // A harvest that got some berries says so: partial, not failed, like collect.
+ const partial=stoppedBecause=>({item:'sweet_berries',count:total(),requested:count,partial:true,stoppedBecause,receipt:'renewable_berry_harvest',harvested})
  while(total()<count&&attempts++<16){
   check();const source=berryObservation(bot).bushes.find(b=>b.ripe&&!visited.has(new Vec3(b.position.x,b.position.y,b.position.z).toString())),p=source?new Vec3(source.position.x,source.position.y,source.position.z):null
-  if(!p)throw new Error(`No more ripe berry bushes within 48 blocks; carrying ${total()}. Existing bushes are preserved for regrowth.`)
+  if(!p){if(total()>start)return partial('no more ripe bushes within 48 blocks');throw new Error(`No more ripe berry bushes within 48 blocks; carrying ${total()}. Existing bushes are preserved for regrowth.`)}
   visited.add(p.toString());progress(`Harvesting renewable berries: ${total()}/${count}`)
   const attempt=task.harvestAttempt={position:{x:p.x,y:p.y,z:p.z},status:'approaching',observedAge:source.age,beforeCount:total()};persist()
   // Berry bushes have no collision shape, so a collision-raycast look goal
   // can never finish. Approach by distance without stepping into the bush.
+  // Skip a bush that is not a plain walk away: a terrain watch per bush cost
+  // up to 45 seconds each, sixteen times over.
   const goal=new goals.GoalNear(p.x,p.y,p.z,2)
-  try{await walk(goal);check()}catch(error){check();attempt.status='unreachable';attempt.reason=error.message;rejected.push({position:{x:p.x,y:p.y,z:p.z},reason:error.message});persist();continue}
+  try{await walk(goal,false);check()}catch(error){check();attempt.status='unreachable';attempt.reason=error.message;rejected.push({position:{x:p.x,y:p.y,z:p.z},reason:error.message});persist();continue}
   if(bot.entity.position.distanceTo(p.offset(.5,0,.5))>3.5)throw new Error('Berry bush is outside interaction reach')
   const b=bot.blockAt(p);if(b?.name!=='sweet_berry_bush'||!(berryAge(b)>=2)){attempt.status='not_ripe';persist();continue}
   const priorDrops=new Set(Object.values(bot.entities||{}).map(e=>e.id))
@@ -51,6 +55,6 @@ export async function harvestBerries(bot,task,{check,walk,settle,progress,stage,
   attempt.status='pickup_confirmed';attempt.gained=total()-before
   harvested.push({position:{x:p.x,y:p.y,z:p.z},gained:attempt.gained,remainingAge:bot.blockAt(p).getProperties().age,dropIds:attempt.dropIds});persist()
  }
- if(total()<count)throw new Error('Bounded harvesting limit reached; inspect the food reserve')
+ if(total()<count){if(total()>start)return partial(`${rejected.length} of the bushes tried were unreachable`);throw new Error('Bounded harvesting limit reached; inspect the food reserve')}
  return {item:'sweet_berries',count:total(),receipt:'renewable_berry_harvest',harvested}
 }

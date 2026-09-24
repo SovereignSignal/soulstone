@@ -58,3 +58,29 @@ test('the berry harvest empties the hand before activating the bush',async()=>{
  await harvestBerries(bot,task,{check(){},walk:async()=>{},progress(){},stage(){},persist(){},settle:async fn=>assert.ok(fn())})
  assert.deepEqual(calls,['unequip:hand','activateBlock'],'the hand is emptied exactly once, immediately before the activation')
 })
+
+// Trial 9, 23 September: two harvests of about eight minutes each ended
+// "Bounded harvesting limit reached" while carrying berries. Each unreachable
+// bush cost a fifteen-second walk plus a thirty-second terrain watch, and a
+// harvest that got some reported getting none.
+function bushField({ reachable = true } = {}) {
+ const near=new Vec3(0,64,0),far=Array.from({length:20},(_,i)=>new Vec3(10+i,64,3)),ages=new Map([[near.toString(),3],...far.map(p=>[p.toString(),3])])
+ let stock=0;const walks=[]
+ const bot={registry:{blocksByName:{sweet_berry_bush:{id:7}}},entity:{position:new Vec3(2,64,0)},inventory:{items:()=>stock?[{name:'sweet_berries',count:stock}]:[]},
+  findBlocks:()=>[near,...far],entities:{},
+  blockAt:q=>ages.has(q.toString())?{name:'sweet_berry_bush',getProperties:()=>({age:ages.get(q.toString())})}:{name:'short_grass',boundingBox:'empty'},
+  unequip:async()=>{},activateBlock:async b=>{ages.set(near.toString(),1)},waitForTicks:async()=>{stock=2}}
+ const walk=async(goal,recover)=>{walks.push(recover);if(!(reachable&&goal.x===0))throw Object.assign(new Error('Walking attempt timed out'),{name:'Timeout'})}
+ return {bot,walks,ctx:{check(){},walk,progress(){},stage(){},persist(){},settle:async fn=>assert.ok(fn())}}
+}
+test('a harvest that got some berries before its bound says partial, not failed',async()=>{
+ const {bot,walks,ctx}=bushField(),task={goal:{item:'sweet_berries',count:6}}
+ const result=await harvestBerries(bot,task,ctx)
+ assert.equal(result.count,2);assert.equal(result.requested,6);assert.equal(result.partial,true)
+ assert.match(result.stoppedBecause,/unreachable/)
+ assert.ok(walks.length>1&&walks.every(r=>r===false),'a bush approach does not wait out a terrain watch: '+JSON.stringify(walks))
+})
+test('a harvest that got nothing still fails',async()=>{
+ const {bot,ctx}=bushField({reachable:false})
+ await assert.rejects(harvestBerries(bot,{goal:{item:'sweet_berries',count:6}},ctx),/Bounded harvesting limit reached|No more ripe/)
+})
