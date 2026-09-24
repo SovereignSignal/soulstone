@@ -1,3 +1,4 @@
+import './physics-margin.js'
 import mineflayer from 'mineflayer'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'

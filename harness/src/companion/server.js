@@ -1,3 +1,4 @@
+import '../physics-margin.js'
 import {Vec3} from 'vec3'
 import {DayRoutine} from './day-routine.js'
 import {loadSetup} from './setup.js'

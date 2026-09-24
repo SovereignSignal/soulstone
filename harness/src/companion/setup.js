@@ -1,3 +1,4 @@
+import '../physics-margin.js'
 import {readFileSync} from 'node:fs'
 import mineflayer from 'mineflayer'
 import minecraftData from 'minecraft-data'
