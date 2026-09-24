@@ -1,6 +1,7 @@
 import './physics-margin.js'
 import {setTimeout as delay} from 'node:timers/promises'
 import {PREPARE_ACTIONS} from './supplies.js'
+import {OBSIDIAN_ACTIONS} from './obsidian.js'
 import {EXPEDITION_ACTIONS} from './prospecting.js'
 import {STATION_ACTIONS} from './stations.js'
 import {DoorAwareMovements,correctDoorWaypoints,allowGroundBreaking} from './navigation.js'
@@ -189,7 +190,7 @@ export class Runner extends EventEmitter {
       this.runSkill();return
     }
     if (this.task.kind === 'follow') { this.applyFollow(); return }
-    if (['gather', 'craft','acquire','build','construct','give','eat','harvest','use','surface','douse','burrow','unburrow','hut','unhut','flee','hunt','climb','descend','sleep','travel','goto','dig','place_at','collect','attack',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(this.task.kind)) { this.runSkill(); return }
+    if (['gather', 'craft','acquire','build','construct','give','eat','harvest','use','surface','douse','burrow','unburrow','hut','unhut','flee','hunt','climb','descend','sleep','travel','goto','dig','place_at','collect','attack',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(this.task.kind)) { this.runSkill(); return }
     const g = this.task.goal
     this.bot.pathfinder.setGoal(new goals.GoalNear(g.x, g.y, g.z, 1))
     this.log('navigating', { task: this.task })
@@ -310,6 +311,7 @@ export class Runner extends EventEmitter {
       case 'follow': this.follow(command.player); break
       case 'gather': this.skill('gather', command.goal, command.timeoutMs); break
       case 'prepare': this.skill('prepare',command.goal,command.timeoutMs); break
+      case 'make_obsidian': this.skill('make_obsidian',command.goal,command.timeoutMs); break
       case 'acquire': this.skill('acquire', command.goal, command.timeoutMs); break
       case 'construct': this.skill('construct', command.goal, command.timeoutMs); break
       case 'build': this.skill('build', command.goal, command.timeoutMs); break

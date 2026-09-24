@@ -1,5 +1,6 @@
 import {harvestBerries} from './foraging.js'
-import {useHeldItem} from './use-item.js'
+import {useHeldItem,dimensionOf} from './use-item.js'
+import {makeObsidian} from './obsidian.js'
 import {fitConstructionSite} from './construction-site.js'
 import {surveyGround,candidateSites} from './site-survey.js'
 import {placeBuildingBlock} from './building-blocks.js'
@@ -311,6 +312,17 @@ export async function executeWorldSkill(bot,task,context,gather) {
  if(STATION_ACTIONS.includes(task.kind))return executeStationSkill(bot,task,{check,progress,stage,persist:context.persist,walk,settle,acquire})
  if(task.kind==='construct')return executeConstruction(bot,task,{check,progress,stage,movements,persist:context.persist,place,walk,settle,chooseSite:(point,blueprint)=>fitConstructionSite(bot,blueprint,point,task.goal.protectedSites||[],task.goal.constructionLimits||{})})
  if(task.kind==='prepare')return prepareTools(bot,task.goal,{acquire,settle,check,progress})
+ if(task.kind==='make_obsidian'){
+  // The bucket fills only from a source cell, and `use` owns the aim and the receipt.
+  const fill=async()=>{
+   const id=bot.registry.blocksByName.water.id,here=bot.entity.position
+   const source=(bot.findBlocks({matching:id,maxDistance:32,count:64})||[]).filter(p=>String(bot.blockAt(p)?.getProperties?.()?.level??'')==='0'&&['air','cave_air'].includes(bot.blockAt(p.offset(0,1,0))?.name)).sort((a,b)=>a.distanceTo(here)-b.distanceTo(here))[0]
+   if(!source)throw new Error('No open water source within 32 blocks to fill the bucket from')
+   progress(`Filling the bucket at ${key(source)}`)
+   await useHeldItem(bot,{goal:{item:'bucket',count:1,expect:'',target:{x:source.x,y:source.y,z:source.z,how:'point',dimension:dimensionOf(bot)||'overworld'}}},{check,stage,persist:context.persist,walk,settle,approach:approachPlacement})
+  }
+  return makeObsidian(bot,task,{check,progress,stage,walk,settle,count,persist:context.persist,fill,mine:(name,total)=>mineExposed(name,total,[task.kind])})
+ }
  if(task.kind==='acquire'){await acquire(task.goal.item,task.goal.count);return {item:task.goal.item,count:count(task.goal.item)}}
  const design=validateDesign(task.goal.design)
  const layout=task.goal.purpose==='shelter'?shelterLayout(design):null

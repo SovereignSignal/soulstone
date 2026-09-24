@@ -8,6 +8,7 @@ import {validateFleeGoal} from './flee.js'
 import {validateHuntGoal} from './hunt.js'
 import {compileArchitecture,projectName,architectureChanges} from './construction.js'
 import {PREPARE_ACTIONS,toolName} from './supplies.js'
+import {validateObsidianGoal} from './obsidian.js'
 import {EXPEDITION_ACTIONS,ORE_SOURCES} from './prospecting.js'
 import {STATIONS,STATION_ACTIONS,SMELTING} from './stations.js'
 import {validateDesign} from './world-skills.js'
@@ -70,6 +71,7 @@ export function validateTaskGoal(kind, goal) {
     for(const site of goal.protectedSites)if(!site||!['minX','maxX','minZ','maxZ'].every(k=>Number.isInteger(site[k])&&Math.abs(site[k])<=29999900)||site.minX>site.maxX||site.minZ>site.maxZ)throw new Error('Invalid protected construction rectangle')
   }
   if(kind==='construct'){if(goal?.previousDesign){if(!goal.origin)throw new Error('Revision requires its saved origin');architectureChanges(goal.previousDesign,goal.design)}if(!projectName(goal?.name))throw new Error('Invalid construction project name');return {name:goal.name,design:compileArchitecture(goal.design).design,...(goal.previousDesign?{previousDesign:compileArchitecture(goal.previousDesign).design}:{}),near:validateGoal(goal.near),...(goal.protectedSites?{protectedSites:structuredClone(goal.protectedSites)}:{}),...(goal.constructionLimits?{constructionLimits:structuredClone(goal.constructionLimits)}:{}),...(goal.origin?{origin:validateGoal(goal.origin)}:{})}}
+  if(kind==='make_obsidian')return validateObsidianGoal(goal)
   if(kind==='prepare'&&toolName(goal?.item)&&Number.isInteger(goal.count)&&goal.count>=1&&goal.count<=4)return {item:goal.item,count:goal.count}
   if(kind==='give'&&/^[a-z0-9_]{1,64}$/.test(goal?.item||'')&&Number.isInteger(goal.count)&&goal.count>0&&goal.count<=64&&/^[A-Za-z0-9_]{1,16}$/.test(goal.player||''))return {item:goal.item,count:goal.count,player:goal.player}
   if (kind === 'acquire' && /^[a-z0-9_]{1,64}$/.test(goal?.item||'') && Number.isInteger(goal.count) && goal.count>0 && goal.count<=128)return {item:goal.item,count:goal.count}

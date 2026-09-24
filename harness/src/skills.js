@@ -14,6 +14,7 @@ import {huntFor} from './hunt.js'
 import {defendAgainstMob} from './combat.js'
 import {EXPEDITION_ACTIONS} from './prospecting.js'
 import {PREPARE_ACTIONS} from './supplies.js'
+import {OBSIDIAN_ACTIONS} from './obsidian.js'
 import {STATION_ACTIONS} from './stations.js'
 import {executeWorldSkill} from './world-skills.js'
 import {deliverItem} from './delivery.js'
@@ -215,7 +216,7 @@ export async function executeSkill(bot, task, context) {
       await craftOne('oak_planks')
     }
   }
-  if (['harvest','use','acquire','build','construct',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(task.kind))return executeWorldSkill(bot,task,context,gather)
+  if (['harvest','use','acquire','build','construct',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(task.kind))return executeWorldSkill(bot,task,context,gather)
   if (task.kind === 'gather') {
     await gather(task.goal.count, task.goal.item)
     return { item: task.goal.item, count: resourceNames(task.goal.item).reduce((n, name) => n + countItem(bot, name), 0) }

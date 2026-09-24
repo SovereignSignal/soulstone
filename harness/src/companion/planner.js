@@ -9,6 +9,7 @@ import {contractSchema,validateContract} from './goal-contract.js'
 import {reflectionSchema} from './experience.js'
 import {compileArchitecture,projectName,validateArchitecturePatch} from '../construction.js'
 import {PREPARE_ACTIONS,toolName} from '../supplies.js'
+import {OBSIDIAN_ACTIONS,validateObsidianGoal} from '../obsidian.js'
 import {EXPEDITION_ACTIONS,ORE_SOURCES} from '../prospecting.js'
 import {STATIONS,STATION_ACTIONS,SMELTING} from '../stations.js'
 import {validateDesign} from '../world-skills.js'
@@ -23,14 +24,14 @@ const SKILL_INSTRUCTIONS='The steps in this response are INDEPENDENT alternative
 
 export const schema = { type: 'object', additionalProperties: false, required: ['reply', 'steps'], properties: {
   reply: { type: 'string' }, steps: { type: 'array', maxItems: 8, items: { type: 'object', additionalProperties: false,
-    required: ['action', 'name', 'count', 'item','design','target'], properties: { action: { type: 'string', enum: ['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest','hunt','sleep','descend','climb','travel','goto','dig','place_at','collect','attack','use',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS] },
+    required: ['action', 'name', 'count', 'item','design','target'], properties: { action: { type: 'string', enum: ['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest','hunt','sleep','descend','climb','travel','goto','dig','place_at','collect','attack','use',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS] },
       target:{anyOf:[{type:'null'},{type:'object',additionalProperties:false,required:['x','y','z'],properties:{x:{type:'integer'},y:{type:'integer'},z:{type:'integer'}}},{type:'object',additionalProperties:false,required:['x','y','z','dig'],properties:{x:{type:'integer'},y:{type:'integer'},z:{type:'integer'},dig:{type:'boolean'}}},{type:'object',additionalProperties:false,required:['x','y','z','how','dimension'],properties:{x:{type:'integer'},y:{type:'integer'},z:{type:'integer'},how:{type:'string',enum:['click','point']},dimension:{type:'string',enum:['overworld','the_nether','the_end']}}}]},
       name: { type: 'string' }, count: { type: 'integer' }, item: { type: 'string' }, design:{type:'array',items:{type:'object',additionalProperties:false,required:['x','y','z','x2','y2','z2','block'],properties:{x:{type:'integer'},y:{type:'integer'},z:{type:'integer'},x2:{type:'integer'},y2:{type:'integer'},z2:{type:'integer'},block:{type:'string'}}}} } } }
 } }
 export function validatePlan(value) {
   if (!value || typeof value.reply !== 'string' || value.reply.length > 1000 || !Array.isArray(value.steps) || value.steps.length > 8) throw new Error('Model returned an invalid plan')
   const steps = value.steps.flatMap((s, i) => {
-    if (!s || !['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest','hunt','sleep','descend','climb','travel','goto','dig','place_at','collect','attack','use',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action)) throw new Error('Unsupported model action')
+    if (!s || !['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest','hunt','sleep','descend','climb','travel','goto','dig','place_at','collect','attack','use',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action)) throw new Error('Unsupported model action')
     if(['descend','climb','travel','goto'].includes(s.action)&&(s.count!==0||s.name!==''||(s.item??'')!==''||s.design!==undefined&&(!Array.isArray(s.design)||s.design.length)))throw new Error('Terrain recovery requires empty name, item, design and count zero')
     if(s.action==='travel'&&(!s.target||Object.keys(s.target).length!==3||!['x','y','z'].every(k=>Number.isSafeInteger(s.target[k]))))throw new Error('Travel needs a target with integer x, y and z')
     if(s.action==='goto')validateGotoStep(s)
@@ -42,6 +43,7 @@ export function validatePlan(value) {
     if(s.action==='use')validateUseStep(s)
     if(s.action==='inspect'&&s.item)inspectBlockNames(s.item)
     if(s.action==='harvest')validateHarvest(s)
+    if(s.action==='make_obsidian'){if(s.name!==''||(s.item??'')!=='')throw new Error('make_obsidian takes empty name and item; count is the total to carry');validateObsidianGoal({count:s.count})}
     if(s.action==='hunt')validateHuntGoal(s)
     if(s.action==='eat')validateEatGoal(s)
     if(s.action==='revise'){if(!projectName(s.name))throw new Error('Invalid revision project name');validateArchitecturePatch(s.design)}
