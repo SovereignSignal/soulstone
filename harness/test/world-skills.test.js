@@ -241,3 +241,28 @@ test('a build failure names the first thing that went wrong, not the top layer d
  await assert.rejects(executeWorldSkill(bot,task,{check(){},stage(){},progress(){},persist(){},movements:{}}),
   e=>{assert.match(e.message,/obstructed by stone/,`the first failure of the pass, got: ${e.message}`);return true})
 })
+
+test('flint is mined from gravel, keeping every gravel drop until the flint arrives',async()=>{
+ // The portal rung needs flint and steel. Flint had no mining source, so
+ // acquire flint failed, and gravel drops flint only about one time in ten:
+ // requiring flint from each dig would have failed on the first gravel.
+ const {default:minecraftData}=await import('minecraft-data'),{default:blockLoader}=await import('prismarine-block')
+ const registry=minecraftData('1.21.4'),Block=blockLoader(registry)
+ const world=new Map([['3,64,0','gravel'],['-3,64,0','gravel'],['0,64,3','gravel'],['0,66,0','gravel']])
+ const name=p=>world.get(`${p.x},${p.y},${p.z}`)??(p.y<64?'stone':'air')
+ const inventory=new Map(),count=n=>inventory.get(n)||0
+ let digs=0,target=null
+ const bot={registry,_client:new EventEmitter(),entity:{position:new Vec3(0.5,64,0.5),onGround:true},
+  inventory:{items:()=>[...inventory].filter(([,c])=>c>0).map(([n,c])=>({name:n,count:c,type:registry.itemsByName[n].id}))},
+  blockAt(p){const f=p.floored(),b=Block.fromStateId(registry.blocksByName[name(f)].defaultState,0);b.position=f;return b},
+  findBlocks({matching,useExtraInfo}){return [...world].filter(([,n])=>[matching].flat().includes(registry.blocksByName[n].id)).map(([k])=>new Vec3(...k.split(',').map(Number))).filter(p=>!useExtraInfo||useExtraInfo(bot.blockAt(p)))},
+  findBlock:()=>null,world:{raycast:()=>target&&{position:target}},clearControlStates(){},entities:{},
+  pathfinder:{setMovements(){},setGoal(){},async goto(goal){const near=(goal.goals||[goal]).find(g=>g.rangeSq!==undefined);if(near){target=new Vec3(near.x,near.y,near.z);bot.entity.position=new Vec3(near.x+1.5,64,near.z+0.5)}}},
+  tool:{async equipForBlock(){}},
+  async dig(block){digs++;world.delete(`${block.position.x},${block.position.y},${block.position.z}`);const drop=digs%3===0?'flint':'gravel';inventory.set(drop,count(drop)+1)},
+  recipesAll:()=>[],recipesFor:()=>[]}
+ Object.setPrototypeOf(bot,new EventEmitter())
+ const result=await executeWorldSkill(bot,{kind:'acquire',goal:{item:'flint',count:1}},{check(){},stage(){},persist(){},progress(){},movements:{}},()=>{throw new Error('must not gather logs')})
+ assert.equal(result.item,'flint');assert.equal(count('flint'),1);assert.equal(count('gravel'),2,'the gravel it dug on the way is kept')
+ assert.ok(world.has('0,66,0'),'gravel straight above its own column is never dug: it would fall on its head')
+})

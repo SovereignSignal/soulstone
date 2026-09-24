@@ -22,6 +22,7 @@ import {walkWithTerrainRecovery} from './route-recovery.js'
 import {travelTo} from './travel.js'
 const {goals}=pathfinding
 const key=p=>`${p.x},${p.y},${p.z}`
+const FALLING=/^(gravel|sand|red_sand|suspicious_sand|suspicious_gravel)$|_concrete_powder$/
 export function validateDesign(design) {
  if(!Array.isArray(design)||!design.length||design.length>128)throw new Error('A design needs 1–128 blocks')
  const seen=new Set()
@@ -209,7 +210,7 @@ export async function executeWorldSkill(bot,task,context,gather) {
   if(!pos)throw new Error('No clear place for a crafting table within three blocks')
   await place(pos,'crafting_table');return bot.blockAt(pos)
  }
- const sources={cobblestone:['stone'],cobbled_deepslate:['deepslate'],coal:['coal_ore','deepslate_coal_ore'],raw_iron:['iron_ore','deepslate_iron_ore'],raw_copper:['copper_ore','deepslate_copper_ore'],diamond:['diamond_ore','deepslate_diamond_ore']}
+ const sources={flint:['gravel'],cobblestone:['stone'],cobbled_deepslate:['deepslate'],coal:['coal_ore','deepslate_coal_ore'],raw_iron:['iron_ore','deepslate_iron_ore'],raw_copper:['copper_ore','deepslate_copper_ore'],diamond:['diamond_ore','deepslate_diamond_ore']}
  async function mine(name,total,path) {
   try{await mineExposed(name,total,path)}
   catch(error){
@@ -251,19 +252,25 @@ export async function executeWorldSkill(bot,task,context,gather) {
    progress(`Mining ${name}: ${count(name)}/${total}`)
    await walk(new goals.GoalCompositeAll([new goals.GoalLookAtBlock(block.position,bot.world),new goals.GoalNear(block.position.x,block.position.y,block.position.z,1.5)]))
    if(supportsPlayer(block.position,bot.entity.position)){skipped.add(key(block.position));continue}
-   const before=count(name)
+   // Gravel and sand straight above the bot's own column fall onto its head.
+   {const feet=bot.entity.position.floored(),p=block.position
+    if(FALLING.test(block.name)&&p.x===feet.x&&p.z===feet.z&&p.y>feet.y){skipped.add(key(p));continue}}
+   // A source that can drop itself (gravel gives flint about one time in ten)
+   // counts that drop as a dig done; the loop keeps going until the item arrives.
+   const before=count(name),own=block.name!==name&&bot.registry.itemsByName[block.name]?block.name:null,ownBefore=own?count(own):0
+   const collected=()=>count(name)>before||!!own&&count(own)>ownBefore
    check();await bot.tool.equipForBlock(block,{requireHarvest:true,getFromChest:false});check();stage('gathering');await bot.dig(block);check()
    await delay(500);check()
-   if(count(name)<=before){
+   if(!collected()){
     // Drops can land on the far side or below the mined cell. Freeze a nearby
     // matching drop's position, then enter that cell instead of stopping one
     // block away. Never chase an entity after it disappears.
-    const drop=Object.values(bot.entities||{}).filter(e=>e.getDroppedItem?.()?.name===name&&e.position.distanceTo(block.position)<3).sort((a,b)=>a.position.distanceTo(block.position)-b.position.distanceTo(block.position))[0]
+    const drop=Object.values(bot.entities||{}).filter(e=>[name,own].includes(e.getDroppedItem?.()?.name)&&e.position.distanceTo(block.position)<3).sort((a,b)=>a.position.distanceTo(block.position)-b.position.distanceTo(block.position))[0]
     const pickup=(drop?.position||block.position).floored()
     try{await walk(new goals.GoalNear(pickup.x,pickup.y,pickup.z,0.5))}
-    catch(error){check();if(count(name)<=before)throw error}
+    catch(error){check();if(!collected())throw error}
    }
-   await settle(()=>count(name)>before,`Mined ${name} but pickup was not confirmed`)
+   await settle(collected,`Mined ${name} but pickup was not confirmed`)
   }
  }
  const visibleSources=new Set(nearbyResources(bot,[...LOG_ITEMS,...Object.values(sources).flat()],{maxDistance:48,countPerKind:1}).map(b=>b.name))
