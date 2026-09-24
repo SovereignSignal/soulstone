@@ -76,15 +76,18 @@ def follow(log, out_path):
             if not line:
                 time.sleep(1)
                 continue
-            if '"task_finished"' not in line or 'client solid cells' not in line:
+            if 'client solid cells' not in line:
                 continue
             row = json.loads(line)
-            parsed = parse(row.get('task', {}).get('reason'))
+            # A task refusal carries it in task.reason; gather's skipped logs in a progress message.
+            text = row.get('task', {}).get('reason') if row.get('type') == 'task_finished' else row.get('message')
+            parsed = parse(text)
             if not parsed:
                 continue
             diff = compare(*parsed)
+            kind = row['task'].get('kind') if row.get('type') == 'task_finished' else 'gather-walk'
             with open(out_path, 'a') as o:
-                o.write(json.dumps({'at': row['at'], 'kind': row['task'].get('kind'), 'target': parsed[1], 'disagreements': diff}) + '\n')
+                o.write(json.dumps({'at': row['at'], 'kind': kind, 'target': parsed[1], 'disagreements': diff}) + '\n')
 
 
 if __name__ == '__main__':

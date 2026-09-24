@@ -100,6 +100,27 @@ test('a forest of unreachable logs sends the bot past them, not back to them eig
  assert.ok(walked.length>0&&walked.length<8,'it walked away from the unreachable cluster: '+JSON.stringify(walked))
 })
 
+test('a log the bot cannot reach says what the pathfinder and the server were doing',async()=>{
+ // Trial 11: 36 minutes in five failed gathers, each about 36 "Cannot reach
+ // that log" of fifteen seconds. gather has its own walk, so the stuck-leg
+ // report never covered the stage that cost the most.
+ const messages=[],handlers={}
+ let inventory=[]
+ const near=new Vec3(3,64,0),other=new Vec3(-3,64,0)
+ const bot={registry:{blocksByName:{spruce_log:{id:1}}},inventory:{items:()=>inventory},entity:{position:new Vec3(0,64,0),onGround:false,velocity:new Vec3(0,0,0)},
+  on:(e,f)=>{(handlers[e]||=[]).push(f)},off:(e,f)=>{handlers[e]=(handlers[e]||[]).filter(g=>g!==f)},
+  findBlocks:()=>[near,other],blockAt:p=>({position:p,name:p.equals(near)||p.equals(other)?'spruce_log':p.y<64?'grass_block':'air',boundingBox:p.y<64||p.equals(near)||p.equals(other)?'block':'empty'}),
+  canDigBlock:b=>b.position.equals(other),tool:{async equipForBlock(){}},dig:async()=>{inventory=[{name:'spruce_log',count:1}]},
+  pathfinder:{setGoal(){},setMovements(){},async goto(goal){
+   if(goal.pos?.equals?.(near)){for(let i=0;i<3;i++)(handlers.forcedMove||[]).forEach(f=>f());throw Object.assign(new Error('No path to the goal!'),{name:'NoPath'})}
+  }}}
+ const result=await executeSkill(bot,{kind:'gather',goal:{item:'logs',count:1}},{check(){},progress:m=>messages.push(m),stage(){},movements:{},gatheringMovements:{}})
+ assert.equal(result.count,1)
+ const line=messages.find(m=>/Cannot reach that log/.test(m))
+ assert.ok(line,messages.join(' | '))
+ assert.match(line,/server corrections 3/)
+})
+
 test('a bot that cannot walk stops exploring and says so, instead of blaming the world',async()=>{
  // Eight legs against a wall cost seconds and zero displacement, then reported
  // "no logs within 48 blocks ... move me near trees" while a trunk stood 91

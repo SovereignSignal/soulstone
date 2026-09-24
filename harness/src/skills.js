@@ -7,7 +7,7 @@ import {descendFromCanopy} from './canopy.js'
 import {climbSkill} from './route-recovery.js'
 import {sleepThroughNight} from './sleep.js'
 import {travelTo} from './travel.js'
-import {gotoPosition,digToward} from './primitives.js'
+import {gotoPosition,digToward,watchPathfinder} from './primitives.js'
 import {placeAt,collectDrops,attackEntity} from './primitives-world.js'
 import {huntFor} from './hunt.js'
 import {defendAgainstMob} from './combat.js'
@@ -67,14 +67,17 @@ export async function executeSkill(bot, task, context) {
     let stalled = 0, legs = 0
     const skipped = new Set(), skippedColumns = new Set()
     const scan = (maxDistance, limit) => gatherCandidates(bot,bot.findBlocks({ matching: ids, maxDistance, count: limit }),{skipped,skippedColumns})
+    // A failed walk carries the pathfinder's and the server's account of it,
+    // under the same error name the gather loop branches on.
     async function walk(goal, ms = 15000) {
       check()
       let timedOut = false
-      const timer = setTimeout(() => { timedOut = true; bot.pathfinder.setGoal(null) }, ms)
+      const timer = setTimeout(() => { timedOut = true; bot.pathfinder.setGoal(null) }, ms), watch = watchPathfinder(bot)
       try { await bot.pathfinder.goto(goal) } catch (error) {
-        if (timedOut) throw Object.assign(new Error('Movement timed out'), {name:'Timeout'})
+        if (timedOut) throw Object.assign(new Error('Movement timed out.' + watch.summary()), {name:'Timeout'})
+        if (['NoPath', 'Timeout'].includes(error.name)) throw Object.assign(new Error(`${error.message}${watch.summary()}`), {name:error.name})
         throw error
-      } finally { clearTimeout(timer) }
+      } finally { clearTimeout(timer); watch.stop() }
       check()
     }
     // A fresh spawn can have no trunk within the 48-block collection radius.
@@ -163,7 +166,7 @@ export async function executeSkill(bot, task, context) {
       await delay(200); check()
       if (pathError && total() <= before) {
         skipped.add(block.position.toString()); skippedColumns.add(`${block.position.x},${block.position.z}`)
-        progress(`Cannot reach that log; trying another tree (${total()}/${count})`)
+        progress(`Cannot reach that log; trying another tree (${total()}/${count}): ${pathError.message}`)
       }
       if (total() <= before) {
         skipped.add(block.position.toString()); skippedColumns.add(`${block.position.x},${block.position.z}`)

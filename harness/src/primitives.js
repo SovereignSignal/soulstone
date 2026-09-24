@@ -174,7 +174,7 @@ function subscribeDigPlace(bot) {
 
 // A stuck leg is silent for its whole budget, but the pathfinder narrates it in
 // its own events: what it last planned, and why it threw paths away.
-function watchPathfinder(bot) {
+export function watchPathfinder(bot) {
   let plans = 0, last = null, ticks = 0, corrections = 0, moved = 0, tickAt = null, correctedTo = null
   const resets = new Map()
   const onUpdate = r => { plans++; last = r }
