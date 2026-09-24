@@ -582,6 +582,28 @@ test('water recovery preempts failed shelter logic and never waits for a model o
  await c.seekSafety(WATER_EMERGENCY)
  assert.deepEqual(calls,['surface']);assert.equal(c.requestProgress.status,'interrupted');assert.equal(c.requestProgress.feedback.at(-1).result.receipt,'dry_ground_reached');assert.equal(c.safety,null)
 })
+test('fire recovery preempts a shelter attempt, runs only the douse, then continues the request',async()=>{
+ // Trial 21 died burning while the chain tried retreat, burrow, hut and descend
+ // four times over: every one an answer to mobs, and walling in beside lava is refused.
+ const {FIRE_EMERGENCY}=await import('../src/survival.js')
+ const [r,c]=setup(async()=>{throw new Error('No model call for fire recovery')});r.bot.setControlState=()=>{}
+ c.safety={status:'retreating',reason:'Health is at or below half'};c.requestProgress={id:'obsidian',request:'get 10 obsidian',status:'running'}
+ c.lastDamageAt=Date.now();let resumed=false;c.resume=async()=>{resumed=true}
+ const calls=[];c.execute=async command=>{calls.push(command.action);r.task={result:{receipt:'extinguished',method:'poured_water'}}}
+ await c.seekSafety(FIRE_EMERGENCY)
+ assert.deepEqual(calls,['douse']);assert.equal(c.safety,null)
+ assert.equal(c.requestProgress.feedback.find(f=>f.action==='douse').result.method,'poured_water')
+ assert.equal(c.lastDamageAt,null,'the damage came from the fire just put out, so it no longer reads as an attack')
+ assert.equal(resumed,true)
+})
+test('a douse that fails leaves safety failed for the bounded retry, not in a shelter',async()=>{
+ const {FIRE_EMERGENCY}=await import('../src/survival.js')
+ const [r,c]=setup(async()=>{throw new Error('No model call')});r.bot.setControlState=()=>{}
+ c.requestProgress={id:'obsidian',request:'get 10 obsidian',status:'running'}
+ const calls=[];c.execute=async command=>{calls.push(command.action);throw new Error('Still burning after 15 s')}
+ await c.seekSafety(FIRE_EMERGENCY)
+ assert.deepEqual(calls,['douse']);assert.equal(c.safety.status,'failed');assert.match(c.safety.error,/Still burning/)
+})
 test('observed dry ground clears a stale water alarm without resuming mining',async()=>{
  const {WATER_EMERGENCY}=await import('../src/survival.js'),{Vec3}=await import('vec3')
  const [r,c]=setup(async()=>{throw new Error('No model call')});r.bot.entity={position:new Vec3(0,64,0),onGround:true,isInWater:false};r.bot.blockAt=()=>({name:'air'});r.bot.health=20;r.bot.oxygenLevel=0;r.bot.clearControlStates=()=>{}

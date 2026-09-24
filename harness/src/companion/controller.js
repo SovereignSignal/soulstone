@@ -19,7 +19,10 @@ import {setTimeout as delay} from 'node:timers/promises'
 const BURROW_WATCHES=4
 const SAFETY_RETRIES=3
 const NIGHT_HOLD_MS=14*60*1000
-import {survivalObservation,emergencyReason,WATER_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY} from '../survival.js'
+import {survivalObservation,emergencyReason,WATER_EMERGENCY,FIRE_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY} from '../survival.js'
+// Air and fire run their own recovery at once and preempt any shelter attempt:
+// each has a clock no shelter stops.
+const URGENT=new Set([WATER_EMERGENCY,FIRE_EMERGENCY])
 import {burrowClearance} from '../burrow.js'
 import {inspectEmergencyShelter} from '../shelter-occupants.js'
 import {defenseDecision,combatClearance,DEFENDABLE_MOBS,meleeWeapon} from '../combat.js'
@@ -125,7 +128,7 @@ export class Teammate extends EventEmitter {
           (reason!==this.unsafeSignature.reason||this.safetyBlockKey()!==this.unsafeSignature.key)){
           this.safety=null;this.threatHold=null
         }
-        if(reason&&(!this.safety||reason===WATER_EMERGENCY&&this.safety.reason!==WATER_EMERGENCY&&this.safety.status!=='cancelled')){
+        if(reason&&(!this.safety||URGENT.has(reason)&&this.safety.reason!==reason&&this.safety.status!=='cancelled')){
           // Control mode: whether a hostile in radius stops work is Jev's call,
           // above the floors; a judged continue holds for a few seconds so the
           // next tick does not ask again about the same mob.
@@ -261,18 +264,18 @@ export class Teammate extends EventEmitter {
     return {contextMode:this.threatContextMode,evidence:this.threatContextMode==='legacy'?null:recoveryContext(this,bot),weapon:meleeWeapon(bot)?.name||null,armour:wornArmour(bot),tools:items.filter(i=>/_(pickaxe|axe|shovel|sword|hoe)$/.test(i.name)).map(i=>i.name),inventory:items.reduce((m,i)=>({...m,[i.name]:(m[i.name]||0)+i.count}),{}),sheltered,shelterAvailable,baseDistance}
   }
   async seekSafety(reason,{retries=0,resumeInterrupted=false}={}) {
-    if(this.safety&&(reason!==WATER_EMERGENCY||this.safety.reason===WATER_EMERGENCY||this.safety.status==='cancelled'))return
+    if(this.safety&&(!URGENT.has(reason)||this.safety.reason===reason||this.safety.status==='cancelled'))return
     // A recovery that already failed, with nothing changed that could make it
     // succeed, must not run again: it produces the same messages and no safety,
     // and it preempts every instruction the operator types in the meantime.
-    if(reason!==WATER_EMERGENCY&&this.unsafeSignature?.reason===reason&&this.unsafeSignature.key===this.safetyBlockKey())return
+    if(!URGENT.has(reason)&&this.unsafeSignature?.reason===reason&&this.unsafeSignature.key===this.safetyBlockKey())return
     const interruptedActiveRequest=this.requestProgress?.status==='running'||resumeInterrupted&&canResume(this.requestProgress)
     const previousFollow=this.runner.task?.kind==='follow'&&this.runner.task.status==='running'?this.runner.task.goal.player:null
     this.interrupt('Safety interruption: '+reason)
     const epoch=this.epoch,abort=this.abort=new AbortController()
     this.unsafeSignature=null
     this.safety={status:'retreating',reason,startedAt:new Date().toISOString(),retries,resumeRequestId:interruptedActiveRequest?this.requestProgress?.id:null};this.phase='retreating'
-    this.say(reason+'. '+(reason===WATER_EMERGENCY?'I am stopping work and swimming up for air.':reason===THREAT_INTERRUPTION?'I am pausing work and assessing self-defense.':'I am pausing work and looking for a verified lit shelter.'))
+    this.say(reason+'. '+(reason===WATER_EMERGENCY?'I am stopping work and swimming up for air.':reason===FIRE_EMERGENCY?'I am stopping work to put the fire out.':reason===THREAT_INTERRUPTION?'I am pausing work and assessing self-defense.':'I am pausing work and looking for a verified lit shelter.'))
     try{
       this.dispatch({action:'stop'})
       if(reason===WATER_EMERGENCY)this.runner.bot?.setControlState('jump',true)
@@ -288,6 +291,22 @@ export class Teammate extends EventEmitter {
         if(this.requestProgress)(this.requestProgress.feedback??=[]).push({action:'surface',status:'completed',result:structuredClone(this.safety.water),automatic:true})
         if(dry)this.safety=null
         this.say(dry?'I reached dry ground and can breathe. The previous request is paused.':'I can breathe at the surface, but did not reach shore. I am staying afloat; the previous request is paused.')
+        return
+      }
+      if(reason===FIRE_EMERGENCY){
+        await this.execute({action:'douse',goal:{},timeoutMs:30000},abort.signal)
+        if(epoch!==this.epoch||abort.signal.aborted)return
+        const result=this.safety.fire=structuredClone(this.runner.task.result),request=this.requestProgress,how=String(result?.method||'put out').replaceAll('_',' ')
+        if(request)(request.feedback??=[]).push({action:'douse',status:'completed',result,automatic:true})
+        // The damage that raised the alarm was the fire just put out. Left in place
+        // it reads as an attack for four more seconds and sends a hurt bot to shelter.
+        this.lastDamageAt=null
+        this.safety=null;this.activity='';this.phase=canResume(request)?'blocked':'ready';this.persist()
+        if(interruptedActiveRequest&&canResume(request)&&canContinueAfterSafety(request)){
+          ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:this.runner.connectionId,shelter:'doused',resumeSerial:request.resumeSerial||0,completedAt:request.completed?.length||0});this.persist()
+          this.say(`The fire is out (${how}). Continuing your saved request.`)
+          await this.resume({automatic:true})
+        }else this.say(`The fire is out (${how}). `+(canResume(request)?'Resume is available if the saved request can safely continue.':'Ready for your next instruction.'))
         return
       }
       const deadline=Date.now()+20000
