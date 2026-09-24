@@ -175,7 +175,8 @@ function subscribeDigPlace(bot) {
 // A stuck leg is silent for its whole budget, but the pathfinder narrates it in
 // its own events: what it last planned, and why it threw paths away.
 export function watchPathfinder(bot) {
-  let plans = 0, last = null, ticks = 0, corrections = 0, moved = 0, tickAt = null, correctedTo = null
+  let plans = 0, last = null, ticks = 0, corrections = 0, moved = 0, tickAt = null, correctedTo = null, packets = 0, relative = 0
+  const ids = new Set()
   const resets = new Map()
   const onUpdate = r => { plans++; last = r }
   const onReset = reason => resets.set(reason, (resets.get(reason) || 0) + 1)
@@ -190,12 +191,22 @@ export function watchPathfinder(bot) {
     if (p && tickAt) moved += tickAt.distanceTo(p)
     correctedTo = p?.clone?.() ?? null
   }
+  // The raw packets behind each correction: rising ids are new teleports, one
+  // repeated id is a confirmation that never lands, relative flags are a rewrite.
+  const onPacket = packet => {
+    packets++; ids.add(packet?.teleportId)
+    const f = packet?.flags
+    if (typeof f === 'object' ? f?.x || f?.y || f?.z : f & 7) relative++
+  }
   bot.on?.('path_update', onUpdate); bot.on?.('path_reset', onReset); bot.on?.('physicsTick', onTick); bot.on?.('forcedMove', onForced)
+  bot._client?.on?.('position', onPacket)
   const body = () => {
     const e = bot.entity, v = e?.velocity, r = n => Math.round(n * 100) / 100
     const under = e?.position && bot.blockAt?.(e.position.offset(0, -1, 0))?.name
+    const known = [...ids].filter(Number.isFinite)
+    const raw = packets ? `; position packets ${packets}, teleport ids ${known.length ? `${Math.min(...known)}-${Math.max(...known)}` : 'unknown'} (${ids.size} distinct), ${relative} relative` : ''
     const shift = corrections && correctedTo ? `; corrections moved it ${r(moved / corrections)} on average, last to ${[correctedTo.x, correctedTo.y, correctedTo.z].map(r).join(',')}` : ''
-    return ` Body: physics ticks ${ticks}; server corrections ${corrections}${shift}; onGround ${e?.onGround}, velocity ${v ? [v.x, v.y, v.z].map(r).join(',') : 'unknown'}, underfoot ${under ?? 'unknown'}.${corrections ? clientCells() : ''}`
+    return ` Body: physics ticks ${ticks}; server corrections ${corrections}${raw}${shift}; onGround ${e?.onGround}, velocity ${v ? [v.x, v.y, v.z].map(r).join(',') : 'unknown'}, underfoot ${under ?? 'unknown'}.${corrections ? clientCells() : ''}`
   }
   // The solid cells the client believes touch or neighbour the body, nearest
   // first, so each can be checked against the server.
@@ -210,10 +221,10 @@ export function watchPathfinder(bot) {
           if (b?.boundingBox === 'block') cells.push({ x, y, z, name: b.name, d: Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y, z + 0.5 - p.z) })
         }
     cells.sort((a, b) => a.d - b.d)
-    return cells.length ? ` client solid cells: ${cells.slice(0, 24).map(c => `${c.x},${c.y},${c.z} ${c.name}`).join('; ')}.` : ''
+    return cells.length ? ` client solid cells: ${cells.slice(0, 48).map(c => `${c.x},${c.y},${c.z} ${c.name}`).join('; ')}.` : ''
   }
   return {
-    stop() { bot.off?.('path_update', onUpdate); bot.off?.('path_reset', onReset); bot.off?.('physicsTick', onTick); bot.off?.('forcedMove', onForced) },
+    stop() { bot.off?.('path_update', onUpdate); bot.off?.('path_reset', onReset); bot.off?.('physicsTick', onTick); bot.off?.('forcedMove', onForced); bot._client?.off?.('position', onPacket) },
     summary() {
       if (!plans && !resets.size) return ' The pathfinder produced no plan in that time.' + body()
       const path = last?.path || [], sum = k => path.reduce((n, step) => n + (step[k]?.length || 0), 0)

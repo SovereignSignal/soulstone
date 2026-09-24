@@ -474,6 +474,26 @@ test('a stuck leg reports how far each correction moved the bot and the solid ce
   assert.match(message, /client solid cells: 0,63,0 grass_block; .*1,65,0 spruce_leaves/)
 })
 
+test('a stuck leg reports the raw position packets behind the corrections', async () => {
+  // Trial 12: the client and server agreed on every cell, yet the server sent
+  // the bot back ~20 times a second by 0.02 blocks. Rising teleport ids are the
+  // server starting a new teleport each tick; one repeated id is it waiting on
+  // a confirmation that never lands; relative flags point at the bridge.
+  const bot = fakeBot()
+  const handlers = {}, client = new (await import('node:events')).EventEmitter()
+  bot._client = client
+  bot.on = (e, f) => { (handlers[e] ||= []).push(f) }
+  bot.off = (e, f) => { handlers[e] = (handlers[e] || []).filter(g => g !== f) }
+  bot.pathfinder = { setMovements() {}, setGoal() {}, goto() {
+    for (const id of [7, 7, 7, 8]) client.emit('position', { teleportId: id, flags: { x: false, y: false, z: false } })
+    client.emit('position', { teleportId: 9, flags: { x: true, y: true, z: true } })
+    return new Promise(() => {})
+  } }
+  const message = await walkNear(bot, { x: 5, y: 64, z: 0 }, { dig: false, ...deps(), legTimeoutMs: 50 }).then(() => null, e => e.message)
+  assert.match(message, /position packets 5, teleport ids 7-9 \(3 distinct\), 1 relative/)
+  assert.equal(client.listenerCount('position'), 0, 'the packet listener is removed after the leg')
+})
+
 test('a walk continues past a timed-out leg that closed ground and arrives', async () => {
   const legs = []
   const bot = fakeBot()
