@@ -175,20 +175,23 @@ function subscribeDigPlace(bot) {
 // A stuck leg is silent for its whole budget, but the pathfinder narrates it in
 // its own events: what it last planned, and why it threw paths away.
 function watchPathfinder(bot) {
-  let plans = 0, last = null, ticks = 0
+  let plans = 0, last = null, ticks = 0, corrections = 0
   const resets = new Map()
   const onUpdate = r => { plans++; last = r }
   const onReset = reason => resets.set(reason, (resets.get(reason) || 0) + 1)
   // mineflayer skips physics before the server's first position, after respawn
   // or mount, and over an unloaded chunk; a leg with no ticks cannot move.
   const onTick = () => { ticks++ }
-  bot.on?.('path_update', onUpdate); bot.on?.('path_reset', onReset); bot.on?.('physicsTick', onTick)
+  // A server that disagrees with the client's world sends it back: forcedMove.
+  const onForced = () => { corrections++ }
+  bot.on?.('path_update', onUpdate); bot.on?.('path_reset', onReset); bot.on?.('physicsTick', onTick); bot.on?.('forcedMove', onForced)
   const body = () => {
     const e = bot.entity, v = e?.velocity, r = n => Math.round(n * 100) / 100
-    return ` Body: physics ticks ${ticks}; onGround ${e?.onGround}, velocity ${v ? [v.x, v.y, v.z].map(r).join(',') : 'unknown'}.`
+    const under = e?.position && bot.blockAt?.(e.position.offset(0, -1, 0))?.name
+    return ` Body: physics ticks ${ticks}; server corrections ${corrections}; onGround ${e?.onGround}, velocity ${v ? [v.x, v.y, v.z].map(r).join(',') : 'unknown'}, underfoot ${under ?? 'unknown'}.`
   }
   return {
-    stop() { bot.off?.('path_update', onUpdate); bot.off?.('path_reset', onReset); bot.off?.('physicsTick', onTick) },
+    stop() { bot.off?.('path_update', onUpdate); bot.off?.('path_reset', onReset); bot.off?.('physicsTick', onTick); bot.off?.('forcedMove', onForced) },
     summary() {
       if (!plans && !resets.size) return ' The pathfinder produced no plan in that time.' + body()
       const path = last?.path || [], sum = k => path.reduce((n, step) => n + (step[k]?.length || 0), 0)

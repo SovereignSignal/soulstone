@@ -426,8 +426,27 @@ test('a stuck leg says whether physics was running', async () => {
     } }
     return walkNear(bot, { x: 5, y: 64, z: 0 }, { dig: false, ...deps(), legTimeoutMs: 50 }).then(() => null, e => e.message)
   }
-  assert.match(await run(0), /physics ticks 0; onGround false, velocity 0,-0.08,0/)
+  assert.match(await run(0), /physics ticks 0; server corrections 0; onGround false, velocity 0,-0.08,0/)
   assert.match(await run(3), /physics ticks 3;/)
+})
+
+test('a stuck leg counts server corrections and names what the client thinks is underfoot', async () => {
+  // Trial 10, live: y held at exactly 64.0 with onGround false for 25 seconds
+  // while z flickered by 0.01, during a quarry that digs underfoot. A client
+  // that believes its floor is gone falls; a server that disagrees teleports it
+  // back. mineflayer emits forcedMove for each correction.
+  const bot = fakeBot({ blockAt: p => (Math.floor(p.y) === 63 ? { name: 'air', boundingBox: 'empty' } : { name: 'stone', boundingBox: 'block' }) })
+  bot.entity.position = new Vec3(0.5, 64, 0.5)
+  const handlers = {}
+  bot.on = (e, f) => { (handlers[e] ||= []).push(f) }
+  bot.off = (e, f) => { handlers[e] = (handlers[e] || []).filter(g => g !== f) }
+  bot.pathfinder = { setMovements() {}, setGoal() {}, goto() {
+    for (let i = 0; i < 4; i++) (handlers.forcedMove || []).forEach(f => f())
+    return new Promise(() => {})
+  } }
+  const message = await walkNear(bot, { x: 5, y: 64, z: 0 }, { dig: false, ...deps(), legTimeoutMs: 50 }).then(() => null, e => e.message)
+  assert.match(message, /server corrections 4/)
+  assert.match(message, /underfoot air/)
 })
 
 test('a walk continues past a timed-out leg that closed ground and arrives', async () => {
