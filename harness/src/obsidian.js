@@ -38,18 +38,38 @@ export function surveyPourSites(bot,{protectedSites=[],skip=new Set(),radius=64}
  const nearest=[...all].sort((a,b)=>a.position.distanceTo(here)-b.position.distanceTo(here))[0]?.position
  const report={radius,sources:all.length,open:sources.length,rims:0,stands:0,lavaFree:0,...(nearest?{nearest:{x:nearest.x,y:nearest.y,z:nearest.z}}:{})}
  const sites=[],seen=new Set()
+ const standable=p=>fullCube(bot.registry,bot.blockAt(p.offset(0,-1,0))?.name)&&[0,1].every(y=>AIR.has(bot.blockAt(p.offset(0,y,0))?.name))
+ // The rim's top face must be what the look meets; without a world to raycast
+ // (tests), reach alone is checked and the pour's own readback catches a miss.
+ const sees=(stand,rim)=>{
+  const eye=stand.offset(.5,1.62,.5),top=rim.offset(.5,1,.5)
+  if(eye.distanceTo(top)>4.5)return false
+  if(!bot.world?.raycast)return true
+  const hit=bot.world.raycast(eye,top.minus(eye).normalize(),4.6)
+  return !!hit&&hit.position?.equals?.(rim)&&hit.face===1
+ }
  for(const l of sources)for(const [dx,dz] of SIDES){
-  const rim=l.position.offset(dx,0,dz),water=rim.offset(0,1,0),stand=l.position.offset(2*dx,1,2*dz)
+  const rim=l.position.offset(dx,0,dz),water=rim.offset(0,1,0)
   if(seen.has(key(rim))||skip.has(key(rim)))continue
   seen.add(key(rim))
   if(!fullCube(bot.registry,bot.blockAt(rim)?.name)||!AIR.has(bot.blockAt(water)?.name))continue
   report.rims++
-  if(!fullCube(bot.registry,bot.blockAt(stand.offset(0,-1,0))?.name)||![0,1].every(y=>AIR.has(bot.blockAt(stand.offset(0,y,0))?.name)))continue
-  report.stands++
-  if(lavaBeside(bot,stand)||lavaBeside(bot,stand.offset(0,1,0)))continue
-  report.lavaFree++
-  if(inProtectedSite(water,protectedSites)||inProtectedSite(stand,protectedSites))continue
-  sites.push({lava:l.position,rim,water,stand,distance:stand.distanceTo(here)})
+  // Straight out from the lava first, the proven stance; then any dry cell at
+  // the rim's level within two of it. Cave floors rarely offer the first: trial
+  // 26 found 11 usable rims at the deep lava level and no straight-out stance.
+  const straight=l.position.offset(2*dx,1,2*dz),around=[]
+  for(let ax=-2;ax<=2;ax++)for(let az=-2;az<=2;az++)if(ax||az)around.push(rim.offset(ax,1,az))
+  around.sort((a,b)=>a.distanceTo(here)-b.distanceTo(here))
+  const standing=[straight,...around].filter(standable)
+  if(standing.length)report.stands++
+  // No lava around the body, nor around the floor block: a cell on the rim itself
+  // is dry at the feet but one step from the pool, and the pour's own flow pushes.
+  const clear=standing.filter(p=>[-1,0,1].every(y=>!lavaBeside(bot,p.offset(0,y,0))))
+  if(clear.length)report.lavaFree++
+  const stand=clear.find(p=>sees(p,rim)&&!inProtectedSite(p,protectedSites))
+  if(!stand||inProtectedSite(water,protectedSites))continue
+  // A slight preference for the straight-out stance where it exists.
+  sites.push({lava:l.position,rim,water,stand,distance:stand.distanceTo(here)+(stand.equals(straight)?0:1.5)})
  }
  return {sites:sites.sort((a,b)=>a.distance-b.distance).slice(0,16),report}
 }
@@ -57,7 +77,7 @@ export const pourSites=(bot,options)=>surveyPourSites(bot,options).sites
 export function describeSurvey(r){
  if(!r.sources)return `saw 0 lava sources`
  const near=r.nearest?` (nearest at ${r.nearest.x},${r.nearest.y},${r.nearest.z})`:''
- return `saw ${r.sources} lava source${r.sources===1?'':'s'}${near}, ${r.open} open to the air, ${r.rims} rim${r.rims===1?'':'s'} with air above, ${r.stands} with a standing cell two out, ${r.lavaFree} of those clear of lava`
+ return `saw ${r.sources} lava source${r.sources===1?'':'s'}${near}, ${r.open} open to the air, ${r.rims} rim${r.rims===1?'':'s'} with air above, ${r.stands} with a standing cell within two, ${r.lavaFree} of those clear of lava`
 }
 
 // The nearest water source a bucket can reach: any open face will do. Cave water

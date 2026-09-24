@@ -187,3 +187,23 @@ test('a failed survey names the nearest lava it saw, so the next move has a dire
  assert.ok(r.nearest,'the nearest source is recorded')
  assert.match(describeSurvey(r),/nearest at 0,63,[012]/)
 })
+
+test('a rim whose straight-out cell is blocked still pours from another dry cell in reach',async()=>{
+ // Trial 26 at the deep lava level: "11 rims with air above, 0 with a standing
+ // cell two out", every time. Cave floors rarely put a standing cell exactly two
+ // straight out from the lava.
+ const {surveyPourSites}=await import('../src/obsidian.js')
+ const extra={}
+ for(let z=-1;z<=3;z++){extra[`-2,64,${z}`]='stone';extra[`-2,65,${z}`]='stone'}   // a wall where every west stance would be
+ const {bot}=fixture({extra})
+ const {sites}=surveyPourSites(bot)
+ const west=sites.filter(s=>s.rim.x===-1)
+ assert.ok(west.length>0,'the west rims are still usable')
+ for(const s of west){
+  assert.notEqual(s.stand.x,-2,'not in the wall');assert.equal(lavaBeside(bot,s.stand),null)
+  assert.equal(lavaBeside(bot,s.stand.offset(0,-1,0)),null,'not on the rim: its floor has no lava beside it')
+  assert.ok(s.stand.offset(.5,1.62,.5).distanceTo(s.rim.offset(.5,1,.5))<=4.5,'within reach of the rim top')
+ }
+ const {sites:open}=surveyPourSites(fixture().bot)
+ assert.deepEqual(open[0].stand,new Vec3(-2,64,1),'the straight-out stance is still preferred where it exists')
+})
