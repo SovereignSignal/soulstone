@@ -80,7 +80,10 @@ export async function executeSkill(bot, task, context) {
     // A fresh spawn can have no trunk within the 48-block collection radius.
     // Walk toward one sighted in the loaded area, otherwise probe cardinal legs
     // from the start, re-scanning after each leg; at most eight legs per job.
-    async function explore() {
+    // pastNear: called because the logs here are unreachable. In a forest cut
+    // from the bottom there is always another floating trunk within 40 blocks,
+    // and returning to it spent all eight legs without a step.
+    async function explore({ pastNear = false } = {}) {
       const origin = bot.entity.position.clone()
       // A leg that moves the bot nowhere was not spent searching, it was spent
       // standing still. Eight of those burn in seconds and then blame the world
@@ -89,7 +92,8 @@ export async function executeSkill(bot, task, context) {
       let refusal = null, still = 0
       while (legs < 8) {
         check(); legs++
-        const far = scan(128, 64)[0]; let target
+        const sighted = scan(128, 64), here = bot.entity.position
+        const far = pastNear ? sighted.find(b => Math.hypot(b.position.x - here.x, b.position.z - here.z) > 40) : sighted[0]; let target
         if (far) {
           const p = bot.entity.position, dx = far.position.x - p.x, dz = far.position.z - p.z, dist = Math.hypot(dx, dz)
           if (dist <= 40) return
@@ -166,7 +170,7 @@ export async function executeSkill(bot, task, context) {
         if (++stalled >= 12) {
           // Trees can be visible and unreachable: fenced off, built over, across
           // water. Walk somewhere else and look there before giving up.
-          if (legs < 8) { progress(`Twelve unreachable ${resourceLabel(item)} here; looking somewhere else`); await explore(); stalled = 0; continue }
+          if (legs < 8) { progress(`Twelve unreachable ${resourceLabel(item)} here; looking somewhere else`); await explore({ pastNear: true }); stalled = 0; continue }
           throw new Error(`no reachable ${resourceLabel(item)} after checking 12 targets from ${legs + 1} places; carrying ${total()}/${count}`)
         }
       } else stalled = 0

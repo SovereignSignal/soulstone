@@ -74,6 +74,32 @@ test('twelve unreachable trunks send the bot somewhere else instead of ending th
  assert.ok(walked.length>0,'and it actually walked somewhere new')
 })
 
+test('a forest of unreachable logs sends the bot past them, not back to them eight times',async()=>{
+ // Trial 8, 23 September: the spawn forest, cut from the bottom by seven earlier
+ // trials, held more floating trunks than eight rounds of twelve could skip.
+ // explore() spent a leg and returned whenever any unskipped log lay within 40
+ // blocks, so "looking somewhere else" fired eight times in five minutes
+ // without a step taken, then reported checking "from 9 places".
+ const walked=[],messages=[]
+ let inventory=[]
+ const near=Array.from({length:150},(_,i)=>new Vec3(-15+(i%15)*2,72,-15+Math.floor(i/15)*3))
+ const far=new Vec3(60,64,0),logs=[...near,far]
+ const bot={registry:{blocksByName:{spruce_log:{id:1}}},inventory:{items:()=>inventory},entity:{position:new Vec3(0,64,0)},
+  findBlocks:({maxDistance,count})=>logs.filter(p=>p.distanceTo(bot.entity.position)<=maxDistance).sort((a,b)=>a.distanceTo(bot.entity.position)-b.distanceTo(bot.entity.position)).slice(0,count),
+  blockAt:p=>({position:p,name:logs.some(l=>l.equals(p))?'spruce_log':p.x===60&&p.y===63&&p.z===0?'grass_block':'air'}),
+  canDigBlock:b=>b.position.equals(far)&&bot.entity.position.distanceTo(far)<=6,tool:{async equipForBlock(){}},
+  dig:async()=>{inventory=[{name:'spruce_log',count:1}]},
+  pathfinder:{setGoal(){},setMovements(){},async goto(goal){
+   if(goal.y===undefined&&Number.isFinite(goal.x)&&Number.isFinite(goal.z)){walked.push([goal.x,goal.z]);bot.entity.position=new Vec3(goal.x,64,goal.z);return}
+   // Only the grounded trunk can be approached; every floating one refuses.
+   if(goal.pos?.equals?.(far)){bot.entity.position=new Vec3(58,64,0);return}
+   throw Object.assign(new Error('No path'),{name:'NoPath'})
+  }}}
+ const result=await executeSkill(bot,{kind:'gather',goal:{item:'logs',count:1}},{check(){},progress:m=>messages.push(m),stage(){},movements:{},gatheringMovements:{}})
+ assert.equal(result.count,1,messages.slice(-4).join(' | '))
+ assert.ok(walked.length>0&&walked.length<8,'it walked away from the unreachable cluster: '+JSON.stringify(walked))
+})
+
 test('a bot that cannot walk stops exploring and says so, instead of blaming the world',async()=>{
  // Eight legs against a wall cost seconds and zero displacement, then reported
  // "no logs within 48 blocks ... move me near trees" while a trunk stood 91
