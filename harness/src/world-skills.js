@@ -1,6 +1,6 @@
 import {harvestBerries} from './foraging.js'
 import {useHeldItem,dimensionOf} from './use-item.js'
-import {makeObsidian,fillableWaterSource} from './obsidian.js'
+import {makeObsidian,fillableWaterSource,sealedWaterSource} from './obsidian.js'
 import {fitConstructionSite} from './construction-site.js'
 import {surveyGround,candidateSites} from './site-survey.js'
 import {placeBuildingBlock} from './building-blocks.js'
@@ -322,8 +322,16 @@ export async function executeWorldSkill(bot,task,context,gather) {
  if(task.kind==='make_obsidian'){
   // The bucket fills only from a source cell, and `use` owns the aim and the receipt.
   const fill=async()=>{
-   const source=fillableWaterSource(bot)
-   if(!source)throw new Error('No water source with an open face within 32 blocks to fill the bucket from')
+   let source=fillableWaterSource(bot)
+   if(!source){
+    const sealed=sealedWaterSource(bot,{protectedSites:task.goal.protectedSites||[]})
+    if(!sealed)throw new Error('No water source within 32 blocks, open or behind one block of rock, to fill the bucket from')
+    progress(`Opening ${key(sealed.wall)} to reach the water behind it`)
+    await walk(new goals.GoalLookAtBlock(sealed.wall,bot.world,{reach:4}))
+    const wall=bot.blockAt(sealed.wall)
+    await bot.tool.equipForBlock(wall,{requireHarvest:false,getFromChest:false});check();await bot.dig(wall);check()
+    source=sealed.source
+   }
    progress(`Filling the bucket at ${key(source)}`)
    await useHeldItem(bot,{goal:{item:'bucket',count:1,expect:'',target:{x:source.x,y:source.y,z:source.z,how:'point',dimension:dimensionOf(bot)||'overworld'}}},{check,stage,persist:context.persist,walk,settle,approach:approachPlacement})
   }

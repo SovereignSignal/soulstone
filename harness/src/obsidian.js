@@ -53,11 +53,28 @@ export function pourSites(bot,{protectedSites=[],skip=new Set(),radius=32}={}){
 // above found none beside a live lake, and make_obsidian failed at once. A big
 // lake is hundreds of sources, so search far enough not to run out on its interior.
 const OPEN_FACES=[[0,1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]
+// A bucket's ray ignores flowing water, so a face of it is as open as air.
+const passable=b=>AIR.has(b?.name)||b?.name==='water'&&!isSource(b)
+const waterSources=(bot,radius)=>(bot.findBlocks({matching:bot.registry.blocksByName.water.id,maxDistance:radius,count:1024})||[]).filter(p=>isSource(bot.blockAt(p)))
 export function fillableWaterSource(bot,{radius=32}={}){
  const here=bot.entity.position
- return (bot.findBlocks({matching:bot.registry.blocksByName.water.id,maxDistance:radius,count:1024})||[])
-  .filter(p=>isSource(bot.blockAt(p))&&OPEN_FACES.some(([x,y,z])=>AIR.has(bot.blockAt(p.offset(x,y,z))?.name)))
+ return waterSources(bot,radius).filter(p=>OPEN_FACES.some(([x,y,z])=>passable(bot.blockAt(p.offset(x,y,z)))))
   .sort((a,b)=>a.distanceTo(here)-b.distanceTo(here))[0]??null
+}
+// Underground water is often a lake sealed from the tunnel beside it by one
+// block, as it was beside the VM bot. Name that block: a source, a diggable
+// solid beside it with open air on its far side, and no lava touching it.
+// Side walls only, so the bot never digs out the roof it could be standing on.
+export function sealedWaterSource(bot,{radius=32,protectedSites=[]}={}){
+ const here=bot.entity.position,found=[]
+ for(const p of waterSources(bot,radius))for(const [dx,dz] of SIDES){
+  const wall=p.offset(dx,0,dz),beyond=wall.offset(dx,0,dz),b=bot.blockAt(wall)
+  if(!fullCube(bot.registry,b?.name)||b.diggable===false||!AIR.has(bot.blockAt(beyond)?.name))continue
+  if([[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].some(([x,y,z])=>bot.blockAt(wall.offset(x,y,z))?.name==='lava'))continue
+  if(inProtectedSite(wall,protectedSites))continue
+  found.push({source:p,wall,distance:wall.distanceTo(here)})
+ }
+ return found.sort((a,b)=>a.distance-b.distance)[0]??null
 }
 
 // A bucket writes use_item, which the server raycasts along the look vector;

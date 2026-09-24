@@ -138,3 +138,23 @@ test('a bucket fills from a lake open only at the side, as cave water usually is
  assert.deepEqual([source.x,source.z],[3,0],'the one facing the tunnel')
  const {bot:dry}=fixture({pool:false});assert.equal(fillableWaterSource(dry),null)
 })
+
+test('flowing water counts as an open face, and a lake sealed by one block names the block to open',async()=>{
+ // Live, 2026-09-24: the lake beside the VM bot had been sealed again by the
+ // time make_obsidian ran; the only thing between the tunnel and the water was
+ // one block of deepslate.
+ const {fillableWaterSource,sealedWaterSource}=await import('../src/obsidian.js')
+ const lake=()=>{const extra={}
+  for(let y=60;y<=63;y++)for(let x=3;x<=8;x++)for(let z=-3;z<=3;z++)extra[`${x},${y},${z}`]='water'
+  for(let x=3;x<=8;x++)for(let z=-3;z<=3;z++)extra[`${x},64,${z}`]='stone'
+  return extra}
+ const flowing=lake();flowing['2,62,0']='flowing_water';flowing['1,62,0']='air';flowing['1,63,0']='air'
+ assert.deepEqual([fillableWaterSource(fixture({pool:false,extra:flowing}).bot)?.x],[3],'a bucket reaches a source through flowing water')
+ const sealed=lake();sealed['1,62,0']='air';sealed['1,63,0']='air'   // tunnel ends one block short of the lake
+ const {bot}=fixture({pool:false,extra:sealed})
+ assert.equal(fillableWaterSource(bot),null)
+ const found=sealedWaterSource(bot)
+ assert.ok(found,'the sealed lake is found')
+ assert.deepEqual([found.wall.x,found.wall.z,found.source.x],[2,0,3],'the one stone block between tunnel and water')
+ assert.equal(sealedWaterSource(fixture({pool:false}).bot),null)
+})
