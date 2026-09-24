@@ -193,7 +193,7 @@ export class Runner extends EventEmitter {
       this.runSkill();return
     }
     if (this.task.kind === 'follow') { this.applyFollow(); return }
-    if (['gather', 'craft','acquire','build','construct','give','eat','harvest','use','surface','douse','burrow','unburrow','hut','unhut','flee','hunt','climb','descend','sleep','travel','goto','dig','place_at','collect','attack',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(this.task.kind)) { this.runSkill(); return }
+    if (['gather', 'craft','acquire','build','construct','give','eat','harvest','use','surface','douse','leave_portal','burrow','unburrow','hut','unhut','flee','hunt','climb','descend','sleep','travel','goto','dig','place_at','collect','attack',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(this.task.kind)) { this.runSkill(); return }
     const g = this.task.goal
     this.bot.pathfinder.setGoal(new goals.GoalNear(g.x, g.y, g.z, 1))
     this.log('navigating', { task: this.task })
@@ -260,7 +260,7 @@ export class Runner extends EventEmitter {
     try {
       // Wear anything protective before working. Skipped for the time-critical
       // safety actions, where a pause to change clothes is the wrong instinct.
-      if(!['defend','flee','surface','douse','climb','descend'].includes(task.kind)){
+      if(!['defend','flee','surface','douse','leave_portal','climb','descend'].includes(task.kind)){
         try{const worn=await wearBestArmor(bot,{check,progress:message=>{this.log('skill_progress',{message});this.say(message)}});if(worn.length)this.persist()}
         catch(error){if(work.cancelled||this.bot!==bot)throw error}
       }
@@ -322,6 +322,7 @@ export class Runner extends EventEmitter {
       case 'defend': case 'harvest': case 'eat': case 'give': case 'use': this.skill(command.action, command.goal, command.timeoutMs); break
       case 'surface': this.skill('surface',{},command.timeoutMs); break
       case 'douse': this.skill('douse',{},command.timeoutMs); break
+      case 'leave_portal': this.skill('leave_portal',{},command.timeoutMs); break
       case 'burrow': this.skill('burrow',{},command.timeoutMs); break
       case 'unburrow': this.skill('unburrow',command.goal,command.timeoutMs); break
       case 'hut': this.skill('hut',{},command.timeoutMs); break

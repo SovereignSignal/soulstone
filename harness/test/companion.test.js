@@ -596,6 +596,16 @@ test('fire recovery preempts a shelter attempt, runs only the douse, then contin
  assert.equal(c.lastDamageAt,null,'the damage came from the fire just put out, so it no longer reads as an attack')
  assert.equal(resumed,true)
 })
+test('a portal underfoot preempts even a fire and runs only the step out',async()=>{
+ // Sov's limit: never enter the Nether. Four seconds in a lit portal carries a player through.
+ const {PORTAL_EMERGENCY,FIRE_EMERGENCY}=await import('../src/survival.js')
+ const [r,c]=setup(async()=>{throw new Error('No model call for a portal')});r.bot.setControlState=()=>{}
+ c.safety={status:'retreating',reason:FIRE_EMERGENCY};c.requestProgress={id:'portal',request:'build and light a nether portal',status:'running'}
+ let resumed=false;c.resume=async()=>{resumed=true}
+ const calls=[];c.execute=async command=>{calls.push(command.action);r.task={result:{receipt:'out_of_portal'}}}
+ await c.seekSafety(PORTAL_EMERGENCY)
+ assert.deepEqual(calls,['leave_portal']);assert.equal(c.safety,null);assert.equal(resumed,true)
+})
 test('a douse that fails leaves safety failed for the bounded retry, not in a shelter',async()=>{
  const {FIRE_EMERGENCY}=await import('../src/survival.js')
  const [r,c]=setup(async()=>{throw new Error('No model call')});r.bot.setControlState=()=>{}

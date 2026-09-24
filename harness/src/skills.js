@@ -1,6 +1,7 @@
 import {eatFood} from './survival.js'
 import {surfaceForAir} from './water-safety.js'
 import {douseFire} from './fire-safety.js'
+import {leavePortal} from './portal-guard.js'
 import {burrowIn,unburrow} from './burrow.js'
 import {wallIn,unwall} from './hut.js'
 import {fleeFrom} from './flee.js'
@@ -31,6 +32,7 @@ export const countItem = (bot, name) => bot.inventory.items().filter(i => i.name
 export async function executeSkill(bot, task, context) {
   if(task.kind==='surface')return surfaceForAir(bot,task,context)
   if(task.kind==='douse')return douseFire(bot,task,context)
+  if(task.kind==='leave_portal')return leavePortal(bot,task,context)
   if(task.kind==='burrow')return burrowIn(bot,task,context)
   if(task.kind==='unburrow')return unburrow(bot,task,context)
   if(task.kind==='hut')return wallIn(bot,task,context)

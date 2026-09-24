@@ -1,6 +1,6 @@
 import {setTimeout as delay} from 'node:timers/promises'
 import pathfinding from 'mineflayer-pathfinder'
-import {WATER_BLOCKS} from './survival.js'
+import {WATER_BLOCKS,PORTAL_BLOCKS} from './survival.js'
 const {Movements}=pathfinding
 // Ground a traveller is allowed to break. The agent digs itself shelters and
 // half-builds huts, then meets its own dirt wall as "no route" and stands in it:
@@ -77,6 +77,9 @@ export class DoorAwareMovements extends Movements {
   super(bot);this.surfaceWaterOnly=surfaceWaterOnly;this.waterIDs=new Set([...WATER_BLOCKS].map(n=>bot.registry.blocksByName[n]?.id).filter(Number.isInteger))
   if(!surfaceWaterOnly)for(const id of this.waterIDs)this.blocksToAvoid.add(id)
   this.exclusionAreasStep.push(block=>block?.position&&lavaBeside(bot,block.position)?LAVA_EDGE_COST:0)
+  // Sov's limit: never step through a portal. A lit nether portal is open air to
+  // the pathfinder, so any route through a frame would end in the Nether.
+  for(const name of PORTAL_BLOCKS){const id=bot.registry.blocksByName[name]?.id;if(Number.isInteger(id))this.blocksToAvoid.add(id)}
  }
  getLandingBlock(node,dir){
   // Shared walking and gathering allow checked short descents. Measure feet

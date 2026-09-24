@@ -40,6 +40,15 @@ export function fireObservation(bot){
  const p=e?.position,cells=p?.offset&&bot.blockAt?[bot.blockAt(p.floored()),bot.blockAt(p.offset(0,1.6,0).floored())]:[]
  return {onFire,inLava:e?.isInLava===true||cells.some(b=>b?.name==='lava'),inFire:cells.some(b=>FIRE_BLOCKS.has(b?.name))}
 }
+// A survival player standing in a nether portal is carried through after four
+// seconds. Sov's limit is never to enter the Nether, so this outranks everything.
+export const PORTAL_EMERGENCY='Standing in a portal'
+export const PORTAL_BLOCKS=['nether_portal','end_portal','end_gateway']
+export function portalObservation(bot){
+ const p=bot?.entity?.position
+ if(!p?.offset||!bot.blockAt)return {inPortal:null}
+ return {inPortal:[p.floored(),p.offset(0,1.6,0).floored()].some(c=>PORTAL_BLOCKS.includes(bot.blockAt(c)?.name))}
+}
 export function survivalObservation(bot) {
  const p=bot?.entity?.position
  const head=p?.offset&&bot.blockAt?bot.blockAt(p.offset(0,1.6,0).floored()):null
@@ -50,7 +59,7 @@ export function survivalObservation(bot) {
  for(const t of nearbyThreats){t.verticalOffset=Math.round((t.position.y-p.y)*10)/10;t.sightline=observedSightline(bot,{x:p.x,y:p.y+(bot.entity.eyeHeight||1.62),z:p.z},{x:t.position.x,y:t.position.y+1,z:t.position.z})}
  // Farm animals within 32 blocks, so the planner hunts what is actually there.
  const nearbyAnimals=p?Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&e.position&&ANIMALS.has(e.name)).map(e=>({name:e.name,distance:Math.round(e.position.distanceTo(p)*10)/10})).filter(e=>e.distance<=32).sort((a,b)=>a.distance-b.distance).slice(0,12):[]
- return {...fireObservation(bot),oxygen:Number.isFinite(bot?.oxygenLevel)?bot.oxygenLevel:null,nearbyAnimals,headSubmerged,inWater:bot?.entity?.isInWater??null,food:Number.isFinite(bot?.food)?bot.food:null,saturation:Number.isFinite(bot?.foodSaturation)?bot.foodSaturation:null,health:Number.isFinite(bot?.health)?bot.health:null,gameMode:bot?.game?.gameMode??null,difficulty:bot?.game?.difficulty??null,dimension:String(bot?.game?.dimension||'').replace(/^minecraft:/,'')||null,timeOfDay:bot?.time?.timeOfDay??null,carriedFood:(bot?.inventory?.items()||[]).filter(i=>SAFE_FOODS.has(i.name)).map(i=>({name:i.name,count:i.count})),nearbyThreats,threatCoverage:'Loaded entities within 24 blocks only; proximity does not establish aggression or line of sight'}
+ return {...fireObservation(bot),...portalObservation(bot),oxygen:Number.isFinite(bot?.oxygenLevel)?bot.oxygenLevel:null,nearbyAnimals,headSubmerged,inWater:bot?.entity?.isInWater??null,food:Number.isFinite(bot?.food)?bot.food:null,saturation:Number.isFinite(bot?.foodSaturation)?bot.foodSaturation:null,health:Number.isFinite(bot?.health)?bot.health:null,gameMode:bot?.game?.gameMode??null,difficulty:bot?.game?.difficulty??null,dimension:String(bot?.game?.dimension||'').replace(/^minecraft:/,'')||null,timeOfDay:bot?.time?.timeOfDay??null,carriedFood:(bot?.inventory?.items()||[]).filter(i=>SAFE_FOODS.has(i.name)).map(i=>({name:i.name,count:i.count})),nearbyThreats,threatCoverage:'Loaded entities within 24 blocks only; proximity does not establish aggression or line of sight'}
 }
 export function validateEatGoal(goal) {
  if(!goal||!SAFE_FOODS.has(goal.item)||!Number.isInteger(goal.count)||goal.count<1||goal.count>8)throw new Error('Eat requires an ordinary safe food and a maximum of 1–8 portions')
@@ -87,6 +96,7 @@ export async function eatFood(bot,task,{check,stage,progress,persist}) {
 
 export function emergencyReason(observation){
  if(observation.gameMode!=='survival'||!Number.isFinite(observation.health)||observation.health<=0)return null
+ if(observation.inPortal===true)return PORTAL_EMERGENCY
  if(observation.onFire===true||observation.inLava===true||observation.inFire===true)return FIRE_EMERGENCY
  if(observation.headSubmerged===true||observation.headSubmerged!==false&&Number.isFinite(observation.oxygen)&&observation.oxygen<=15)return WATER_EMERGENCY
  // An emergency is something safety can act on. Low health matters when a

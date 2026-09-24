@@ -17,7 +17,7 @@ export function lavaWithin(bot,p,margin=1){
   if(bot.blockAt(p.offset(dx,dy,dz))?.name==='lava')return true
  return false
 }
-const standable=(bot,p)=>fullCube(bot.registry,bot.blockAt(p.offset(0,-1,0))?.name)&&[0,1].every(y=>AIR.has(bot.blockAt(p.offset(0,y,0))?.name))
+export const standable=(bot,p)=>fullCube(bot.registry,bot.blockAt(p.offset(0,-1,0))?.name)&&[0,1].every(y=>AIR.has(bot.blockAt(p.offset(0,y,0))?.name))
 
 // Nearest standing cells with no lava within the margin, relaxing the margin
 // only when a wide one leaves nowhere to go: inside a lake, any dry cell beats none.

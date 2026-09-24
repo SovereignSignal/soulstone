@@ -19,10 +19,10 @@ import {setTimeout as delay} from 'node:timers/promises'
 const BURROW_WATCHES=4
 const SAFETY_RETRIES=3
 const NIGHT_HOLD_MS=14*60*1000
-import {survivalObservation,emergencyReason,WATER_EMERGENCY,FIRE_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY} from '../survival.js'
-// Air and fire run their own recovery at once and preempt any shelter attempt:
-// each has a clock no shelter stops.
-const URGENT=new Set([WATER_EMERGENCY,FIRE_EMERGENCY])
+import {survivalObservation,emergencyReason,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY} from '../survival.js'
+// Air, fire and a portal underfoot run their own recovery at once and preempt
+// any shelter attempt: each has a clock no shelter stops.
+const URGENT=new Set([WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY])
 import {burrowClearance} from '../burrow.js'
 import {inspectEmergencyShelter} from '../shelter-occupants.js'
 import {defenseDecision,combatClearance,DEFENDABLE_MOBS,meleeWeapon} from '../combat.js'
@@ -276,7 +276,7 @@ export class Teammate extends EventEmitter {
     const epoch=this.epoch,abort=this.abort=new AbortController()
     this.unsafeSignature=null
     this.safety={status:'retreating',reason,startedAt:new Date().toISOString(),retries,resumeRequestId:interruptedActiveRequest?this.requestProgress?.id:null};this.phase='retreating'
-    this.say(reason+'. '+(reason===WATER_EMERGENCY?'I am stopping work and swimming up for air.':reason===FIRE_EMERGENCY?'I am stopping work to put the fire out.':reason===THREAT_INTERRUPTION?'I am pausing work and assessing self-defense.':'I am pausing work and looking for a verified lit shelter.'))
+    this.say(reason+'. '+(reason===WATER_EMERGENCY?'I am stopping work and swimming up for air.':reason===FIRE_EMERGENCY?'I am stopping work to put the fire out.':reason===PORTAL_EMERGENCY?'I am stepping out before it carries me to the Nether.':reason===THREAT_INTERRUPTION?'I am pausing work and assessing self-defense.':'I am pausing work and looking for a verified lit shelter.'))
     try{
       this.dispatch({action:'stop'})
       if(reason===WATER_EMERGENCY)this.runner.bot?.setControlState('jump',true)
@@ -292,6 +292,19 @@ export class Teammate extends EventEmitter {
         if(this.requestProgress)(this.requestProgress.feedback??=[]).push({action:'surface',status:'completed',result:structuredClone(this.safety.water),automatic:true})
         if(dry)this.safety=null
         this.say(dry?'I reached dry ground and can breathe. The previous request is paused.':'I can breathe at the surface, but did not reach shore. I am staying afloat; the previous request is paused.')
+        return
+      }
+      if(reason===PORTAL_EMERGENCY){
+        await this.execute({action:'leave_portal',goal:{},timeoutMs:10000},abort.signal)
+        if(epoch!==this.epoch||abort.signal.aborted)return
+        const result=structuredClone(this.runner.task.result),request=this.requestProgress
+        if(request)(request.feedback??=[]).push({action:'leave_portal',status:'completed',result,automatic:true})
+        this.safety=null;this.activity='';this.phase=canResume(request)?'blocked':'ready';this.persist()
+        if(interruptedActiveRequest&&canResume(request)&&canContinueAfterSafety(request)){
+          ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:this.runner.connectionId,shelter:'left_portal',resumeSerial:request.resumeSerial||0,completedAt:request.completed?.length||0});this.persist()
+          this.say('I am out of the portal and will not walk through it. Continuing your saved request.')
+          await this.resume({automatic:true})
+        }else this.say('I am out of the portal and will not walk through it. '+(canResume(request)?'Resume is available if the saved request can safely continue.':'Ready for your next instruction.'))
         return
       }
       if(reason===FIRE_EMERGENCY){
