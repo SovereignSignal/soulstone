@@ -130,6 +130,16 @@ class DeathTests(unittest.TestCase):
         self.assertEqual(d.deaths, 1)
 
 
+    def test_a_death_before_the_run_is_the_baseline(self):
+        # Trial 8, 23 September: the operator's reset kill 20 seconds before the
+        # scorer started was still in lastDeath at the first sample and scored as
+        # the run's death. lastDeath carries only a position, so the first sample
+        # is the baseline; only a change after it is a death in this run.
+        d = m.DeathCounter()
+        self.assertEqual(d.observe(snap(lastDeath={'position': {'x': -689}}, requestProgress={'autoRespawns': 0})), 0)
+        self.assertEqual(d.observe(snap(lastDeath={'position': {'x': -689}}, requestProgress={'autoRespawns': 0})), 0)
+        self.assertEqual(d.observe(snap(lastDeath={'position': {'x': -612}}, requestProgress={'autoRespawns': 0})), 1)
+
 class CsvTests(unittest.TestCase):
     def test_csv_column_count(self):
         tracker = m.RungTracker(0, 'start')

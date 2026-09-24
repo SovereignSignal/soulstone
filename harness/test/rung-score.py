@@ -219,6 +219,7 @@ class DeathCounter:
         self._last_key = None
         self._auto = 0
         self._unmatched = 0  # client-side deaths not yet absorbed by autoRespawns
+        self._first = True  # the first sample is the baseline: lastDeath has no timestamp
 
     @staticmethod
     def _key(last_death):
@@ -231,6 +232,11 @@ class DeathCounter:
         auto = int(rp.get('autoRespawns') or 0)
         dead = bool(state.get('dead'))
         last_key = self._key(state.get('lastDeath'))
+        if self._first:
+            # A death already on record at the first sample happened before this run.
+            self._first = False
+            self._auto, self._dead, self._last_key = auto, dead, last_key
+            return self.deaths
 
         auto_inc = max(0, auto - self._auto)
         dead_edge = dead and not self._dead
