@@ -7,7 +7,7 @@ import {Vec3} from 'vec3'
 import {DoorAwareMovements,SOFT_GROUND as SOFT,centreOn} from './navigation.js'
 import {fullCube} from './construction.js'
 import {assertNoHostileOccupants,inspectEmergencyShelter} from './shelter-occupants.js'
-import {survivalObservation,RANGED} from './survival.js'
+import {survivalObservation,RANGED,HEALTH_EMERGENCY_LINE} from './survival.js'
 import {defenseDecision} from './combat.js'
 const {goals}=pathfinding
 // Four deep keeps a creeper standing on the rim outside its three-block
@@ -205,7 +205,9 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  // cap is a slower death than surfacing in daylight with nothing in sight.
  const canHeal=(s.carriedFood||[]).length>0||Number.isFinite(s.food)&&s.food>=18
  if(!Number.isFinite(s.health))return {clear:false,reason:'Health is unknown'}
- if(s.health<4&&canHeal)return {clear:false,reason:'Health is too low to leave the burrow'}
+ // Leaving below the line that sent the bot in only walks it back into the
+ // same emergency: hold while healing is possible and health is at or under it.
+ if(s.health<=HEALTH_EMERGENCY_LINE&&canHeal)return {clear:false,reason:'Health is at or below the emergency line; healing before leaving the burrow'}
  // Leave a margin beyond a ranged mob's reach: surfacing with a pillager at
  // seventeen blocks is surfacing into its firing line.
  const near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=(RANGED.has(t.name)?24:16))

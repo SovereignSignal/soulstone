@@ -17,6 +17,8 @@ export const threatRadius=name=>name==='creeper'||RANGED.has(name)?16:10
 export const THREAT_INTERRUPTION='A potential hostile is within ten blocks'
 export const NIGHT_EXPOSURE='Night with no shelter'
 export const HEALTH_EMERGENCY='Health is at or below half'
+// The line that sends a hurt bot to cover, and that it must be above to leave it.
+export const HEALTH_EMERGENCY_LINE=10
 // How recently health must have dropped to count as still under attack. One
 // survival tick is about a second, so this is a few ticks of grace.
 export const DAMAGE_WINDOW_MS=4000
@@ -90,7 +92,7 @@ export function emergencyReason(observation){
  // is genuinely not a threat and the agent would flee every one it sees. This
  // also covers fire, lava and a mob the version added after this was written.
  const underAttack=Number.isFinite(observation.recentDamageMs)&&observation.recentDamageMs<=DAMAGE_WINDOW_MS
- if(observation.health<=10&&observation.sheltered!==true&&(hostileNear||underAttack||observation.shelterAvailable===true&&darkness))return HEALTH_EMERGENCY
+ if(observation.health<=HEALTH_EMERGENCY_LINE&&observation.sheltered!==true&&(hostileNear||underAttack||observation.shelterAvailable===true&&darkness))return HEALTH_EMERGENCY
  if(Number.isFinite(observation.food)&&observation.food<=6&&(observation.carriedFood||[]).length)return FOOD_EMERGENCY
  // Inside a verified closed lit shelter the answer to a nearby hostile is already
  // in place; interrupting there only retreats into the room the bot is standing in.

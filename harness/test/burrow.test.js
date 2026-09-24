@@ -88,6 +88,14 @@ test('burrow clearance waits for daylight, health and an empty neighbourhood',()
  const w=world();assert.match(burrowClearance(w.bot).reason,/daylight/)
  w.bot.time.timeOfDay=6000;w.bot.health=3;w.bot.food=20;assert.match(burrowClearance(w.bot).reason,/Health/,'a bot that can still heal waits')
  w.bot.food=16;assert.equal(burrowClearance(w.bot).clear,true,'one that cannot heal surfaces to look for food rather than starve under the cap')
+ // Trial 20, 24 September: safety digs in at health 10 or below with a threat
+ // near, but the burrow let the bot out from 4 up, so at 9.4 it surfaced, met
+ // the threat again, and cycled harvest, retreat, burrow, eat, unburrow six
+ // times. A bot that can heal stays in until it is above the line that sent it in.
+ w.bot.food=20;w.bot.health=9.4;assert.match(burrowClearance(w.bot).reason,/Health/,'at or below the emergency line, a bot that can heal keeps healing')
+ w.bot.health=10.5;assert.equal(burrowClearance(w.bot).clear,true,'above the line it may leave')
+ w.bot.health=9.4;w.bot.food=16;assert.equal(burrowClearance(w.bot).clear,true,'one that cannot heal still surfaces to look for food')
+ w.bot.food=20
  w.bot.health=16;w.bot.entities={1:{name:'zombie',position:new Vec3(14.5,64,10.5)}};assert.match(burrowClearance(w.bot).reason,/potential hostile remains/)
  w.bot.entities={1:{name:'zombie',position:new Vec3(40.5,64,10.5)},2:{name:'cow',position:new Vec3(11.5,64,10.5)}};assert.equal(burrowClearance(w.bot).clear,true)
 })
