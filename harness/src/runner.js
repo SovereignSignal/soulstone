@@ -16,6 +16,7 @@ import { executeSkill } from './skills.js'
 import {wearBestArmor} from './armor.js'
 import { attachChatControl } from './chat-control.js'
 import { endClientTicks } from './tick-end.js'
+import {fireObservation} from './survival.js'
 
 const { pathfinder, goals } = pathfinding
 // A skill's deadline is an idle window: real progress slides it forward, up
@@ -81,7 +82,11 @@ export class Runner extends EventEmitter {
       this.log('spawn', { version: bot.version, position: this.position() })
       this.applyGoal()
     })
-    bot.on('health',()=>{if(this.bot===bot&&this.ready)this.log('survival_tick')})
+    // A health packet is when damage happens, so it carries a sample: trial 21 lost
+    // half its health on one walk and the log could not say where. The per-second
+    // tick below stays bare; it is only the controller's clock.
+    bot.on('health',()=>{if(this.bot===bot&&this.ready){const p=bot.entity?.position,r=v=>Math.round(v*10)/10
+      this.log('survival_tick',{health:bot.health,food:bot.food,...(p?{at:[r(p.x),r(p.y),r(p.z)]}:{}),...(fireObservation(bot).onFire?{onFire:true}:{})})}})
     // Air metadata belongs to one life. The server may not resend its default
     // on respawn, so retain unknown rather than the previous life's zero air.
     bot.on('respawn',()=>{if(this.bot===bot)bot.oxygenLevel=undefined})

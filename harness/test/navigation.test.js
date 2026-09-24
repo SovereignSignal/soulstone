@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {Vec3} from 'vec3'
 import minecraftData from 'minecraft-data'
 import pblock from 'prismarine-block'
-import {DoorAwareMovements,allowGroundBreaking} from '../src/navigation.js'
+import {DoorAwareMovements,allowGroundBreaking,LAVA_EDGE_COST} from '../src/navigation.js'
 const registry=minecraftData('1.21.4')
 const Block=pblock(registry)
 
@@ -63,4 +63,17 @@ test('the tower top has a neighbour below it in the actual movement graph',()=>{
  const {m}=walker(p=>p.y<=70?'dirt':(column(0,0)(p)&&p.y<=81?'dirt':'air'))
  const neighbours=m.getNeighbors({x:0,y:82,z:0,remainingBlocks:0})
  assert.ok(neighbours.some(n=>n.y<82),'no way down from the tower: '+JSON.stringify(neighbours.map(n=>[n.x,n.y,n.z])))
+})
+
+test('a cell beside lava costs extra to walk through, so routes keep off lava edges',()=>{
+ // Trial 21's last walk ended on a lava pool's edge and the bot arrived burning.
+ // The pathfinder refuses a lava cell itself; the cell next to it cost nothing.
+ const {m}=walker(p=>p.y<=63?'stone':(p.x===2&&p.y===64&&p.z===0?'lava':'air'))
+ const moves=m.getNeighbors({x:0,y:64,z:0,remainingBlocks:0})
+ const at=(x,z)=>moves.find(n=>n.x===x&&n.y===64&&n.z===z)
+ assert.ok(at(1,0)&&at(-1,0),'both flat steps exist')
+ assert.ok(at(1,0).cost-at(-1,0).cost>=LAVA_EDGE_COST,'the step beside the lava is priced above the one away from it')
+ assert.ok(!moves.some(n=>n.x===2&&n.z===0&&n.y===64),'the lava cell itself stays refused')
+ const clear=walker(p=>p.y<=63?'stone':'air').m.getNeighbors({x:0,y:64,z:0,remainingBlocks:0})
+ assert.equal(clear.find(n=>n.x===1&&n.z===0&&n.y===64).cost,at(-1,0).cost,'no lava, no surcharge')
 })

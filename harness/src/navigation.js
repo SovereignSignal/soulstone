@@ -56,10 +56,27 @@ export function openDoorHasCenterClearance(block) {
 }
 // The pinned pathfinder treats every door as a full cube, including open
 // wooden doors. Keep closed doors blocked and respect the actual open shape.
+// A cell beside lava costs extra to walk through. The pathfinder refuses a lava
+// cell and a dig that lets liquid in, but the cell next to lava cost nothing, and
+// trial 21's last walk ended on a pool's edge with the bot burning. Priced, not
+// forbidden: a shore route stays possible when it is the only one.
+export const LAVA_EDGE_COST=4
+const AROUND=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]
+// The eight cells around p at its own height; the first lava found, or null.
+// Runs for every node the search expands, so it reads state ids, not Blocks.
+export function lavaBeside(bot,p){
+ const lava=bot.registry.blocksByName.lava
+ for(const [dx,dz] of AROUND){
+  const q=p.offset(dx,0,dz),id=bot.world?.getBlockStateId?.(q)
+  if(Number.isInteger(id)?id>=lava.minStateId&&id<=lava.maxStateId:bot.blockAt?.(q)?.name==='lava')return q
+ }
+ return null
+}
 export class DoorAwareMovements extends Movements {
  constructor(bot,{surfaceWaterOnly=false}={}){
   super(bot);this.surfaceWaterOnly=surfaceWaterOnly;this.waterIDs=new Set([...WATER_BLOCKS].map(n=>bot.registry.blocksByName[n]?.id).filter(Number.isInteger))
   if(!surfaceWaterOnly)for(const id of this.waterIDs)this.blocksToAvoid.add(id)
+  this.exclusionAreasStep.push(block=>block?.position&&lavaBeside(bot,block.position)?LAVA_EDGE_COST:0)
  }
  getLandingBlock(node,dir){
   // Shared walking and gathering allow checked short descents. Measure feet

@@ -6,7 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import pathfinding from 'mineflayer-pathfinder'
 import { Vec3 } from 'vec3'
 import { fullCube } from './construction.js'
-import { DoorAwareMovements, allowGroundBreaking, requireReachedGoal, TRAVERSAL_DIG_COST } from './navigation.js'
+import { DoorAwareMovements, allowGroundBreaking, requireReachedGoal, TRAVERSAL_DIG_COST, lavaBeside } from './navigation.js'
 import { lineObstruction, LEG_TIMEOUT_MS, CLOSED_PER_LEG } from './travel.js'
 
 const { goals } = pathfinding
@@ -300,6 +300,14 @@ export async function walkNear(bot, target, { dig, protectedSites, check, stage,
 
 export async function gotoPosition(bot, task, { check, stage, progress, movements }) {
   const goal = validateGotoGoal(task.goal)
+  // The planner picks goto cells from what it has seen, and trial 21's last one
+  // sat on a lava pool's edge. Standing beside lava is how a player catches fire,
+  // so a planned destination keeps a cell clear, at feet and head height.
+  const cell = new Vec3(goal.x, goal.y, goal.z)
+  for (const q of [cell, cell.offset(0, 1, 0)]) {
+    const lava = lavaBeside(bot, q)
+    if (lava) throw new Error(`${key(cell)} is beside lava at ${key(lava)}; standing there is how the bot catches fire. Choose a cell at least two blocks from lava.`)
+  }
   return walkNear(bot, goal, { dig: goal.dig, protectedSites: goal.protectedSites || [], check, stage, progress, movements })
 }
 

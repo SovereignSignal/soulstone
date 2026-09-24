@@ -343,6 +343,21 @@ test('dig refuses a workstation by name and says what to do instead', async () =
   assert.equal(bot._dug || 0, 0)
 })
 
+test('goto refuses a destination beside lava before taking a step', async () => {
+  // Trial 21: the planner sent goto to a cell on a lava pool's edge "to look for
+  // a bigger lava exposure"; the bot arrived burning and died ten seconds later.
+  const bot = fakeBot({ fills: [[5, 64, 0, lava]] })
+  await assert.rejects(
+    () => gotoPosition(bot, { kind: 'goto', goal: validateGotoGoal({ x: 4, y: 64, z: 0, dig: true }) }, deps()),
+    /4,64,0 is beside lava at 5,64,0/,
+  )
+  assert.equal(bot.entity.position.x, 0.5, 'refused before moving')
+  const head = fakeBot({ fills: [[5, 65, 1, lava]] })
+  await assert.rejects(() => gotoPosition(head, { kind: 'goto', goal: validateGotoGoal({ x: 4, y: 64, z: 0, dig: false }) }, deps()), /beside lava at 5,65,1/, 'head height and diagonals count')
+  const ok = await gotoPosition(bot, { kind: 'goto', goal: validateGotoGoal({ x: 3, y: 64, z: 0, dig: false }) }, deps())
+  assert.equal(ok.receipt, 'arrived', 'two cells off is allowed')
+})
+
 test('goto refuses destinations beyond 64 blocks and names the distance', async () => {
   const bot = fakeBot()
   await assert.rejects(
