@@ -68,14 +68,17 @@ export const fillableWaterSource=(bot,options)=>fillableWaterSources(bot,options
 // block, as it was beside the VM bot. Name that block: a source, a diggable
 // solid beside it with open air on its far side, and no lava touching it.
 // Side walls only, so the bot never digs out the roof it could be standing on.
+// The cell beyond the wall must be somewhere to stand at the wall's own level:
+// opened from below, the lake pours onto the bot, as it did live on the VM.
 export function sealedWaterSource(bot,{radius=32,protectedSites=[]}={}){
  const here=bot.entity.position,found=[]
  for(const p of waterSources(bot,radius))for(const [dx,dz] of SIDES){
   const wall=p.offset(dx,0,dz),beyond=wall.offset(dx,0,dz),b=bot.blockAt(wall)
-  if(!fullCube(bot.registry,b?.name)||b.diggable===false||!AIR.has(bot.blockAt(beyond)?.name))continue
+  if(!fullCube(bot.registry,b?.name)||b.diggable===false)continue
+  if(!fullCube(bot.registry,bot.blockAt(beyond.offset(0,-1,0))?.name)||![0,1].every(y=>AIR.has(bot.blockAt(beyond.offset(0,y,0))?.name)))continue
   if([[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].some(([x,y,z])=>bot.blockAt(wall.offset(x,y,z))?.name==='lava'))continue
   if(inProtectedSite(wall,protectedSites))continue
-  found.push({source:p,wall,distance:wall.distanceTo(here)})
+  found.push({source:p,wall,stand:beyond,distance:wall.distanceTo(here)})
  }
  return found.sort((a,b)=>a.distance-b.distance)[0]??null
 }

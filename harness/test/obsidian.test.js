@@ -156,6 +156,11 @@ test('flowing water counts as an open face, and a lake sealed by one block names
  const found=sealedWaterSource(bot)
  assert.ok(found,'the sealed lake is found')
  assert.deepEqual([found.wall.x,found.wall.z,found.source.x],[2,0,3],'the one stone block between tunnel and water')
+ assert.deepEqual([found.stand.x,found.stand.y,found.stand.z],[1,62,0],'opened from a standing cell level with the wall, never from below it')
+ const hanging=lake();hanging['1,63,0']='air';hanging['1,64,0']='air'   // air beyond the wall but no floor at the water's level
+ hanging['1,62,0']='air';hanging['1,61,0']='air'
+ const low=sealedWaterSource(fixture({pool:false,extra:hanging}).bot)
+ assert.ok(!low||low.stand.y>=low.wall.y,'a stance below the wall would be flooded when it opens')
  assert.equal(sealedWaterSource(fixture({pool:false}).bot),null)
 })
 

@@ -328,7 +328,8 @@ export async function executeWorldSkill(bot,task,context,gather) {
    const fillFrom=async source=>{
     progress(`Filling the bucket at ${key(source)}`)
     // The bucket's own walk cannot tunnel; get within reach first with one that can.
-    await dig(source,3);check()
+    // Within the bucket's own range of two, so its walk, which cannot dig, has nothing left to do.
+    await dig(source,2);check()
     await useHeldItem(bot,{goal:{item:'bucket',count:1,expect:'',target:{x:source.x,y:source.y,z:source.z,how:'point',dimension:dimensionOf(bot)||'overworld'}}},{check,stage,persist:context.persist,walk,settle,approach:approachPlacement})
    }
    let failure=null
@@ -338,7 +339,9 @@ export async function executeWorldSkill(bot,task,context,gather) {
    const sealed=sealedWaterSource(bot,{protectedSites:task.goal.protectedSites||[]})
    if(!sealed)throw failure||new Error('No water source within 32 blocks, open or behind one block of rock, to fill the bucket from')
    progress(`Opening ${key(sealed.wall)} to reach the water behind it`)
-   await dig(sealed.wall,3)
+   await dig(sealed.stand,0)
+   const feet=bot.entity.position.floored()
+   if(feet.y<sealed.wall.y)throw new Error(`Standing at ${key(feet)}, below the wall at ${key(sealed.wall)}: opening it would flood me`)
    const wall=bot.blockAt(sealed.wall)
    await bot.tool.equipForBlock(wall,{requireHarvest:false,getFromChest:false});check();await bot.dig(wall);check()
    await fillFrom(sealed.source)
