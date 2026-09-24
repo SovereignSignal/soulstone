@@ -99,13 +99,13 @@ test('an empty bucket is filled before the pour',async()=>{
 
 test('no open lava is a failure that says so, never a success',async()=>{
  const f=fixture({pool:false})
- await assert.rejects(makeObsidian(f.bot,task(4),f.ctx),/No obsidian made: no open lava source/)
+ await assert.rejects(makeObsidian(f.bot,task(4),f.ctx),/No obsidian made: no pour site within 64 blocks: saw 0 lava sources/)
 })
 
 test('a pool too small for the total returns what it got as partial, with the reason',async()=>{
  const f=fixture()
  const r=await makeObsidian(f.bot,task(20),f.ctx)
- assert.equal(r.partial,true);assert.equal(r.count,9);assert.match(r.stoppedBecause,/no open lava source/)
+ assert.equal(r.partial,true);assert.equal(r.count,9);assert.match(r.stoppedBecause,/no pour site within 64 blocks/)
 })
 
 test('the goal is a bounded total',()=>{
@@ -139,29 +139,34 @@ test('a bucket fills from a lake open only at the side, as cave water usually is
  const {bot:dry}=fixture({pool:false});assert.equal(fillableWaterSource(dry),null)
 })
 
-test('flowing water counts as an open face, and a lake sealed by one block names the block to open',async()=>{
- // Live, 2026-09-24: the lake beside the VM bot had been sealed again by the
- // time make_obsidian ran; the only thing between the tunnel and the water was
- // one block of deepslate.
- const {fillableWaterSource,sealedWaterSource}=await import('../src/obsidian.js')
+test('flowing water counts as an open face; a lake sealed by rock is not a source',async()=>{
+ // Live, 2026-09-24: opening a sealed lake flooded the bot's tunnel twice, the
+ // second time from a level stance, and cost trial 23 ten minutes of surfacing.
+ // Sealed water is left sealed; a bucket fills only where it can already reach.
+ const {fillableWaterSource}=await import('../src/obsidian.js')
  const lake=()=>{const extra={}
   for(let y=60;y<=63;y++)for(let x=3;x<=8;x++)for(let z=-3;z<=3;z++)extra[`${x},${y},${z}`]='water'
   for(let x=3;x<=8;x++)for(let z=-3;z<=3;z++)extra[`${x},64,${z}`]='stone'
   return extra}
  const flowing=lake();flowing['2,62,0']='flowing_water';flowing['1,62,0']='air';flowing['1,63,0']='air'
  assert.deepEqual([fillableWaterSource(fixture({pool:false,extra:flowing}).bot)?.x],[3],'a bucket reaches a source through flowing water')
- const sealed=lake();sealed['1,62,0']='air';sealed['1,63,0']='air'   // tunnel ends one block short of the lake
- const {bot}=fixture({pool:false,extra:sealed})
- assert.equal(fillableWaterSource(bot),null)
- const found=sealedWaterSource(bot)
- assert.ok(found,'the sealed lake is found')
- assert.deepEqual([found.wall.x,found.wall.z,found.source.x],[2,0,3],'the one stone block between tunnel and water')
- assert.deepEqual([found.stand.x,found.stand.y,found.stand.z],[1,62,0],'opened from a standing cell level with the wall, never from below it')
- const hanging=lake();hanging['1,63,0']='air';hanging['1,64,0']='air'   // air beyond the wall but no floor at the water's level
- hanging['1,62,0']='air';hanging['1,61,0']='air'
- const low=sealedWaterSource(fixture({pool:false,extra:hanging}).bot)
- assert.ok(!low||low.stand.y>=low.wall.y,'a stance below the wall would be flooded when it opens')
- assert.equal(sealedWaterSource(fixture({pool:false}).bot),null)
+ const sealed=lake();sealed['1,62,0']='air';sealed['1,63,0']='air'
+ assert.equal(fillableWaterSource(fixture({pool:false,extra:sealed}).bot),null)
+ const mod=await import('../src/obsidian.js');assert.equal(mod.sealedWaterSource,undefined,'no code path opens a lake')
+})
+
+test('a failed site search says what it saw and which rule turned each source away',async()=>{
+ // Trial 23: six make_obsidian calls failed "no open lava source with a solid
+ // rim and a lava-free standing cell", which could not say whether there was no
+ // lava at all or a rule rejected what was there.
+ const {surveyPourSites}=await import('../src/obsidian.js')
+ const none=surveyPourSites(fixture({pool:false}).bot)
+ assert.equal(none.sites.length,0);assert.equal(none.report.sources,0)
+ const covered=fixture({extra:Object.fromEntries([0,1,2].flatMap(x=>[0,1,2].map(z=>[`${x},64,${z}`,'stone'])))})
+ const r=surveyPourSites(covered.bot).report
+ assert.equal(r.sources,9);assert.equal(r.open,0,'a pool with rock over it is not open to the air')
+ const ok=surveyPourSites(fixture().bot)
+ assert.ok(ok.sites.length>0);assert.ok(ok.report.open===9&&ok.report.rims>0&&ok.report.stands>0)
 })
 
 test('a level source is tried before a nearer one high overhead',async()=>{

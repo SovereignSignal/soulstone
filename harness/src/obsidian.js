@@ -29,23 +29,33 @@ export function validateObsidianGoal(goal){
 // Where to pour from. A site is a lava source open to the air, a solid rim
 // block beside it with air above (where the water will land), and a standing
 // cell one further out on solid ground with no lava around the body, so the
-// bot never works from a pool's edge. Nearest first.
-export function pourSites(bot,{protectedSites=[],skip=new Set(),radius=32}={}){
+// bot never works from a pool's edge. Nearest first. The report counts how far
+// each lava source got through those rules, so a failure can say which one bit.
+export function surveyPourSites(bot,{protectedSites=[],skip=new Set(),radius=64}={}){
  const id=bot.registry.blocksByName.lava.id,here=bot.entity.position
- const sources=(bot.findBlocks({matching:id,maxDistance:radius,count:256})||[])
-  .map(p=>bot.blockAt(p)).filter(b=>b&&isSource(b)&&AIR.has(bot.blockAt(b.position.offset(0,1,0))?.name))
+ const all=(bot.findBlocks({matching:id,maxDistance:radius,count:256})||[]).map(p=>bot.blockAt(p)).filter(b=>b&&isSource(b))
+ const sources=all.filter(b=>AIR.has(bot.blockAt(b.position.offset(0,1,0))?.name))
+ const report={radius,sources:all.length,open:sources.length,rims:0,stands:0,lavaFree:0}
  const sites=[],seen=new Set()
  for(const l of sources)for(const [dx,dz] of SIDES){
   const rim=l.position.offset(dx,0,dz),water=rim.offset(0,1,0),stand=l.position.offset(2*dx,1,2*dz)
   if(seen.has(key(rim))||skip.has(key(rim)))continue
   seen.add(key(rim))
   if(!fullCube(bot.registry,bot.blockAt(rim)?.name)||!AIR.has(bot.blockAt(water)?.name))continue
+  report.rims++
   if(!fullCube(bot.registry,bot.blockAt(stand.offset(0,-1,0))?.name)||![0,1].every(y=>AIR.has(bot.blockAt(stand.offset(0,y,0))?.name)))continue
+  report.stands++
   if(lavaBeside(bot,stand)||lavaBeside(bot,stand.offset(0,1,0)))continue
+  report.lavaFree++
   if(inProtectedSite(water,protectedSites)||inProtectedSite(stand,protectedSites))continue
   sites.push({lava:l.position,rim,water,stand,distance:stand.distanceTo(here)})
  }
- return sites.sort((a,b)=>a.distance-b.distance).slice(0,16)
+ return {sites:sites.sort((a,b)=>a.distance-b.distance).slice(0,16),report}
+}
+export const pourSites=(bot,options)=>surveyPourSites(bot,options).sites
+export function describeSurvey(r){
+ if(!r.sources)return `saw 0 lava sources`
+ return `saw ${r.sources} lava source${r.sources===1?'':'s'}, ${r.open} open to the air, ${r.rims} rim${r.rims===1?'':'s'} with air above, ${r.stands} with a standing cell two out, ${r.lavaFree} of those clear of lava`
 }
 
 // The nearest water source a bucket can reach: any open face will do. Cave water
@@ -64,25 +74,6 @@ export function fillableWaterSources(bot,{radius=32}={}){
   .sort((a,b)=>cost(a)-cost(b))
 }
 export const fillableWaterSource=(bot,options)=>fillableWaterSources(bot,options)[0]??null
-// Underground water is often a lake sealed from the tunnel beside it by one
-// block, as it was beside the VM bot. Name that block: a source, a diggable
-// solid beside it with open air on its far side, and no lava touching it.
-// Side walls only, so the bot never digs out the roof it could be standing on.
-// The cell beyond the wall must be somewhere to stand at the wall's own level:
-// opened from below, the lake pours onto the bot, as it did live on the VM.
-export function sealedWaterSource(bot,{radius=32,protectedSites=[]}={}){
- const here=bot.entity.position,found=[]
- for(const p of waterSources(bot,radius))for(const [dx,dz] of SIDES){
-  const wall=p.offset(dx,0,dz),beyond=wall.offset(dx,0,dz),b=bot.blockAt(wall)
-  if(!fullCube(bot.registry,b?.name)||b.diggable===false)continue
-  if(!fullCube(bot.registry,bot.blockAt(beyond.offset(0,-1,0))?.name)||![0,1].every(y=>AIR.has(bot.blockAt(beyond.offset(0,y,0))?.name)))continue
-  if([[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].some(([x,y,z])=>bot.blockAt(wall.offset(x,y,z))?.name==='lava'))continue
-  if(inProtectedSite(wall,protectedSites))continue
-  found.push({source:p,wall,stand:beyond,distance:wall.distanceTo(here)})
- }
- return found.sort((a,b)=>a.distance-b.distance)[0]??null
-}
-
 // A bucket writes use_item, which the server raycasts along the look vector;
 // settle the look for a tick first, as `use` does.
 async function useBucket(bot,item,at,check){
@@ -115,8 +106,8 @@ export async function makeObsidian(bot,task,{check,progress,stage,walk,settle,mi
    await fill();check()
    if(!count('water_bucket')){reason='the bucket could not be filled';break}
   }
-  const site=pourSites(bot,{protectedSites:goal.protectedSites,skip})[0]
-  if(!site){reason='no open lava source with a solid rim and a lava-free standing cell within 32 blocks';break}
+  const survey=surveyPourSites(bot,{protectedSites:goal.protectedSites,skip}),site=survey.sites[0]
+  if(!site){reason=`no pour site within ${survey.report.radius} blocks: ${describeSurvey(survey.report)}`;break}
   skip.add(key(site.rim));record.skipped=[...skip];persist?.()
   progress(`Converting lava at ${key(site.lava)}: pouring from ${key(site.stand)}`);stage('pouring')
   try{await approach(site.stand,0)}catch(error){check();reason=`the standing cell ${key(site.stand)} was not reached: ${error.message}`;continue}

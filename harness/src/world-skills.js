@@ -1,6 +1,6 @@
 import {harvestBerries} from './foraging.js'
 import {useHeldItem,dimensionOf} from './use-item.js'
-import {makeObsidian,fillableWaterSources,sealedWaterSource} from './obsidian.js'
+import {makeObsidian,fillableWaterSources} from './obsidian.js'
 import {walkNear} from './primitives.js'
 import {fitConstructionSite} from './construction-site.js'
 import {surveyGround,candidateSites} from './site-survey.js'
@@ -327,9 +327,8 @@ export async function executeWorldSkill(bot,task,context,gather) {
   const fill=async()=>{
    const fillFrom=async source=>{
     progress(`Filling the bucket at ${key(source)}`)
-    // The bucket's own walk cannot tunnel; get within reach first with one that can.
-    // Within the bucket's own range of two, so its walk, which cannot dig, has nothing left to do.
-    // Wading allowed: the cells within reach of a lake are often a foot of flowing water.
+    // The bucket's own walk cannot tunnel, so close to its range of two with one
+    // that can, wading: the cells within reach of a lake are often flowing water.
     await dig(source,2,true);check()
     await useHeldItem(bot,{goal:{item:'bucket',count:1,expect:'',target:{x:source.x,y:source.y,z:source.z,how:'point',dimension:dimensionOf(bot)||'overworld'}}},{check,stage,persist:context.persist,walk,settle,approach:approachPlacement})
    }
@@ -337,15 +336,8 @@ export async function executeWorldSkill(bot,task,context,gather) {
    for(const source of fillableWaterSources(bot).slice(0,3)){
     try{await fillFrom(source);return}catch(error){check();failure=error;progress(`Could not fill at ${key(source)}: ${error.message}`)}
    }
-   const sealed=sealedWaterSource(bot,{protectedSites:task.goal.protectedSites||[]})
-   if(!sealed)throw failure||new Error('No water source within 32 blocks, open or behind one block of rock, to fill the bucket from')
-   progress(`Opening ${key(sealed.wall)} to reach the water behind it`)
-   await dig(sealed.stand,0)
-   const feet=bot.entity.position.floored()
-   if(feet.y<sealed.wall.y)throw new Error(`Standing at ${key(feet)}, below the wall at ${key(sealed.wall)}: opening it would flood me`)
-   const wall=bot.blockAt(sealed.wall)
-   await bot.tool.equipForBlock(wall,{requireHarvest:false,getFromChest:false});check();await bot.dig(wall);check()
-   await fillFrom(sealed.source)
+   // Sealed water stays sealed: opening a lake flooded the tunnel twice live.
+   throw failure||new Error('No water source a bucket can reach within 32 blocks; bring water from a surface lake or river, or a cave pool open to the air')
   }
   return makeObsidian(bot,task,{check,progress,stage,walk,settle,count,persist:context.persist,fill,mine:(name,total)=>mineExposed(name,total,[task.kind]),approach:dig})
  }
