@@ -177,3 +177,13 @@ test('a level source is tried before a nearer one high overhead',async()=>{
  const order=fillableWaterSources(bot).map(p=>`${p.x},${p.y},${p.z}`)
  assert.deepEqual(order,['3,64,1','-5,72,1'])
 })
+
+test('a failed survey names the nearest lava it saw, so the next move has a direction',async()=>{
+ // Trial 25: six calls in a row "saw 1 lava source, 0 open to the air" while
+ // the bot moved a few blocks between them; nothing said where that lava was.
+ const {surveyPourSites,describeSurvey}=await import('../src/obsidian.js')
+ const covered=fixture({extra:Object.fromEntries([0,1,2].flatMap(x=>[0,1,2].map(z=>[`${x},64,${z}`,'stone'])))})
+ const r=surveyPourSites(covered.bot).report
+ assert.ok(r.nearest,'the nearest source is recorded')
+ assert.match(describeSurvey(r),/nearest at 0,63,[012]/)
+})

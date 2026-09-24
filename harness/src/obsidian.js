@@ -35,7 +35,8 @@ export function surveyPourSites(bot,{protectedSites=[],skip=new Set(),radius=64}
  const id=bot.registry.blocksByName.lava.id,here=bot.entity.position
  const all=(bot.findBlocks({matching:id,maxDistance:radius,count:256})||[]).map(p=>bot.blockAt(p)).filter(b=>b&&isSource(b))
  const sources=all.filter(b=>AIR.has(bot.blockAt(b.position.offset(0,1,0))?.name))
- const report={radius,sources:all.length,open:sources.length,rims:0,stands:0,lavaFree:0}
+ const nearest=[...all].sort((a,b)=>a.position.distanceTo(here)-b.position.distanceTo(here))[0]?.position
+ const report={radius,sources:all.length,open:sources.length,rims:0,stands:0,lavaFree:0,...(nearest?{nearest:{x:nearest.x,y:nearest.y,z:nearest.z}}:{})}
  const sites=[],seen=new Set()
  for(const l of sources)for(const [dx,dz] of SIDES){
   const rim=l.position.offset(dx,0,dz),water=rim.offset(0,1,0),stand=l.position.offset(2*dx,1,2*dz)
@@ -55,7 +56,8 @@ export function surveyPourSites(bot,{protectedSites=[],skip=new Set(),radius=64}
 export const pourSites=(bot,options)=>surveyPourSites(bot,options).sites
 export function describeSurvey(r){
  if(!r.sources)return `saw 0 lava sources`
- return `saw ${r.sources} lava source${r.sources===1?'':'s'}, ${r.open} open to the air, ${r.rims} rim${r.rims===1?'':'s'} with air above, ${r.stands} with a standing cell two out, ${r.lavaFree} of those clear of lava`
+ const near=r.nearest?` (nearest at ${r.nearest.x},${r.nearest.y},${r.nearest.z})`:''
+ return `saw ${r.sources} lava source${r.sources===1?'':'s'}${near}, ${r.open} open to the air, ${r.rims} rim${r.rims===1?'':'s'} with air above, ${r.stands} with a standing cell two out, ${r.lavaFree} of those clear of lava`
 }
 
 // The nearest water source a bucket can reach: any open face will do. Cave water
