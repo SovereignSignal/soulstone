@@ -7,7 +7,7 @@ import {descendFromCanopy} from './canopy.js'
 import {climbSkill} from './route-recovery.js'
 import {sleepThroughNight} from './sleep.js'
 import {travelTo} from './travel.js'
-import {gotoPosition,digToward,watchPathfinder} from './primitives.js'
+import {gotoPosition,digToward,watchPathfinder,walkNear} from './primitives.js'
 import {placeAt,collectDrops,attackEntity} from './primitives-world.js'
 import {huntFor} from './hunt.js'
 import {defendAgainstMob} from './combat.js'
@@ -137,7 +137,19 @@ export async function executeSkill(bot, task, context) {
       try {
         bot.pathfinder.setMovements(context.gatheringMovements)
         stage('walking')
-        if (!bot.canDigBlock(block)) await walk(new goals.GoalLookAtBlock(block.position, bot.world))
+        if (!bot.canDigBlock(block)) {
+          try { await walk(new goals.GoalLookAtBlock(block.position, bot.world)) }
+          catch (error) {
+            check(); if (error.name !== 'NoPath') throw error
+            // The gathering profile breaks only logs and leaves, so from a pit or
+            // a sealed hut no tree is reachable. The dig profile may tunnel or
+            // tower, priced so any walk still wins, and never breaks a saved
+            // footprint or a fixture; failing that, the log is skipped as before.
+            progress(`No walking route to the log at ${block.position.x},${block.position.y},${block.position.z}; digging toward it`)
+            try { await walkNear(bot, block.position, { dig: true, protectedSites: task.goal.protectedSites || [], check, stage, progress, movements: context.gatheringMovements, timeoutMs: 45000, range: 3 }) }
+            catch (dug) { check(); throw Object.assign(new Error(`${error.message} Digging toward it failed too: ${dug.message}`), { name: 'NoPath' }) }
+          }
+        }
         check()
         const observed = bot.blockAt(block.position)
         if (names.includes(observed?.name)) {

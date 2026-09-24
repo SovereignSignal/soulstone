@@ -1,5 +1,5 @@
 import {validateTravelGoal} from './travel.js'
-import {validateGotoGoal,validateDigGoal} from './primitives.js'
+import {validateGotoGoal,validateDigGoal,validateProtectedSites} from './primitives.js'
 import {validatePlaceAtGoal,validateCollectGoal,validateAttackGoal} from './primitives-world.js'
 import {validateHarvest} from './foraging.js'
 import {validateEatGoal} from './survival.js'
@@ -76,7 +76,8 @@ export function validateTaskGoal(kind, goal) {
   if (kind === 'build')return {...(goal?.purpose==='shelter'?{purpose:'shelter'}:{}),design:validateDesign(goal?.design),near:validateGoal(goal?.near),...(goal?.protectedSites?{protectedSites:structuredClone(goal.protectedSites)}:{}),...(goal?.origin?{origin:validateGoal(goal.origin)}:{}),...(goal?.wood&&isLog(goal.wood)?{wood:goal.wood}:{})}
   if (kind === 'navigate') return validateGoal(goal)
   if (kind === 'follow' && typeof goal?.player === 'string' && /^[A-Za-z0-9_]{1,16}$/.test(goal.player)) return { player: goal.player }
-  if (kind === 'gather' && validResource(goal?.item) && Number.isInteger(goal.count) && goal.count >= 1 && goal.count <= 32) return { item: goal.item, count: goal.count }
+  // A gather may dig toward a log it cannot walk to, so it carries the saved footprints it must not break.
+  if (kind === 'gather' && validResource(goal?.item) && Number.isInteger(goal.count) && goal.count >= 1 && goal.count <= 32) { validateProtectedSites(goal.protectedSites); return { item: goal.item, count: goal.count, ...(goal.protectedSites?.length ? { protectedSites: goal.protectedSites } : {}) } }
   if (kind === 'craft' && goal?.item === 'wooden_pickaxe' && goal.count === 1) return { item: goal.item, count: 1 }
   throw new Error('Invalid skill goal; check action, item, count, coordinates and design')
 }

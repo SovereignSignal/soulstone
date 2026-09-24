@@ -988,6 +988,22 @@ test('an inspect naming blocks widens the next round\'s world scan to them',asyn
  assert.equal(second.world.blocks.scanned.radius,16)
 })
 
+test('a gather step carries the saved base footprint, since gather may dig toward a log',async()=>{
+ const {guardIntent}=await import('../src/companion/intent.js')
+ let rounds=0
+ const [r,c]=setup(async(_text)=>{
+  if(++rounds===1)return guardIntent(validatePlan({reply:'Getting wood',steps:[{action:'gather',name:'',item:'logs',count:3,design:[],target:null}]}),_text)
+  return {reply:'Gathered',steps:[]}
+ })
+ c.projects={base:{build:{origin:{x:10,y:64,z:0},design:[{x:0,y:0,z:0,block:'cobblestone'}]}}}
+ r.bot.entity={position:new Vec3(0.5,64,0.5),onGround:true};r.bot.entities={};r.bot.blockAt=p=>({name:p.y<64?'stone':'air',boundingBox:p.y<64?'block':'empty'})
+ r.command=function(command){this.commands.push(command);this.task={id:String(this.commands.length),kind:command.action,status:'running'};if(command.action!=='stop')queueMicrotask(()=>{this.task={...this.task,status:'completed',result:{item:'logs',count:3}};this.emit('event',{type:'task_finished',task:this.task})})}
+ await c.submit('Get three logs')
+ const command=r.commands.find(x=>x.action==='gather')
+ assert.ok(command,JSON.stringify(c.messages))
+ assert.deepEqual(command.goal.protectedSites,[{minX:10,maxX:10,minZ:0,maxZ:0}])
+})
+
 test('a collect step carries the saved base footprint, since collect may dig',async()=>{
  const {guardIntent}=await import('../src/companion/intent.js')
  let rounds=0

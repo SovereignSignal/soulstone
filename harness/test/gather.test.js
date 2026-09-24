@@ -121,6 +121,41 @@ test('a log the bot cannot reach says what the pathfinder and the server were do
  assert.match(line,/server corrections 3/)
 })
 
+test('a log with no walking route is dug toward, within the saved footprints, before it is skipped',async()=>{
+ // Trial 15, 24 September: 27 logs failed "No path to the goal!" on a 1-step
+ // plan from inside the agent's own quarry pit. The gathering profile may break
+ // only logs and leaves, so from a stone pit no tree is reachable; 11.7 minutes
+ // went there before two manual digs let gather take five logs in 99 seconds.
+ const messages=[],profiles=[]
+ let inventory=[]
+ const log=new Vec3(6,64,0)
+ const registry=(await import('prismarine-registry')).default('1.21.4')
+ const bot={registry,inventory:{items:()=>inventory},entity:{position:new Vec3(0,64,0),onGround:true,velocity:new Vec3(0,0,0)},
+  on(){},off(){},findBlocks:()=>[log],world:{getBlock:p=>bot.blockAt(p)},
+  blockAt:p=>({position:p,name:p.equals(log)?'spruce_log':p.y<64?'stone':'air',boundingBox:p.equals(log)||p.y<64?'block':'empty'}),
+  canDigBlock:b=>b.position.equals(log)&&bot.entity.position.distanceTo(log)<=4,tool:{async equipForBlock(){}},dig:async()=>{inventory=[{name:'spruce_log',count:1}]},clearControlStates(){},
+  pathfinder:{setGoal(){},setMovements(m){profiles.push(m)},async goto(goal){
+   if(goal.pos)throw Object.assign(new Error('No path to the goal!'),{name:'NoPath'})
+   bot.entity.position=new Vec3(4,64,0)
+  }}}
+ const protectedSites=[{minX:20,maxX:24,minZ:-2,maxZ:2}]
+ const result=await executeSkill(bot,{kind:'gather',goal:{item:'logs',count:1,protectedSites}},{check(){},progress:m=>messages.push(m),stage(){},movements:{},gatheringMovements:{tag:'gathering'}})
+ assert.equal(result.count,1,messages.join(' | '))
+ assert.ok(messages.some(m=>/digging toward it/.test(m)),messages.join(' | '))
+ const dig=profiles.find(m=>m?.canDig===true&&m.exclusionBreak)
+ assert.ok(dig,'the fallback walk used the dig-capable profile')
+ assert.ok(dig.exclusionBreak({name:'stone',boundingBox:'block',position:new Vec3(22,64,0),diggable:true})>=100,'never inside a saved footprint')
+ assert.equal(profiles[profiles.indexOf(dig)+1]?.tag,'gathering','the gathering profile is restored right after the dig walk')
+})
+
+test('a gather goal carries saved footprints through the task store and rejects a malformed one',async()=>{
+ const {validateTaskGoal}=await import('../src/task-store.js')
+ const sites=[{minX:1,maxX:2,minZ:3,maxZ:4}]
+ assert.deepEqual(validateTaskGoal('gather',{item:'logs',count:3,protectedSites:sites}),{item:'logs',count:3,protectedSites:sites})
+ assert.deepEqual(validateTaskGoal('gather',{item:'logs',count:3}),{item:'logs',count:3})
+ assert.throws(()=>validateTaskGoal('gather',{item:'logs',count:3,protectedSites:[{minX:5,maxX:1,minZ:0,maxZ:1}]}),/rectangle/)
+})
+
 test('a bot that cannot walk stops exploring and says so, instead of blaming the world',async()=>{
  // Eight legs against a wall cost seconds and zero displacement, then reported
  // "no logs within 48 blocks ... move me near trees" while a trunk stood 91

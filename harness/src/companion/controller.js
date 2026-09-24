@@ -916,7 +916,7 @@ export class Teammate extends EventEmitter {
               if(step.item){applyInspectBlockRequest(this.requestProgress,step.item);this.persist()}
             } else if(step.action!=='inspect') {
               let command
-              if(step.action==='gather')command={action:'gather',goal:{item:step.item||'oak_log',count:step.count},timeoutMs:180000}
+              if(step.action==='gather'){const sites=projectFootprints(this.projects);command={action:'gather',goal:{item:step.item||'oak_log',count:step.count,...(sites.length?{protectedSites:sites}:{})},timeoutMs:180000}}
               else if(['acquire','prepare','eat','harvest','hunt'].includes(step.action))command={action:step.action,goal:{item:step.item,count:step.count},timeoutMs:600000}
               else if(step.action==='travel')command={action:'travel',goal:validateObservedTravelGoal(this.runner.bot,step.target),timeoutMs:180000}
               else if(step.action==='goto')command={action:'goto',goal:validateGotoGoal({...step.target,protectedSites:projectFootprints(this.projects)}),timeoutMs:180000}
