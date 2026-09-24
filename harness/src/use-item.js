@@ -25,6 +25,8 @@ const AROUND=[[0,0,0],[0,-1,0],[0,1,0],[0,0,-1],[0,0,1],[-1,0,0],[1,0,0]]
 
 export const dimensionOf=bot=>String(bot?.game?.dimension||'').replace(/^minecraft:/,'')||null
 const key=p=>`${p.x}, ${p.y}, ${p.z}`
+// The server measures reach from the eyes: a target below the bot is further than its feet say.
+const eye=bot=>bot.entity.position.offset(0,bot.entity.eyeHeight||1.62,0)
 // Point mode writes use_item, which the server raycasts. Only buckets need it,
 // because BucketItem implements Item.use() and never useOn, so a click at a
 // water cell does nothing at all. Gated by mechanism, not by prose in a prompt.
@@ -137,7 +139,7 @@ export async function useHeldItem(bot,task,{check,walk,settle,stage,persist,appr
  let send
  if(t.how==='point'){
   await walk(new goals.GoalNear(p.x,p.y,p.z,2));check()
-  if(bot.entity.position.distanceTo(p.offset(.5,.5,.5))>4.5)throw new Error(`Cannot reach ${key(p)} to point at it; the server raycasts about 4.5 blocks along the look vector. Travel closer and repeat the use.`)
+  if(eye(bot).distanceTo(p.offset(.5,.5,.5))>4.5)throw new Error(`Cannot reach ${key(p)} to point at it; the server raycasts about 4.5 blocks from the eyes along the look vector. Travel closer and repeat the use.`)
   // The server raycasts along the look vector, so the orientation has to reach
   // it before use_item does. Sending both in one tick let the server raycast on
   // the previous orientation: on a real server a bucket fill worked, then did
@@ -157,7 +159,7 @@ export async function useHeldItem(bot,task,{check,walk,settle,stage,persist,appr
   }else{
    // A collision raycast can never finish against something with no shape.
    await walk(new goals.GoalNear(p.x,p.y,p.z,2));check()
-   if(bot.entity.position.distanceTo(p.offset(.5,.5,.5))>4.5)throw new Error(`Cannot reach ${key(p)}; travel closer and repeat the use.`)
+   if(eye(bot).distanceTo(p.offset(.5,.5,.5))>4.5)throw new Error(`Cannot reach ${key(p)}; travel closer and repeat the use.`)
    send=async()=>{await bot._genericPlace(bot.blockAt(p),new Vec3(0,1,0),{swingArm:'right'})}
   }
  }
@@ -217,9 +219,17 @@ export async function useHeldItem(bot,task,{check,walk,settle,stage,persist,appr
    (extinguished===null?'':` The fire it started ${extinguished?'was put out':'could not be put out'}.`))
  }
  // Filling a bucket is proven by the transmutation alone: an infinite source
- // still reads `water` afterwards. Emptying one is not, because a pour that
- // landed anywhere, or evaporated in the Nether, transmutes identically.
- if(changed.length||(item==='bucket'&&spendMoved)){clear();return {...base,receipt:'use_change_observed'}}
+ // still reads `water` afterwards, and water flowing nearby changes the scene
+ // every tick, so a scene change without a filled bucket is no fill at all
+ // (trial 24 reported three fills with the bucket still empty). Emptying one
+ // is the other way round: a pour that landed anywhere, or evaporated in the
+ // Nether, transmutes identically, so it needs the scene.
+ if(item==='bucket'){
+  if(spendMoved){clear();return {...base,receipt:'use_change_observed'}}
+  clear()
+  throw new Error(`The bucket was not filled at ${key(p)}${changed.length?': water moved nearby, but a bucket fills only from a source it hits':''}. Aim at a water or lava source cell with nothing in between.`)
+ }
+ if(changed.length){clear();return {...base,receipt:'use_change_observed'}}
  if(spendMoved){task.use.uncertain=true;persist()
   return {...base,receipt:'use_effect_unobserved',partial:true,next:'Re-observe the target block and the inventory'}}
  clear()

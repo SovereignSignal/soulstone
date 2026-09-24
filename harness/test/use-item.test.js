@@ -496,3 +496,22 @@ test('a pointed use lets the look reach the server before the item is used', asy
   assert.deepEqual(order, ['look', 'tick', 'activate', 'deactivate'],
     `the look must be settled before the use: ${JSON.stringify(order)}`)
 })
+
+test('filling a bucket is proven by the bucket, never by water moving nearby', async () => {
+  // Trial 24: make_obsidian's fill "succeeded" three times at a pool of flowing
+  // water and the bucket stayed empty. Levels in the cells around the target
+  // change on their own every tick, and any change counted as the effect.
+  let inv = [{ name: 'bucket', count: 1 }]
+  const bot = scene({ '12,65,-7': cell('water', { level: 0 }, []) })
+  bot.inventory = { items: () => inv }
+  bot.entity.position = new Vec3(12.5, 65, -5.5)
+  bot.activateItem = () => { bot.sent.activate++; bot.cells['12,66,-7'] = cell('water', { level: 3 }, []) }
+  await assert.rejects(() => useHeldItem(bot, { kind: 'use', goal: { item: 'bucket', count: 1, expect: '', target: { x: 12, y: 65, z: -7, how: 'point', dimension: 'overworld' } } }, deps()), /bucket was not filled/)
+})
+
+test('a point use is judged by reach from the eyes, where the server raycasts from', async () => {
+  const bot = scene({}, [{ name: 'water_bucket', count: 1 }])
+  bot.entity.position = new Vec3(12.5, 66.5, -10.8)   // 4.4 from the feet, 5.0 from the eyes
+  await assert.rejects(() => useHeldItem(bot, { kind: 'use', goal: { item: 'water_bucket', count: 1, expect: '', target: { x: 12, y: 65, z: -7, how: 'point', dimension: 'overworld' } } }, deps()), /Cannot reach/)
+  assert.equal(bot.sent.activate, 0)
+})
