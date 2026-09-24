@@ -297,7 +297,7 @@ export class Teammate extends EventEmitter {
       if(reason===FIRE_EMERGENCY){
         await this.execute({action:'douse',goal:{},timeoutMs:30000},abort.signal)
         if(epoch!==this.epoch||abort.signal.aborted)return
-        const result=this.safety.fire=structuredClone(this.runner.task.result),request=this.requestProgress,how=String(result?.method||'put out').replaceAll('_',' ')
+        const result=this.safety.fire=structuredClone(this.runner.task.result),request=this.requestProgress,how=result?.receipt==='not_burning'?'it had already gone out':String(result?.method||'put out').replaceAll('_',' ')
         if(request)(request.feedback??=[]).push({action:'douse',status:'completed',result,automatic:true})
         // The damage that raised the alarm was the fire just put out. Left in place
         // it reads as an attack for four more seconds and sends a hurt bot to shelter.

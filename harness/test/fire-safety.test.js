@@ -12,7 +12,7 @@ const key=p=>`${p.x},${p.y},${p.z}`
 // `cells` overrides single blocks; the fake activateItem and pathfinder change
 // the world the way the server would, so the skill is judged by the world it
 // leaves behind rather than by the calls it made.
-function fixture({cells={},items=['water_bucket'],onFire=true,inLava=false,water=null}={}){
+function fixture({cells={},items=['water_bucket'],onFire=true,inLava=false,water=null,lagWater=0}={}){
  const world=new Map(Object.entries(cells))
  const name=p=>world.get(key(p))??(p.y<64?'stone':'air')
  const inventory=items.map((n,i)=>({name:n,count:1,slot:36+i}))
@@ -24,19 +24,27 @@ function fixture({cells={},items=['water_bucket'],onFire=true,inLava=false,water
   findBlocks({matching,maxDistance}){const out=[];for(const [k,n] of world){const [x,y,z]=k.split(',').map(Number),p=new Vec3(x,y,z);if([matching].flat().includes(registry.blocksByName[n].id)&&p.distanceTo(bot.entity.position)<=maxDistance)out.push(p)}return out},
   async equip(item){bot.heldItem=item;log.push('equip '+item.name)},
   async look(yaw,pitch){bot.entity.yaw=yaw;bot.entity.pitch=pitch},
+  async dig(block){log.push('dig '+block.name);world.set(key(block.position),'air')},
   async waitForTicks(){},
   activateItem(){
    const feet=bot.entity.position.floored(),down=bot.entity.pitch<-1.4
    log.push('use '+bot.heldItem?.name+(down?' down':' level'))
    if(!down)return
-   if(bot.heldItem?.name==='water_bucket'&&name(feet)==='air'){world.set(key(feet),'water');bot.entity.metadata[0]=0;bot.heldItem.name='bucket'}
-   else if(bot.heldItem?.name==='bucket'&&name(feet)==='water'){world.set(key(feet),'air');bot.heldItem.name='water_bucket'}
+   // As the server does: a block with an outline in the feet cell (fire, grass)
+   // catches the downward look, so the water goes into the cell above it.
+   const head=feet.offset(0,1,0),outlined=['fire','short_grass','snow'].includes(name(feet))
+   if(bot.heldItem?.name==='water_bucket'&&name(feet)==='lava'){world.set(key(feet),'water');bot.entity.isInLava=false;bot.entity.metadata[0]=0;bot.heldItem.name='bucket'}
+   else if(bot.heldItem?.name==='water_bucket'&&(name(feet)==='air'||outlined&&name(head)==='air')){const held=bot.heldItem,at=outlined?head:feet,place=()=>{world.set(key(at),'water');held.name='bucket'};if(lagWater)setTimeout(place,lagWater);else place();bot.entity.metadata[0]=0}
+   else if(bot.heldItem?.name==='bucket'&&[head,feet].some(p=>name(p)==='water')){world.set(key(name(head)==='water'?head:feet),'air');bot.heldItem.name='water_bucket'}
   },
-  deactivateItem(){},clearControlStates(){},setControlState(){},
+  deactivateItem(){},clearControlStates(){},
+  async lookAt(p){bot.lookTarget=p},
+  setControlState(k,v){if(k==='forward'&&v&&bot.lookTarget){const t=bot.lookTarget.floored();log.push('climb '+key(t));bot.entity.position=new Vec3(t.x+.5,t.y,t.z+.5);bot.entity.isInLava=name(t)==='lava'}},
   pathfinder:{setGoal(){},setMovements(m){bot.movementsUsed=m},async goto(goal){
    const g=goal.goals?goal.goals[0]:goal;log.push('walk '+g.x+','+g.y+','+g.z)
    bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5);bot.entity.isInLava=name(new Vec3(g.x,g.y,g.z))==='lava'
-   if(name(new Vec3(g.x,g.y,g.z))==='water')bot.entity.metadata[0]=0
+   // The fire flag trails the move into water by a moment, as it does live.
+   if(name(new Vec3(g.x,g.y,g.z))==='water')setTimeout(()=>{bot.entity.metadata[0]=0},3)
   }}}
  if(water)world.set(water,'water')
  const api={check(){},stage(){},progress(m){log.push('say '+m)},movements:null}
@@ -81,12 +89,22 @@ test('with no bucket it steps into water it can see',async()=>{
  assert.equal(f.bot.movementsUsed.canDig,false,'an escape never digs, which is how lava gets let out')
 })
 
-test('standing in lava it leaves the lava before anything else',async()=>{
- const f=fixture({inLava:true,cells:{'0,64,0':'lava','0,63,0':'lava'}})
+test('standing in lava with a bucket it pours into the lava at its feet, then takes the water back',async()=>{
+ // Lab, 2026-09-24: asked to walk out first, the pathfinder did not move the bot
+ // in 2.5 s and it died in the lava. The game replaces lava with poured water.
+ const f=fixture({inLava:true,cells:{'0,64,0':'lava','1,64,0':'lava'}})
  const r=await douseFire(f.bot,{},f.api,{pollMs:1,limitMs:50})
- assert.equal(f.log.find(l=>l.startsWith('walk')||l.startsWith('use')).startsWith('walk'),true,'water poured inside lava does not stop the burning')
+ assert.ok(f.log.indexOf('use water_bucket down')<Math.max(0,...f.log.map((l,i)=>l.startsWith('walk')?i:-1).filter(i=>i>=0).concat([Infinity])),'the pour comes before any walk')
+ assert.equal(r.method,'poured_water');assert.equal(r.waterBucket,true)
+ assert.notEqual(f.world.get('0,64,0'),'lava','the lava at its feet is gone')
+})
+test('standing in lava without a bucket it climbs out with its own controls',async()=>{
+ const f=fixture({items:[],inLava:true,cells:{'0,64,0':'lava'}})
+ setTimeout(()=>{f.bot.entity.metadata[0]=0},20)
+ const r=await douseFire(f.bot,{},f.api,{pollMs:1,limitMs:500})
+ assert.ok(f.log.some(l=>l.startsWith('climb')),'forward and jump toward a dry cell')
  assert.notEqual(f.world.get(key(f.bot.entity.position.floored())),'lava')
- assert.equal(r.method,'poured_water')
+ assert.equal(r.receipt,'extinguished')
 })
 
 test('with no water anywhere it moves clear of lava and waits the fire out',async()=>{
@@ -101,4 +119,40 @@ test('with no water anywhere it moves clear of lava and waits the fire out',asyn
 test('a fire that will not go out is a failure, never a success',async()=>{
  const f=fixture({items:[]})
  await assert.rejects(douseFire(f.bot,{},f.api,{pollMs:1,limitMs:20}),/Still burning/)
+})
+
+test('a douse with no fire says so instead of claiming it put one out',async()=>{
+ // Lab, 2026-09-24: douse ran a moment before the fire caught and reported
+ // "extinguished, burned_out" for a fire that had not started yet.
+ const f=fixture({onFire:false})
+ const r=await douseFire(f.bot,{},f.api,{pollMs:1,limitMs:50})
+ assert.equal(r.receipt,'not_burning');assert.equal(r.count,0)
+ assert.ok(!f.log.some(l=>l.startsWith('use')||l.startsWith('walk')),'nothing is poured or walked for a fire that is not there')
+})
+
+test('the water is taken back even when the fire flag clears before the block and slot updates arrive',async()=>{
+ // Lab, 2026-09-24, Paper 26.2: the fire went out in 0.27 s, but the metadata
+ // arrived before the water block and the emptied bucket did, so the pickup
+ // saw no bucket and no source and skipped. Left behind, the water pushed the
+ // bot off the lab platform.
+ const f=fixture({lagWater:5})
+ const r=await douseFire(f.bot,{},f.api,{pollMs:1,limitMs:50})
+ assert.equal(r.method,'poured_water');assert.equal(r.waterBucket,true)
+ assert.equal(f.world.get('0,64,0'),'air')
+})
+
+test('standing in fire it puts the fire out by hand before pouring, so the water lands at the feet',async()=>{
+ // Lab, 2026-09-24: the downward look hit the fire block's outline, the source
+ // landed at head height, and the bot drowned while the receipt said extinguished.
+ const f=fixture({cells:{'0,64,0':'fire'}})
+ const r=await douseFire(f.bot,{},f.api,{pollMs:1,limitMs:50})
+ assert.ok(f.log.indexOf('dig fire')<f.log.indexOf('use water_bucket down'),'the fire block is cleared first')
+ assert.equal(r.method,'poured_water');assert.equal(r.waterBucket,true)
+ assert.ok(![...f.world.values()].includes('water'),'no water is left, least of all at head height')
+})
+test('a source that lands at head height anyway is taken back at once',async()=>{
+ const f=fixture({cells:{'0,64,0':'short_grass'}});f.bot.dig=async()=>{throw new Error('cannot break it')}
+ const r=await douseFire(f.bot,{},f.api,{pollMs:1,limitMs:50})
+ assert.notEqual(f.world.get('0,65,0'),'water','a source at head height drowns the bot')
+ assert.equal(r.waterBucket,true)
 })

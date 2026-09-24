@@ -54,10 +54,11 @@ async function until(predicate,ms,pollMs,check){
  return predicate()
 }
 
-// Fire recovery never waits for a model or a shelter. In order: leave lava,
-// pour water at the feet, step into water in sight, then get clear of lava and
-// let the fire burn out. Only an observed end of burning is a success.
-export async function douseFire(bot,task,{check,stage,progress,movements},{limitMs=15000,pollMs=50,walkMs=6000}={}){
+// Fire recovery never waits for a model or a shelter. In order: pour water at the
+// feet (into the lava itself when standing in it), climb out of lava with the
+// bot's own controls, step into water in sight, then get clear of lava and let
+// the fire burn out. Only an observed end of burning is a success.
+export async function douseFire(bot,task,{check,stage,progress,movements},{limitMs=15000,pollMs=50,walkMs=6000,climbMs=2500}={}){
  const walkTo=async(targets,{water=false}={})=>{
   if(!targets.length)return false
   // Never dig on the way out: breaking a block beside lava is how it gets let out.
@@ -70,44 +71,73 @@ export async function douseFire(bot,task,{check,stage,progress,movements},{limit
   check()
   return goal.isEnd(bot.entity.position.floored())
  }
- let method=null,waterBucket=null
- try{
-  check();stage('dousing');progress('I am on fire. Putting it out')
-  bot.pathfinder.setGoal(null);bot.clearControlStates()
-  // 1. Water poured while standing in lava does not stop the burning.
-  if(fireObservation(bot).inLava){progress('Getting out of the lava');await walkTo(clearOfLavaGoals(bot))}
-  // 2. Pour at the feet. Needs ground to aim at and a feet cell water can take.
+ const isSourceAt=p=>{const b=bot.blockAt(p);return b?.name==='water'&&String(b.getProperties?.()?.level??'')==='0'}
+ // Pour straight down. The look passes through liquid to the first solid face,
+ // and the game replaces the cell above it, so standing in lava the water takes
+ // the lava's place. Anything with an outline in the feet cell (fire, grass, a
+ // snow layer) catches the look instead and the water lands one cell up, at head
+ // height: the lab bot drowned that way while the receipt said extinguished. So
+ // clear that first (fire goes out to a punch), and take the water back from
+ // wherever it landed.
+ const pourHere=async()=>{
   const bucket=carried(bot,'water_bucket')
-  if(burning(bot)&&bucket&&!fireObservation(bot).inLava&&await until(()=>bot.entity.onGround,500,pollMs,check)){
-   const feet=bot.entity.position.floored(),cell=bot.blockAt(feet),floor=bot.blockAt(feet.offset(0,-1,0))
-   if(cell?.boundingBox==='empty'&&!['water','lava'].includes(cell.name)&&floor?.boundingBox==='block'){
-    progress('Pouring water at my feet')
-    await useLookingDown(bot,bucket);check()
-    if(await until(()=>!burning(bot),1000,pollMs,check)){
-     method='poured_water'
-     // Take the water back: the next fire needs it, and a stray source floods the work.
-     const empty=carried(bot,'bucket'),here=bot.blockAt(feet)
-     if(empty&&here?.name==='water'&&String(here.getProperties?.()?.level??'')==='0'){
-      await useLookingDown(bot,empty);check()
-      await until(()=>!!carried(bot,'water_bucket'),1000,pollMs,check)
-     }
-    }
-   }
-  }
-  // 3. Water in sight.
+  if(!bucket)return false
+  if(!fireObservation(bot).inLava&&!await until(()=>bot.entity.onGround,500,pollMs,check))return false
+  const feet=bot.entity.position.floored(),head=feet.offset(0,1,0)
+  const outlined=b=>!!b&&!AIR.has(b.name)&&b.boundingBox==='empty'&&!['water','lava'].includes(b.name)
+  if(outlined(bot.blockAt(feet))){try{await bot.dig(bot.blockAt(feet));check()}catch{check()}}
+  const cell=bot.blockAt(feet),floor=bot.blockAt(feet.offset(0,-1,0))
+  if(floor?.boundingBox!=='block'||!(cell?.name==='lava'||cell?.boundingBox==='empty'&&cell.name!=='water'))return false
+  progress(cell.name==='lava'?'Pouring water into the lava I am standing in':'Pouring water at my feet')
+  await useLookingDown(bot,bucket);check()
+  const out=await until(()=>!burning(bot),1000,pollMs,check)
+  // The next fire needs the water, and a source at head height drowns the bot.
+  // The fire flag arrives before the water block and the emptied bucket do.
+  const landed=()=>[head,feet].find(isSourceAt)
+  if(await until(()=>!!carried(bot,'bucket')&&!!landed(),1500,pollMs,check)){
+   await useLookingDown(bot,carried(bot,'bucket'));check()
+   if(!await until(()=>!!carried(bot,'water_bucket'),1000,pollMs,check))progress(`The water at ${landed()?.y===head.y?'head height':'my feet'} did not come back into the bucket`)
+  }else progress(`Leaving the water where it is: ${carried(bot,'bucket')?'':'no empty bucket in the inventory; '}${landed()?'':'no water source at my feet or head'}`)
+  return out
+ }
+ // Asked to walk out of lava, the pathfinder did not move the lab bot in 2.5 s
+ // and it died there. Face the nearest dry standing cell and hold forward and jump.
+ const climbOut=async()=>{
+  const center=bot.entity.position.floored(),dry=[]
+  for(let dx=-2;dx<=2;dx++)for(let dz=-2;dz<=2;dz++)for(const dy of [0,1]){const p=center.offset(dx,dy,dz);if((dx||dz)&&standable(bot,p))dry.push(p)}
+  const target=dry.sort((a,b)=>a.distanceTo(center)-b.distanceTo(center))[0]
+  if(!target)return false
+  progress(`Climbing out of the lava toward ${target.x},${target.y},${target.z}`)
+  await bot.lookAt(target.offset(.5,.5,.5),true)
+  bot.setControlState('forward',true);bot.setControlState('jump',true)
+  try{return await until(()=>!fireObservation(bot).inLava,climbMs,pollMs,check)}finally{bot.clearControlStates()}
+ }
+ let method=null
+ try{
+  check()
+  // The alarm and the skill are a tick or two apart, and a fire can go out between them.
+  if(!burning(bot)){const p=bot.entity.position.floored();return {item:'safety',count:0,receipt:'not_burning',position:at(p),health:bot.health,clearOfLava:!lavaWithin(bot,p,1),waterBucket:!!carried(bot,'water_bucket')}}
+  stage('dousing');progress('I am on fire. Putting it out')
+  bot.pathfinder.setGoal(null);bot.clearControlStates()
+  // 1. Water at the feet, or into the lava being stood in.
+  if(await pourHere())method='poured_water'
+  // 2. Still in lava: climb out, and walk only if the climb did not make it.
+  if(fireObservation(bot).inLava&&!await climbOut()){progress('Getting out of the lava');await walkTo(clearOfLavaGoals(bot))}
+  // 3. Out of the lava and still burning: the bucket now has ground to aim at.
+  if(!method&&burning(bot)&&!fireObservation(bot).inLava&&await pourHere())method='poured_water'
+  // 4. Water in sight.
   if(!method&&burning(bot)){
    const water=waterGoals(bot)
-   if(water.length){progress('Stepping into water');await walkTo(water,{water:true});if(!burning(bot))method='stepped_in_water'}
+   if(water.length){progress('Stepping into water');await walkTo(water,{water:true});if(await until(()=>!burning(bot),1000,pollMs,check))method='stepped_in_water'}
   }
-  // 4. Out of reach of the lava that lit it, so it cannot catch again.
+  // 5. Out of reach of the lava that lit it, so it cannot catch again.
   if(lavaWithin(bot,bot.entity.position.floored(),1)){progress('Moving clear of the lava');await walkTo(clearOfLavaGoals(bot))}
-  // 5. Wait the rest out, bounded.
+  // 6. Wait the rest out, bounded.
   if(!(await until(()=>!burning(bot)||bot.health<=0,limitMs,pollMs,check)))
    throw new Error(`Still burning after ${Math.round(limitMs/1000)} s with no water to put it out`)
   if(bot.health<=0)throw new Error('Died while burning')
-  waterBucket=!!carried(bot,'water_bucket')
   const p=bot.entity.position.floored()
-  return {item:'safety',count:1,receipt:'extinguished',method:method||'burned_out',position:at(p),health:bot.health,clearOfLava:!lavaWithin(bot,p,1),waterBucket}
+  return {item:'safety',count:1,receipt:'extinguished',method:method||'burned_out',position:at(p),health:bot.health,clearOfLava:!lavaWithin(bot,p,1),waterBucket:!!carried(bot,'water_bucket')}
  }finally{
   bot.pathfinder.setGoal(null);if(movements)bot.pathfinder.setMovements(movements)
   bot.clearControlStates()

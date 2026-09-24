@@ -89,7 +89,13 @@ export async function makeObsidian(bot,task,{check,progress,stage,walk,settle,mi
   await useBucket(bot,'water_bucket',site.rim.offset(.5,1,.5),check)
   try{await settle(()=>bot.blockAt(site.water)?.name==='water','')}catch{reason=`the pour at ${key(site.water)} did not land`;continue}
   try{await settle(()=>bot.blockAt(site.lava)?.name==='obsidian','')}catch{}
-  const converted=before.filter(p=>bot.blockAt(p)?.name==='obsidian').length
+  // The spread runs about a block every quarter second and converts as it goes.
+  // Taking the water back at the first conversion counted 6 of a pool's 16 in
+  // the lab; wait until the count stops moving, within settle's bound.
+  const spread=()=>before.filter(p=>bot.blockAt(p)?.name==='obsidian').length
+  let last=-1
+  try{await settle(()=>{const n=spread(),same=n===last;last=n;return same&&n>0},'')}catch{}
+  const converted=spread()
   record.pours++;record.converted+=converted;persist?.()
   progress(`The pour turned ${converted} lava source${converted===1?'':'s'} into obsidian; taking the water back`)
   // Only the cell the pour made is a source; the rest of the spread drains once it is gone.
