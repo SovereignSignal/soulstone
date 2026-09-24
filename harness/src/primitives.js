@@ -28,6 +28,8 @@ export const PROTECTED_BLOCKS = new Set([
 const protectedBlock = name => !!name && (PROTECTED_BLOCKS.has(name)
   || [...PROTECTED_BLOCKS].some(s => s.startsWith('_') && name.endsWith(s)))
 export const key = p => `${p.x},${p.y},${p.z}`
+// The heuristic weight prospecting's excavation search uses.
+const SEARCH_WEIGHT = 5
 export const point = p => new Vec3(p.x, p.y, p.z)
 const floored = p => ({ x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) })
 
@@ -100,8 +102,10 @@ function scaffoldIds(bot) {
     .filter(Number.isInteger))]
 }
 
-function movementProfile(bot, { dig, protectedSites = [] }) {
-  const movement = new DoorAwareMovements(bot)
+// `wade` lets the walk stand in water with air above it, as a player wades a
+// flooded tunnel; ordinary walks keep treating water as a wall.
+export function movementProfile(bot, { dig, protectedSites = [], wade = false }) {
+  const movement = new DoorAwareMovements(bot, { surfaceWaterOnly: wade })
   if (dig) {
     Object.assign(movement, {
       canDig: true, allow1by1towers: true, allowParkour: false, allowSprinting: false, maxDropDown: 3,
@@ -235,18 +239,23 @@ export function watchPathfinder(bot) {
   }
 }
 
-export async function walkNear(bot, target, { dig, protectedSites, check, stage, progress, movements, timeoutMs = 8 * 60 * 1000, range = GOTO_RANGE, legTimeoutMs = LEG_TIMEOUT_MS }) {
+export async function walkNear(bot, target, { dig, protectedSites, wade = false, check, stage, progress, movements, timeoutMs = 8 * 60 * 1000, range = GOTO_RANGE, legTimeoutMs = LEG_TIMEOUT_MS }) {
   const dest = point(target), start = bot.entity.position.clone()
   const distance = start.distanceTo(dest)
   if (distance > GOTO_MAX)
     throw new Error(`Goto refuses ${Math.round(distance)} blocks away (cap ${GOTO_MAX}). Use an intermediate goto closer to ${dest.x},${dest.y},${dest.z}.`)
-  const movement = movementProfile(bot, { dig, protectedSites })
+  const movement = movementProfile(bot, { dig, protectedSites, wade })
   bot.pathfinder.setMovements(movement)
   const arrival = () => new goals.GoalNear(dest.x, dest.y, dest.z, range)
   const arrived = () => {
     const g = arrival(), f = bot.entity.position.floored()
     return g.isEnd(f) || g.isEnd(f.offset(0, 1, 0)) || bot.entity.position.distanceTo(dest) <= range
   }
+  // Plain A* in dense rock with digging allowed runs out of its search time;
+  // prospecting weights the heuristic fivefold and tunnels through the same
+  // rock. The weighted goal keeps the same arrival test.
+  let weighted = false
+  const search = () => { const g = arrival(); if (!weighted) return g; const w = Object.create(g); w.heuristic = n => g.heuristic(n) * SEARCH_WEIGHT; return w }
   const counters = subscribeDigPlace(bot)
   const started = Date.now()
   const gap = () => bot.entity.position.distanceTo(dest)
@@ -262,7 +271,7 @@ export async function walkNear(bot, target, { dig, protectedSites, check, stage,
       const before = gap(), watch = watchPathfinder(bot)
       let expired = false, timer
       const expiry = new Promise((_, reject) => { timer = setTimeout(() => { expired = true; bot.pathfinder.setGoal(null); reject(new Error('leg expired')) }, legTimeoutMs) })
-      const walking = (async () => bot.pathfinder.goto(arrival()))()
+      const walking = (async () => bot.pathfinder.goto(search()))()
       expiry.catch(() => {}); walking.catch(() => {})
       try {
         await Promise.race([walking, expiry])
@@ -270,6 +279,7 @@ export async function walkNear(bot, target, { dig, protectedSites, check, stage,
       } catch (error) {
         check()
         const closed = before - gap() >= CLOSED_PER_LEG
+        if (!weighted && !closed && /Took to long to decide path/.test(error?.message || '')) { weighted = true; progress(`The route search ran out of time; searching again, weighted toward ${key(dest)}`); continue }
         if (expired && !closed)
           throw Object.assign(new Error(`Goto leg exceeded its ${Math.round(legTimeoutMs / 1000)} second budget without closing ground; ${short()}${watch.summary()}`), { name: 'Timeout' })
         if (!(closed && (expired || error?.code === 'NAVIGATION_INCOMPLETE'))) {

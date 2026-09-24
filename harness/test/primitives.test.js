@@ -619,3 +619,37 @@ test('a primitive receipt without count and item completes with its receipt, not
   assert.match(finished[0][1], /dug/)
   assert.doesNotMatch(finished[0][1], /undefined/)
 })
+
+test('a leg whose search runs out of time is retried once with the weighted search prospecting uses', async () => {
+  // Live, 2026-09-24: goto dig:true and make_obsidian's approach failed with
+  // "Took to long to decide path to goal!" in deepslate, while prospecting,
+  // which weights its A* heuristic fivefold, tunnelled through the same rock.
+  const goals = []
+  const bot = fakeBot({
+    pathfinder: {
+      movements: null, setMovements(m) { this.movements = m }, setGoal() {},
+      async goto(goal) {
+        goals.push(goal)
+        if (goals.length === 1) throw Object.assign(new Error('Took to long to decide path to goal!'), { name: 'Timeout' })
+        bot.entity.position = new Vec3(goal.x + 0.5, goal.y, goal.z + 0.5)
+      },
+    },
+  })
+  const r = await gotoPosition(bot, { kind: 'goto', goal: validateGotoGoal({ x: 6, y: 64, z: 0, dig: true }) }, deps())
+  assert.equal(r.receipt, 'arrived')
+  assert.equal(goals.length, 2)
+  const node = { x: 0, y: 64, z: 0 }
+  assert.ok(goals[1].heuristic(node) >= 4.9 * goals[0].heuristic(node), 'the retry weights the heuristic')
+  assert.equal(goals[1].isEnd(new Vec3(6, 64, 0)), true, 'with the same arrival test')
+})
+
+test('a wading walk may stand in shallow water; ordinary walks still may not', async () => {
+  // Live, 2026-09-24: the tunnel beside the lake held a foot of flowing water,
+  // every cell within reach of a source was water, and the fill's approach,
+  // which treated all water as a wall, timed out on an unreachable goal.
+  const { movementProfile } = await import('../src/primitives.js')
+  const bot = fakeBot()
+  assert.equal(movementProfile(bot, { dig: true, wade: true }).surfaceWaterOnly, true)
+  assert.equal(movementProfile(bot, { dig: true }).surfaceWaterOnly, false)
+  assert.equal(movementProfile(bot, { dig: false }).surfaceWaterOnly, false)
+})

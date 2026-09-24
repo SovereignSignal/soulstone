@@ -323,13 +323,14 @@ export async function executeWorldSkill(bot,task,context,gather) {
  if(task.kind==='make_obsidian'){
   // The bucket fills only from a source cell, and `use` owns the aim and the receipt.
   // goto's digging walk: bounded legs, and it refuses to break anything beside a liquid.
-  const dig=(p,range)=>walkNear(bot,p,{dig:true,protectedSites:task.goal.protectedSites||[],check,stage,progress,movements,timeoutMs:120000,range})
+  const dig=(p,range,wade=false)=>walkNear(bot,p,{dig:true,wade,protectedSites:task.goal.protectedSites||[],check,stage,progress,movements,timeoutMs:120000,range})
   const fill=async()=>{
    const fillFrom=async source=>{
     progress(`Filling the bucket at ${key(source)}`)
     // The bucket's own walk cannot tunnel; get within reach first with one that can.
     // Within the bucket's own range of two, so its walk, which cannot dig, has nothing left to do.
-    await dig(source,2);check()
+    // Wading allowed: the cells within reach of a lake are often a foot of flowing water.
+    await dig(source,2,true);check()
     await useHeldItem(bot,{goal:{item:'bucket',count:1,expect:'',target:{x:source.x,y:source.y,z:source.z,how:'point',dimension:dimensionOf(bot)||'overworld'}}},{check,stage,persist:context.persist,walk,settle,approach:approachPlacement})
    }
    let failure=null
