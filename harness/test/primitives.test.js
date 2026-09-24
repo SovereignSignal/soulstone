@@ -381,6 +381,33 @@ function steppingPathfinder(bot, { step, resolveEachLeg = false, legs }) {
   }
 }
 
+test('a stuck leg says what the pathfinder was doing', async () => {
+  // Trial 8: stuck legs were a third of movement tasks, and each logged nothing
+  // for 25 seconds before "without closing ground". The pathfinder reports its
+  // plans and every path reset as events; the refusal should carry them.
+  const bot = fakeBot()
+  const handlers = {}
+  bot.on = (e, f) => { (handlers[e] ||= []).push(f) }
+  bot.off = (e, f) => { handlers[e] = (handlers[e] || []).filter(g => g !== f) }
+  const emit = (e, ...a) => (handlers[e] || []).forEach(f => f(...a))
+  const node = (x, y, z, places = 0, digs = 0) => ({ x, y, z, toPlace: Array(places).fill({}), toBreak: Array(digs).fill({}) })
+  bot.pathfinder = {
+    setMovements() {}, setGoal() {},
+    goto() {
+      emit('path_update', { status: 'success', path: [node(0, 65, 0, 1), node(0, 66, 0, 1), node(1, 66, 0)] })
+      emit('path_reset', 'place_error'); emit('path_reset', 'place_error'); emit('path_reset', 'stuck')
+      return new Promise(() => {})
+    },
+  }
+  const error = await walkNear(bot, { x: 5, y: 66, z: 0 }, { dig: true, ...deps(), legTimeoutMs: 50 }).then(() => null, e => e)
+  assert.ok(error, 'the leg refused')
+  assert.match(error.message, /without closing ground/)
+  assert.match(error.message, /last plan 3 steps, 2 places, 0 digs/)
+  assert.match(error.message, /place_error x2/)
+  assert.match(error.message, /stuck x1/)
+  assert.deepEqual(handlers.path_update, [], 'listeners are removed after the leg')
+})
+
 test('a walk continues past a timed-out leg that closed ground and arrives', async () => {
   const legs = []
   const bot = fakeBot()

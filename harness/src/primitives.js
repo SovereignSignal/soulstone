@@ -172,6 +172,26 @@ function subscribeDigPlace(bot) {
   }
 }
 
+// A stuck leg is silent for its whole budget, but the pathfinder narrates it in
+// its own events: what it last planned, and why it threw paths away.
+function watchPathfinder(bot) {
+  let plans = 0, last = null
+  const resets = new Map()
+  const onUpdate = r => { plans++; last = r }
+  const onReset = reason => resets.set(reason, (resets.get(reason) || 0) + 1)
+  bot.on?.('path_update', onUpdate); bot.on?.('path_reset', onReset)
+  return {
+    stop() { bot.off?.('path_update', onUpdate); bot.off?.('path_reset', onReset) },
+    summary() {
+      if (!plans && !resets.size) return ' The pathfinder produced no plan in that time.'
+      const path = last?.path || [], sum = k => path.reduce((n, step) => n + (step[k]?.length || 0), 0)
+      const plan = last ? `last plan ${path.length} steps, ${sum('toPlace')} places, ${sum('toBreak')} digs${last.status && last.status !== 'success' ? ` (${last.status})` : ''}` : 'no plan'
+      const why = resets.size ? `; path reset ${[...resets].map(([r, n]) => `${r} x${n}`).join(', ')}` : ''
+      return ` Pathfinder: ${plans} plan${plans === 1 ? '' : 's'}, ${plan}${why}.`
+    },
+  }
+}
+
 export async function walkNear(bot, target, { dig, protectedSites, check, stage, progress, movements, timeoutMs = 8 * 60 * 1000, range = GOTO_RANGE, legTimeoutMs = LEG_TIMEOUT_MS }) {
   const dest = point(target), start = bot.entity.position.clone()
   const distance = start.distanceTo(dest)
@@ -196,7 +216,7 @@ export async function walkNear(bot, target, { dig, protectedSites, check, stage,
       // A leg is one bounded pathfinder call. One that runs out of time, or
       // resolves on a partial path, may still have closed ground: that walk
       // continues under timeoutMs, and only a leg that closed none refuses.
-      const before = gap()
+      const before = gap(), watch = watchPathfinder(bot)
       let expired = false, timer
       const expiry = new Promise((_, reject) => { timer = setTimeout(() => { expired = true; bot.pathfinder.setGoal(null); reject(new Error('leg expired')) }, legTimeoutMs) })
       const walking = (async () => bot.pathfinder.goto(arrival()))()
@@ -208,12 +228,12 @@ export async function walkNear(bot, target, { dig, protectedSites, check, stage,
         check()
         const closed = before - gap() >= CLOSED_PER_LEG
         if (expired && !closed)
-          throw Object.assign(new Error(`Goto leg exceeded its ${Math.round(legTimeoutMs / 1000)} second budget without closing ground; ${short()}`), { name: 'Timeout' })
+          throw Object.assign(new Error(`Goto leg exceeded its ${Math.round(legTimeoutMs / 1000)} second budget without closing ground; ${short()}${watch.summary()}`), { name: 'Timeout' })
         if (!(closed && (expired || error?.code === 'NAVIGATION_INCOMPLETE'))) {
           const reason = error?.name === 'NoPath' ? `no route to ${key(dest)}` : error?.message || String(error)
           throw new Error(`${reason}.${lineRefusal(bot, bot.entity.position.floored(), dest)}`)
         }
-      } finally { clearTimeout(timer); bot.pathfinder.setGoal(null) }
+      } finally { clearTimeout(timer); watch.stop(); bot.pathfinder.setGoal(null) }
       check()
       if (!arrived()) await delay(50)
     }
