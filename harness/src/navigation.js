@@ -79,6 +79,10 @@ export class DoorAwareMovements extends Movements {
   super(bot);this.surfaceWaterOnly=surfaceWaterOnly||shallowWaterOnly;this.shallowWaterOnly=shallowWaterOnly;this.waterIDs=new Set([...WATER_BLOCKS].map(n=>bot.registry.blocksByName[n]?.id).filter(Number.isInteger))
   if(!this.surfaceWaterOnly)for(const id of this.waterIDs)this.blocksToAvoid.add(id)
   this.exclusionAreasStep.push(block=>block?.position&&lavaBeside(bot,block.position)?LAVA_EDGE_COST:0)
+  // Pathfinder treats lava as replaceable scaffold space, bypassing blocksToAvoid.
+  // Its placement hook receives the feet cell for forward bridges, but the
+  // support cell for jump-up scaffolds. Reject both before walking to an edge.
+  this.exclusionAreasPlace.push(block=>!block?.position||[block.position,block.position.offset(0,-1,0)].some(p=>bot.blockAt(p)?.name==='lava')?100:0)
   // Sov's limit: never step through a portal. A lit nether portal is open air to
   // the pathfinder, so any route through a frame would end in the Nether.
   for(const name of PORTAL_BLOCKS){const id=bot.registry.blocksByName[name]?.id;if(Number.isInteger(id))this.blocksToAvoid.add(id)}
