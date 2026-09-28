@@ -173,3 +173,21 @@ test('a looping planner with no criterion change is blocked after CRITERION_STAL
   assert.match(c.messages.at(-1).text,/No goal criterion has changed/)
   assert.ok(calls<CRITERION_STALL_ROUNDS+2,`planner should stop near the threshold, got ${calls} calls`)
 })
+
+
+test('saved construction materials count as bounded progress toward the requested project',()=>{
+ const request={rounds:1,verification:verdict([check({kind:'construction',item:'',target:'portal'})]),mission:mission()}
+ const projects={portal:{construction:{},result:{missingMaterials:{obsidian:10,cobblestone:32}}},other:{construction:{},result:{missingMaterials:{dirt:100}}}}
+ noteCriterionStall(request,{obsidian:9,cobblestone:32,dirt:1},projects)
+ request.rounds=2;noteCriterionStall(request,{obsidian:9,cobblestone:32,dirt:1},projects)
+ assert.equal(criterionStall(request).rounds,1)
+ request.rounds=3;noteCriterionStall(request,{obsidian:10,cobblestone:32,dirt:1},projects)
+ assert.equal(criterionStall(request).rounds,0,'tenth required obsidian is progress')
+ request.rounds=4;noteCriterionStall(request,{obsidian:11,cobblestone:33,dirt:2},projects)
+ assert.equal(criterionStall(request).rounds,1,'surplus and unrelated project materials do not count')
+ request.rounds=5;noteCriterionStall(request,{obsidian:9,cobblestone:32,dirt:1},projects)
+ request.rounds=6;noteCriterionStall(request,{obsidian:10,cobblestone:32,dirt:1},projects)
+ assert.equal(criterionStall(request).rounds,3,'spending and recovering cannot reset the guard')
+ request.rounds=7;noteCriterionStall(request,{obsidian:10,cobblestone:32,dirt:1})
+ assert.equal(criterionStall(request).rounds,4,'omitted project snapshot preserves progress history')
+})

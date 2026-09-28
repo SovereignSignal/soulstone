@@ -116,9 +116,23 @@ export function noteCriterionStall(request,inventory,projects){
   const highs=request.buildHighs||(request.buildHighs={})
   for(const [name,n] of built)if(n>(highs[name]||0))highs[name]=n
  }
+ // Construction prerequisites are saved quantities, not final inventory goals.
+ // Credit only requested projects, cap at their needs, and never regress.
+ for(const c of request.verification?.checks||[]){
+  if(c.kind!=='construction'||!c.target)continue
+  const project=projects?.[c.target]
+  if(!project?.construction)continue
+  for(const [item,required] of Object.entries(project.result?.missingMaterials||{})){
+   if(!Number.isSafeInteger(required)||required<=0)continue
+   const count=Math.min(required,request.inventoryHighs?.[item]||0)
+   if(count<=0)continue
+   const highs=request.materialHighs||(request.materialHighs={}),key=JSON.stringify([c.target,item])
+   if(count>(highs[key]||0))highs[key]=count
+  }
+ }
  const named=new Set((request.verification?.checks||[]).map(c=>c.item).filter(Boolean))
  const highs=Object.entries(request.inventoryHighs||{}).sort().map(([name,count])=>named.has(name)?[name,count]:name)
- const fp=criterionFingerprint(request.verification,request.mission)+JSON.stringify(highs)+(request.buildHighs?JSON.stringify(Object.entries(request.buildHighs).sort()):'')
+ const fp=criterionFingerprint(request.verification,request.mission)+JSON.stringify(highs)+(request.buildHighs?JSON.stringify(Object.entries(request.buildHighs).sort()):'')+(request.materialHighs?JSON.stringify(Object.entries(request.materialHighs).sort()):'')
  const round=request.rounds||0
  if(request.criterionFingerprint===fp)request.criterionStallRounds=(request.criterionStallRounds||0)+1
  else{request.criterionFingerprint=fp;request.criterionStallRounds=0;request.criterionStallSince=round}
