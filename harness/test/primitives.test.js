@@ -653,3 +653,48 @@ test('a wading walk may stand in shallow water; ordinary walks still may not', a
   assert.equal(movementProfile(bot, { dig: true }).shallowWaterOnly, false)
   assert.equal(movementProfile(bot, { dig: false }).surfaceWaterOnly, false)
 })
+
+// Trial 32 spent portal obsidian on navigation towers despite spare stone.
+test('digging movement preserves obsidian while using carried stone for scaffold', async () => {
+  const { movementProfile } = await import('../src/primitives.js')
+  const { climbBlocks } = await import('../src/burrow.js')
+  const bot = fakeBot()
+  bot.inventory.items = () => ['obsidian', 'cobblestone'].map(name => ({name, type:registry.itemsByName[name].id, count:10}))
+  const movement = movementProfile(bot, {dig:true})
+  assert.ok(!movement.scafoldingBlocks.includes(registry.itemsByName.obsidian.id))
+  assert.ok(movement.scafoldingBlocks.includes(registry.itemsByName.cobblestone.id))
+  assert.equal(climbBlocks(bot),10)
+  bot.inventory.items = () => [{name:'obsidian',type:registry.itemsByName.obsidian.id,count:10}]
+  assert.equal(climbBlocks(bot),0)
+})
+
+test('dig waits for landing before deciding that the carried tool is too slow', async () => {
+  const bot = fakeBot({fills:[[1,64,0,stone],[1,63,0,stone]]})
+  bot.entity.onGround = false
+  bot.digTime = () => bot.entity.onGround ? 9400 : 47000
+  const timer = setTimeout(() => {bot.entity.onGround=true},50)
+  try {
+    const result = await digToward(bot,{kind:'dig',goal:validateDigGoal({x:1,y:64,z:0,count:1})},deps())
+    assert.equal(result.broken,1)
+  } finally {clearTimeout(timer)}
+})
+
+
+test('dig refuses persistent airborne footing without breaking a block', async () => {
+  const bot=fakeBot({fills:[[1,64,0,stone],[1,63,0,stone]]})
+  bot.entity.onGround=false
+  bot.digTime=()=>47000
+  await assert.rejects(()=>digToward(bot,{kind:'dig',goal:validateDigGoal({x:1,y:64,z:0,count:1})},deps()),/stable footing/)
+  assert.equal(bot._dug||0,0)
+})
+
+test('landing wait remains cancellable', async () => {
+  const bot=fakeBot({fills:[[1,64,0,stone],[1,63,0,stone]]})
+  bot.entity.onGround=false
+  const context=deps()
+  let cancelled=false
+  context.stage=()=>{cancelled=true}
+  context.check=()=>{if(cancelled)throw new Error('cancelled')}
+  await assert.rejects(()=>digToward(bot,{kind:'dig',goal:validateDigGoal({x:1,y:64,z:0,count:1})},context),/cancelled/)
+  assert.equal(bot._dug||0,0)
+})

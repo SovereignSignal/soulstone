@@ -1,3 +1,4 @@
+import {scaffoldItems} from './scaffold.js'
 // Emergency burrow: the shelter of last resort for a spawn with no base and no
 // weapon. Seal the verified shaft as soon as three cells give headroom,
 // deepen under the cap, then watch protection and surface clearance.
@@ -69,9 +70,9 @@ export function findBurrowColumn(bot){
  }
  return {site:null,reasons}
 }
-export const climbBlocks=bot=>bot.inventory.items().filter(i=>fullCube(bot.registry,i.name)&&!GRAVITY.has(i.name)).reduce((n,i)=>n+i.count,0)
+export const climbBlocks=bot=>scaffoldItems(bot).reduce((n,i)=>n+i.count,0)
 function capItem(bot){
- return bot.inventory.items().find(i=>fullCube(bot.registry,i.name)&&!GRAVITY.has(i.name))||null
+ return scaffoldItems(bot)[0]||null
 }
 async function settle(predicate,message,{check,ms=3000,poll=50}){
  const end=Date.now()+ms
@@ -235,7 +236,7 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
 // dig whatever sits two above the feet, jump, place a carried full cube
 // beneath at the apex, and repeat until standing at the surface level.
 export async function climbOut(bot,surface,{check,stage,progress},{attempts=16}={}){
- const material=()=>bot.inventory.items().find(i=>fullCube(bot.registry,i.name)&&!GRAVITY.has(i.name))
+ const material=()=>scaffoldItems(bot)[0]
  stage('climbing');progress('Climbing out by jumping and placing blocks beneath')
  let stalls=0
  for(let tries=0;Math.floor(bot.entity.position.y)<surface.y&&tries<attempts;tries++){
@@ -268,7 +269,7 @@ export async function unburrow(bot,task,{check,stage,progress}){
  check();const {surface}=task.goal
  const movement=new DoorAwareMovements(bot)
  Object.assign(movement,{canDig:true,allow1by1towers:true,allowParkour:false,allowSprinting:false,maxDropDown:1,
-  scafoldingBlocks:[...new Set(bot.inventory.items().filter(i=>fullCube(bot.registry,i.name)&&!GRAVITY.has(i.name)).map(i=>bot.registry.itemsByName[i.name]?.id??i.type).filter(Number.isInteger))]}) // item ids: the pathfinder matches item.type, not the block table
+  scafoldingBlocks:[...new Set(scaffoldItems(bot).map(i=>bot.registry.itemsByName[i.name]?.id??i.type).filter(Number.isInteger))]}) // item ids: the pathfinder matches item.type, not the block table
  stage('surfacing');progress('Digging back out to the surface')
  bot.pathfinder.setMovements(movement)
  const goal=new goals.GoalBlock(surface.x,surface.y,surface.z)

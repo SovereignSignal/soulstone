@@ -1,3 +1,4 @@
+import {scaffoldItems} from './scaffold.js'
 // Thin movement/dig primitives the planner can compose when travel/climb refuse.
 // goto walks to a point (optionally digging through harvestable blocks); dig
 // opens a short 1-wide 2-high tunnel toward a cell. Fat skills stay owned by
@@ -96,8 +97,7 @@ export function inventoryDelta(before, after) {
 // and the two tables differ (dirt is block 9, item 28). With block ids it saw
 // zero scaffold and could never tower, however much dirt was carried.
 function scaffoldIds(bot) {
-  return [...new Set(bot.inventory.items()
-    .filter(i => fullCube(bot.registry, i.name) && !GRAVITY.has(i.name))
+  return [...new Set(scaffoldItems(bot)
     .map(i => bot.registry.itemsByName[i.name]?.id ?? i.type)
     .filter(Number.isInteger))]
 }
@@ -359,6 +359,14 @@ async function digOne(bot, block, check) {
   const harvestable = !block.harvestTools || Object.keys(block.harvestTools).length === 0
     || bot.inventory.items().some(i => Object.prototype.hasOwnProperty.call(block.harvestTools, String(i.type)) || Object.prototype.hasOwnProperty.call(block.harvestTools, i.type))
   if (bot.tool?.equipForBlock) await bot.tool.equipForBlock(block, { requireHarvest: false, getFromChest: false })
+  // Jumping multiplies dig time by five. Let a completed walk land before
+  // classifying the tool; never bypass the duration limit while airborne.
+  if (bot.entity?.onGround === false) {
+    for (let i = 0; i < 20 && bot.entity.onGround === false; i++) { check(); await delay(50) }
+    check()
+    if (bot.entity.onGround === false)
+      throw Object.assign(new Error('Cannot dig while airborne; reach stable footing first'), { code: 'DIG_REFUSED' })
+  }
   const at = key(block.position), ms = bot.digTime?.(block)
   if (ms > DIG_BLOCK_MS)
     throw Object.assign(new Error(`${block.name} at ${at} needs ${Math.round(ms / 1000)}s with ${bot.heldItem?.name ?? 'bare hands'}${harvestable ? '' : ' and drops nothing'}; get a better tool`), { code: 'DIG_REFUSED' })
