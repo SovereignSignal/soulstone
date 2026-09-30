@@ -105,6 +105,24 @@ function assertUsableItem(bot,item){
  if(STATIONS.includes(item))throw new Error(`${item} is a base workstation; use place`)
 }
 
+// A standard ten-obsidian frame is a safe exception to project protection:
+// only its empty interior can be ignited, never arbitrary air in a saved build.
+function protectedPortalIgnition(bot,goal){
+ if(goal.item!=='flint_and_steel'||goal.expect!=='nether_portal'||goal.target.how!=='click'||goal.target.dimension!=='overworld')return false
+ const p=new Vec3(goal.target.x,goal.target.y,goal.target.z)
+ for(const [dx,dz] of [[1,0],[0,1]])for(const offset of [0,1]){
+  const at=(u,y)=>bot.blockAt(p.offset(dx*(u-offset),y,dz*(u-offset)))?.name
+  let valid=true
+  for(let u=0;u<2;u++)if(at(u,-1)!=='obsidian'||at(u,3)!=='obsidian')valid=false
+  for(let y=0;y<3;y++){
+   if(at(-1,y)!=='obsidian'||at(2,y)!=='obsidian')valid=false
+   for(let u=0;u<2;u++)if(!AIR.has(at(u,y))&&at(u,y)!=='nether_portal')valid=false
+  }
+  if(valid)return true
+ }
+ return false
+}
+
 // `approach` is injected rather than imported: world-skills owns approachPlacement
 // and is the caller, so importing it here would make an ESM cycle.
 export async function useHeldItem(bot,task,{check,walk,settle,stage,persist,approach}){
@@ -123,9 +141,12 @@ export async function useHeldItem(bot,task,{check,walk,settle,stage,persist,appr
  // restored from disk after a restart carries the latch and no feedback at all.
  if(task.use?.uncertain&&task.use.item===item&&JSON.stringify(task.use.target)===JSON.stringify(t))
   throw new Error(`This ${item} at ${key(p)} was already charged without a confirmed effect. Re-observe that block before using there again.`)
- for(const site of goal.protectedSites||[])
-  if(t.x>=site.minX&&t.x<=site.maxX&&t.z>=site.minZ&&t.z<=site.maxZ)
-   throw new Error(`${key(p)} is inside a saved project footprint; use does not modify saved builds. Choose a cell outside it, or revise the project.`)
+ const protectedTarget=(goal.protectedSites||[]).some(site=>t.x>=site.minX&&t.x<=site.maxX&&t.z>=site.minZ&&t.z<=site.maxZ)
+ const checkProjectUse=()=>{
+  if(protectedTarget&&!protectedPortalIgnition(bot,goal))
+   throw new Error(`${key(p)} is inside a saved project footprint; use requires a complete standard obsidian portal frame and an explicit portal ignition expectation, or a cell outside the saved build.`)
+ }
+ checkProjectUse()
  check()
  // 4. PRE-EVALUATE the expectation. One predicate, two jobs: idempotence before
  // the interaction, the receipt after it. Without this a replan walking twelve
@@ -185,6 +206,7 @@ export async function useHeldItem(bot,task,{check,walk,settle,stage,persist,appr
  // 8. Equip and send exactly one packet.
  const held=bot.inventory.items().find(i=>i.name===item)
  await bot.equip(held,'hand');check();stage('using')
+ checkProjectUse()
  await send();check()
  if(bot.currentWindow){bot.closeWindow?.(bot.currentWindow)
   throw new Error(`Using ${item} at ${key(p)} opened a container; chests, furnaces and crafting tables belong to the base actions.`)}

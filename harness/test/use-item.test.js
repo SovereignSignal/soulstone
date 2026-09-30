@@ -515,3 +515,39 @@ test('a point use is judged by reach from the eyes, where the server raycasts fr
   await assert.rejects(() => useHeldItem(bot, { kind: 'use', goal: { item: 'water_bucket', count: 1, expect: '', target: { x: 12, y: 65, z: -7, how: 'point', dimension: 'overworld' } } }, deps()), /Cannot reach/)
   assert.equal(bot.sent.activate, 0)
 })
+
+
+function protectedPortal(axis='x'){
+ const cells={},pos=(u,y)=>axis==='x'?`${12+u},${65+y},-7`:`12,${65+y},${-7+u}`
+ for(let u=0;u<2;u++){cells[pos(u,-1)]=cell('obsidian');cells[pos(u,3)]=cell('obsidian')}
+ for(let y=0;y<3;y++){cells[pos(-1,y)]=cell('obsidian');cells[pos(2,y)]=cell('obsidian')}
+ const bot=scene(cells)
+ bot._genericPlace=async()=>{bot.sent.place++;for(let u=0;u<2;u++)for(let y=0;y<3;y++)cells[pos(u,y)]=cell('nether_portal',{},[])}
+ const task=useTask({expect:'nether_portal',protectedSites:[{minX:0,maxX:20,minZ:-20,maxZ:0}]})
+ return {bot,task,cells,pos}
+}
+test('a protected complete standard portal can be ignited in either orientation',async()=>{
+ for(const axis of ['x','z']){
+  const {bot,task}=protectedPortal(axis)
+  const result=await useHeldItem(bot,task,deps())
+  assert.equal(result.receipt,'use_effect_observed')
+  assert.equal(bot.sent.place,1)
+ }
+})
+test('protected portal exception rejects missing frame, obstructed interior and wrong expectation',async()=>{
+ for(const change of ['frame','interior','expect']){
+  const {bot,task,cells,pos}=protectedPortal()
+  if(change==='frame')delete cells[pos(1,3)]
+  if(change==='interior')cells[pos(1,1)]=cell('oak_planks')
+  if(change==='expect')task.goal.expect='fire'
+  await assert.rejects(()=>useHeldItem(bot,task,deps()),/saved project/)
+  assert.equal(bot.sent.place,0)
+ }
+})
+test('protected frame is rechecked after approach before ignition',async()=>{
+ const {bot,task,cells,pos}=protectedPortal()
+ let approached=false
+ await assert.rejects(()=>useHeldItem(bot,task,{...deps(),approach:async()=>{approached=true;delete cells[pos(1,3)];return defaultApproach()}}),/saved project|frame/)
+ assert.equal(approached,true)
+ assert.equal(bot.sent.place,0)
+})
