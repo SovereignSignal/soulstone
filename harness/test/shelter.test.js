@@ -55,3 +55,49 @@ test('resource observations retain nearby wood even when nearer stone would fill
  assert.deepEqual(seen.map(b=>b.name),['stone','spruce_log'])
  assert.equal(nearbyResources(undefined,['stone']).length,0)
 })
+
+import {EventEmitter} from 'node:events'
+import {Teammate} from '../src/companion/controller.js'
+import {insideBase} from '../src/retreat.js'
+import {allowGroundBreaking} from '../src/navigation.js'
+function departureFixture({failExit=false}={}){
+ const runner=new EventEmitter();runner.bot={entity:{position:new Vec3(1.5,65,1.5)}}
+ const calls=[],base={build:{origin:{x:0,y:65,z:0},wood:'oak_log',design}}
+ const c={runner,projects:{base},requestProgress:{status:'running',feedback:[],completed:[]},persist(){},execute:Teammate.prototype.execute,leaveOccupiedShelter:Teammate.prototype.leaveOccupiedShelter,dispatch(cmd){
+  calls.push(cmd);runner.task={id:String(calls.length),status:cmd.action==='leave_base'&&failExit?'failed':'completed',reason:'Blocked exit',result:{receipt:cmd.action==='leave_base'?'left_base_door_closed':'acquired'}}
+  if(cmd.action==='leave_base'&&!failExit)runner.bot.entity.position=new Vec3(1.5,65,-1.5)
+  queueMicrotask(()=>runner.emit('event',{type:'task_finished',task:runner.task}))
+ }}
+ return {c,calls,runner,base}
+}
+test('ingredient acquisition leaves the primary base through its checked door first, even when shell inspection cannot pass',async()=>{
+ const {c,calls,base,runner}=departureFixture()
+ assert.equal(insideBase(runner.bot,base),true)
+ await c.execute({action:'acquire',goal:{item:'mushroom_stew',count:1}},new AbortController().signal)
+ assert.deepEqual(calls.map(x=>x.action),['leave_base','acquire'])
+ assert.deepEqual(calls[0].goal.project,base)
+ assert.equal(c.requestProgress.feedback[0].automatic,true)
+ assert.equal(insideBase(runner.bot,base),false)
+})
+test('failed primary-base departure prevents acquisition from tunnelling out',async()=>{
+ const {c,calls}=departureFixture({failExit:true})
+ await assert.rejects(c.execute({action:'acquire',goal:{item:'mushroom_stew',count:1}},new AbortController().signal),/Blocked exit/)
+ assert.deepEqual(calls.map(x=>x.action),['leave_base'])
+})
+test('retreat to the occupied base and eating inside it do not trigger a departure',async()=>{
+ for(const action of ['retreat','eat']){
+  const {c,calls,base}=departureFixture()
+  await c.execute({action,goal:{project:base}},new AbortController().signal)
+  assert.deepEqual(calls.map(x=>x.action),[action])
+ }
+})
+test('normal walking protects newly saved natural floors while keeping soft-ground travel outside available',()=>{
+ let sites=[];const movement={exclusionAreasBreak:[]}
+ allowGroundBreaking({},movement,{protectedSites:()=>sites})
+ const block={name:'dirt',position:new Vec3(1,64,1)},cost=()=>movement.exclusionAreasBreak.reduce((n,f)=>n+f(block),0)
+ assert.equal(cost(),0)
+ const {c,runner}=departureFixture();runner.command=()=>{}
+ Teammate.prototype.dispatch.call(c,{action:'stop'});sites=runner.protectedSites
+ assert.ok(cost()>=100,'the natural floor is protected below the blueprint')
+ block.position=new Vec3(8,64,1);assert.equal(cost(),0)
+})

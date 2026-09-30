@@ -266,3 +266,12 @@ test('flint is mined from gravel, keeping every gravel drop until the flint arri
  assert.equal(result.item,'flint');assert.equal(count('flint'),1);assert.equal(count('gravel'),2,'the gravel it dug on the way is kept')
  assert.ok(world.has('0,66,0'),'gravel straight above its own column is never dug: it would fall on its head')
 })
+
+import {miningGoal} from '../src/world-skills.js'
+test('shapeless resources have a reachable mining stance without inventing a visible collision face',()=>{
+ const position=new Vec3(3,64,0),world={raycast:()=>null}
+ const plant={position,shapes:[]},stone={position,shapes:[[0,0,0,1,1,1]]}
+ assert.equal(miningGoal(plant,world).isEnd(new Vec3(2,64,0)),true)
+ assert.equal(miningGoal(stone,world).isEnd(new Vec3(2,64,0)),false,'solid mining still requires a visible face')
+ assert.equal(miningGoal(plant,world).isEnd(new Vec3(0,64,0)),false,'plant stance must remain in pickup range')
+})

@@ -51,3 +51,12 @@ export function shelteredObservation(bot,project){
   return {inside,closed,lighting,passed:inside&&closed}
  }catch(error){return {passed:false,reason:error.message}}
 }
+
+// Occupancy is geometry, not a claim that a damaged/unlit base is safe. Its
+// checked leave action can still open the door and verify an exterior arrival.
+export function insideBase(bot,project){
+ try{
+  const build=project.build,o=new Vec3(build.origin.x,build.origin.y,build.origin.z),layout=shelterLayout(build.design),p=bot.entity.position.floored()
+  return p.y>=o.y&&p.y<o.y+layout.roof&&layout.inside.some(q=>q.x+o.x===p.x&&q.z+o.z===p.z)
+ }catch{return false}
+}

@@ -69,7 +69,7 @@ export class Runner extends EventEmitter {
       this.ready = true
       this.respawnPending = false; clearTimeout(this.respawnTimer)
       const movements = new DoorAwareMovements(bot)
-      allowGroundBreaking(bot, movements); movements.allow1by1towers = false
+      allowGroundBreaking(bot, movements,{protectedSites:()=>this.protectedSites||[]}); movements.allow1by1towers = false
       movements.allowParkour = false; movements.allowFreeMotion = false
       movements.allowSprinting = false; movements.scafoldingBlocks = []
       movements.maxDropDown = 3

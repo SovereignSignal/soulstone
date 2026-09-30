@@ -93,7 +93,7 @@ test('a refused journey names what the pathfinder actually said',async()=>{
 test('escape and the shared walk use the same traversal profile as travel',()=>{
  for(const file of ['../src/runner.js','../src/flee.js','../src/travel.js']){
   const source=readFileSync(new URL(file,import.meta.url),'utf8')
-  assert.ok(/allowGroundBreaking\(bot ?, ?movements?\)/.test(source),`${file} lets the walker break ground`)
+  assert.ok(/allowGroundBreaking\(bot ?, ?movements?(?:,|\))/.test(source),`${file} lets the walker break ground`)
   assert.ok(!/canDig ?[=:] ?false/.test(source),`${file} no longer hard-refuses digging`)
  }
 })

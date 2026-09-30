@@ -136,6 +136,12 @@ export function tableSite(bot,{radius=3}={}){
  }
  return found.sort((a,b)=>a.distanceSquared(p)-b.distanceSquared(p))[0]||null
 }
+// Plants have no collision face for GoalLookAtBlock to find. Approach within
+// pickup range; mineExposed still checks line of sight before digging.
+export function miningGoal(block,world){
+ const near=new goals.GoalNear(block.position.x,block.position.y,block.position.z,1.5)
+ return block.shapes?.length===0?near:new goals.GoalCompositeAll([new goals.GoalLookAtBlock(block.position,world),near])
+}
 export async function executeWorldSkill(bot,task,context,gather) {
  const {check,progress,stage,movements}=context
  const walking=movements
@@ -240,8 +246,8 @@ export async function executeWorldSkill(bot,task,context,gather) {
    try {
     // Stand beside a seam before digging so drops stay within pickup range;
     // a visible block at the bottom of a pit is not an accessible resource.
-    await walk(new goals.GoalCompositeAll([new goals.GoalLookAtBlock(block.position,bot.world),new goals.GoalNear(block.position.x,block.position.y,block.position.z,1.5)]))
-    if(bot.canSeeBlock?.(block)===false)throw new Error('Mining target has no clear line of sight')
+    await walk(miningGoal(block,bot.world))
+    if(bot.canSeeBlock&&!bot.canSeeBlock(block))throw new Error('Mining target has no clear line of sight')
    }catch(e){check();skipped.add(key(block.position));if(skipped.size>=12)throw new Error(`No accessible ${name} after 12 targets: ${e.message}`);progress(`Skipping inaccessible ${block.name}; inspecting another source`);continue}
 
    const harvest=Object.keys(block.harvestTools||{}).map(Number)
@@ -251,7 +257,8 @@ export async function executeWorldSkill(bot,task,context,gather) {
     await acquire(tool,1,path)
    }
    progress(`Mining ${name}: ${count(name)}/${total}`)
-   await walk(new goals.GoalCompositeAll([new goals.GoalLookAtBlock(block.position,bot.world),new goals.GoalNear(block.position.x,block.position.y,block.position.z,1.5)]))
+   await walk(miningGoal(block,bot.world))
+   if(bot.canSeeBlock&&!bot.canSeeBlock(block))throw new Error('Mining target has no clear line of sight')
    if(supportsPlayer(block.position,bot.entity.position)){skipped.add(key(block.position));continue}
    // Gravel and sand straight above the bot's own column fall onto its head.
    {const feet=bot.entity.position.floored(),p=block.position

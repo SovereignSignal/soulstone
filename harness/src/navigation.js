@@ -17,10 +17,14 @@ export function breakableWhileTravelling(block){
 // puts one dirt block at about sixteen walking steps, so any reasonable detour
 // still wins and breaking ground stays the last resort it should be.
 export const TRAVERSAL_DIG_COST=5
-export function allowGroundBreaking(bot,movement,{digCost=TRAVERSAL_DIG_COST}={}){
+export function allowGroundBreaking(bot,movement,{digCost=TRAVERSAL_DIG_COST,protectedSites=()=>[]}={}){
  movement.canDig=true
  movement.digCost=digCost
- movement.exclusionAreasBreak.push(block=>breakableWhileTravelling(block)?0:100)
+ movement.exclusionAreasBreak.push(block=>{
+  const p=block.position
+  if(p&&protectedSites().some(s=>p.x>=s.minX&&p.x<=s.maxX&&p.z>=s.minZ&&p.z<=s.maxZ))return 100
+  return breakableWhileTravelling(block)?0:100
+ })
  return movement
 }
 // Stand in the middle of your own cell. A player is 0.6 blocks wide, so a bot a

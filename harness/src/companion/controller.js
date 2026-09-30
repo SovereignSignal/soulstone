@@ -11,7 +11,7 @@ import {adaptiveRecovery} from './adaptive-recovery.js'
 import {recoveryContext,recoveryState,recentRecovery,recordRecovery} from './recovery-context.js'
 import {THREAT_INTERRUPTION,clearanceObservation,awaitClearance,openGroundClearance} from './hazard-clearance.js'
 import {alternativeShelters,occupiedAlternative} from '../alternate-shelter.js'
-import {shelteredObservation,inspectRetreatShelter} from '../retreat.js'
+import {shelteredObservation,inspectRetreatShelter,insideBase} from '../retreat.js'
 import {fullCube} from '../construction.js'
 import {canopyLandings} from '../canopy.js'
 import {setTimeout as delay} from 'node:timers/promises'
@@ -212,7 +212,7 @@ export class Teammate extends EventEmitter {
       health: b?.health ?? null, survival:survivalObservation(b), footing:footingObservation(b), tools:(b?.inventory?.items()||[]).filter(i=>i.maxDurability).map(i=>({name:i.name,remaining:remainingDurability(i),maximum:i.maxDurability})), inventory, places: this.places, task: this.runner.task, plan: this.plan, stepIndex: this.stepIndex,
       safety:this.safety, activity: this.activity || '', messages: this.messages, model: this.planner.model, requestProgress:this.requestProgress,canResume:!dead&&!this.runner.respawnPending&&!['retreating','defending'].includes(this.phase)&&canResume(this.requestProgress),projects:this.projects,experienceCount:this.experience.entries.length }
   }
-  dispatch(command) { this.dispatching = true; try { this.runner.command(command) } finally { this.dispatching = false } }
+  dispatch(command) { this.runner.protectedSites=projectFootprints(this.projects); this.dispatching = true; try { this.runner.command(command) } finally { this.dispatching = false } }
   cancel(stop = true, disposition = 'cancelled') { if(['retreating','defending'].includes(this.safety?.status))this.safety.status=disposition; ++this.epoch; if(this.requestProgress?.status==='running'){this.requestProgress.status=disposition;this.persist()} this.episode?.end(disposition); this.episode = null; this.abort?.abort(); this.abort = null; this.phase = 'ready'; this.plan = []; this.stepIndex = -1; this.activity = ''; if (stop) this.dispatch({ action: 'stop' }); this.emit('change') }
   stop() { const unfinished=['running','blocked','interrupted','paused'].includes(this.requestProgress?.status);this.cancel();if(unfinished){this.requestProgress.status='cancelled';this.persist()} this.safety={status:'cancelled',reason:'Operator stop'};this.say('Stopped. I will wait for your next instruction.') }
   interrupt(reason='Service stopped. Resume to continue the saved request.') {
@@ -1069,9 +1069,10 @@ export class Teammate extends EventEmitter {
   }
 
   async leaveOccupiedShelter(signal,destinationName=null){
-      const occupied=occupiedAlternative(this.runner.bot,this.projects)
+      const occupied=insideBase(this.runner.bot,this.projects.base)?{name:'base',project:this.projects.base}:occupiedAlternative(this.runner.bot,this.projects)
       if(occupied&&occupied.name!==destinationName){
-        await this.execute({action:'leave_base',goal:{shelter:structuredClone(occupied)},timeoutMs:30000},signal)
+        const goal=occupied.name==='base'?{project:structuredClone(occupied.project)}:{shelter:structuredClone(occupied)}
+        await this.execute({action:'leave_base',goal,timeoutMs:30000},signal)
         if(signal.aborted)throw new Error('Cancelled')
         if(this.requestProgress?.status==='running'){
           const step={action:'leave_base',name:occupied.name,item:'',count:0,design:[]},result=structuredClone(this.runner.task.result)
@@ -1091,7 +1092,7 @@ export class Teammate extends EventEmitter {
   }
   async executeCommand(command, signal, started = () => {}) {
     await this.runner.waitForIdle?.(signal)
-    if(!['defend','eat','craft','stop','leave_base','burrow','unburrow'].includes(command.action))await this.leaveOccupiedShelter(signal,command.action==='retreat'?command.goal?.shelter?.name:null)
+    if(!['defend','eat','craft','stop','leave_base','burrow','unburrow'].includes(command.action))await this.leaveOccupiedShelter(signal,command.action==='retreat'?(command.goal?.shelter?.name||'base'):null)
     return new Promise((resolve, reject) => {
       let taskId
       const cleanup = () => { this.runner.off('event', handler); signal.removeEventListener('abort', onAbort) }
