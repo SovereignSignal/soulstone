@@ -36,6 +36,7 @@ test('emergency thresholds exclude neutral mobs and Peaceful proximity, preserve
 })
 
 import {retreatToShelter} from '../src/retreat.js'
+import {executeWorldSkill} from '../src/world-skills.js'
 import {evaluateGoal} from '../src/companion/goal-contract.js'
 test('retreat verifies shell and light then enters and closes the door without repairs',async()=>{
  const o=new Vec3(0,64,0),design=[],world=new Map(),key=p=>p.toString();let open=false
@@ -52,7 +53,16 @@ test('retreat verifies shell and light then enters and closes the door without r
  bot.entities={99:{name:'husk',position:o.offset(1.5,0,2.5)}}
  assert.equal(evaluateGoal(contract,snapshot,bot,feedback).checks[0].passed,false)
  await assert.rejects(retreatToShelter(bot,task,api),/contains a potential hostile/)
+ bot.entities={100:{name:'creeper',position:o.offset(1.5,0,-1.5)}}
+ await assert.rejects(retreatToShelter(bot,{kind:'leave_base',goal:task.goal},api),/Departure blocked/)
+ assert.equal(open,false);assert.deepEqual(bot.entity.position,new Vec3(1.5,64,1.5))
+ // Missing ingredients must use that same physical guard before any mining.
+ bot.registry=minecraftData('1.21.4');bot.inventory={items:()=>[]};bot.findBlocks=()=>[];bot.recipesAll=()=>[]
+ await assert.rejects(executeWorldSkill(bot,{kind:'acquire',goal:{item:'red_mushroom',count:1}},{...api,shelterProject:task.goal.project,stage(){},movements:{}},()=>{throw new Error('Must not gather through a blocked doorway')}),/Departure blocked/)
+ assert.equal(open,false);assert.deepEqual(bot.entity.position,new Vec3(1.5,64,1.5))
  bot.entities={}
+ const departure=await retreatToShelter(bot,{kind:'leave_base',goal:task.goal},api)
+ assert.equal(departure.receipt,'left_base_door_closed');assert.equal(open,false)
  bot.entity.position=o.offset(1.5,0,-.5);assert.equal(evaluateGoal(contract,snapshot,bot,feedback).checks[0].passed,false);bot.entity.position=o.offset(1.5,0,1.5)
  world.set(key(o.offset(1,0,-1)),{name:'stone_bricks',boundingBox:'block'});await assert.rejects(retreatToShelter(bot,task,api),/access obstructed/);world.delete(key(o.offset(1,0,-1)))
  world.delete(key(o.offset(0,3,0)));await assert.rejects(retreatToShelter(bot,task,api),/structure is missing/)

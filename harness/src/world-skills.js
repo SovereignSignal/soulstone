@@ -1,3 +1,4 @@
+import {insideBase,retreatToShelter} from './retreat.js'
 import {harvestBerries} from './foraging.js'
 import {useHeldItem,dimensionOf} from './use-item.js'
 import {makeObsidian,fillableWaterSources} from './obsidian.js'
@@ -160,7 +161,22 @@ export async function executeWorldSkill(bot,task,context,gather) {
   try{await travelTo(bot,{kind:'travel',goal:{x:to.x,y:Number.isFinite(to.y)?to.y:here.y,z:to.z}},{check,stage,progress,movements:walking})}
   catch(error){check();progress(`Long walk stopped short: ${error.message}`)}
  }
- async function walk(goal,recover=true) {
+ async function leaveForWork(){
+  if(!['acquire','prepare'].includes(task.kind)||!insideBase(bot,context.shelterProject))return
+  check()
+  task.departure=await retreatToShelter(bot,{kind:'leave_base',goal:{project:context.shelterProject}},{check,progress,settle,walk:walkOutside})
+  context.persist?.();check()
+ }
+ async function walk(goal,recover=true){
+  if(['acquire','prepare'].includes(task.kind)&&insideBase(bot,context.shelterProject)){
+   // Crafting within reach does not need to open the room. Resource work and
+   // movement beyond the current stance use the same checked door departure.
+   if(goal.isEnd(bot.entity.position.floored())){check();return}
+   await leaveForWork()
+  }
+  return walkOutside(goal,recover)
+ }
+ async function walkOutside(goal,recover=true) {
   await approach(goal)
   // A retreat walk to the lit base may cross thirty blocks of night terrain: give it the task's own window.
   await walkWithTerrainRecovery(bot,goal,{movements:walking,check,stage,progress,attemptMs:task.kind==='retreat'?40000:15000,allowRecovery:recover&&task.kind!=='retreat',onRecovery:record=>{task.navigationRecovery=record;context.persist?.()}})
@@ -219,6 +235,7 @@ export async function executeWorldSkill(bot,task,context,gather) {
  }
  const sources={flint:['gravel'],cobblestone:['stone'],cobbled_deepslate:['deepslate'],coal:['coal_ore','deepslate_coal_ore'],raw_iron:['iron_ore','deepslate_iron_ore'],raw_copper:['copper_ore','deepslate_copper_ore'],diamond:['diamond_ore','deepslate_diamond_ore']}
  async function mine(name,total,path) {
+  await leaveForWork()
   try{await mineExposed(name,total,path)}
   catch(error){
    check()
@@ -303,7 +320,7 @@ export async function executeWorldSkill(bot,task,context,gather) {
   if(!item)throw new Error(`This Minecraft version has no item ${name}`)
   // The per-trip bound applies to the shortfall, never the carry target: a
   // request to hold 40 logs while carrying 32 is an eight-log trip.
-  if(isLog(name)){const missing=total-count(name);if(missing>32)throw new Error(`Gather at most 32 logs per trip: carrying ${count(name)} ${name}, ${missing} more needed`);await gather(total,name);return}
+  if(isLog(name)){const missing=total-count(name);if(missing>32)throw new Error(`Gather at most 32 logs per trip: carrying ${count(name)} ${name}, ${missing} more needed`);await leaveForWork();await gather(total,name);return}
   if(sources[name]&&findSource(name)){await mine(name,total,next);return}
   const recipes=bot.recipesAll(item.id,null,true).filter(r=>r.delta.some(d=>d.count<0))
   const memo=new Map(),scores=new Map(recipes.map(r=>[r,score(r)]))

@@ -212,7 +212,7 @@ export class Teammate extends EventEmitter {
       health: b?.health ?? null, survival:survivalObservation(b), footing:footingObservation(b), tools:(b?.inventory?.items()||[]).filter(i=>i.maxDurability).map(i=>({name:i.name,remaining:remainingDurability(i),maximum:i.maxDurability})), inventory, places: this.places, task: this.runner.task, plan: this.plan, stepIndex: this.stepIndex,
       safety:this.safety, activity: this.activity || '', messages: this.messages, model: this.planner.model, requestProgress:this.requestProgress,canResume:!dead&&!this.runner.respawnPending&&!['retreating','defending'].includes(this.phase)&&canResume(this.requestProgress),projects:this.projects,experienceCount:this.experience.entries.length }
   }
-  dispatch(command) { this.runner.protectedSites=projectFootprints(this.projects); this.dispatching = true; try { this.runner.command(command) } finally { this.dispatching = false } }
+  dispatch(command) { this.runner.shelterProject=this.projects.base; this.runner.protectedSites=projectFootprints(this.projects); this.dispatching = true; try { this.runner.command(command) } finally { this.dispatching = false } }
   cancel(stop = true, disposition = 'cancelled') { if(['retreating','defending'].includes(this.safety?.status))this.safety.status=disposition; ++this.epoch; if(this.requestProgress?.status==='running'){this.requestProgress.status=disposition;this.persist()} this.episode?.end(disposition); this.episode = null; this.abort?.abort(); this.abort = null; this.phase = 'ready'; this.plan = []; this.stepIndex = -1; this.activity = ''; if (stop) this.dispatch({ action: 'stop' }); this.emit('change') }
   stop() { const unfinished=['running','blocked','interrupted','paused'].includes(this.requestProgress?.status);this.cancel();if(unfinished){this.requestProgress.status='cancelled';this.persist()} this.safety={status:'cancelled',reason:'Operator stop'};this.say('Stopped. I will wait for your next instruction.') }
   interrupt(reason='Service stopped. Resume to continue the saved request.') {
@@ -1092,7 +1092,8 @@ export class Teammate extends EventEmitter {
   }
   async executeCommand(command, signal, started = () => {}) {
     await this.runner.waitForIdle?.(signal)
-    if(!['defend','eat','craft','stop','leave_base','burrow','unburrow'].includes(command.action))await this.leaveOccupiedShelter(signal,command.action==='retreat'?(command.goal?.shelter?.name||'base'):null)
+    const deferredDeparture=['acquire','prepare'].includes(command.action)&&insideBase(this.runner.bot,this.projects.base)
+    if(!deferredDeparture&&!['defend','eat','craft','stop','leave_base','burrow','unburrow'].includes(command.action))await this.leaveOccupiedShelter(signal,command.action==='retreat'?(command.goal?.shelter?.name||'base'):null)
     return new Promise((resolve, reject) => {
       let taskId
       const cleanup = () => { this.runner.off('event', handler); signal.removeEventListener('abort', onAbort) }

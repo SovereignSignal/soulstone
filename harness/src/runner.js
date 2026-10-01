@@ -266,11 +266,12 @@ export class Runner extends EventEmitter {
         try{const worn=await wearBestArmor(bot,{check,progress:message=>{this.log('skill_progress',{message});this.say(message)}});if(worn.length)this.persist()}
         catch(error){if(work.cancelled||this.bot!==bot)throw error}
       }
-      const result = await executeSkill(bot, task, { check, movements: this.movements, gatheringMovements: bot.collectBlock.movements,
+      const result = await executeSkill(bot, task, { check, shelterProject:this.shelterProject, movements: this.movements, gatheringMovements: bot.collectBlock.movements,
         persist: () => { this.extend(); this.persist() },
         stage: value => { work.stage = value; this.extend() },
         progress: message => { check(); this.extend(); this.log('skill_progress', { message }); this.say(message) } })
       check(); work.finished = true
+      if(task.departure)result.departure=structuredClone(task.departure)
       task.result=task.navigationRecovery?{...result,navigationRecovery:structuredClone(task.navigationRecovery)}:result;this.finish('completed', task.kind==='construct'?`${result.verifiedBlocks}/${result.totalBlocks} blocks${result.partial?' (more to build)':''}`:result.count===undefined||result.item===undefined?String(result.receipt):`${result.count} ${result.item}`, result)
     } catch (error) {
       work.finished = true
