@@ -73,7 +73,8 @@ test('an approaching hostile cancels eating and uses ordinary shelter recovery',
   else await execute(cmd,signal)
  }
  await c.seekSafety(FOOD_EMERGENCY)
- assert.equal(resumed(),0);assert.deepEqual(runner.commands,['eat','burrow','eat'])
+ // The creeper arrives five blocks away: distance first, then the burrow.
+ assert.equal(resumed(),0);assert.deepEqual(runner.commands,['eat','flee','burrow','eat'])
 })
 test('uncertain consumption survives shelter fallback and forbids a second eating attempt',async()=>{
  const {runner,c,resumed}=fixture(),execute=c.execute

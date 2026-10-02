@@ -266,7 +266,8 @@ test('a burrowed bot surfaces to confront a lone zombie that lingers through the
  const started=c.seekSafety(THREAT_INTERRUPTION)
  await new Promise(r=>setTimeout(r,300));w.bot.time.timeOfDay=6000;w.bot.health=20;w.inventory.push({name:'stone_axe',count:1,maxDurability:131,durabilityUsed:0});Object.assign(w.bot.entities[1],{id:1,uuid:'00000000-0000-0000-0000-000000000001',type:'hostile'})
  await started
- assert.deepEqual(commands.filter(a=>a!=='stop'),['burrow','unburrow'])
+ // The zombie stands four blocks off, inside melee reach: sprint clear, then dig.
+ assert.deepEqual(commands.filter(a=>a!=='stop'),['flee','burrow','unburrow'])
  assert.equal(resumed,1);assert.equal(c.requestProgress.safetyContinuations.length,1);assert.equal(c.safety,null)
  assert.ok(said.some(t=>/lone zombie has lingered [0-9.]+ blocks away. Opening up to confront it/.test(t)),said.join(' | '))
 })

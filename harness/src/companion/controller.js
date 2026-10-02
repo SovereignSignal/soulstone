@@ -19,7 +19,7 @@ import {setTimeout as delay} from 'node:timers/promises'
 const BURROW_WATCHES=4
 const SAFETY_RETRIES=3
 const NIGHT_HOLD_MS=14*60*1000
-import {survivalObservation,emergencyReason,threatRadius,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY} from '../survival.js'
+import {survivalObservation,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY} from '../survival.js'
 // Air, fire and a portal underfoot run their own recovery at once and preempt
 // any shelter attempt: each has a clock no shelter stops.
 const URGENT=new Set([WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY])
@@ -454,6 +454,20 @@ export class Teammate extends EventEmitter {
           attempt.status='rejected';attempt.reason=error.message;this.persist()
           this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)
           this.say(candidate.name+' is unavailable: '+error.message+'. Checking another saved shelter.')
+        }
+      }
+      // Digging in takes seconds, and a mob already in reach spends them hitting:
+      // two zombies took sixteen health while the burrow was being dug. Put
+      // distance behind first, the way a creeper is handled, then dig. Melee reach
+      // is the same floor the threat rule never negotiates.
+      if(!this.safety.retreat&&!insideBase(recoveryBot,this.projects.base)&&!occupiedAlternative(recoveryBot,this.projects)){
+        const close=survivalObservation(recoveryBot).nearbyThreats.filter(t=>t.risk==='potential_hostile'&&t.position&&t.distance<=CLOSE_FLOORS.melee).sort((a,b)=>a.distance-b.distance)[0]
+        if(close&&!(this.safety.flights||[]).length){
+          this.safety.status='fleeing';this.phase='retreating';this.say(`A ${close.name} is ${close.distance} blocks away and I have no shelter to reach. Sprinting clear before digging in.`)
+          try{await this.execute({action:'flee',goal:{from:close.position,distance:24},timeoutMs:15000},abort.signal);if(epoch!==this.epoch||abort.signal.aborted)return;(this.safety.flights??=[]).push(structuredClone(this.runner.task.result));this.persist()}
+          catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;(this.safety.flights??=[]).push({failed:error.message});this.persist();this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)}
+          if(epoch!==this.epoch||abort.signal.aborted)return
+          this.safety.status='retreating'
         }
       }
       if(!this.safety.retreat)await this.lastResortShelter(epoch,abort.signal)

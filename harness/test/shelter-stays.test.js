@@ -68,3 +68,16 @@ test('a base whose blocks have not arrived after login is not a destroyed base',
  c.unloadedSince=Date.now()-21000
  r.emit('event',{type:'survival_tick'});assert.equal(calls.length,1,'blocks that never arrive stop being an excuse')
 })
+test('with no shelter to reach and hostiles already close, safety runs before it digs',async()=>{
+ // Lab death, 2 October 18:44Z: two zombies at 2.7 and 4.3 blocks, the base
+ // wrecked, and the burrow started under their fists. Sixteen health in six seconds.
+ const {r,c,bot}=world(new Vec3(30.5,64,30.5));c.projects={}
+ bot.entities={1:{id:1,name:'zombie',position:new Vec3(33.2,64,30.5)},2:{id:2,name:'zombie',position:new Vec3(30.5,64,34.8)}}
+ await c.seekSafety(THREAT_INTERRUPTION)
+ const acted=r.commands.filter(a=>a!=='stop')
+ assert.deepEqual(acted.slice(0,2),['flee','burrow'],acted.join(','))
+ // Nothing within reach: dig in where it stands, as before.
+ const far=world(new Vec3(30.5,64,30.5));far.c.projects={};far.bot.entities={1:{id:1,name:'zombie',position:new Vec3(39.5,64,30.5)},2:{id:2,name:'zombie',position:new Vec3(30.5,64,40)}}
+ await far.c.seekSafety(THREAT_INTERRUPTION)
+ assert.equal(far.r.commands.filter(a=>a!=='stop')[0],'burrow')
+})
