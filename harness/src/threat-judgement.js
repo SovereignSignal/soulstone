@@ -5,7 +5,7 @@
 // to change anything. Sov's steer of 12 September: fight and survive with
 // judgement, not always flee and hide. The rule cannot judge; this can.
 import {execFileSync} from 'node:child_process'
-import {RANGED} from './survival.js'
+import {RANGED,CLOSE_FLOORS} from './survival.js'
 
 export const JUDGEMENT_URL='https://api.typesafe.ai/v1/systemone'
 export const DEFAULT_MODEL='jev-latest'
@@ -91,7 +91,7 @@ export const wornArmour=bot=>['head','torso','legs','feet'].map(slot=>{const i=b
 // Control mode. Code keeps the floors a player would never argue with; Jev
 // judges between them. Nothing here fires unless MC_THREAT_JUDGE=control.
 export const CONTROL=process.env.MC_THREAT_JUDGE==='control'
-export const FLOORS={melee:6,creeper:10,health:8,fightHealth:10,fightFood:8,continueInterrupt:0.4,overrideConfidence:0.3,holdMs:10000}
+export const FLOORS={...CLOSE_FLOORS,health:8,fightHealth:10,fightFood:8,continueInterrupt:0.4,overrideConfidence:0.3,holdMs:10000}
 // A hostile in arm's reach, a creeper in fuse range or a bot already hurt is not a judgement call.
 export function forcedInterruption(observation,floors=FLOORS){
  const threats=(observation?.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile')

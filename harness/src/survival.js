@@ -14,6 +14,14 @@ export const isPotentialHostile=name=>hostile.has(name)
 // blocks of approach without any response; one killed the agent that way.
 export const RANGED=new Set(['skeleton','stray','bogged','wither_skeleton','pillager','witch','ghast','blaze','illusioner','breeze','drowned'])
 export const threatRadius=name=>name==='creeper'||RANGED.has(name)?16:10
+// What is never a judgement call: a hostile in arm's reach, a creeper in fuse range.
+export const CLOSE_FLOORS={melee:6,creeper:10}
+// Rock does not stop these: a warden's boom and a vex pass through it, the rest break it.
+const WALL_BREACHING=new Set(['warden','vex','wither','ender_dragon','ghast'])
+// A hostile the tick found sealed off from the bot's own space, with the ray to
+// it blocked as well, cannot path, see or shoot in. Distance through stone is
+// not danger, so only the close floors still count for it.
+const pressingRadius=t=>t.reach==='sealed'&&t.sightline?.status==='blocked'&&!WALL_BREACHING.has(t.name)?(t.name==='creeper'?CLOSE_FLOORS.creeper:CLOSE_FLOORS.melee):threatRadius(t.name)
 export const THREAT_INTERRUPTION='A potential hostile is within ten blocks'
 export const NIGHT_EXPOSURE='Night with no shelter'
 export const HEALTH_EMERGENCY='Health is at or below half'
@@ -120,7 +128,7 @@ export function emergencyReason(observation){
  if(Number.isFinite(observation.food)&&observation.food<=6&&(observation.carriedFood||[]).length)return FOOD_EMERGENCY
  // Inside a verified closed lit shelter the answer to a nearby hostile is already
  // in place; interrupting there only retreats into the room the bot is standing in.
- if(observation.sheltered!==true&&observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name)))return THREAT_INTERRUPTION
+ if(observation.sheltered!==true&&observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=pressingRadius(t)))return THREAT_INTERRUPTION
  // Out in the open after dusk with no built base: dig in before the crowd arrives.
  if(observation.shelterAvailable===false&&observation.difficulty&&observation.difficulty!=='peaceful'&&Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500))return NIGHT_EXPOSURE
  return null

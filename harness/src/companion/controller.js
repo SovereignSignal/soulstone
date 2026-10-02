@@ -19,12 +19,13 @@ import {setTimeout as delay} from 'node:timers/promises'
 const BURROW_WATCHES=4
 const SAFETY_RETRIES=3
 const NIGHT_HOLD_MS=14*60*1000
-import {survivalObservation,emergencyReason,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY} from '../survival.js'
+import {survivalObservation,emergencyReason,threatRadius,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY} from '../survival.js'
 // Air, fire and a portal underfoot run their own recovery at once and preempt
 // any shelter attempt: each has a clock no shelter stops.
 const URGENT=new Set([WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY])
 import {burrowClearance} from '../burrow.js'
 import {inspectEmergencyShelter} from '../shelter-occupants.js'
+import {threatReach} from '../threat-reach.js'
 import {defenseDecision,combatClearance,DEFENDABLE_MOBS,meleeWeapon} from '../combat.js'
 import {ThreatJudge,harnessVerdict,wornArmour,forcedInterruption,gateVerdict,chooseResponse} from '../threat-judgement.js'
 import {projectFootprints} from '../site-survey.js'
@@ -115,7 +116,13 @@ export class Teammate extends EventEmitter {
         }
         const recentDamageMs=Number.isFinite(this.lastDamageAt)?Date.now()-this.lastDamageAt:null
         if(this.phase==='blocked'&&canResume(this.requestProgress)){this.blockedSince??=Date.now()}else this.blockedSince=null
+        // Whether the hostiles in range share the bot's open space: asked only
+        // when one of them is behind something, since a mob in plain view counts anyway.
+        const pressing=observation.nearbyThreats.filter(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name))
+        if(pressing.some(t=>t.sightline?.status==='blocked')){const reach=threatReach(runner.bot,pressing);pressing.forEach((t,i)=>{t.reach=reach[i]})}
         const reason=emergencyReason({...observation,shelterAvailable,sheltered,recentDamageMs})
+        // The journal should show the times rock was the reason work carried on.
+        if(!reason&&pressing.some(t=>t.reach==='sealed')&&Date.now()-(this.sealedLogAt||0)>=30000&&emergencyReason({...observation,nearbyThreats:observation.nearbyThreats.map(t=>({...t,reach:undefined})),shelterAvailable,sheltered,recentDamageMs})===THREAT_INTERRUPTION){this.sealedLogAt=Date.now();runner.log?.('threat_sealed',{threats:pressing.slice(0,4).map(t=>`${t.name}@${t.distance}/${t.verticalOffset}:${t.reach}`)})}
         if(!reason){this.noteProgress();void this.stallRetry()}
         if(this.safety?.reason===WATER_EMERGENCY&&['failed','afloat'].includes(this.safety.status)&&observation.headSubmerged===false&&observation.inWater===false&&runner.bot.entity.onGround){
           this.safety=null;this.activity='';runner.bot.clearControlStates();this.phase=canResume(this.requestProgress)?'blocked':'ready'
