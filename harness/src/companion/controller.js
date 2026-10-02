@@ -105,8 +105,16 @@ export class Teammate extends EventEmitter {
         const base=this.projects.base
         let shelterAvailable=!!base&&base.built!==false&&base.stations?.torch?.confirmed===true
         // Only a base we can actually inspect can be judged damaged; no design means no evidence.
-        if(shelterAvailable&&base.build?.design?.length){try{inspectRetreatShelter(runner.bot,base,{occupants:false})}catch{shelterAvailable=false}}
-        const sheltered=shelterAvailable&&(()=>{try{return shelteredObservation(runner.bot,base).passed}catch{return false}})()
+        // Login announces spawn before the chunks arrive. A base whose blocks are
+        // not there yet is not a destroyed base: standing inside it, hold it as
+        // shelter for a few seconds rather than treat the mob beyond the wall as an
+        // emergency. Blocks that never arrive stop being an excuse.
+        let awaitingBase=false
+        if(shelterAvailable&&base.build?.design?.length){try{inspectRetreatShelter(runner.bot,base,{occupants:false});this.unloadedSince=null}catch(error){
+          awaitingBase=/: unloaded$/.test(error.message)&&insideBase(runner.bot,base)&&Date.now()-(this.unloadedSince??=Date.now())<20000
+          if(!awaitingBase)shelterAvailable=false
+        }}
+        const sheltered=awaitingBase||shelterAvailable&&(()=>{try{return shelteredObservation(runner.bot,base).passed}catch{return false}})()
         const observation=survivalObservation(runner.bot)
         // Health over time is something only this tick can see. A single
         // snapshot cannot tell "hurt and stable, go find food" from "hurt and

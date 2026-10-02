@@ -57,3 +57,14 @@ test('a safety action issued from inside any shelter never walks out of it first
  await work.c.executeCommand({action:'goto',goal:{x:20,y:64,z:20},timeoutMs:5000},new AbortController().signal)
  assert.deepEqual(work.r.commands,['leave_base','goto'],'ordinary work still leaves by the checked door')
 })
+test('a base whose blocks have not arrived after login is not a destroyed base',()=>{
+ // After a restart the lab bot stood in its base while the base read as
+ // "missing or changed: unloaded". That made it unsheltered, the creeper beyond
+ // the wall became an emergency, and the response walked it out to die.
+ const {r,c,bot}=world(new Vec3(1.5,64,1.5)),loaded=bot.blockAt
+ bot.blockAt=p=>p.y>=64&&p.y<=66&&p.x>=0&&p.x<=3&&p.z>=0&&p.z<=3?null:loaded(p)
+ const calls=[];c.seekSafety=async why=>{calls.push(why);c.safety={status:'retreating',reason:why}}
+ r.emit('event',{type:'survival_tick'});assert.deepEqual(calls,[],'unknown for now, neither a threat indoors nor a night with no shelter')
+ c.unloadedSince=Date.now()-21000
+ r.emit('event',{type:'survival_tick'});assert.equal(calls.length,1,'blocks that never arrive stop being an excuse')
+})
