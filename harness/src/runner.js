@@ -221,9 +221,22 @@ export class Runner extends EventEmitter {
     else if (status === 'failed') this.say(`Task failed: ${reason}`)
     if (status === 'completed' && returnTo) this.follow(returnTo)
   }
+  // Chat is rate limited by the server, and a dropped line is a silent one: the
+  // newest few wait their turn instead. Nothing is kept for a lost connection.
   say(text) {
-    if (!this.chatControl || !this.ready || !this.bot || Date.now() - (this.lastChat || 0) < 2000) return
-    this.lastChat = Date.now(); this.bot.chat(String(text).replace(/[\r\n]/g, ' ').slice(0, 200))
+    if (!this.chatControl) return
+    const queue = this.chatQueue ??= []
+    queue.push(String(text).replace(/[\r\n]/g, ' ').slice(0, 200))
+    while (queue.length > 6) queue.shift()
+    this.drainChat()
+  }
+  drainChat() {
+    const queue = this.chatQueue
+    if (this.chatTimer || !queue?.length) return
+    if (!this.ready || !this.bot) { queue.length = 0; return }
+    const wait = (this.chatIntervalMs ?? 1500) - (Date.now() - (this.lastChat || 0))
+    if (wait > 0) { this.chatTimer = setTimeout(() => { this.chatTimer = null; this.drainChat() }, wait); this.chatTimer.unref?.(); return }
+    this.lastChat = Date.now(); this.bot.chat(queue.shift()); this.drainChat()
   }
   assertAvailable() {
     if (this.work && !this.work.finished && this.work.bot === this.bot) throw new Error('Skill still active; use !bot stop first')

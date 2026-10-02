@@ -8,12 +8,24 @@ export function parseChat(message) {
   if (parts.join(' ') === 'craft pickaxe') return { action: 'craft', goal: { item: 'wooden_pickaxe', count: 1 } }
   throw new Error('Use !bot help for commands')
 }
+// A line that starts with the teammate's name is a request in plain words, the
+// same text the companion's box would send to the planner. It is not a command
+// channel: the planner can only return validated plans, as for any request.
+export function parseRequest(message, username = '') {
+  const names = [username, username.replace(/\d+$/, ''), 'soulstone', 'soul'].filter(Boolean).map(n => n.replace(/[^A-Za-z0-9_]/g, ''))
+  const match = new RegExp(`^@?(?:${[...new Set(names)].sort((a, b) => b.length - a.length).join('|')})[,:]?\\s+(.{2,400})$`, 'i').exec(String(message).trim())
+  return match ? match[1].trim() : null
+}
 export function attachChatControl(runner, bot) {
   bot.on('chat', (name, message) => {
     if (name === bot.username || (runner.owner && name.toLowerCase() !== runner.owner.toLowerCase())) return
     try {
       const command = parseChat(message)
-      if (!command) return
+      if (!command) {
+        const text = parseRequest(message, bot.username)
+        if (text) runner.emit('chat_request', { name, text })
+        return
+      }
       if (command.action === 'ping') { runner.say(`ack ${name}`); return }
       if (command.action === 'help') { runner.say('!bot follow | come | gather 10 | craft pickaxe | status | stop | resume'); return }
       if (command.action === 'follow' || command.action === 'come') {

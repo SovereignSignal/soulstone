@@ -41,6 +41,14 @@ const recorder = process.env.MC_RECORD_EPISODES === '0' ? null : new EpisodeReco
 const teammate = new Teammate(runner, new LocalPlanner({ model: process.env.MC_MODEL || 'minecraft-teammate', url: process.env.MC_MODEL_URL }), resolve('state/teammate.json'), recorder)
 const profiles = new ModelProfiles(resolve('state/models.json'), setup ? {id:'subscription-default',kind:setup.provider,label:setup.provider==='codex'?'Codex subscription':'Claude subscription',model:setup.model,url:'',maxTokens:4096} : {id:'local-default',kind:'local',label:'Local · LM Studio',model:teammate.planner.model,url:teammate.planner.url,maxTokens:4096})
 teammate.planner.profiles = profiles
+// What the teammate says is said in the game too, and a line the owner addresses
+// to it in chat is a request like any typed into the companion.
+let spoken = new Set(teammate.messages.map(m => m.id))
+teammate.on('change', () => {
+  for (const m of teammate.messages) if (!spoken.has(m.id) && m.role === 'assistant') runner.say(m.text)
+  spoken = new Set(teammate.messages.map(m => m.id))
+})
+runner.on('chat_request', ({ text }) => { void teammate.submit(text).catch(e => runner.say(e.message)) })
 const routine = new DayRoutine(teammate,resolve('state/day-routine.json'))
 void startLocalModel({ binary: process.env.MC_LMS_BINARY, key: process.env.MC_MODEL_KEY, identifier: process.env.MC_MODEL || 'minecraft-teammate' }).catch(e => console.error('Local model startup:', e.message))
 const token = process.env.MC_COMPANION_TOKEN || randomBytes(32).toString('hex')
