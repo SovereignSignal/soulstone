@@ -83,6 +83,27 @@ test('blocksNear supports *_ore wildcard and any_solid', () => {
   assert.ok(solids.blocks.some(b => b.name === 'dirt'))
 })
 
+test('block observations distinguish sealed, flooded, exposed and unknown resources', () => {
+  const neighbors = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]
+  const cells = {}, unloaded = new Set()
+  for (const x of [0,4,8,12]) {
+    cells[`${x},64,0`] = solid('obsidian')
+    for (const [dx,dy,dz] of neighbors) cells[`${x+dx},${64+dy},${dz}`] = solid('deepslate')
+  }
+  cells['4,65,0'] = {name:'water', boundingBox:'empty'}
+  cells['5,64,0'] = {name:'lava', boundingBox:'empty'}
+  cells['8,65,0'] = {name:'cave_air', boundingBox:'empty'}
+  cells['9,64,0'] = {name:'stone_slab', boundingBox:'block', getProperties:()=>({waterlogged:true})}
+  unloaded.add('12,65,0')
+  const bot=stubBot({cells,unloaded,registry:{obsidian:{id:1}},at:new Vec3(6,64,0)})
+  const rows=blocksNear(bot,{names:['obsidian'],radius:16}).blocks
+  assert.deepEqual(rows.find(b=>b.x===0).neighbors,{deepslate:6})
+  assert.deepEqual(rows.find(b=>b.x===4).neighbors,{lava:1,deepslate:4,water:1})
+  assert.equal(rows.find(b=>b.x===8).neighbors.cave_air,1)
+  assert.equal(rows.find(b=>b.x===8).neighbors.waterlogged,1)
+  assert.deepEqual(rows.find(b=>b.x===12).neighbors,{deepslate:5,unknown:1})
+})
+
 test('blocksNear gives every requested name a fair share, so common stone cannot crowd out the one crafting table', () => {
   // A 5x5x5 shell of stone (well over the cap) with a single crafting table
   // at distance 7. Pure nearest-first would return 24 stone and no table.

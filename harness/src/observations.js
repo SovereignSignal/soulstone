@@ -16,6 +16,17 @@ const matchName=(name,patterns)=>{
  return false
 }
 const round01=n=>Math.round(n*100)/100
+// A loaded coordinate can be buried or touch liquid. Report its six neighbours
+// separately from route/interaction feasibility; missing chunks stay unknown.
+export function blockNeighbors(bot,position){
+ const counts={},p=new Vec3(position.x,position.y,position.z)
+ for(const [x,y,z] of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]){
+  const b=bot.blockAt(p.offset(x,y,z)),name=b?.name||'unknown'
+  counts[name]=(counts[name]||0)+1
+  if(b?.getProperties?.()?.waterlogged===true)counts.waterlogged=(counts.waterlogged||0)+1
+ }
+ return counts
+}
 // Bound each resource kind separately: abundant underground stone must not
 // crowd nearby wood or workstations out of the planner and recipe observations.
 export function nearbyResources(bot,names,{maxDistance=32,countPerKind=2}={}) {
@@ -100,7 +111,7 @@ export function blocksNear(bot,{names=[],radius=8,limit=24}={}){
   seen.add(k);blocks.push(b)
  }
  if(remaining>0)truncated=true
- return {blocks,truncated,scanned:{radius:r,loaded}}
+ return {blocks:blocks.map(b=>({...b,neighbors:blockNeighbors(bot,b)})),truncated,scanned:{radius:r,loaded}}
 }
 
 // Vertical escape clue: solids overhead, then where open sky begins.

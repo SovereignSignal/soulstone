@@ -428,6 +428,31 @@ test('the observation reports which dimension the agent is in', async () => {
   assert.equal(survivalObservation(bot).dimension, 'the_nether', 'the minecraft: prefix is stripped')
 })
 
+test('interactables expose the sealed-source and wet-obsidian conditions behind failed acquisition', async () => {
+  const {interactableObservation}=await import('../src/use-item.js')
+  const names={water:1,lava:2,obsidian:3},cells={
+    '0,64,0':{name:'water',getProperties:()=>({level:0})},
+    '1,64,0':{name:'water',getProperties:()=>({level:0})},
+    '0,64,1':{name:'water',getProperties:()=>({level:0})},
+    '5,64,0':{name:'obsidian'},
+    '5,65,0':{name:'water',getProperties:()=>({level:4})},
+    '6,64,0':{name:'lava',getProperties:()=>({level:0})}
+  }
+  const bot={entity:{position:new Vec3(0,62,0)},registry:{blocksByName:Object.fromEntries(Object.entries(names).map(([n,id])=>[n,{id}]))},
+    blockAt:p=>cells[`${p.x},${p.y},${p.z}`]??{name:'deepslate'},
+    findBlocks:({matching})=>Object.entries(cells).filter(([,b])=>names[b.name]===matching).map(([k])=>new Vec3(...k.split(',').map(Number)))
+  }
+  const o=interactableObservation(bot,{names:['obsidian']})
+  assert.deepEqual(o.nearestSource.water.neighbors,{water:2,deepslate:4})
+  assert.deepEqual(o.blocks[0].neighbors,{lava:1,deepslate:4,water:1})
+  // Re-observation must report a newly opened face, not retain the old refusal.
+  cells['0,65,0']={name:'air'}
+  assert.equal(interactableObservation(bot).nearestSource.water.neighbors.air,1)
+  const old=bot.blockAt;bot.blockAt=p=>p.equals(new Vec3(0,65,0))?null:old(p)
+  const unknown=interactableObservation(bot).nearestSource.water.neighbors
+  assert.equal(unknown.unknown,1);assert.equal(unknown.air,undefined)
+})
+
 test('the capabilities brief teaches use as a mechanism, not a portal recipe', async () => {
   // The whole point of one verb is that it generalises. A brief that only ever
   // says "flint and steel" teaches the planner a recipe, and the next six rungs

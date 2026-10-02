@@ -15,6 +15,7 @@ import {fullCube} from './construction.js'
 import {blockKind} from './building-blocks.js'
 import {STATIONS} from './stations.js'
 import {remainingDurability} from './supplies.js'
+import {blockNeighbors} from './observations.js'
 import pathfinding from 'mineflayer-pathfinder'
 const {goals}=pathfinding
 const AIR=new Set(['air','cave_air','void_air'])
@@ -290,14 +291,14 @@ export function interactableObservation(bot,{names=USE_DEFAULT_TARGETS}={}){
  for(const name of names)for(const p of scan(name)){
   const b=bot.blockAt(p)
   if(!b)continue
-  blocks.push({name:b.name,x:p.x,y:p.y,z:p.z,state:{...(b.getProperties?.()??{})}})
+  blocks.push({name:b.name,x:p.x,y:p.y,z:p.z,state:{...(b.getProperties?.()??{})},neighbors:blockNeighbors(bot,p)})
  }
  for(const fluid of USE_FLUIDS){
   const sources=scan(fluid).map(p=>({p,b:bot.blockAt(p)}))
    .filter(({b})=>b&&String(b.getProperties?.()?.level??'')==='0')
    .sort((a,c)=>(here?a.p.distanceTo(here)-c.p.distanceTo(here):0))
-  if(sources.length)nearestSource[fluid]={x:sources[0].p.x,y:sources[0].p.y,z:sources[0].p.z}
+  if(sources.length)nearestSource[fluid]={x:sources[0].p.x,y:sources[0].p.y,z:sources[0].p.z,neighbors:blockNeighbors(bot,sources[0].p)}
  }
  return {status:'observed',blocks,nearestSource,truncated,
-  scope:`Loaded blocks within ${SCAN_RANGE} blocks only; absence is local evidence, not proof, and a source cell is the only kind a bucket can fill from.`}
+  scope:`Loaded blocks within ${SCAN_RANGE} blocks only; presence does not prove access. neighbors counts the six adjacent block names (unknown is unloaded; waterlogged counts overlap). A source can be sealed in rock. A bucket needs an exposed source and a clear reachable aim; mining refuses liquid-adjacent blocks. Absence is local evidence, not proof.`}
 }
