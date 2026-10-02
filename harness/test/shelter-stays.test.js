@@ -53,7 +53,7 @@ test('a safety action issued from inside any shelter never walks out of it first
   await c.executeCommand({action,goal:action==='flee'?{from:{x:1.5,y:64,z:-1.3},distance:24}:{},timeoutMs:5000},new AbortController().signal)
   assert.deepEqual(r.commands,[action],action)
  }
- const work=world(new Vec3(1.5,64,1.5));work.bot.time.timeOfDay=6000
+ const work=world(new Vec3(1.5,64,1.5));work.bot.time.timeOfDay=6000;work.bot.entities={}
  await work.c.executeCommand({action:'goto',goal:{x:20,y:64,z:20},timeoutMs:5000},new AbortController().signal)
  assert.deepEqual(work.r.commands,['leave_base','goto'],'ordinary work still leaves by the checked door, by day')
 })
@@ -147,15 +147,30 @@ test('indoors at night with the work unfinished is a wait for daylight, not a st
 test('work does not leave the base with dusk a minute away; by day it leaves as before',async()=>{
  // Lab run 15, 2 October 20:19Z: the bot stepped out to the furnace at dusk,
  // eighteen blocks from the door, and met a zombie and a skeleton on the way.
- const late=world(new Vec3(1.5,64,1.5));late.bot.time.timeOfDay=11600
+ const late=world(new Vec3(1.5,64,1.5));late.bot.time.timeOfDay=11600;late.bot.entities={}
  await assert.rejects(late.c.executeCommand({action:'goto',goal:{x:20,y:64,z:20},timeoutMs:5000},new AbortController().signal),/daylight/)
  assert.deepEqual(late.r.commands,[],'it stays behind the door')
- const night=world(new Vec3(1.5,64,1.5));night.bot.time.timeOfDay=15000
+ const night=world(new Vec3(1.5,64,1.5));night.bot.time.timeOfDay=15000;night.bot.entities={}
  await assert.rejects(night.c.executeCommand({action:'smelt',goal:{},timeoutMs:5000},new AbortController().signal),/daylight/)
- const day=world(new Vec3(1.5,64,1.5));day.bot.time.timeOfDay=6000
+ const day=world(new Vec3(1.5,64,1.5));day.bot.time.timeOfDay=6000;day.bot.entities={}
  await day.c.executeCommand({action:'goto',goal:{x:20,y:64,z:20},timeoutMs:5000},new AbortController().signal)
  assert.deepEqual(day.r.commands,['leave_base','goto'])
  const out=world(new Vec3(30.5,64,30.5));out.bot.time.timeOfDay=11600
  await out.c.executeCommand({action:'goto',goal:{x:20,y:64,z:20},timeoutMs:5000},new AbortController().signal)
  assert.deepEqual(out.r.commands,['goto'],'outside the base nothing changes; the safety rules own dusk there')
+})
+test('the door does not open for work onto a hostile inside its interruption radius, and waiting on it spends no retry budget',async()=>{
+ // Lab run 16, 2 October 23:48Z: at sunrise the retry restarted the planner,
+ // the bot walked out past a creeper at 13 blocks and skeletons at 14, and was
+ // interrupted ten seconds later. Same loop as the wait, through another door.
+ const {r,c,bot}=world(new Vec3(1.5,64,1.5));bot.time.timeOfDay=6000
+ bot.entities={1:{id:1,name:'creeper',position:new Vec3(10,64,10)}}
+ await assert.rejects(c.executeCommand({action:'goto',goal:{x:20,y:64,z:20},timeoutMs:5000},new AbortController().signal),/creeper/)
+ assert.deepEqual(r.commands,[])
+ let resumes=0;c.resume=async()=>{resumes++};c.phase='blocked';c.requestProgress={id:'d',request:'mine iron',status:'blocked',blocker:'A creeper is outside'}
+ c.blockedSince=1;assert.equal(await c.stallRetry(),false);assert.equal(c.requestProgress.stallContinuations,undefined)
+ bot.entities={};c.blockedSince=1;assert.equal(await c.stallRetry(),true);assert.equal(resumes,1,'gone, and the work resumes')
+ const zombie=world(new Vec3(1.5,64,1.5));zombie.bot.time.timeOfDay=6000;zombie.bot.entities={1:{id:1,name:'zombie',position:new Vec3(10,64,10)}}
+ await zombie.c.executeCommand({action:'goto',goal:{x:20,y:64,z:20},timeoutMs:5000},new AbortController().signal)
+ assert.deepEqual(zombie.r.commands,['leave_base','goto'],'a zombie at 12 is outside its ten-block radius')
 })

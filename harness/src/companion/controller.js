@@ -17,6 +17,9 @@ import {canopyLandings} from '../canopy.js'
 import {setTimeout as delay} from 'node:timers/promises'
 // Four expired windows is an hour of watching; past that a person should look.
 const BURROW_WATCHES=4
+// A hostile inside its own interruption radius while the bot is indoors: the
+// door does not open for work onto it, and waiting on it is not a stall.
+const pressingOutside=bot=>(survivalObservation(bot).nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name)).sort((a,b)=>a.distance-b.distance)[0]||null
 const SAFETY_RETRIES=3
 const NIGHT_HOLD_MS=14*60*1000
 import {survivalObservation,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY} from '../survival.js'
@@ -811,9 +814,17 @@ export class Teammate extends EventEmitter {
     // the first retry after sunrise pick it up. Stalled anywhere else at night
     // is still an ordinary stall: underground the work can go on.
     const tod=this.runner.bot?.time?.timeOfDay
-    if(Number.isFinite(tod)&&(tod>=12500||tod<1000)&&insideBase(this.runner.bot,this.projects.base)){
-      if(!this.nightHold){this.nightHold=true;this.say('It is night and I am in the base. I will carry on with your request at daylight.')}
-      return false
+    if(insideBase(this.runner.bot,this.projects.base)){
+      if(Number.isFinite(tod)&&(tod>=12500||tod<1000)){
+        if(!this.nightHold){this.nightHold=true;this.say('It is night and I am in the base. I will carry on with your request at daylight.')}
+        return false
+      }
+      // The same hold for a hostile camped inside its radius: the door would not open for it anyway.
+      const pressing=pressingOutside(this.runner.bot)
+      if(pressing){
+        if(!this.nightHold){this.nightHold=true;this.say(`A ${pressing.name} is ${pressing.distance} blocks from the base. I will carry on with your request when it has moved on.`)}
+        return false
+      }
     }
     this.nightHold=false
     if(!Number.isFinite(this.blockedSince)||Date.now()-this.blockedSince<STALL_RETRY_MS)return false
@@ -1148,6 +1159,10 @@ export class Teammate extends EventEmitter {
         // from the door. Stay in until daylight; the night wait resumes the request.
         const tod=this.runner.bot?.time?.timeOfDay
         if(Number.isFinite(tod)&&(tod>=11500||tod<1000))throw new Error(`Dusk is ${tod>=11500&&tod<12500?'less than a minute away':'here'}; staying in the base until daylight rather than starting work outside`)
+        // Nor onto a hostile already inside its interruption radius: that is the
+        // same loop as the wait, through the other door.
+        const pressing=pressingOutside(this.runner.bot)
+        if(pressing)throw new Error(`A ${pressing.name} is ${pressing.distance} blocks from the base, inside its interruption radius; staying in until it moves on`)
         const goal=occupied.name==='base'?{project:structuredClone(occupied.project)}:{shelter:structuredClone(occupied)}
         await this.execute({action:'leave_base',goal,timeoutMs:30000},signal)
         if(signal.aborted)throw new Error('Cancelled')
