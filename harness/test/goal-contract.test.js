@@ -21,6 +21,18 @@ test('goal formatting is corrected before saving a contract without weakening th
  assert.equal(trace.filter(r=>r.validationError).length,2)
 })
 
+test('an empty criteria list is corrected by saying what belongs in criteria and what belongs in constraints',async()=>{
+ // Lab run 7, 2 October: "Mine 16 iron ore, smelt it, and store the ingots in
+ // the base chest. Use the lit base as your shelter at night." came back three
+ // times with criteria [] and the request stopped before any action.
+ const planner=new LocalPlanner(),valid=contract([criterion('stored','base','iron_ingot',16)]),calls=[]
+ const responses=[{...valid,criteria:[]},valid]
+ planner.structured=async messages=>{calls.push(structuredClone(messages));return responses.shift()}
+ const result=await planner.formulate('Mine 16 iron ore, smelt it, and store the ingots in the base chest. Use the lit base as your shelter at night.',{projects:{}},[])
+ assert.equal(calls.length,2);assert.equal(result.criteria[0].kind,'stored')
+ assert.match(calls[1].at(-1).content,/criteria array was empty/);assert.match(calls[1].at(-1).content,/constraints/)
+})
+
 test('invalid goal correction is bounded and provider failures are not retried',async()=>{
  const planner=new LocalPlanner();let calls=0
  planner.structured=async()=>{calls++;return {kind:'task'}}

@@ -112,7 +112,11 @@ export class LocalPlanner {
       catch(error){
         trace({attempt,validationError:error.message})
         if(attempt===3)throw error
-        messages.push({role:'assistant',content:JSON.stringify(value)},{role:'user',content:'The goal record failed validation before any world action: '+error.message+'. Correct its format while preserving every requirement of the original request. Return the complete corrected goal record; do not substitute an easier task.'})
+        // "Tasks require measurable completion criteria" came back three times
+        // unchanged for a request that mixed an outcome with how to behave while
+        // getting it. Say which part was missing and where the other part goes.
+        const empty=value?.kind==='task'&&Array.isArray(value.criteria)&&!value.criteria.length?' The criteria array was empty. List the outcome the request names as criteria using the available checks, at least one of them machine-checkable. Instructions about how to behave along the way, such as where to shelter or what to avoid, go in constraints; they never replace the criteria.':''
+        messages.push({role:'assistant',content:JSON.stringify(value)},{role:'user',content:'The goal record failed validation before any world action: '+error.message+'.'+empty+' Correct its format while preserving every requirement of the original request. Return the complete corrected goal record; do not substitute an easier task.'})
       }
     }
   }
