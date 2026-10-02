@@ -8,7 +8,9 @@ import {Vec3} from 'vec3'
 import {DoorAwareMovements,SOFT_GROUND as SOFT,centreOn} from './navigation.js'
 import {fullCube} from './construction.js'
 import {assertNoHostileOccupants,inspectEmergencyShelter} from './shelter-occupants.js'
-import {survivalObservation,RANGED,HEALTH_EMERGENCY_LINE} from './survival.js'
+import {survivalObservation,RANGED,HEALTH_EMERGENCY_LINE,breachesRock} from './survival.js'
+import {threatReach} from './threat-reach.js'
+import {roofed} from './observations.js'
 import {defenseDecision} from './combat.js'
 const {goals}=pathfinding
 // Four deep keeps a creeper standing on the rim outside its three-block
@@ -196,11 +198,21 @@ const centre=threats=>({
  x:Math.round(threats.reduce((n,t)=>n+t.position.x,0)/threats.length),
  y:Math.round(threats.reduce((n,t)=>n+t.position.y,0)/threats.length),
  z:Math.round(threats.reduce((n,t)=>n+t.position.z,0)/threats.length)})
-export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_MS,relocateAfterMs=RELOCATE_PATIENCE_MS}={}){
+// The cells a shelter opens onto: beyond each wall of a hut at feet and head
+// height, and the column above a burrow's cap.
+export function shelterExits(retreat){
+ const s=retreat?.surface
+ if(!s)return null
+ const at=new Vec3(s.x,s.y,s.z)
+ if(retreat.shelterName==='hut')return [[1,0],[-1,0],[0,1],[0,-1]].flatMap(([dx,dz])=>[at.offset(dx*2,0,dz*2),at.offset(dx*2,1,dz*2)])
+ return [at,at.offset(0,1,0),at.offset(0,2,0)]
+}
+export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_MS,relocateAfterMs=RELOCATE_PATIENCE_MS,exits=null}={}){
  const s=survivalObservation(bot)
  if(!Number.isFinite(s.timeOfDay))return {clear:false,reason:'Time of day is unknown'}
  // Dawn is coming whatever we do, so waiting for it is not the window's business.
- if(s.timeOfDay<1000||s.timeOfDay>=12000)return {clear:false,holding:true,reason:'Waiting for daylight'}
+ // Daylight is a surface matter: under rock there is no sunrise to wait for.
+ if((s.timeOfDay<1000||s.timeOfDay>=12000)&&!roofed(bot))return {clear:false,holding:true,reason:'Waiting for daylight'}
  // The floor only helps if waiting can actually heal: regeneration needs hunger
  // eighteen or carried food. Hurt, hungry and empty-handed, staying under the
  // cap is a slower death than surfacing in daylight with nothing in sight.
@@ -211,7 +223,10 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  if(s.health<=HEALTH_EMERGENCY_LINE&&canHeal)return {clear:false,reason:'Health is at or below the emergency line; healing before leaving the burrow'}
  // Leave a margin beyond a ranged mob's reach: surfacing with a pillager at
  // seventeen blocks is surfacing into its firing line.
- const near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=(RANGED.has(t.name)?24:16))
+ let near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=(RANGED.has(t.name)?24:16))
+ // A hostile the exits cannot reach is not waiting outside. The same floors as
+ // the interruption rule still count, so leaving never walks into a re-trigger.
+ if(exits&&near.length){const reach=threatReach(bot,near,{origins:exits});near=near.filter((t,i)=>reach[i]!=='sealed'||breachesRock(t))}
  const scope='Loaded entities within 16 blocks and the world clock; not proof of a safe surface'
  if(!near.length)return {clear:true,health:s.health,timeOfDay:s.timeOfDay,scope}
  const lone=near.length===1?near[0]:null

@@ -23,7 +23,8 @@ import {survivalObservation,emergencyReason,threatRadius,WATER_EMERGENCY,FIRE_EM
 // Air, fire and a portal underfoot run their own recovery at once and preempt
 // any shelter attempt: each has a clock no shelter stops.
 const URGENT=new Set([WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY])
-import {burrowClearance} from '../burrow.js'
+import {burrowClearance,shelterExits} from '../burrow.js'
+import {roofed} from '../observations.js'
 import {inspectEmergencyShelter} from '../shelter-occupants.js'
 import {threatReach} from '../threat-reach.js'
 import {defenseDecision,combatClearance,DEFENDABLE_MOBS,meleeWeapon} from '../combat.js'
@@ -120,9 +121,11 @@ export class Teammate extends EventEmitter {
         // when one of them is behind something, since a mob in plain view counts anyway.
         const pressing=observation.nearbyThreats.filter(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name))
         if(pressing.some(t=>t.sightline?.status==='blocked')){const reach=threatReach(runner.bot,pressing);pressing.forEach((t,i)=>{t.reach=reach[i]})}
-        const reason=emergencyReason({...observation,shelterAvailable,sheltered,recentDamageMs})
+        // Night only matters where the sky is: asked when it is dark and there is no base.
+        const underRock=!shelterAvailable&&Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500)&&roofed(runner.bot)
+        const reason=emergencyReason({...observation,shelterAvailable,sheltered,recentDamageMs,roofed:underRock})
         // The journal should show the times rock was the reason work carried on.
-        if(!reason&&pressing.some(t=>t.reach==='sealed')&&Date.now()-(this.sealedLogAt||0)>=30000&&emergencyReason({...observation,nearbyThreats:observation.nearbyThreats.map(t=>({...t,reach:undefined})),shelterAvailable,sheltered,recentDamageMs})===THREAT_INTERRUPTION){this.sealedLogAt=Date.now();runner.log?.('threat_sealed',{threats:pressing.slice(0,4).map(t=>`${t.name}@${t.distance}/${t.verticalOffset}:${t.reach}`)})}
+        if(!reason&&pressing.some(t=>t.reach==='sealed')&&Date.now()-(this.sealedLogAt||0)>=30000&&emergencyReason({...observation,nearbyThreats:observation.nearbyThreats.map(t=>({...t,reach:undefined})),shelterAvailable,sheltered,recentDamageMs,roofed:underRock})===THREAT_INTERRUPTION){this.sealedLogAt=Date.now();runner.log?.('threat_sealed',{threats:pressing.slice(0,4).map(t=>`${t.name}@${t.distance}/${t.verticalOffset}:${t.reach}`)})}
         if(!reason){this.noteProgress();void this.stallRetry()}
         if(this.safety?.reason===WATER_EMERGENCY&&['failed','afloat'].includes(this.safety.status)&&observation.headSubmerged===false&&observation.inWater===false&&runner.bot.entity.onGround){
           this.safety=null;this.activity='';runner.bot.clearControlStates();this.phase=canResume(this.requestProgress)?'blocked':'ready'
@@ -608,7 +611,7 @@ export class Teammate extends EventEmitter {
       safety.protection=inspectEmergencyShelter(bot)
       if(bot.health<protectedHealth)throw new Error('Health fell inside the emergency shelter; protection is not established')
       protectedHealth=bot.health
-      const r=burrowClearance(bot,{lingeredMs:lingerSince?Date.now()-lingerSince:0,patienceMs,relocateAfterMs});if(r.lingering||r.confront||r.relocate)lingerSince??=Date.now();else if(r.holding)lingerSince=null;return r}
+      const r=burrowClearance(bot,{lingeredMs:lingerSince?Date.now()-lingerSince:0,patienceMs,relocateAfterMs,exits:shelterExits(safety.retreat)});if(r.lingering||r.confront||r.relocate)lingerSince??=Date.now();else if(r.holding)lingerSince=null;return r}
     const check=()=>{
       if(signal.aborted||epoch!==this.epoch||this.safety!==safety)throw new Error('Burrow wait cancelled')
       if(!this.runner.ready||this.runner.bot!==bot||this.runner.connectionId!==connection)throw new Error('Connection changed while burrowed')

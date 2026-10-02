@@ -21,7 +21,8 @@ const WALL_BREACHING=new Set(['warden','vex','wither','ender_dragon','ghast'])
 // A hostile the tick found sealed off from the bot's own space, with the ray to
 // it blocked as well, cannot path, see or shoot in. Distance through stone is
 // not danger, so only the close floors still count for it.
-const pressingRadius=t=>t.reach==='sealed'&&t.sightline?.status==='blocked'&&!WALL_BREACHING.has(t.name)?(t.name==='creeper'?CLOSE_FLOORS.creeper:CLOSE_FLOORS.melee):threatRadius(t.name)
+export const breachesRock=t=>WALL_BREACHING.has(t.name)||t.distance<=(t.name==='creeper'?CLOSE_FLOORS.creeper:CLOSE_FLOORS.melee)
+const sealedOff=t=>t.reach==='sealed'&&t.sightline?.status==='blocked'&&!breachesRock(t)
 export const THREAT_INTERRUPTION='A potential hostile is within ten blocks'
 export const NIGHT_EXPOSURE='Night with no shelter'
 export const HEALTH_EMERGENCY='Health is at or below half'
@@ -128,8 +129,10 @@ export function emergencyReason(observation){
  if(Number.isFinite(observation.food)&&observation.food<=6&&(observation.carriedFood||[]).length)return FOOD_EMERGENCY
  // Inside a verified closed lit shelter the answer to a nearby hostile is already
  // in place; interrupting there only retreats into the room the bot is standing in.
- if(observation.sheltered!==true&&observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=pressingRadius(t)))return THREAT_INTERRUPTION
+ if(observation.sheltered!==true&&observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name)&&!sealedOff(t)))return THREAT_INTERRUPTION
  // Out in the open after dusk with no built base: dig in before the crowd arrives.
- if(observation.shelterAvailable===false&&observation.difficulty&&observation.difficulty!=='peaceful'&&Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500))return NIGHT_EXPOSURE
+ // Under rock there is no crowd arriving: trial 42 spent fifteen minutes of a
+ // thirty-minute run waiting for a sunrise thirty-six blocks above it.
+ if(observation.roofed!==true&&observation.shelterAvailable===false&&observation.difficulty&&observation.difficulty!=='peaceful'&&Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500))return NIGHT_EXPOSURE
  return null
 }

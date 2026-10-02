@@ -139,6 +139,11 @@ export function columnAbove(bot){
  return {surfaceAt,solidCells,firstSolid,skyVisible}
 }
 
+// Under this much rock the sky's clock is not the bot's business: caves spawn
+// in the dark at any hour, and night adds nothing to them.
+export const ROOFED_CELLS=8
+export const roofed=bot=>columnAbove(bot).solidCells>=ROOFED_CELLS
+
 const entityKind=e=>{
  if(e?.type==='player')return 'player'
  if(['mob','hostile','animal','passive','water_creature','ambient'].includes(e?.type))return 'mob'

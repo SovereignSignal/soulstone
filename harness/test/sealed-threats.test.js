@@ -39,10 +39,9 @@ test('hostiles in a cave the bot\'s space does not touch are sealed off, from a 
  assert.deepEqual(reach(bot),['sealed','sealed','sealed','sealed','sealed'])
 })
 test('a route to the cave, a hostile in the bot\'s own tunnel, unloaded rock and too much space are not sealed',()=>{
- // The last two stand past the search radius; the tick only ever asks about
- // hostiles inside their own threat radius, which is sixteen at most.
+ // The last two stand past twenty blocks; the search widens to wherever the hostiles it is asked about are.
  const open=trial42();breach(open.cells)
- assert.deepEqual(reach(open.bot),['open','open','open','sealed','sealed'])
+ assert.deepEqual(reach(open.bot),['open','open','open','open','open'])
  const inside=trial42({mobs:[...RECORDED,['zombie',-590.5,-36,-332.5]]});for(let x=1;x<=6;x++)air(inside.cells,HUT.offset(x,0,0),HUT.offset(x,1,0))
  const s=survivalObservation(inside.bot).nearbyThreats;assert.equal(s[0].name,'zombie')
  assert.deepEqual(threatReach(inside.bot,s),['open','sealed','sealed','sealed','sealed','sealed'])

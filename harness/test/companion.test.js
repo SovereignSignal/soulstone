@@ -1088,8 +1088,8 @@ test('brief clear readings do not erase shelter patience before the quiet window
  const {default:minecraftData}=await import('minecraft-data')
  const [r,c]=setup(async()=>({reply:'',steps:[]}));const registry=minecraftData('1.21.4')
  Object.assign(r.bot,{registry,entity:{position:new Vec3(.5,64,.5),onGround:true},game:{gameMode:'survival',difficulty:'easy'},time:{timeOfDay:6000},health:17,food:11,
-  blockAt(p){const name=p.x===0&&p.z===0&&p.y>=64&&p.y<=65?'air':'dirt';return {name,position:p.clone(),boundingBox:registry.blocksByName[name].boundingBox}}})
- const hostile={1:{name:'skeleton',position:new Vec3(20,64,.5)}};r.bot.entities=hostile
+  blockAt(p){const name=p.x===0&&p.z===0&&p.y>=64&&p.y<=65||p.y>=68?'air':'dirt';return {name,position:p.clone(),boundingBox:registry.blocksByName[name].boundingBox}}})
+ const hostile={1:{name:'skeleton',position:new Vec3(20,68,.5)}};r.bot.entities=hostile
  c.requestProgress={id:'work',status:'interrupted',completed:[],feedback:[]};c.safety={status:'burrowed',retreat:{shelterName:'burrow',surface:{x:0,y:68,z:0}}};c.shelterPlanning=false
  c.burrowWait={quietMs:1100,limitMs:2700,relocateAfterMs:400,watches:1}
  const commands=[];let resumed=0;c.execute=async command=>{commands.push(command.action);r.task={result:{receipt:command.action}}};c.resume=async()=>{resumed++}
