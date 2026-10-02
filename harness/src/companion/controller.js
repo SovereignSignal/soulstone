@@ -134,6 +134,11 @@ export class Teammate extends EventEmitter {
         const reason=emergencyReason({...observation,shelterAvailable,sheltered,recentDamageMs,roofed:underRock})
         // The journal should show the times rock was the reason work carried on.
         if(!reason&&pressing.some(t=>t.reach==='sealed')&&Date.now()-(this.sealedLogAt||0)>=30000&&emergencyReason({...observation,nearbyThreats:observation.nearbyThreats.map(t=>({...t,reach:undefined})),shelterAvailable,sheltered,recentDamageMs,roofed:underRock})===THREAT_INTERRUPTION){this.sealedLogAt=Date.now();runner.log?.('threat_sealed',{threats:pressing.slice(0,4).map(t=>`${t.name}@${t.distance}/${t.verticalOffset}:${t.reach}`)})}
+        // Stop cancels the recovery in hand and stands while that emergency lasts.
+        // Once nothing is wrong it has nothing left to hold: left in place it
+        // switched safety off for good, and a stopped bot stood through dusk
+        // until a creeper found it.
+        if(!reason&&this.safety?.status==='cancelled'){this.safety=null;this.persist()}
         if(!reason){this.noteProgress();void this.stallRetry()}
         if(this.safety?.reason===WATER_EMERGENCY&&['failed','afloat'].includes(this.safety.status)&&observation.headSubmerged===false&&observation.inWater===false&&runner.bot.entity.onGround){
           this.safety=null;this.activity='';runner.bot.clearControlStates();this.phase=canResume(this.requestProgress)?'blocked':'ready'

@@ -95,3 +95,18 @@ test('rebuilding a base lists the ground a crater took from under it instead of 
  const intact={blockAt:p=>({name:p.y<64?'cobblestone':'air',position:p,boundingBox:p.y<64?'block':'empty'})},none=[]
  inspectShelterSite(intact,origin,layout,{repair:true,support:none});assert.deepEqual(none,[])
 })
+test('Stop holds for the situation it was given in, not for the rest of the night',()=>{
+ // Lab, 2 October 19:27Z: stopped by its watcher in daylight, the bot stood idle
+ // through dusk with safety switched off and a creeper blew it up.
+ const {r,c,bot}=world(new Vec3(30.5,64,30.5));c.projects={};bot.entities={};bot.time.timeOfDay=6000
+ const calls=[];c.seekSafety=async why=>{calls.push(why);c.safety={status:'retreating',reason:why}}
+ c.stop();assert.equal(c.safety.status,'cancelled')
+ r.emit('event',{type:'survival_tick'});assert.equal(c.safety,null,'nothing was wrong, so the stop has nothing left to hold')
+ bot.time.timeOfDay=13000
+ r.emit('event',{type:'survival_tick'});assert.deepEqual(calls,['Night with no shelter'])
+ // Stopped in the middle of an emergency: the stop stands while that emergency lasts.
+ const held=world(new Vec3(30.5,64,30.5));held.c.projects={};held.bot.entities={1:{id:1,name:'zombie',position:new Vec3(34.5,64,30.5)}}
+ const again=[];held.c.seekSafety=async why=>{again.push(why)}
+ held.c.stop();held.r.emit('event',{type:'survival_tick'});held.r.emit('event',{type:'survival_tick'})
+ assert.deepEqual(again,[]);assert.equal(held.c.safety.status,'cancelled')
+})
