@@ -1143,6 +1143,11 @@ export class Teammate extends EventEmitter {
   async leaveOccupiedShelter(signal,destinationName=null){
       const occupied=insideBase(this.runner.bot,this.projects.base)?{name:'base',project:this.projects.base}:occupiedAlternative(this.runner.bot,this.projects)
       if(occupied&&occupied.name!==destinationName){
+        // Work that starts outside with dusk under a minute away ends outside in the
+        // dark: a furnace trip at 12500 met a zombie and a skeleton eighteen blocks
+        // from the door. Stay in until daylight; the night wait resumes the request.
+        const tod=this.runner.bot?.time?.timeOfDay
+        if(Number.isFinite(tod)&&(tod>=11500||tod<1000))throw new Error(`Dusk is ${tod>=11500&&tod<12500?'less than a minute away':'here'}; staying in the base until daylight rather than starting work outside`)
         const goal=occupied.name==='base'?{project:structuredClone(occupied.project)}:{shelter:structuredClone(occupied)}
         await this.execute({action:'leave_base',goal,timeoutMs:30000},signal)
         if(signal.aborted)throw new Error('Cancelled')

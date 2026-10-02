@@ -53,9 +53,9 @@ test('a safety action issued from inside any shelter never walks out of it first
   await c.executeCommand({action,goal:action==='flee'?{from:{x:1.5,y:64,z:-1.3},distance:24}:{},timeoutMs:5000},new AbortController().signal)
   assert.deepEqual(r.commands,[action],action)
  }
- const work=world(new Vec3(1.5,64,1.5))
+ const work=world(new Vec3(1.5,64,1.5));work.bot.time.timeOfDay=6000
  await work.c.executeCommand({action:'goto',goal:{x:20,y:64,z:20},timeoutMs:5000},new AbortController().signal)
- assert.deepEqual(work.r.commands,['leave_base','goto'],'ordinary work still leaves by the checked door')
+ assert.deepEqual(work.r.commands,['leave_base','goto'],'ordinary work still leaves by the checked door, by day')
 })
 test('a base whose blocks have not arrived after login is not a destroyed base',()=>{
  // After a restart the lab bot stood in its base while the base read as
@@ -143,4 +143,19 @@ test('indoors at night with the work unfinished is a wait for daylight, not a st
  const out=world(new Vec3(30.5,64,30.5));out.bot.entities={};let again=0;out.c.resume=async()=>{again++};out.c.phase='blocked'
  out.c.requestProgress={id:'e',request:'mine iron',status:'blocked',blocker:'No path'};out.c.blockedSince=1
  await out.c.stallRetry();assert.equal(again,1)
+})
+test('work does not leave the base with dusk a minute away; by day it leaves as before',async()=>{
+ // Lab run 15, 2 October 20:19Z: the bot stepped out to the furnace at dusk,
+ // eighteen blocks from the door, and met a zombie and a skeleton on the way.
+ const late=world(new Vec3(1.5,64,1.5));late.bot.time.timeOfDay=11600
+ await assert.rejects(late.c.executeCommand({action:'goto',goal:{x:20,y:64,z:20},timeoutMs:5000},new AbortController().signal),/daylight/)
+ assert.deepEqual(late.r.commands,[],'it stays behind the door')
+ const night=world(new Vec3(1.5,64,1.5));night.bot.time.timeOfDay=15000
+ await assert.rejects(night.c.executeCommand({action:'smelt',goal:{},timeoutMs:5000},new AbortController().signal),/daylight/)
+ const day=world(new Vec3(1.5,64,1.5));day.bot.time.timeOfDay=6000
+ await day.c.executeCommand({action:'goto',goal:{x:20,y:64,z:20},timeoutMs:5000},new AbortController().signal)
+ assert.deepEqual(day.r.commands,['leave_base','goto'])
+ const out=world(new Vec3(30.5,64,30.5));out.bot.time.timeOfDay=11600
+ await out.c.executeCommand({action:'goto',goal:{x:20,y:64,z:20},timeoutMs:5000},new AbortController().signal)
+ assert.deepEqual(out.r.commands,['goto'],'outside the base nothing changes; the safety rules own dusk there')
 })
