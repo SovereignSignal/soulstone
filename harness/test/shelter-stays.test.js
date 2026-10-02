@@ -126,3 +126,21 @@ test('killed at night, the bot comes back at daylight instead of empty-handed in
  let now=0;day.r.respawn=()=>{now++;day.r.respawnPending=true};day.bot.health=0;day.bot.isAlive=false;day.r.emit('event',{type:'death'})
  assert.equal(now,1,'in daylight the drop pile is worth going straight back for')
 })
+test('indoors at night with the work unfinished is a wait for daylight, not a stall to retry',async()=>{
+ // Lab run 15, 2 October: asked to use the base at night, the planner stopped
+ // with "Goal still incomplete... it is night". The stall retry restarted it
+ // every ninety seconds to hear the same answer, and after three the request
+ // was dead before dawn.
+ const {r,c,bot}=world(new Vec3(1.5,64,1.5));bot.entities={}
+ let resumes=0;c.resume=async()=>{resumes++};c.phase='blocked'
+ c.requestProgress={id:'d',request:'mine iron',status:'blocked',blocker:'Goal still incomplete. It is night.'}
+ c.blockedSince=1;assert.equal(await c.stallRetry(),false);c.blockedSince=1;await c.stallRetry()
+ assert.equal(resumes,0);assert.equal(c.requestProgress.stallContinuations,undefined,'the night spends none of the retry budget')
+ assert.equal(c.messages.filter(m=>/daylight/.test(m.text)).length,1,'and it says so once')
+ bot.time.timeOfDay=1500;c.blockedSince=1
+ assert.equal(await c.stallRetry(),true);assert.equal(resumes,1,'at daylight it picks the request back up')
+ // Blocked outdoors or underground at night is still an ordinary stall.
+ const out=world(new Vec3(30.5,64,30.5));out.bot.entities={};let again=0;out.c.resume=async()=>{again++};out.c.phase='blocked'
+ out.c.requestProgress={id:'e',request:'mine iron',status:'blocked',blocker:'No path'};out.c.blockedSince=1
+ await out.c.stallRetry();assert.equal(again,1)
+})

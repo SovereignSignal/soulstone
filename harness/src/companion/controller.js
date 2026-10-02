@@ -805,6 +805,17 @@ export class Teammate extends EventEmitter {
     // request itself when it clears. Retrying over it walked the bot out of a lit
     // base at night three times. A watch that has given up leaves this in charge.
     if(this.safety?.continuation?.status==='watching')return false
+    // Inside the base at night with the work unfinished is a wait, not a stall.
+    // Asking the planner again every ninety seconds gets the same answer three
+    // times and leaves the request dead before dawn. Hold, say so once, and let
+    // the first retry after sunrise pick it up. Stalled anywhere else at night
+    // is still an ordinary stall: underground the work can go on.
+    const tod=this.runner.bot?.time?.timeOfDay
+    if(Number.isFinite(tod)&&(tod>=12500||tod<1000)&&insideBase(this.runner.bot,this.projects.base)){
+      if(!this.nightHold){this.nightHold=true;this.say('It is night and I am in the base. I will carry on with your request at daylight.')}
+      return false
+    }
+    this.nightHold=false
     if(!Number.isFinite(this.blockedSince)||Date.now()-this.blockedSince<STALL_RETRY_MS)return false
     const spent=request.stallContinuations||0
     if(spent>=STALL_CONTINUATIONS){
