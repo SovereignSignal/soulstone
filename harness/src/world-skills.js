@@ -384,7 +384,24 @@ export async function executeWorldSkill(bot,task,context,gather) {
   if(!origin)throw new Error('No clear supported natural building site within 48 horizontal blocks, including lower ground and doorway access; choose another footprint or meeting point')
   task.goal.origin={x:origin.x,y:origin.y,z:origin.z};context.persist()
  }
- if(layout)inspectShelterSite(bot,origin,layout,{repair:true})
+ // A creeper at the door takes the ground with it. Put back what is missing
+ // under the shelter and its approach before judging the site, nearest solid
+ // neighbour first; a block with nothing to stand against waits its turn.
+ const gaps=[]
+ if(layout)inspectShelterSite(bot,origin,layout,{repair:true,support:gaps})
+ if(gaps.length){
+  const carried=name=>bot.inventory.items().filter(i=>i.name===name).reduce((n,i)=>n+i.count,0)
+  const filler=['cobblestone','dirt','cobbled_deepslate'].find(name=>carried(name)>=gaps.length)||'dirt'
+  progress(`Restoring ${gaps.length} missing ground blocks under the shelter with ${filler}`)
+  await acquire(filler,gaps.length)
+  const pending=gaps.slice().sort((a,b)=>a.y-b.y);let stuck=0
+  while(pending.length){
+   const gap=pending.shift()
+   try{await place(gap,filler);stuck=0}
+   catch(e){check();pending.push(gap);if(++stuck>=pending.length)throw new Error(`Could not restore the ground under the shelter at ${key(gap)}: ${e.message}`)}
+  }
+  inspectShelterSite(bot,origin,layout,{repair:true})
+ }
  const needed={}
  for(const b of resolved){if(bot.blockAt(origin.offset(b.x,b.y,b.z))?.name!==b.block)needed[b.block]=(needed[b.block]||0)+1}
  progress(`Build site ${key(origin)}; sourcing ${Object.values(needed).reduce((a,b)=>a+b,0)} blocks`)

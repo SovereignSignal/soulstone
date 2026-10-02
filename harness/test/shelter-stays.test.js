@@ -81,3 +81,17 @@ test('with no shelter to reach and hostiles already close, safety runs before it
  await far.c.seekSafety(THREAT_INTERRUPTION)
  assert.equal(far.r.commands.filter(a=>a!=='stop')[0],'burrow')
 })
+test('rebuilding a base lists the ground a crater took from under it instead of refusing the site',async()=>{
+ // Lab, 2 October: the creeper at the door left air under the doorway, the
+ // shelter builder refused the "unsupported approach", and nothing the planner
+ // had could put the ground back.
+ const {shelterLayout,inspectShelterSite}=await import('../src/shelter.js')
+ const layout=shelterLayout(design),origin=new Vec3(0,64,0)
+ const crater=new Set(['1,63,0','1,63,-1','1,63,-2'])
+ const bot={blockAt:p=>{const name=p.y<64&&!crater.has(`${p.x},${p.y},${p.z}`)?'cobblestone':'air';return {name,position:p,boundingBox:name==='air'?'empty':'block'}}}
+ assert.throws(()=>inspectShelterSite(bot,origin,layout,{repair:true}),/lacks support at/)
+ const support=[];inspectShelterSite(bot,origin,layout,{repair:true,support})
+ assert.deepEqual(support.map(p=>`${p.x},${p.y},${p.z}`).sort(),[...crater].sort())
+ const intact={blockAt:p=>({name:p.y<64?'cobblestone':'air',position:p,boundingBox:p.y<64?'block':'empty'})},none=[]
+ inspectShelterSite(intact,origin,layout,{repair:true,support:none});assert.deepEqual(none,[])
+})
