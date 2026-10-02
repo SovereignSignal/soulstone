@@ -28,6 +28,7 @@ test('base action schemas reject arbitrary stations, missing projects and unboun
 })
 
 import {executeStationSkill} from '../src/stations.js'
+import {interruptedEffect} from '../src/companion/continuity.js'
 function storageFixture({correct=true,blocked=false}={}) {
  let carried=9,stored=1,opens=0,closed=0
  const p=structuredClone(project);p.stations.chest={position:{x:-2,y:64,z:1},confirmed:true}
@@ -50,6 +51,31 @@ test('a server-disagreed transfer remains uncertain and cannot replay the same t
  const f=storageFixture({correct:false}),task={kind:'deposit',goal:{project:f.p,item:'dirt',count:5}}
  await assert.rejects(executeStationSkill(f.bot,task,f.api),/did not match/);assert.equal(task.transfer.uncertain,true)
  const count=f.stats().opens;await assert.rejects(executeStationSkill(f.bot,task,f.api),/Previous transfer uncertain/);assert.equal(f.stats().opens,count)
+})
+test('a full chest is a counted failure the planner can act on, not an uncertain transfer',async()=>{
+ // Lab run 6, 2 October: the base chest was full, the window refused the
+ // deposit, and the request ended for review two minutes in.
+ const full=room=>{const f=storageFixture(),original=f.bot.openContainer
+  f.bot.openContainer=async()=>{const w=await original();const deposit=w.deposit;w.deposit=async(a,b,n)=>{await deposit(a,b,Math.min(n,room));if(n>room)throw new Error('destination full')};return w};return f}
+ const none=full(0),task={kind:'deposit',goal:{project:none.p,item:'dirt',count:5}}
+ await assert.rejects(executeStationSkill(none.bot,task,none.api),e=>/base chest is full: stored 0 of 4 dirt/.test(e.message)&&e.code==='CHEST_FULL'&&e.moved===0)
+ assert.equal(task.transfer.uncertain,false);assert.equal(interruptedEffect(task),null);assert.equal(none.stats().carried,9)
+ const some=full(3),partial={kind:'deposit',goal:{project:some.p,item:'dirt',count:8}}
+ await assert.rejects(executeStationSkill(some.bot,partial,some.api),/stored 3 of 7 dirt/)
+ assert.equal(partial.transfer.uncertain,false);assert.equal(some.p.stations.chest.contents.dirt,4);assert.equal(some.stats().carried,6)
+ // The window refused and the two sides disagree about what moved: still uncertain.
+ const wrong=storageFixture({correct:false}),o=wrong.bot.openContainer
+ wrong.bot.openContainer=async()=>{const w=await o();const d=w.deposit;w.deposit=async(a,b,n)=>{await d(a,b,2);throw new Error('destination full')};return w}
+ const disputed={kind:'deposit',goal:{project:wrong.p,item:'dirt',count:5}}
+ await assert.rejects(executeStationSkill(wrong.bot,disputed,wrong.api));assert.equal(disputed.transfer.uncertain,true);assert.match(interruptedEffect(disputed),/needs review/)
+})
+test('stowing rubble into a full chest stores what fits and reports the chest full instead of failing',async()=>{
+ let carried=40,stored=10
+ const f=storageFixture();f.bot.registry={itemsByName:{cobbled_deepslate:{id:2},cobblestone:{id:3},andesite:{id:4},granite:{id:5},diorite:{id:6},tuff:{id:7}}}
+ f.bot.inventory={items:()=>carried?[{name:'cobbled_deepslate',count:carried}]:[],emptySlotCount:()=>20}
+ f.bot.openContainer=async()=>{const w={containerItems:()=>[{name:'cobbled_deepslate',count:stored}],async deposit(_,__,n){const fit=Math.min(n,6);carried-=fit;stored+=fit;if(n>fit)throw new Error('destination full')},close(){f.bot.currentWindow=null}};f.bot.currentWindow=w;return w}
+ const task={kind:'stow',goal:{project:f.p}},r=await executeStationSkill(f.bot,task,f.api)
+ assert.equal(r.receipt,'chest_full');assert.equal(r.count,6);assert.equal(r.container.cobbled_deepslate,16);assert.deepEqual(r.leftCarried,{cobbled_deepslate:34});assert.equal(task.transfer.uncertain,false)
 })
 test('blocked chest access and missing inventory do not start a transfer',async()=>{
  const f=storageFixture({blocked:true}),task={kind:'deposit',goal:{project:f.p,item:'dirt',count:5}}

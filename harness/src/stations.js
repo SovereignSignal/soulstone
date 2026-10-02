@@ -116,8 +116,20 @@ export async function executeStationSkill(bot,task,api) {
   if(direction==='deposit'&&carried<amount)throw new Error(`Need ${amount} carried ${item} for this chest target; have ${carried}`)
   if(direction==='withdraw'&&(before[item]||0)<amount)throw new Error(`Chest lacks ${amount} ${item}`)
   task.transfer={uncertain:true,item,amount,before,carried};persist()
-  await openWindow('chest',async w=>{check();await w[direction](id,null,amount);check()})
+  let refused=null
+  await openWindow('chest',async w=>{check();try{await w[direction](id,null,amount)}catch(error){refused=error};check()})
   const after=await chestInventory();check();const sign=direction==='deposit'?1:-1
+  // A full chest stops the window part-way and throws. That is only uncertain
+  // if the two sides disagree about what moved: count it, and when the chest
+  // and the inventory agree, say so plainly. A refused deposit used to leave
+  // the transfer marked uncertain, which ended the whole request for review.
+  if(refused){
+   const moved=sign*((after[item]||0)-(before[item]||0))
+   await settle(()=>inventory(item)===carried-sign*moved,'Player inventory transfer not confirmed')
+   task.transfer={...task.transfer,uncertain:false,moved};project.stations.chest.contents=after;persist()
+   const full=direction==='deposit'&&/full/i.test(refused.message)
+   throw Object.assign(new Error(full?`The base chest is full: stored ${moved} of ${amount} ${item}, ${amount-moved} still carried. It has no free slot for more`:`Chest ${direction} stopped after ${moved} of ${amount} ${item}: ${refused.message}`),{code:full?'CHEST_FULL':'CHEST_REFUSED',moved,container:after})
+  }
   await settle(()=>inventory(item)===carried-sign*amount,'Player inventory transfer not confirmed')
   if((after[item]||0)!==(before[item]||0)+sign*amount)throw new Error('Chest transfer did not match the observed quantity; do not repeat blindly')
   task.transfer.uncertain=false;task.transfer.confirmed=true;project.stations.chest.contents=after;persist()
@@ -125,16 +137,22 @@ export async function executeStationSkill(bot,task,api) {
  }
  if(['deposit','withdraw'].includes(task.kind))return transfer(task.goal.item,task.goal.count,task.kind)
  if(task.kind==='stow'){
-  const receipts=[]
-  for(const item of ['cobblestone','cobbled_deepslate','andesite','granite','diorite','tuff']){
-   check();const amount=Math.max(0,inventory(item)-(item==='cobblestone'?32:0));if(!amount)continue
+  const receipts=[],RUBBLE=['cobblestone','cobbled_deepslate','andesite','granite','diorite','tuff'],surplus=item=>Math.max(0,inventory(item)-(item==='cobblestone'?32:0))
+  let full=false
+  for(const item of RUBBLE){
+   check();const amount=surplus(item);if(!amount)continue
    const contents=await chestInventory()
    progress(`Storing ${amount} ${item} in the base chest`)
-   const receipt=await transfer(item,(contents[item]||0)+amount,'deposit');receipts.push(receipt)
+   // Tidying up is not worth a failed request: a full chest keeps what fitted
+   // and the rest stays carried, said in the receipt.
+   try{receipts.push(await transfer(item,(contents[item]||0)+amount,'deposit'))}
+   catch(error){if(error.code!=='CHEST_FULL')throw error;receipts.push({item,count:error.moved,container:error.container,inventory:inventory(item),receipt:'chest_full'});full=true}
    task.stowed=receipts;persist()
+   if(full)break
   }
   const contents=await chestInventory();project.stations.chest.contents=contents;persist()
-  return {item:'rubble',count:receipts.reduce((n,r)=>n+r.count,0),receipt:'rubble_stowed',transfers:receipts,container:contents,reservedCobblestone:32,freeSlots:bot.inventory.emptySlotCount()}
+  const leftCarried=Object.fromEntries(RUBBLE.map(item=>[item,surplus(item)]).filter(([,n])=>n>0))
+  return {item:'rubble',count:receipts.reduce((n,r)=>n+r.count,0),receipt:full?'chest_full':'rubble_stowed',transfers:receipts,container:contents,reservedCobblestone:32,freeSlots:bot.inventory.emptySlotCount(),...(full?{leftCarried}:{})}
  }
  if(task.kind==='smelt') {
   const {item,count}=task.goal,carried=bot.inventory.items().map(i=>i.name),source=SMELTING[item]
