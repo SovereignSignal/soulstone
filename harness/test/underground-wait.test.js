@@ -84,3 +84,15 @@ test('walled in under rock at night with a cave below, the wait clears and opens
  await Teammate.prototype.waitInBurrow.call(c,1,new AbortController().signal,bot,false)
  assert.deepEqual(executed,['unhut']);assert.equal(c.safety,null)
 })
+test('a shelter still watching for clearance is not a stall; one whose watch has ended is',async()=>{
+ // Lab run 8, 2 October: sheltered in the lit base at night, the bot was sent
+ // back out after ninety seconds by the stall retry, three times, into creepers.
+ const r=new FakeRunner(deep().bot),c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-stall-')),'state.json'))
+ let resumes=0;c.resume=async()=>{resumes++};c.phase='blocked'
+ c.requestProgress={id:'d',request:'mine iron',status:'interrupted',blocker:'Safety interruption: A potential hostile is within ten blocks'}
+ c.safety={status:'sheltered',reason:'A potential hostile is within ten blocks',continuation:{status:'watching',reason:'Waiting in the lit base for daylight'}}
+ c.blockedSince=1;assert.equal(await c.stallRetry(),false);assert.equal(resumes,0);assert.equal(c.requestProgress.stallContinuations,undefined,'and it spends none of the retry budget')
+ c.safety.status='burrowed';c.blockedSince=1;await c.stallRetry();assert.equal(resumes,0)
+ c.safety.continuation={status:'paused',code:'clearance_timeout'}
+ c.blockedSince=1;assert.equal(await c.stallRetry(),true);assert.equal(resumes,1,'a watch that gave up leaves the retry in charge')
+})

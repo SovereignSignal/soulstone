@@ -754,6 +754,10 @@ export class Teammate extends EventEmitter {
     const request=this.requestProgress
     if(this.phase!=='blocked'||!canResume(request))return false
     if(this.snapshot().dead||!this.runner.ready)return false
+    // Sheltered and watching for clearance is not a stall: the watch resumes the
+    // request itself when it clears. Retrying over it walked the bot out of a lit
+    // base at night three times. A watch that has given up leaves this in charge.
+    if(this.safety?.continuation?.status==='watching')return false
     if(!Number.isFinite(this.blockedSince)||Date.now()-this.blockedSince<STALL_RETRY_MS)return false
     const spent=request.stallContinuations||0
     if(spent>=STALL_CONTINUATIONS){
