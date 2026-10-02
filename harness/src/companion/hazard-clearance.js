@@ -1,5 +1,5 @@
 import {setTimeout as delay} from 'node:timers/promises'
-import {survivalObservation} from '../survival.js'
+import {survivalObservation,threatRadius} from '../survival.js'
 import {shelteredObservation} from '../retreat.js'
 import {occupiedAlternative} from '../alternate-shelter.js'
 
@@ -16,6 +16,10 @@ export function clearanceObservation(bot,projects,shelterName){
  }
  const threats=departureThreatObservation(bot,projects,shelterName)
  if(threats.blocking.length)return {clear:false,reason:'A potential threat remains on or near the departure corridor',blockingThreats:threats.blocking,peripheralThreats:threats.peripheral}
+ // Leaving with a hostile already inside its interruption radius walks straight
+ // back into the rule: out for ten seconds, in again, all morning.
+ const pressing=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name))
+ if(pressing.length)return {clear:false,reason:'A potential hostile is inside its interruption radius of the shelter',threats:pressing,peripheralThreats:threats.peripheral}
  const sheltered=shelterName&&shelterName!=='base'?occupiedAlternative(bot,projects)?.name===shelterName:shelteredObservation(bot,projects.base).passed
  if(!sheltered)return {clear:false,reason:'Closed lit shelter is no longer verified'}
  return {clear:true,health:s.health,food:s.food,peripheralThreats:threats.peripheral,scope:'Loaded chunks and classified entities within 24 blocks; departure corridor checked for the first three approach blocks; not proof of a safe destination route'}

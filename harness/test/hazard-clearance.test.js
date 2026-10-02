@@ -44,6 +44,17 @@ test('missing chunks, threats, poor health or food, changed mode and unknown she
  b=bot();assert.match(clearanceObservation(b,{},'base').reason,/shelter/)
  b=bot();b.game.difficulty='peaceful';assert.equal(clearanceObservation(b,{},'base').clear,false)
 })
+test('a hostile inside its own interruption radius denies clearance even off the corridor',()=>{
+ // Lab run 16, 2 October: the base wait cleared with a creeper 13 blocks off
+ // the corridor; ten seconds outside, the threat rule sent the bot back in.
+ const design=[]
+ for(let x=0;x<4;x++)for(let z=0;z<4;z++)for(let y=0;y<3;y++)if((y===2||x===0||x===3||z===0||z===3)&&!(x===1&&z===0&&y<2))design.push({x,y,z,block:'cobblestone'})
+ const base={build:{origin:{x:-1,y:65,z:-1},design}}
+ let b=bot();b.entities.c={name:'creeper',position:new Vec3(9,65,9)}
+ const r=clearanceObservation(b,{base},'base');assert.equal(r.clear,false);assert.match(r.reason,/interruption radius/);assert.equal(r.threats[0].name,'creeper')
+ b=bot();b.entities.z={name:'zombie',position:new Vec3(9,65,9)}
+ assert.doesNotMatch(clearanceObservation(b,{base},'base').reason||'',/interruption radius/,'a zombie at 12.7 is outside its ten-block radius')
+})
 test('departure threat observation blocks the exit corridor but records peripheral mobs separately',()=>{
  const design=[]
  for(let x=0;x<4;x++)for(let z=0;z<4;z++)for(let y=0;y<3;y++){
