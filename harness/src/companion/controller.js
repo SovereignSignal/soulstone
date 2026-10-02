@@ -409,9 +409,12 @@ export class Teammate extends EventEmitter {
         }else this.say('I am choosing shelter: '+decision.reason)
         // A creeper cannot be fought unarmed or waited out at close range: it
         // starts swelling within three blocks. Sprint out of its reach first.
+        // Behind its own walls the answer to anything outside is to stay behind
+        // them and close up: no sprint past the door, no detour over open ground.
+        const indoors=insideBase(recoveryBot,this.projects.base)||!!occupiedAlternative(recoveryBot,this.projects)
         for(let attempt=0;attempt<2;attempt++){
           const creeper=survivalObservation(recoveryBot).nearbyThreats.find(t=>t.name==='creeper'&&t.risk==='potential_hostile'&&t.distance<=16)
-          if(!creeper)break
+          if(!creeper||indoors)break
           this.safety.status='fleeing';this.phase='retreating';this.say('A creeper is '+creeper.distance+' blocks away. Sprinting clear before sheltering.')
           try{await this.execute({action:'flee',goal:{from:creeper.position,distance:24},timeoutMs:15000},abort.signal);if(epoch!==this.epoch||abort.signal.aborted)return;(this.safety.flights??=[]).push(structuredClone(this.runner.task.result));this.persist()}
           catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;(this.safety.flights??=[]).push({failed:error.message});this.persist();break}
@@ -420,9 +423,9 @@ export class Teammate extends EventEmitter {
         // cannot strike (roofed, behind a wall, kiting) is left behind on open
         // ground rather than waited out underground. Undead burn in the sun
         // when they follow; a mob that stays put is no longer a threat.
-        let open=this.threatJudge?.control&&chosen==='evade'?await this.judgedEvade(epoch,abort.signal,recoveryBot,interruptedActiveRequest):'skipped'
+        let open=!indoors&&this.threatJudge?.control&&chosen==='evade'?await this.judgedEvade(epoch,abort.signal,recoveryBot,interruptedActiveRequest):'skipped'
         // A judged shelter is a decision, not a hint: the daylight open-ground detour stays with the rule.
-        if(open==='skipped'&&!(this.threatJudge?.control&&chosen==='shelter'))open=await this.leaveOnOpenGround(epoch,abort.signal,recoveryBot,interruptedActiveRequest)
+        if(!indoors&&open==='skipped'&&!(this.threatJudge?.control&&chosen==='shelter'))open=await this.leaveOnOpenGround(epoch,abort.signal,recoveryBot,interruptedActiveRequest)
         if(open!=='skipped'||epoch!==this.epoch||abort.signal.aborted)return
         this.safety.status='retreating';this.phase='retreating'
       }
@@ -1107,7 +1110,9 @@ export class Teammate extends EventEmitter {
   async executeCommand(command, signal, started = () => {}) {
     await this.runner.waitForIdle?.(signal)
     const deferredDeparture=['acquire','prepare'].includes(command.action)&&insideBase(this.runner.bot,this.projects.base)
-    if(!deferredDeparture&&!['defend','eat','craft','stop','leave_base','burrow','unburrow'].includes(command.action))await this.leaveOccupiedShelter(signal,command.action==='retreat'?(command.goal?.shelter?.name||'base'):null)
+    // The checked door exit is for work. A safety action never walks out of a
+    // shelter first: fleeing a creeper at the door used to open the door on it.
+    if(!deferredDeparture&&!['defend','eat','craft','stop','leave_base','burrow','unburrow','flee','hut','climb','descend'].includes(command.action))await this.leaveOccupiedShelter(signal,command.action==='retreat'?(command.goal?.shelter?.name||'base'):null)
     return new Promise((resolve, reject) => {
       let taskId
       const cleanup = () => { this.runner.off('event', handler); signal.removeEventListener('abort', onAbort) }
