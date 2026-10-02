@@ -84,6 +84,16 @@ export class Teammate extends EventEmitter {
     if(runner.task?.goal?.project)this.projects.base=structuredClone(runner.task.goal.project)
     runner.on('operator_command', c => { if (!this.dispatching && c.action !== 'status') { this.cancel(false);if(c.action==='stop'){this.safety={status:'cancelled',reason:'Operator stop'};if(canResume(this.requestProgress))this.requestProgress.status='cancelled';this.persist()} } })
     runner.on('event', e => {
+      if(e.type==='survival_tick'&&this.respawnAtDawn){
+        const tod=runner.bot?.time?.timeOfDay
+        if(Number.isFinite(tod)&&tod>=1000&&tod<12500){
+          this.respawnAtDawn=false
+          if(this.snapshot().dead&&canResume(this.requestProgress)){
+            this.requestProgress.autoRespawns=(this.requestProgress.autoRespawns||0)+1;this.persist()
+            try{this.respawn()}catch(error){this.runner.log?.('auto_respawn_failed',{error:error.message})}
+          }
+        }
+      }
       if(e.type==='survival_tick'&&runner.ready){
         const bot=runner.bot
         // Recovery can finish an inventory, hunger or health goal while the
@@ -204,9 +214,16 @@ export class Teammate extends EventEmitter {
         // The drop pile despawns in five minutes, and on 20 September nobody was
         // watching: the agent sat dead through the whole window and a full kit
         // was lost. Come back automatically while a saved request is still live.
+        // At night that same reflex put an empty-handed bot on a spawn point in the
+        // dark, three times, onto the mob that was standing there. The drop pile
+        // is not coming back from that either: wait for daylight.
+        const tod=runner.bot?.time?.timeOfDay,dark=Number.isFinite(tod)&&(tod>=12500||tod<1000)
         if(canResume(this.requestProgress)&&(this.requestProgress.autoRespawns||0)<AUTO_RESPAWN_LIMIT){
-          this.requestProgress.autoRespawns=(this.requestProgress.autoRespawns||0)+1;this.persist()
-          try{this.respawn()}catch(error){this.runner.log?.('auto_respawn_failed',{error:error.message})}
+          if(dark){this.respawnAtDawn=true;this.say('It is night. I will come back at daylight rather than empty-handed into the dark.')}
+          else{
+            this.requestProgress.autoRespawns=(this.requestProgress.autoRespawns||0)+1;this.persist()
+            try{this.respawn()}catch(error){this.runner.log?.('auto_respawn_failed',{error:error.message})}
+          }
         }
       }
       if(e.type==='spawn'&&this.restoreBurrow&&runner.ready){this.restoreBurrow=false;this.phase='blocked';this.safety.status='burrowed';delete this.safety.error;this.persist();const abort=this.abort=new AbortController();this.say('Service restarted while I was dug in. Waiting for daylight before digging out.');void this.waitInBurrow(this.epoch,abort.signal,runner.bot,this.requestProgress?.status==='interrupted')}
