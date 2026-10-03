@@ -441,7 +441,18 @@ export async function executeWorldSkill(bot,task,context,gather) {
  // The saved base's back-exit cell is its own way down, not a crater (lab
  // run 22: the repair tried to fill the shaft from below and failed).
  const sp=context.shelterProject,shaft=sp?.backExit?.cell&&sp.build?.origin&&['x','y','z'].every(k=>sp.build.origin[k]===origin[k])?sp.backExit.cell:null
- if(layout)inspectShelterSite(bot,origin,layout,{repair:true,support:gaps,shaft})
+ const ownBaseBuild=task.goal?.purpose==='shelter'&&['x','y','z'].every(k=>sp?.build?.origin?.[k]===origin[k])
+ const foreign=layout?inspectShelterSite(bot,origin,layout,{repair:true,support:gaps,shaft,clear:ownBaseBuild?plainCube(bot):null}).filter(c=>plainCube(bot)(bot.blockAt(c)||{})):[]
+ if(foreign.length&&ownBaseBuild){
+  progress(`Clearing ${foreign.length} foreign blocks from inside the base`)
+  for(const c of foreign.sort((a,b)=>b.y-a.y)){
+   const blk=bot.blockAt(c);if(!blk||blk.name==='air')continue
+   if(bot.entity.position.distanceTo(c.offset(.5,.5,.5))>4)await walk(new goals.GoalLookAtBlock(c,bot.world,{reach:4}),false)
+   if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(blk,{requireHarvest:false,getFromChest:false})
+   check();stage('digging');await bot.dig(blk);check()
+  }
+  gaps.length=0;inspectShelterSite(bot,origin,layout,{repair:true,support:gaps,shaft})
+ }
  if(gaps.length){
   const carried=name=>bot.inventory.items().filter(i=>i.name===name).reduce((n,i)=>n+i.count,0)
   const filler=['cobblestone','dirt','cobbled_deepslate'].find(name=>carried(name)>=gaps.length)||'dirt'

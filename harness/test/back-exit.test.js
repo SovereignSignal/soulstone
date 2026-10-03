@@ -220,3 +220,14 @@ test('the leave routine itself refuses at night and with a hostile in radius, wh
  const day=hut();day.w.bot.time={timeOfDay:6000};day.w.bot.game={difficulty:'normal'}
  const r=await retreatToShelter(day.w.bot,{kind:'leave_base',goal:{project:day.project}},day.api);assert.equal(r.receipt,'left_base_door_closed')
 })
+
+import {inspectShelterSite,shelterLayout} from '../src/shelter.js'
+test('a repair of the saved base may clear a foreign block from its interior; otherwise it obstructs',()=>{
+ // 3 October, family world: a climb left a cobblestone pillar block in the
+ // cell just inside the door, and every repair refused it as "obstructed".
+ const h=hut();h.w.cells.set(new Vec3(11,64,21).toString(),'cobblestone')
+ const o=new Vec3(10,64,20),layout=shelterLayout(design)
+ assert.throws(()=>inspectShelterSite(h.w.bot,o,layout,{repair:true}),/obstructed by cobblestone at 11,64,21/)
+ const removed=inspectShelterSite(h.w.bot,o,layout,{repair:true,clear:b=>b.name==='cobblestone'})
+ assert.ok(removed.some(c=>c.equals(new Vec3(11,64,21))))
+})
