@@ -193,3 +193,20 @@ test('the planner is told where the back exit is and whether the bot stands at i
  assert.equal(backExitObservation(mid.w.bot,mid.project).atFoot,false)
  assert.equal(shelteredObservation(mid.w.bot,mid.project).passed,true,'mid-jump in the shaft the bot is still behind its walls (run 26: the close-floors rule fired on a skeleton outside while it climbed)')
 })
+
+test('from a tunnel beside an open back exit the retreat walks to the shaft foot, climbs and never uses the door',async()=>{
+ // Lab run 28, 3 October: one cell beside the shaft column at y 57, "base is
+ // unavailable: Navigation ended without reaching the target", and the bot
+ // dug in instead of going home up the shaft eight blocks away.
+ const {w,project,api,toggles}=hut({shaftOpen:true,backExit:{cell:{x:12,y:64,z:22},bottom:56},at:[14.5,57,22.5]})
+ for(let y=56;y<=63;y++)w.cells.set(new Vec3(12,y,22).toString(),'air');for(const x of [13,14])w.cells.set(new Vec3(x,57,22).toString(),'air') // the shaft and a side tunnel
+ const walked=[];const walk=api.walk;api.walk=async g=>{walked.push([g.x,g.y,g.z]);return walk(g)}
+ assert.equal(insideBase(w.bot,project),false,'beside the column is not inside')
+ const result=await retreatToShelter(w.bot,{kind:'retreat',goal:{project}},api)
+ assert.equal(result.receipt,'sheltered_door_closed');assert.deepEqual(walked[0],[12,56,22],'first to the shaft foot');assert.equal(toggles(),0)
+ assert.deepEqual(w.bot.entity.position,new Vec3(11.5,64,21.5));assert.equal(w.bot.blockAt(new Vec3(12,63,22)).name,'cobblestone')
+ // With the shaft shut (no bottom) the underground retreat is the door path as before.
+ const shut=hut({backExit:{cell:{x:12,y:64,z:22}},at:[14.5,57,22.5]});const went=[];const w2=shut.api.walk;shut.api.walk=async g=>{went.push([g.x,g.y,g.z]);return w2(g)}
+ await retreatToShelter(shut.w.bot,{kind:'retreat',goal:{project:shut.project}},shut.api)
+ assert.notDeepEqual(went[0],[12,56,22]);assert.equal(shut.toggles(),2)
+})
