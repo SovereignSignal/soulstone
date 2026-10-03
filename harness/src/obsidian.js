@@ -111,7 +111,12 @@ const near=(bot,name,point,maxDistance,filter=()=>true)=>(bot.findBlocks({point,
 // the nearest water source through `use`. Both are injected to avoid a cycle.
 // `approach(point,range)` is a walk that may tunnel (world-skills passes goto's
 // digging engine); without it the plain walk is used.
-export async function makeObsidian(bot,task,{check,progress,stage,walk,settle,mine,fill,count,persist,approach=p=>walk(new goals.GoalBlock(p.x,p.y,p.z))}){
+// With no open lava in view the trip searches: legs of SEARCH_LEG blocks
+// north, east, south and west of where it began, in growing rings, surveying
+// after each. Test run 39 (3 October) saw two lava sources, both sealed in
+// rock, and stopped where it stood.
+export const SEARCH_LEGS=6,SEARCH_LEG=48
+export async function makeObsidian(bot,task,{check,progress,stage,walk,settle,mine,fill,count,persist,travel=null,approach=p=>walk(new goals.GoalBlock(p.x,p.y,p.z))}){
  const goal=validateObsidianGoal(task.goal),total=goal.count,start=count('obsidian')
  const record=task.obsidian??={pours:0,converted:0,skipped:[]}
  const done=extra=>({item:'obsidian',count:count('obsidian'),requested:total,pours:record.pours,converted:record.converted,...extra})
@@ -119,7 +124,9 @@ export async function makeObsidian(bot,task,{check,progress,stage,walk,settle,mi
  if(!bot.inventory.items().some(i=>PICKAXES.includes(i.name)))throw new Error('Obsidian can only be mined with a diamond or netherite pickaxe; prepare diamond_pickaxe first')
  const skip=new Set(record.skipped)
  let reason='no attempt was made'
- for(let round=0;round<8&&count('obsidian')<total;round++){
+ const origin=record.origin??={x:Math.floor(bot.entity.position.x),z:Math.floor(bot.entity.position.z)}
+ let legs=record.legs||0
+ for(let round=0;round<8+SEARCH_LEGS&&count('obsidian')<total;round++){
   check()
   // Obsidian already safe to mine comes first; mine only returns at the total.
   try{await mine('obsidian',total);break}catch(error){check();reason=error.message}
@@ -129,7 +136,15 @@ export async function makeObsidian(bot,task,{check,progress,stage,walk,settle,mi
    if(!count('water_bucket')){reason='the bucket could not be filled';break}
   }
   const survey=surveyPourSites(bot,{protectedSites:goal.protectedSites,skip}),site=survey.sites[0]
-  if(!site){reason=`no pour site within ${survey.report.radius} blocks: ${describeSurvey(survey.report)}`;break}
+  if(!site){
+   reason=`no pour site within ${survey.report.radius} blocks: ${describeSurvey(survey.report)}`
+   if(!travel||legs>=SEARCH_LEGS)break
+   const [dx,dz]=[[0,-1],[1,0],[0,1],[-1,0]][legs%4],ring=Math.floor(legs/4)+1,to={x:origin.x+dx*SEARCH_LEG*ring,z:origin.z+dz*SEARCH_LEG*ring}
+   legs++;record.legs=legs;persist?.()
+   progress(`No open lava in view (${describeSurvey(survey.report)}); searching leg ${legs} of ${SEARCH_LEGS} toward ${to.x},${to.z}`);stage('walking')
+   try{await travel(to)}catch(error){check();progress(`Search leg ${legs} stopped short: ${String(error.message).slice(0,80)}`)}
+   continue
+  }
   skip.add(key(site.rim));record.skipped=[...skip];persist?.()
   progress(`Converting lava at ${key(site.lava)}: pouring from ${key(site.stand)}`);stage('pouring')
   try{await approach(site.stand,0)}catch(error){check();reason=`the standing cell ${key(site.stand)} was not reached: ${error.message}`;continue}
@@ -158,5 +173,5 @@ export async function makeObsidian(bot,task,{check,progress,stage,walk,settle,mi
  }
  if(count('obsidian')>=total)return done({receipt:'obsidian_carried'})
  if(count('obsidian')>start)return done({receipt:'obsidian_partial',partial:true,stoppedBecause:reason})
- throw new Error(`No obsidian made: ${reason}`)
+ throw new Error(`No obsidian made: ${reason}${legs?` (after ${legs} search leg${legs===1?'':'s'})`:''}`)
 }

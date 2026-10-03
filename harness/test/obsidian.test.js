@@ -207,3 +207,11 @@ test('a rim whose straight-out cell is blocked still pours from another dry cell
  const {sites:open}=surveyPourSites(fixture().bot)
  assert.deepEqual(open[0].stand,new Vec3(-2,64,1),'the straight-out stance is still preferred where it exists')
 })
+
+test('with no open lava in view it searches six legs in growing rings, then says how far it looked',async()=>{
+ const f=fixture({pool:false}),legs=[]
+ const r=makeObsidian(f.bot,task(4),{...f.ctx,travel:async to=>{legs.push([to.x,to.z])}})
+ await assert.rejects(r,/no pour site within 64 blocks.*after 6 search legs/)
+ const x=Math.floor(f.bot.entity.position.x),z=Math.floor(f.bot.entity.position.z)
+ assert.deepEqual(legs,[[x,z-48],[x+48,z],[x,z+48],[x-48,z],[x,z-96],[x+96,z]])
+})

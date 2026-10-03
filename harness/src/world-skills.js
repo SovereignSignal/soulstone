@@ -415,7 +415,8 @@ export async function executeWorldSkill(bot,task,context,gather) {
   }
   // The stance walk wades too: it usually starts in the pool the bucket was filled from
   // (trial 24's seven stance walks each failed at once from inside that water).
-  return makeObsidian(bot,task,{check,progress,stage,walk,settle,count,persist:context.persist,fill,mine:(name,total)=>mineExposed(name,total,[task.kind]),approach:(p,range)=>dig(p,range,true)})
+  const travel=to=>travelTo(bot,{kind:'travel',goal:{x:to.x,y:Math.floor(bot.entity.position.y),z:to.z}},{check,stage,progress,movements:walking})
+  return makeObsidian(bot,task,{check,progress,stage,walk,settle,count,persist:context.persist,fill,travel,mine:(name,total)=>mineExposed(name,total,[task.kind]),approach:(p,range)=>dig(p,range,true)})
  }
  if(task.kind==='acquire'){try{await acquire(task.goal.item,task.goal.count)}finally{await reclaimTables()}return {item:task.goal.item,count:count(task.goal.item)}}
  const design=validateDesign(task.goal.design)
