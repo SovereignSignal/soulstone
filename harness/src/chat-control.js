@@ -13,12 +13,30 @@ export function parseChat(message) {
 // channel: the planner can only return validated plans, as for any request.
 export function parseRequest(message, username = '') {
   const names = [username, username.replace(/\d+$/, ''), 'soulstone', 'soul'].filter(Boolean).map(n => n.replace(/[^A-Za-z0-9_]/g, ''))
-  const match = new RegExp(`^@?(?:${[...new Set(names)].sort((a, b) => b.length - a.length).join('|')})[,:]?\\s+(.{2,400})$`, 'i').exec(String(message).trim())
-  return match ? match[1].trim() : null
+  const any = [...new Set(names)].sort((a, b) => b.length - a.length).join('|'), line = String(message).trim()
+  const match = new RegExp(`^@?(?:${any})[,:]?\\s+(.{2,400})$`, 'i').exec(line)
+  if (match) return match[1].trim()
+  // A mention anywhere in the line: "can you grab some coal @soul".
+  const mention = new RegExp(`(^|\\s)@(?:${any})(?=$|[\\s,:.!?])[,:]?`, 'i')
+  if (!mention.test(line)) return null
+  const rest = line.replace(mention, ' ').replace(/\s+/g, ' ').trim()
+  return rest.length >= 2 && rest.length <= 400 ? rest : null
 }
 export function attachChatControl(runner, bot) {
+  // Who is heard: the admin's listening setting when there is one, otherwise
+  // the owner alone (and anyone at all only when no owner is configured).
+  const heard = name => name !== bot.username && (runner.listening ? runner.listening.allows(name, runner.owner) : !runner.owner || name.toLowerCase() === runner.owner.toLowerCase())
+  // A private message is already addressed to the teammate, so the whole line
+  // is the request: this is what a server alias like /soul delivers.
+  bot.on('whisper', (name, message) => {
+    if (!heard(name)) return
+    const line = String(message || '').trim()
+    if (line.startsWith('!bot ')) { bot.emit('chat', name, line); return }
+    const text = parseRequest(line, bot.username) || (line.length >= 2 && line.length <= 400 ? line : null)
+    if (text) runner.emit('chat_request', { name, text, private: true })
+  })
   bot.on('chat', (name, message) => {
-    if (name === bot.username || (runner.owner && name.toLowerCase() !== runner.owner.toLowerCase())) return
+    if (!heard(name)) return
     try {
       const command = parseChat(message)
       if (!command) {
