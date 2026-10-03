@@ -36,6 +36,30 @@ export function clearStrike(bot,target){
  const vector=aim.minus(eye),length=vector.norm();if(!length||length>7)return false
  return observedSightline(bot,eye,aim).status==='clear'
 }
+// Cornered: every shelter refused with a mob in arm's reach. Test world,
+// 3 October 19:44Z: two zombies at 2 and 3.8 blocks, burrow, hut, retreat
+// and sprint all failed, and the bot died at full gear without one swing.
+// Then the nearest defendable mob within CORNER_RANGE is fought whatever the
+// count, down to CORNER_HEALTH, with the best tool carried, pickaxes included.
+export const CORNER_RANGE=4,CORNER_HEALTH=2
+const pickaxes={wooden_pickaxe:2,golden_pickaxe:2,stone_pickaxe:3,iron_pickaxe:4,diamond_pickaxe:5,netherite_pickaxe:6}
+export function cornerWeapon(bot,target){
+ return weaponFor(bot,target)||bot.inventory.items().filter(i=>(weapons[i.name]||pickaxes[i.name])&&Number.isFinite(i.maxDurability)&&remainingDurability(i)>=4)
+  .sort((a,b)=>(weapons[b.name]||pickaxes[b.name])-(weapons[a.name]||pickaxes[a.name]))[0]||null
+}
+export function corneredDecision(bot){
+ const s=survivalObservation(bot),reject=reason=>({engage:false,reason})
+ if(s.gameMode!=='survival'||!['easy','normal','hard'].includes(s.difficulty))return reject('Combat requires observed hostile Survival difficulty')
+ if(!(s.health>CORNER_HEALTH))return reject('Too hurt even to fight cornered')
+ if(!knownPoint(bot.entity?.position)||bot.entity.isInLava)return reject('Not on ground the fight can use')
+ const near=dangerNearby(bot,CORNER_RANGE).filter(t=>DEFENDABLE_MOBS.has(t.name)).sort((a,b)=>a.distance-b.distance)[0]
+ if(!near)return reject('No defendable mob within reach')
+ const target=Object.values(bot.entities||{}).filter(e=>identified(e)&&e.name===near.name&&distance(e.position,bot.entity.position)<=CORNER_RANGE+.5).sort((a,b)=>distance(a.position,bot.entity.position)-distance(b.position,bot.entity.position))[0]
+ if(!target)return reject('Target identity is unavailable')
+ const weapon=cornerWeapon(bot,target)
+ if(!weapon)return reject('Nothing carried to fight with')
+ return {engage:true,cornered:true,target:{targetId:target.id,targetUuid:target.uuid,targetName:target.name},weapon:weapon.name}
+}
 // The margins are the rule's; a judged fight may lower them to floors it names.
 export function defenseDecision(bot,{healthFloor=12,foodFloor=10,mobMargins=true}={}){
  const s=survivalObservation(bot)
@@ -56,7 +80,7 @@ export function defenseDecision(bot,{healthFloor=12,foodFloor=10,mobMargins=true
 }
 export function validateDefenseGoal(g){
  if(!g||!Number.isInteger(g.targetId)||g.targetId<0||typeof g.targetUuid!=='string'||!/^[\da-f-]{36}$/i.test(g.targetUuid)||!DEFENDABLE_MOBS.has(g.targetName)||typeof g.connectionId!=='string'||!/^[\da-f-]{36}$/i.test(g.connectionId))throw new Error('Defense requires an observed mob identity and current connection')
- return {targetId:g.targetId,targetUuid:g.targetUuid,targetName:g.targetName,connectionId:g.connectionId}
+ return {targetId:g.targetId,targetUuid:g.targetUuid,targetName:g.targetName,connectionId:g.connectionId,...(g.cornered===true?{cornered:true}:{})}
 }
 export function combatClearance(bot){
  const s=survivalObservation(bot),p=bot?.entity?.position
@@ -71,9 +95,9 @@ export function combatClearance(bot){
 // One identified mob per bounded action. Never chase a replacement entity or
 // replay an encounter after reconnect. Server death is distinct from disappearance.
 export async function defendAgainstMob(bot,task,{check,stage,progress,persist,movements}){
- const goal=validateDefenseGoal(task.goal),initial=defenseDecision(bot)
+ const goal=validateDefenseGoal(task.goal),initial=goal.cornered?corneredDecision(bot):defenseDecision(bot)
  if(!initial.engage||!same(bot.entities[goal.targetId],goal))throw new Error(initial.reason||'Combat target changed')
- const target=bot.entities[goal.targetId],anchor=point(bot.entity.position),weapon=weaponFor(bot,target)
+ const target=bot.entities[goal.targetId],anchor=point(bot.entity.position),weapon=goal.cornered?cornerWeapon(bot,target):weaponFor(bot,target)
  if(!weapon)throw new Error('No serviceable melee weapon')
  const cooldown=weapon.name.endsWith('_axe')?1300:700
  const record=task.combat={target:goal.targetName,uuid:goal.targetUuid,weapon:weapon.name,attacks:0,hurtEvents:0,deathObserved:false,startedAt:Date.now(),minimumHealth:bot.health}
@@ -86,11 +110,13 @@ export async function defendAgainstMob(bot,task,{check,stage,progress,persist,mo
   check()
   if(Date.now()>=task.deadline||Date.now()-record.startedAt>=30000)throw new Error('Combat time limit reached')
   if(bot.game?.gameMode!=='survival'||!['easy','normal','hard'].includes(bot.game?.difficulty))throw new Error('Combat difficulty or game mode changed')
-  if(!(bot.health>10)||!(bot.food>6))throw new Error('Health or food requires retreat')
+  if(goal.cornered?!(bot.health>CORNER_HEALTH):!(bot.health>10)||!(bot.food>6))throw new Error('Health or food requires retreat')
   record.minimumHealth=Math.min(record.minimumHealth,bot.health)
   if(!knownPoint(bot.entity.position)||distance(anchor,bot.entity.position)>ENGAGE_RANGE||bot.entity.isInLava||bot.entity.isInWater)throw new Error('Combat left its safe movement boundary')
   const threats=dangerNearby(bot)
-  if(threats.length>1||threats.some(e=>e.name!==goal.targetName||distance(e.position,target.position)>.05))throw new Error('Additional nearby threats require retreat')
+  // Cornered, the other mobs are why: only a creeper close by ends the fight.
+  if(goal.cornered){if(threats.some(e=>e.name==='creeper'&&e.distance<=CORNER_RANGE))throw new Error('A creeper closed in; the cornered fight ends')}
+  else if(threats.length>1||threats.some(e=>e.name!==goal.targetName||distance(e.position,target.position)>.05))throw new Error('Additional nearby threats require retreat')
  }
  try{
   check();stage('arming');await bot.equip(weapon,'hand');guard()

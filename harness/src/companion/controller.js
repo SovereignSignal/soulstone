@@ -30,7 +30,7 @@ import {burrowClearance,shelterExits} from '../burrow.js'
 import {roofed} from '../observations.js'
 import {inspectEmergencyShelter} from '../shelter-occupants.js'
 import {threatReach} from '../threat-reach.js'
-import {defenseDecision,combatClearance,DEFENDABLE_MOBS,meleeWeapon} from '../combat.js'
+import {defenseDecision,combatClearance,DEFENDABLE_MOBS,meleeWeapon,corneredDecision} from '../combat.js'
 import {ThreatJudge,harnessVerdict,wornArmour,forcedInterruption,gateVerdict,chooseResponse} from '../threat-judgement.js'
 import {projectFootprints} from '../site-survey.js'
 import {reviseArchitecture} from '../construction.js'
@@ -517,6 +517,18 @@ export class Teammate extends EventEmitter {
       }
       if(!this.safety.retreat)await this.lastResortShelter(epoch,abort.signal)
       if(epoch!==this.epoch||abort.signal.aborted)return
+      // Cornered: every shelter refused and a mob in arm's reach. Fight the
+      // nearest, up to three in turn, then try to shelter again.
+      for(let round=0;round<3&&!this.safety.retreat;round++){
+        const cornered=corneredDecision(recoveryBot);if(!cornered.engage)break
+        const attempt={name:'cornered',status:'trying',target:cornered.target.targetName};this.safety.attempts.push(attempt);this.persist()
+        this.say(`Cornered by a ${cornered.target.targetName} with nowhere to shelter. Fighting with my ${cornered.weapon.replaceAll('_',' ')}.`)
+        try{await this.execute({action:'defend',goal:{...cornered.target,connectionId:this.runner.connectionId,cornered:true},timeoutMs:35000},abort.signal);attempt.status='fought'}
+        catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;attempt.status='failed';attempt.reason=error.message;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)}
+        if(epoch!==this.epoch||abort.signal.aborted)return
+        this.persist()
+        if(!corneredDecision(recoveryBot).engage){await this.lastResortShelter(epoch,abort.signal);if(epoch!==this.epoch||abort.signal.aborted)return}
+      }
       if(!this.safety.retreat&&await this.moveOutOfDanger(epoch,abort.signal,recoveryBot)){
         if(epoch!==this.epoch||abort.signal.aborted)return
         await this.lastResortShelter(epoch,abort.signal)

@@ -139,3 +139,15 @@ test('a mob that drifts from the opening position keeps the fight, and a dropped
  assert.equal(result.receipt,'target_death_observed');assert.ok(result.attacks>=1,'landed a hit after the drift')
  assert.ok(issued>=2,`follow goal re-issued after being dropped (issued ${issued})`)
 })
+import {corneredDecision,cornerWeapon,CORNER_HEALTH} from '../src/combat.js'
+test('cornered, the nearest mob in reach is fought whatever the count, down to two hearts, with a pickaxe if that is all there is',()=>{
+ // Test world, 3 October 19:44Z: two zombies at 2 and 3.8 blocks, every
+ // shelter refused, and the bot died without one swing.
+ const f=fixture();const second={...f.target,id:8,uuid:'10000000-0000-0000-0000-000000000003',position:new Vec3(0,64,3)};f.bot.entities[8]=second
+ assert.equal(defenseDecision(f.bot).engage,false,'the normal rule still refuses two mobs')
+ const d=corneredDecision(f.bot);assert.equal(d.engage,true);assert.equal(d.target.targetId,7,'the nearer one');assert.equal(d.weapon,'iron_axe')
+ f.bot.health=5;assert.equal(corneredDecision(f.bot).engage,true,'below the normal floors');f.bot.health=CORNER_HEALTH;assert.equal(corneredDecision(f.bot).engage,false);f.bot.health=20
+ f.items.length=0;f.items.push({name:'diamond_pickaxe',count:1,maxDurability:1561,durabilityUsed:0,slot:36})
+ assert.equal(cornerWeapon(f.bot,f.target).name,'diamond_pickaxe');assert.equal(corneredDecision(f.bot).weapon,'diamond_pickaxe')
+ f.target.position=new Vec3(6,64,0);second.position=new Vec3(0,64,6);assert.equal(corneredDecision(f.bot).engage,false,'nothing within four blocks is not cornered')
+})
