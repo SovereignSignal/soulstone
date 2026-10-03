@@ -58,6 +58,10 @@ export function shelteredObservation(bot,project){
 export function insideBase(bot,project){
  try{
   const build=project.build,o=new Vec3(build.origin.x,build.origin.y,build.origin.z),layout=shelterLayout(build.design),p=bot.entity.position.floored()
-  return p.y>=o.y&&p.y<o.y+layout.roof&&layout.inside.some(q=>q.x+o.x===p.x&&q.z+o.z===p.z)
+  if(p.y>=o.y&&p.y<o.y+layout.roof&&layout.inside.some(q=>q.x+o.x===p.x&&q.z+o.z===p.z))return true
+  // The back exit's shaft is part of the base: a bot in it is behind the
+  // base's walls, and a safety retreat from its bottom heads up, not out.
+  const shaft=project.stations?.shaft
+  return !!shaft?.position&&Number.isFinite(shaft.bottom)&&p.x===shaft.position.x&&p.z===shaft.position.z&&p.y>=shaft.bottom&&p.y<o.y
  }catch{return false}
 }
