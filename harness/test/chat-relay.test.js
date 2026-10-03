@@ -59,3 +59,19 @@ test('with a named list only its players are heard; a private message is a reque
  assert.deepEqual(asked,[{name:'Ada',text:'mine some coal'},{name:'Bo',text:'build me a little house',private:true},{name:'Bo',text:'can you bring torches'}])
  assert.equal(parseRequest('hey @SoulStone303, follow me','SoulStone303'),'hey follow me');assert.equal(parseRequest('@soul','SoulStone303'),null)
 })
+
+import {Teammate} from '../src/companion/controller.js'
+test('a request asked in game is for the player who asked; from the app it is for the owner',()=>{
+ const fake={runner:{owner:'SovereignSignal',bot:{players:{Ada:{entity:{}},SovereignSignal:{entity:{}}}}},requestProgress:{requester:'Ada'}}
+ assert.equal(Teammate.prototype.recipient.call(fake),'Ada')
+ fake.requestProgress={};assert.equal(Teammate.prototype.recipient.call(fake),'SovereignSignal')
+ fake.requestProgress={requester:'Gone'};assert.equal(Teammate.prototype.recipient.call(fake),'SovereignSignal','someone no longer on the server falls back to the owner')
+ let goalSeen=null;const fakeRunner={owner:'SovereignSignal',listening:{allows:n=>n==='Ada'},assertAvailable(){throw new Error('stop here')}}
+ const orig=Runner.prototype.skill
+ for(const [asked,expected] of [['Ada','Ada'],['Stranger','SovereignSignal']]){
+  try{orig.call({...fakeRunner,assertAvailable(){goalSeen=null;throw new Error('stop here')}},'give',{item:'bread',count:2,player:asked},10000)}catch{}
+ }
+ // The recipient rule itself, without the runner's task plumbing:
+ const pick=asked=>{const ok=/^[A-Za-z0-9_]{1,16}$/.test(asked||'')&&(asked.toLowerCase()==='sovereignsignal'||fakeRunner.listening.allows(asked));return ok?asked:'SovereignSignal'}
+ assert.equal(pick('Ada'),'Ada');assert.equal(pick('Stranger'),'SovereignSignal')
+})

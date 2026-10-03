@@ -269,7 +269,10 @@ export class Runner extends EventEmitter {
     }
   }
   skill(kind, goal, timeoutMs = 180000) {
-    if(kind==='give')goal={...goal,player:this.owner}
+    // Whoever asked receives it; the owner when the request came from the app.
+    // Only someone the admin lets the bot hear may receive; anyone else gets
+    // the owner, so a plan can never hand items to an arbitrary player.
+    if(kind==='give'){const asked=goal?.player,ok=/^[A-Za-z0-9_]{1,16}$/.test(asked||'')&&(asked.toLowerCase()===String(this.owner).toLowerCase()||this.listening?.allows?.(asked,this.owner));goal={...goal,player:ok?asked:this.owner}}
     goal = validateTaskGoal(kind, goal)
     if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > TASK_TIMEOUT_MAX_MS) throw new Error(`timeoutMs must be 1000–${TASK_TIMEOUT_MAX_MS}`)
     this.assertAvailable()

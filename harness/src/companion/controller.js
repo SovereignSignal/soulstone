@@ -886,7 +886,11 @@ export class Teammate extends EventEmitter {
     this.experience.record({requestId:r.id,summary:r.goal.summary,criteria:r.goal.criteria,version:this.runner.bot?.version||'unknown',evidence,reflection,verdict:r.verification?.verdict||'blocked'})
     this.episode?.write('experience_saved',{requestId:r.id,evidence,reflection,verdict:r.verification?.verdict||'blocked'})
   }
-  async submit(text,continuation=null,{automatic=false,prepared=null}={}) {
+  // The player a request is for: whoever asked in game, else the owner. "Come
+  // here", "follow me", "give me" and "remember this spot" mean that player
+  // (3 October: Sov's children will ask, and all of it went to the owner).
+  recipient(){ const r=this.requestProgress?.requester; return r&&this.runner.bot?.players?.[r]?r:this.runner.owner }
+  async submit(text,continuation=null,{automatic=false,prepared=null,requester=null}={}) {
     if (typeof text !== 'string' || !text.trim() || text.length > 2000) throw new Error('Enter a message of 1–2000 characters')
     text = text.trim()
     if (/^(?:please )?(?:stop|stop now|stop bot|cancel|hold on|stop everything|wait)[.!]?$/i.test(text)) { this.say(text, 'user'); this.stop(); return }
@@ -904,7 +908,7 @@ export class Teammate extends EventEmitter {
     this.cancel(['thinking', 'acting','retreating','defending'].includes(this.phase)); this.safety=null; if(!automatic)this.unsafeSignature=null; const epoch = this.epoch; const abort = this.abort = new AbortController()
     const history = this.messages.slice(-12); this.say(continuation?(automatic?'Automatically continuing the saved request: ':'Resume the saved request: ')+text:text, automatic?'assistant':'user'); this.phase = 'thinking'; this.emit('change')
     const episode = this.episode = this.recorder?.start({ request: text, model: this.planner.model, profile: this.runner.profile, minecraftVersion: this.runner.bot?.version || null })
-    this.requestProgress=continuation||{id:randomUUID(),request:text,completed:[],pending:[],feedback:[],rounds:0};this.requestProgress.status='running';this.requestProgress.blocker=null
+    this.requestProgress=continuation||{id:randomUUID(),request:text,completed:[],pending:[],feedback:[],rounds:0,...(requester?{requester}:{})};this.requestProgress.status='running';this.requestProgress.blocker=null
     if(continuation&&!automatic)this.requestProgress.resumeSerial=(continuation.resumeSerial||0)+1
     this.persist()
     const requestTasks=new Set()
@@ -1046,16 +1050,16 @@ export class Teammate extends EventEmitter {
             executed++
             if(this.playingAsOwner() && ['follow','come','give'].includes(step.action))throw new Error('I am playing as your account. Use the app for tasks, or use a second account to follow you and hand you items.')
             if(step.action==='remember') {
-              const p=this.runner.bot?.players[this.runner.owner]?.entity?.position
-              if(!p)throw new Error('Owner is not visible')
+              const p=this.runner.bot?.players[this.recipient()]?.entity?.position
+              if(!p)throw new Error(`${this.recipient()} is not visible`)
               this.places[step.name]={x:p.x,y:p.y,z:p.z};this.persist()
             } else if(step.action==='follow') {
-              if(!this.runner.bot?.players[this.runner.owner]?.entity)throw new Error('Owner is not visible')
+              if(!this.runner.bot?.players[this.recipient()]?.entity)throw new Error(`${this.recipient()} is not visible`)
               await this.leaveOccupiedShelter(abort.signal)
               if(epoch!==this.epoch)return
               await this.runner.waitForIdle?.(abort.signal)
               if(epoch!==this.epoch||abort.signal.aborted)return
-              this.dispatch({action:'follow',player:this.runner.owner})
+              this.dispatch({action:'follow',player:this.recipient()})
             } else if(step.action==='inspect') {
               if(step.item){applyInspectBlockRequest(this.requestProgress,step.item);this.persist()}
             } else if(step.action!=='inspect') {
@@ -1072,7 +1076,7 @@ export class Teammate extends EventEmitter {
               else if(step.action==='use')command={action:'use',goal:validateUseGoal({item:step.item,count:1,expect:step.name,target:step.target,protectedSites:projectFootprints(this.projects)}),timeoutMs:120000}
               else if(['descend','climb'].includes(step.action))command={action:step.action,goal:{},timeoutMs:45000}
               else if(step.action==='sleep')command={action:'sleep',goal:this.projects.base?{project:structuredClone(this.projects.base)}:{},timeoutMs:180000}
-              else if(step.action==='give')command={action:'give',goal:{item:step.item,count:step.count-deliveredCount(feedback,step.item)},timeoutMs:30000}
+              else if(step.action==='give')command={action:'give',goal:{item:step.item,count:step.count-deliveredCount(feedback,step.item),player:this.recipient()},timeoutMs:30000}
               else if([...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(step.action)){
                 const occupied=step.action==='leave_base'?occupiedAlternative(this.runner.bot,this.projects):null
                 if(!this.projects.base&&!occupied&&step.action!=='smelt')throw new Error('No saved base; build or identify a shelter first')
@@ -1111,14 +1115,14 @@ export class Teammate extends EventEmitter {
                   return from?{origin:from.origin,...(from.wood?{wood:from.wood}:{})}:{protectedSites:projectFootprints(this.projects)}
                 }).call(this)},timeoutMs:600000}
               } else {
-                const p=step.action==='come'?this.runner.bot?.players[this.runner.owner]?.entity?.position:this.places[step.name]
+                const p=step.action==='come'?this.runner.bot?.players[this.recipient()]?.entity?.position:this.places[step.name]
                 if(!p)throw new Error('That location is unavailable. Come into view or name a saved place.')
                 // The pathfinder searches a bounded region, so one goto across a
                 // hundred blocks reports no route where an easy walk exists. Cross
                 // real distances in stages instead.
                 const here=this.runner.position()
                 const far=here&&Math.hypot(p.x-here.x,p.z-here.z)>64
-                command=step.action==='come'?{action:'travel',goal:{x:p.x,y:p.y,z:p.z,player:this.runner.owner},timeoutMs:180000}:far?{action:'travel',goal:{x:p.x,y:p.y,z:p.z},timeoutMs:600000}
+                command=step.action==='come'?{action:'travel',goal:{x:p.x,y:p.y,z:p.z,player:this.recipient()},timeoutMs:180000}:far?{action:'travel',goal:{x:p.x,y:p.y,z:p.z},timeoutMs:600000}
                              :{action:'navigate',goal:{x:p.x,y:p.y,z:p.z},timeoutMs:120000}
               }
               await this.execute(command,abort.signal,id=>{requestTasks.add(id);this.requestProgress.inFlight={taskId:id,step};this.persist()})

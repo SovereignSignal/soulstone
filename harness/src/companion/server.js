@@ -51,7 +51,7 @@ teammate.on('change', () => {
 })
 const listeners = new Listeners(resolve('state/listeners.json'), setup?.listen)
 runner.listening = listeners
-runner.on('chat_request', ({ text }) => { void teammate.submit(text).catch(e => runner.say(e.message)) })
+runner.on('chat_request', ({ name, text }) => { void teammate.submit(text,null,{requester:name}).catch(e => runner.say(e.message)) })
 const routine = new DayRoutine(teammate,resolve('state/day-routine.json'))
 void startLocalModel({ binary: process.env.MC_LMS_BINARY, key: process.env.MC_MODEL_KEY, identifier: process.env.MC_MODEL || 'minecraft-teammate' }).catch(e => console.error('Local model startup:', e.message))
 const token = process.env.MC_COMPANION_TOKEN || randomBytes(32).toString('hex')
