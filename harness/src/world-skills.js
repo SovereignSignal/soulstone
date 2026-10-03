@@ -388,7 +388,10 @@ export async function executeWorldSkill(bot,task,context,gather) {
  // under the shelter and its approach before judging the site, nearest solid
  // neighbour first; a block with nothing to stand against waits its turn.
  const gaps=[]
- if(layout)inspectShelterSite(bot,origin,layout,{repair:true,support:gaps})
+ // The saved base's back-exit cell is its own way down, not a crater (lab
+ // run 22: the repair tried to fill the shaft from below and failed).
+ const sp=context.shelterProject,shaft=sp?.backExit?.cell&&sp.build?.origin&&['x','y','z'].every(k=>sp.build.origin[k]===origin[k])?sp.backExit.cell:null
+ if(layout)inspectShelterSite(bot,origin,layout,{repair:true,support:gaps,shaft})
  if(gaps.length){
   const carried=name=>bot.inventory.items().filter(i=>i.name===name).reduce((n,i)=>n+i.count,0)
   const filler=['cobblestone','dirt','cobbled_deepslate'].find(name=>carried(name)>=gaps.length)||'dirt'
@@ -400,7 +403,7 @@ export async function executeWorldSkill(bot,task,context,gather) {
    try{await place(gap,filler);stuck=0}
    catch(e){check();pending.push(gap);if(++stuck>=pending.length)throw new Error(`Could not restore the ground under the shelter at ${key(gap)}: ${e.message}`)}
   }
-  inspectShelterSite(bot,origin,layout,{repair:true})
+  inspectShelterSite(bot,origin,layout,{repair:true,shaft})
  }
  const needed={}
  for(const b of resolved){if(bot.blockAt(origin.offset(b.x,b.y,b.z))?.name!==b.block)needed[b.block]=(needed[b.block]||0)+1}

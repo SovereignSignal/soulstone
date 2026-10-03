@@ -5,6 +5,7 @@ import pathfinding from 'mineflayer-pathfinder'
 import {shelterLayout,shelterAccessLayout,inspectShelterSite} from './shelter.js'
 import {shelterLightBounds} from './lighting.js'
 import {fillCell,solidCube} from './scaffold.js'
+import {climbOut} from './burrow.js'
 const {goals}=pathfinding
 export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
  const project=task.goal.project,build=project.build,o=new Vec3(build.origin.x,build.origin.y,build.origin.z),layout=shelterLayout(build.design)
@@ -30,11 +31,15 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
   // Already behind the walls, or down the back exit under them: the door
   // stays shut (a creeper at it is why the bot is retreating). Come up to the
   // interior and put the floor back over the shaft, so the base reads whole.
+  // The pathfinder does not climb a one-wide shaft under a burrow cap (lab
+  // run 22: "Navigation ended" at once); the burrow's own climb does, digging
+  // what is overhead and pillaring up, which also refills the shaft behind it.
+  const shaft=project.backExit?.cell
+  if(shaft&&bot.entity.position.y<o.y){progress('Climbing the back exit to the base floor');await climbOut(bot,new Vec3(shaft.x,shaft.y,shaft.z),{check,stage:()=>{},progress});check()}
   await walk(new goals.GoalBlock(target.x,target.y,target.z));check()
   await settle(()=>bot.entity.onGround&&bot.entity.position.distanceTo(target.offset(.5,0,.5))<.85,'Retreat did not reach the interior')
   await open(false)
   let capped=false
-  const shaft=project.backExit?.cell
   if(shaft){
    const floor=new Vec3(shaft.x,shaft.y-1,shaft.z)
    if(!solidCube(bot,bot.blockAt(floor))){

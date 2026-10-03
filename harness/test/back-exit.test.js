@@ -134,11 +134,13 @@ import {inspectRetreatShelter,retreatToShelter} from '../src/retreat.js'
 function hut({shaftOpen=false,backExit=null,at=[12.5,64,22.5]}={}){
  // The back-exit fixture's hut with a spruce door in its gap, a torch inside
  // and the retreat's entity list, so inspectRetreatShelter runs for real.
- const w=world({at});w.inventory.push({name:'cobblestone',count:4,type:registry.itemsByName.cobblestone.id})
+ const w=world({at});w.inventory.push({name:'cobblestone',count:32,type:registry.itemsByName.cobblestone.id})
  w.cells.set(new Vec3(11,64,22).toString(),'torch');if(shaftOpen)w.cells.set(new Vec3(12,63,22).toString(),'air')
  let open=false,toggles=0;const inner=w.bot.blockAt
  w.bot.blockAt=p=>{if(p.x===11&&p.z===20&&(p.y===64||p.y===65))return {name:'spruce_door',position:p.clone(),boundingBox:'block',shapes:[[0,0,0,1,1,.2]],getProperties:()=>({open,half:p.y===64?'lower':'upper'})};const b=inner(p);return {...b,shapes:[],getProperties:()=>({})}}
  w.bot.world={getBlock:w.bot.blockAt};w.bot.entities={};w.bot.unequip=async()=>{};w.bot.activateBlock=async()=>{open=!open;toggles++}
+ // A jump lifts the bot one cell at once, so the burrow's climb (jump, place beneath, land) runs without physics.
+ w.bot.setControlState=(name,on)=>{if(name==='jump'&&on)w.bot.entity.position=w.bot.entity.position.offset(0,1,0)};w.bot.lookAt=async()=>{}
  const project={...base({torch:{position:{x:11,y:64,z:22},confirmed:true}}),backExit};project.build.wood='spruce_log'
  const api={check(){},progress(){},stage(){},settle:async fn=>assert.ok(fn()),walk:async g=>{w.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}}
  return {w,project,api,toggles:()=>toggles,isOpen:()=>open}
@@ -149,13 +151,17 @@ test('the base inspection accepts the recorded shaft cell open, and only that ce
  const unknown=hut({shaftOpen:true})
  assert.throws(()=>inspectRetreatShelter(unknown.w.bot,unknown.project),/lacks support at 12,64,22/)
 })
-test('retreat from down the back exit comes up, leaves the door shut and caps the shaft',async()=>{
+test('retreat from down the back exit climbs up through a burrow cap, leaves the door shut and closes the shaft',async()=>{
+ // Lab run 21 left the bot burrowed four cells below the shaft's recorded
+ // bottom with a cap overhead; run 22's goto could not path up the column.
  const {w,project,api,toggles,isOpen}=hut({shaftOpen:true,backExit:{cell:{x:12,y:64,z:22},bottom:56},at:[12.5,58,22.5]})
+ for(let y=62;y>=59;y--)w.cells.set(new Vec3(12,y,22).toString(),'air');w.cells.set(new Vec3(12,60,22).toString(),'cobblestone') // open column with a burrow cap two above the head
  assert.equal(insideBase(w.bot,project),true)
  const result=await retreatToShelter(w.bot,{kind:'retreat',goal:{project}},api)
- assert.equal(result.receipt,'sheltered_door_closed');assert.equal(result.capped,true)
+ assert.equal(result.receipt,'sheltered_door_closed')
  assert.equal(toggles(),0,'the door was never touched');assert.equal(isOpen(),false)
- assert.equal(w.bot.blockAt(new Vec3(12,63,22)).name,'cobblestone','the floor is back over the shaft')
+ assert.ok(w.dug.includes(new Vec3(12,60,22).toString()),'the cap overhead was dug on the way up')
+ assert.equal(w.bot.blockAt(new Vec3(12,63,22)).name,'cobblestone','the floor is back over the shaft (the climb pillars it closed)')
  assert.equal(project.backExit.bottom,undefined,'the shaft is closed; the cell stays reserved');assert.deepEqual(project.backExit.cell,{x:12,y:64,z:22})
  assert.deepEqual(w.bot.entity.position,new Vec3(11.5,64,21.5),'standing just inside the door')
  // Already inside at floor level with the shaft capped: nothing to place, door still shut.
