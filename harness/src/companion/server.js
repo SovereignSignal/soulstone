@@ -18,6 +18,7 @@ import { Teammate } from './controller.js'
 import { startLocalModel } from './runtime.js'
 import { EpisodeRecorder } from './episodes.js'
 import { Listeners } from '../listeners.js'
+import { gameLine } from '../chat-voice.js'
 
 // Packaged launches use a validated profile, never a developer .env file.
 const setup = process.env.MC_SETUP_FILE ? loadSetup(process.env.MC_SETUP_FILE) : null
@@ -46,7 +47,7 @@ teammate.planner.profiles = profiles
 // to it in chat is a request like any typed into the companion.
 let spoken = new Set(teammate.messages.map(m => m.id))
 teammate.on('change', () => {
-  for (const m of teammate.messages) if (!spoken.has(m.id) && m.role === 'assistant') runner.say(m.text)
+  for (const m of teammate.messages) if (!spoken.has(m.id) && m.role === 'assistant') { const line = gameLine(m.text); if (line) runner.say(line) }
   spoken = new Set(teammate.messages.map(m => m.id))
 })
 const listeners = new Listeners(resolve('state/listeners.json'), setup?.listen)

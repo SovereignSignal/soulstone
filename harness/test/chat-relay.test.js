@@ -1,5 +1,6 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
+import {Vec3} from 'vec3'
 import {EventEmitter} from 'node:events'
 import {setTimeout as delay} from 'node:timers/promises'
 import {parseChat,parseRequest,attachChatControl} from '../src/chat-control.js'
@@ -74,4 +75,25 @@ test('a request asked in game is for the player who asked; from the app it is fo
  // The recipient rule itself, without the runner's task plumbing:
  const pick=asked=>{const ok=/^[A-Za-z0-9_]{1,16}$/.test(asked||'')&&(asked.toLowerCase()==='sovereignsignal'||fakeRunner.listening.allows(asked));return ok?asked:'SovereignSignal'}
  assert.equal(pick('Ada'),'Ada');assert.equal(pick('Stranger'),'SovereignSignal')
+})
+
+import {gameLine} from '../src/chat-voice.js'
+import {simpleCommand} from '../src/chat-control.js'
+test('everyday words go straight to the fixed commands for whoever said them',()=>{
+ assert.equal(simpleCommand('come'),'come');assert.equal(simpleCommand('Come here!'),'come');assert.equal(simpleCommand('please follow me'),'follow');assert.equal(simpleCommand('stop.'),'stop')
+ assert.equal(simpleCommand('come mine some iron with me'),null)
+ const runner=new EventEmitter(),bot=new EventEmitter(),commands=[];Object.assign(runner,{owner:'SovereignSignal',say(){},command:c=>commands.push(c),listening:{allows:n=>n==='Ada'}});bot.username='SoulStone303'
+ bot.players={Ada:{entity:{position:new Vec3(5,64,5)}}}
+ const asked=[];runner.on('chat_request',r=>asked.push(r));attachChatControl(runner,bot)
+ bot.emit('chat','Ada','soul come');bot.emit('chat','Ada','soul follow me');bot.emit('whisper','Ada','stop')
+ assert.deepEqual(asked,[],'no planning round');assert.deepEqual(commands.map(c=>c.action),['navigate','follow','stop'])
+ assert.deepEqual(commands[0].goal,{x:5,y:64,z:5},'to the player who asked');assert.equal(commands[1].player,'Ada')
+})
+test('game chat gets plain lines, never the planner\'s bookkeeping',()=>{
+ assert.equal(gameLine('That set of completion criteria would pass without doing the work. Restating them.'),null)
+ assert.equal(gameLine('Automatically continuing the saved request: mine 8 iron'),null)
+ assert.equal(gameLine('The executable checks passed. Still needs your review: the chestplate is worn'),'Done!')
+ assert.equal(gameLine('Blocked: No path to the goal!. I will inspect the result and revise the plan.'),'That did not work (No path to the goal!). Trying something else.')
+ assert.equal(gameLine('I will Going to -624,68,-367, digging through'),'I am going to -624,68,-367, digging through')
+ assert.ok(gameLine('x '.repeat(200)).length<=221)
 })

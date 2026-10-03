@@ -22,6 +22,14 @@ export function parseRequest(message, username = '') {
   const rest = line.replace(mention, ' ').replace(/\s+/g, ' ').trim()
   return rest.length >= 2 && rest.length <= 400 ? rest : null
 }
+// Short everyday words go straight to the fixed commands, aimed at whoever
+// said them: no planning round, no completion criteria (3 October: "soul
+// come" took a planning round and answered with the planner's bookkeeping).
+const SIMPLE = { come: 'come', 'come here': 'come', 'come to me': 'come', 'come back': 'come', follow: 'follow', 'follow me': 'follow', stop: 'stop', wait: 'stop', 'stay': 'stop', status: 'status' }
+export function simpleCommand(text) {
+  const t = String(text || '').toLowerCase().replace(/^please\s+/, '').replace(/[\s.!?]+$/, '').trim()
+  return SIMPLE[t] || null
+}
 export function attachChatControl(runner, bot) {
   // Who is heard: the admin's listening setting when there is one, otherwise
   // the owner alone (and anyone at all only when no owner is configured).
@@ -34,6 +42,7 @@ export function attachChatControl(runner, bot) {
     const line = String(message || '').trim()
     if (line.startsWith('!bot ')) { bot.emit('chat', name, line); return }
     const text = parseRequest(line, bot.username) || (line.length >= 2 && line.length <= 400 ? line : null)
+    if (text && simpleCommand(text)) { bot.emit('chat', name, '!bot ' + simpleCommand(text)); return }
     if (text) { runner.log?.('chat_request', { name, private: true }); runner.emit('chat_request', { name, text, private: true }) }
   })
   bot.on('chat', (name, message) => {
@@ -42,6 +51,7 @@ export function attachChatControl(runner, bot) {
       const command = parseChat(message)
       if (!command) {
         const text = parseRequest(message, bot.username)
+        if (text && simpleCommand(text)) { bot.emit('chat', name, '!bot ' + simpleCommand(text)); return }
         if (text) { runner.log?.('chat_request', { name }); runner.emit('chat_request', { name, text }) }
         return
       }
@@ -55,8 +65,8 @@ export function attachChatControl(runner, bot) {
       if (command.action === 'status') {
         const items = bot.inventory.items().slice(0, 5).map(i => `${i.count} ${i.name}`).join(', ') || 'empty inventory'
         runner.say(`${runner.task?.status || 'idle'}; ${items}`)
-      } else if (command.action === 'stop') runner.say('Stopped. New work needs a new command.')
-      else runner.say(`Accepted: ${command.action}`)
+      } else if (command.action === 'stop') runner.say(`Stopped, ${name}.`)
+      else runner.say(command.action === 'come' ? `On my way, ${name}!` : command.action === 'follow' ? `Following you, ${name}!` : `Accepted: ${command.action}`)
     } catch (error) { runner.say(error.message.slice(0, 150)) }
   })
 }
