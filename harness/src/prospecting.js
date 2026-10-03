@@ -92,6 +92,10 @@ export async function executeExpedition(bot,task,api){
   // Keep each waypoint until physical arrival is confirmed. Interrupted return
   // resumes from the same remaining route, without replaying a dig.
   while(state.trail.length){check();const p=state.trail.at(-1);if(invalidKnownWaypoint(bot,p)){state.trail.pop();state.routeRepairs=(state.routeRepairs||0)+1;save();continue}await walk(new goals.GoalBlock(p.x,p.y,p.z));state.trail.pop();save()}
+  // A trip begun at the back exit is home at the shaft's foot: the base is
+  // straight up from there, and the surface waypoint is nine blocks of rock
+  // away (family run 5, 3 October: 2 of 8 iron, then "Route blocked").
+  if(state.via==='back_exit'){state.phase='at_base';state.pending=null;save();return}
   const station=project.stations?.crafting_table||project.stations?.furnace
   if(station)await walk(new goals.GoalLookAtBlock(vec(station.position),bot.world,{reach:3}))
   else {const p=project.build.near;await walk(new goals.GoalNear(p.x,p.y,p.z,2))}
@@ -101,7 +105,11 @@ export async function executeExpedition(bot,task,api){
  // From the back exit the trip starts underground; a trail saved from the
  // door is a surface route that cannot be walked from here, so it is let go
  // and a new one begins at the shaft's foot (home is then the shaft).
- if(state.trail.length&&inBackExit(bot,project)){state.trail=[];state.frontier=[];state.phase='at_base';state.pending=null;save()}
+ if(state.trail.length&&inBackExit(bot,project)&&state.via!=='back_exit'){state.trail=[];state.frontier=[];state.phase='at_base';state.pending=null;save()}
+ // The other way round: a route that starts at the shaft's foot cannot be
+ // walked from the surface while the shaft is capped (family run 5: two pit
+ // climbs and a failure). Say what opens it instead of walking into rock.
+ if(state.via==='back_exit'&&(state.trail.length||state.frontier.length)&&!inBackExit(bot,project))throw new Error('This mining route starts at the foot of the back exit. Open it with tunnel_out from inside the base, then prospect again; the saved route continues from there')
  if(state.trail.length)await home()
  const {item,count:total}=task.goal
  if(count(item)>=total){await home();return {item,count:count(item),target:total,acquired:true,returned:true}}
@@ -124,7 +132,7 @@ export async function executeExpedition(bot,task,api){
    state.frontier=structuredClone(state.trail);save()
   }catch(error){check();state.blocker=error.message;save();await home();throw error}
  }
- if(!state.trail.length){state.trail.push(point(bot.entity.position));save()}
+ if(!state.trail.length){state.trail.push(point(bot.entity.position));state.via=inBackExit(bot,project)?'back_exit':'door';save()}
  const movement=new ExcavationMovements(bot,project,state.trail);movement.limits=bounds
  async function dig(p){
   check();let block=bot.blockAt(vec(p));if(clearAir(block))return

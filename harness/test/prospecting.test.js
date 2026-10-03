@@ -189,3 +189,22 @@ test('an expedition begun from the back exit drops the saved surface trail and s
  await assert.rejects(executeExpedition(up,{kind:'prospect',goal:{project:q,item:'raw_iron',count:8}},{...api,async walk(g){went.push([g.x,g.y,g.z]);throw new Error('stop here')}}))
  assert.deepEqual(went,[[25,64,25]])
 })
+
+test('a trip begun at the back exit is home at the shaft foot, and resuming it from the surface asks for the shaft first',async()=>{
+ // Family run 5, 3 October: after 2 of 8 iron the return walked the tunnel to
+ // the shaft foot and then tried for the surface waypoint through rock; the
+ // next trip, started on the surface, tried to walk the tunnel from above.
+ const p=structuredClone(project);p.backExit={cell:{x:31,y:64,z:31},bottom:55}
+ p.expedition={trail:[{x:31,y:55,z:31},{x:35,y:52,z:31}],frontier:[{x:31,y:55,z:31},{x:35,y:52,z:31}],surveys:[],rejected:[],via:'back_exit'}
+ const bot={entity:{position:new Vec3(35.5,52,31.5)},inventory:{items:()=>[]},world:{}};const walked=[]
+ const api={check(){},progress(){},stage(){},persist(){},async walk(g){walked.push([g.x,g.y,g.z]);bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}}
+ const r=await executeExpedition(bot,{kind:'return_base',goal:{project:p}},api)
+ assert.equal(r.returned,true);assert.deepEqual(walked,[[35,52,31],[31,55,31]],'the tunnel back to the foot and no further');assert.equal(p.expedition.phase,'at_base')
+ const up={entity:{position:new Vec3(28.5,64,28.5)},inventory:{items:()=>[]},world:{}}
+ await assert.rejects(executeExpedition(up,{kind:'prospect',goal:{project:p,item:'raw_iron',count:8}},{...api,async walk(){assert.fail('no walk from the surface')}}),/tunnel_out/)
+ // From the foot the saved route is kept, not dropped as a surface trail.
+ const foot={entity:{position:new Vec3(31.5,55,31.5)},inventory:{items:()=>[]},world:{}}
+ // With nothing carried it reports its needs from the foot, without a surface walk.
+ const res=await executeExpedition(foot,{kind:'prospect',goal:{project:p,item:'raw_iron',count:8}},{...api,async walk(){assert.fail('no walk: already home at the foot')}})
+ assert.equal(res.partial,true);assert.equal(p.expedition.frontier.length,2,'the frontier from the foot survives')
+})
