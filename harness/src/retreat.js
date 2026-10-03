@@ -4,6 +4,7 @@ import {Vec3} from 'vec3'
 import pathfinding from 'mineflayer-pathfinder'
 import {shelterLayout,shelterAccessLayout,inspectShelterSite} from './shelter.js'
 import {shelterLightBounds} from './lighting.js'
+import {survivalObservation,threatRadius} from './survival.js'
 import {fillCell,solidCube,scaffoldItems,plainCube} from './scaffold.js'
 import {DoorAwareMovements} from './navigation.js'
 import {inProtectedSite} from './primitives.js'
@@ -29,6 +30,7 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
  // Here specifically: a held item would be used on the door instead of opening it.
  const open=async value=>{check();if(!valid())throw new Error('Retreat door missing or changed');if(halves().every(b=>b.getProperties().open===value))return;if(bot.entity.position.distanceTo(door.offset(.5,0,.5))>2.5)await walk(new goals.GoalLookAtBlock(door,bot.world,{reach:3}));check();await bot.unequip('hand');check();if(value&&leaving&&shelteredObservation(bot,project).passed){const threats=departureThreatObservation(bot,{base:project});if(threats.blocking.length)throw new Error('Departure blocked: a potential threat is on or near the door corridor; re-observe before leaving')}await bot.activateBlock(bot.blockAt(door));check();await settle(()=>valid()&&halves().every(b=>b.getProperties().open===value),'Retreat door state not confirmed')}
  const target=leaving?door.plus(layout.out.scaled(2)):inside
+ if(leaving&&insideBase(bot,project)){const refusal=departureRefusal(bot);if(refusal)throw refusal}
  inspect();progress(leaving?(damage?`Leaving the base (it needs repair: ${damage})`:'Leaving the verified base'):'Retreating into the verified lit base')
  // From underground near an open back exit the base is entered by the shaft,
  // not the door: walk to the shaft's foot through the tunnels that lead there
@@ -145,4 +147,23 @@ export function backExitObservation(bot,project){
   const open=Number.isFinite(shaft.bottom)
   return {cell:{...shaft.cell},...(open?{bottom:shaft.bottom}:{}),open,inShaft:within,atFoot:within&&open&&p.y<=shaft.bottom+1,depthBelowFloor:within?o.y-p.y:0}
  }catch{return null}
+}
+
+// The nearest hostile inside its own interruption radius, or null.
+export const pressingOutside=bot=>{try{return (survivalObservation(bot).nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name)).sort((a,b)=>a.distance-b.distance)[0]||null}catch{return null}}
+// Why the door stays shut, or null. One answer for every way out: the
+// automatic exit before work, the planner's own leave_base step, and the
+// skills that open the door themselves (lab run 30, 3 October: prepare's own
+// departure walked out at night with a creeper eleven blocks off).
+export const departureRefusal=bot=>{
+ // Work that starts outside with dusk under a minute away ends outside in the
+ // dark: a furnace trip at 12500 met a zombie and a skeleton eighteen blocks
+ // from the door. Stay in until daylight; the night wait resumes the request.
+ const tod=bot?.time?.timeOfDay
+ if(Number.isFinite(tod)&&(tod>=11500||tod<1000))return new Error(`Dusk is ${tod>=11500&&tod<12500?'less than a minute away':'here'}; staying in the base until daylight rather than starting work outside. Work underground can go on through the back exit (tunnel_out)`)
+ // Nor onto a hostile already inside its interruption radius: that is the
+ // same loop as the wait, through the other door.
+ const pressing=pressingOutside(bot)
+ if(pressing)return new Error(`A ${pressing.name} is ${pressing.distance} blocks from the base, inside its interruption radius; staying in until it moves on. Work underground can go on through the back exit (tunnel_out)`)
+ return null
 }

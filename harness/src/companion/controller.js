@@ -11,7 +11,7 @@ import {adaptiveRecovery} from './adaptive-recovery.js'
 import {recoveryContext,recoveryState,recentRecovery,recordRecovery} from './recovery-context.js'
 import {THREAT_INTERRUPTION,clearanceObservation,awaitClearance,openGroundClearance} from './hazard-clearance.js'
 import {alternativeShelters,occupiedAlternative} from '../alternate-shelter.js'
-import {shelteredObservation,inspectRetreatShelter,insideBase,inBackExit,backExitObservation} from '../retreat.js'
+import {shelteredObservation,inspectRetreatShelter,insideBase,inBackExit,backExitObservation,pressingOutside,departureRefusal} from '../retreat.js'
 import {fullCube} from '../construction.js'
 import {canopyLandings} from '../canopy.js'
 import {setTimeout as delay} from 'node:timers/promises'
@@ -19,23 +19,6 @@ import {setTimeout as delay} from 'node:timers/promises'
 const BURROW_WATCHES=4
 // A hostile inside its own interruption radius while the bot is indoors: the
 // door does not open for work onto it, and waiting on it is not a stall.
-const pressingOutside=bot=>(survivalObservation(bot).nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name)).sort((a,b)=>a.distance-b.distance)[0]||null
-// Why the door stays shut, or null. One answer for every way out: the
-// automatic exit before work, and the planner's own leave_base step. Lab run
-// 17 (3 October, 00:42 UTC) left by the second door at 15500 and met a spider.
-// A module helper, not a method: test doubles borrow the prototype's methods.
-const departureRefusal=bot=>{
- // Work that starts outside with dusk under a minute away ends outside in the
- // dark: a furnace trip at 12500 met a zombie and a skeleton eighteen blocks
- // from the door. Stay in until daylight; the night wait resumes the request.
- const tod=bot?.time?.timeOfDay
- if(Number.isFinite(tod)&&(tod>=11500||tod<1000))return new Error(`Dusk is ${tod>=11500&&tod<12500?'less than a minute away':'here'}; staying in the base until daylight rather than starting work outside. Work underground can go on through the back exit (tunnel_out)`)
- // Nor onto a hostile already inside its interruption radius: that is the
- // same loop as the wait, through the other door.
- const pressing=pressingOutside(bot)
- if(pressing)return new Error(`A ${pressing.name} is ${pressing.distance} blocks from the base, inside its interruption radius; staying in until it moves on. Work underground can go on through the back exit (tunnel_out)`)
- return null
-}
 const SAFETY_RETRIES=3
 const NIGHT_HOLD_MS=14*60*1000
 import {survivalObservation,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY} from '../survival.js'

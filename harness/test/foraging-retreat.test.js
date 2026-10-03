@@ -54,11 +54,11 @@ test('retreat verifies shell and light then enters and closes the door without r
  assert.equal(evaluateGoal(contract,snapshot,bot,feedback).checks[0].passed,false)
  await assert.rejects(retreatToShelter(bot,task,api),/contains a potential hostile/)
  bot.entities={100:{name:'creeper',position:o.offset(1.5,0,-1.5)}}
- await assert.rejects(retreatToShelter(bot,{kind:'leave_base',goal:task.goal},api),/Departure blocked/)
+ await assert.rejects(retreatToShelter(bot,{kind:'leave_base',goal:task.goal},api),/Departure blocked|inside its interruption radius/)
  assert.equal(open,false);assert.deepEqual(bot.entity.position,new Vec3(1.5,64,1.5))
  // Missing ingredients must use that same physical guard before any mining.
  bot.registry=minecraftData('1.21.4');bot.inventory={items:()=>[]};bot.findBlocks=()=>[];bot.recipesAll=()=>[]
- await assert.rejects(executeWorldSkill(bot,{kind:'acquire',goal:{item:'red_mushroom',count:1}},{...api,shelterProject:task.goal.project,stage(){},movements:{}},()=>{throw new Error('Must not gather through a blocked doorway')}),/Departure blocked/)
+ await assert.rejects(executeWorldSkill(bot,{kind:'acquire',goal:{item:'red_mushroom',count:1}},{...api,shelterProject:task.goal.project,stage(){},movements:{}},()=>{throw new Error('Must not gather through a blocked doorway')}),/Departure blocked|inside its interruption radius/)
  assert.equal(open,false);assert.deepEqual(bot.entity.position,new Vec3(1.5,64,1.5))
  bot.entities={}
  const departure=await retreatToShelter(bot,{kind:'leave_base',goal:task.goal},api)

@@ -210,3 +210,13 @@ test('from a tunnel beside an open back exit the retreat walks to the shaft foot
  await retreatToShelter(shut.w.bot,{kind:'retreat',goal:{project:shut.project}},shut.api)
  assert.deepEqual(went,[],'no digging leg when the shaft is shut');assert.equal(shut.toggles(),2)
 })
+
+test('the leave routine itself refuses at night and with a hostile in radius, whoever calls it',async()=>{
+ // Lab run 30, 3 October: the plan was "prepare a pickaxe, then tunnel_out";
+ // prepare's departure is deferred to the skill, whose own call to the leave
+ // routine had no refusal. It walked out at 20000 into a creeper.
+ const night=hut();night.w.bot.time={timeOfDay:20000};night.w.bot.game={difficulty:'normal'}
+ await assert.rejects(retreatToShelter(night.w.bot,{kind:'leave_base',goal:{project:night.project}},night.api),/Dusk is here.*tunnel_out/);assert.equal(night.toggles(),0)
+ const day=hut();day.w.bot.time={timeOfDay:6000};day.w.bot.game={difficulty:'normal'}
+ const r=await retreatToShelter(day.w.bot,{kind:'leave_base',goal:{project:day.project}},day.api);assert.equal(r.receipt,'left_base_door_closed')
+})
