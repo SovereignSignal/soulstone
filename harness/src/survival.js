@@ -27,7 +27,7 @@ const WALL_BREACHING=new Set(['warden','vex','wither','ender_dragon','ghast'])
 // skeletons and cave spiders at five and six blocks, every one sealed.
 export const ROCK_FLOORS={melee:3,creeper:CLOSE_FLOORS.creeper}
 export const breachesRock=t=>WALL_BREACHING.has(t.name)||t.distance<=(t.name==='creeper'?ROCK_FLOORS.creeper:ROCK_FLOORS.melee)
-const sealedOff=t=>t.reach==='sealed'&&t.sightline?.status==='blocked'&&!breachesRock(t)
+export const sealedOff=t=>t.reach==='sealed'&&t.sightline?.status==='blocked'&&!breachesRock(t)
 export const THREAT_INTERRUPTION='A potential hostile is within ten blocks'
 export const NIGHT_EXPOSURE='Night with no shelter'
 export const HEALTH_EMERGENCY='Health is at or below half'

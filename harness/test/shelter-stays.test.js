@@ -227,3 +227,15 @@ test('with a back exit, the indoor hold gives the planner one round first; a sec
  plain.c.requestProgress={id:'h',request:'mine iron',status:'blocked',blocker:'x'};plain.c.blockedSince=1
  assert.equal(await plain.c.stallRetry(),false);assert.equal(again,0)
 })
+
+test('a hostile sealed off from the door does not hold it shut; one with a route to the doorstep still does',async()=>{
+ // Lab run 32, 3 October: the camping creeper gone and daylight up, skeletons
+ // sealed in caves under the base kept "staying in until it moves on" going.
+ const {r,c,bot}=world(new Vec3(1.5,64,1.5));bot.time.timeOfDay=6000
+ bot.entities={1:{id:1,name:'skeleton',position:new Vec3(1.5,56,10.5)}} // eight blocks out, eight down, in rock
+ await c.executeCommand({action:'goto',goal:{x:20,y:64,z:20},timeoutMs:5000},new AbortController().signal)
+ assert.deepEqual(r.commands,['leave_base','goto'],'sealed under the ground, it is not at the door')
+ const camped=world(new Vec3(1.5,64,1.5));camped.bot.time.timeOfDay=6000 // the fixture's creeper, 2.8 blocks past the door in the open
+ await assert.rejects(camped.c.executeCommand({action:'goto',goal:{x:20,y:64,z:20},timeoutMs:5000},new AbortController().signal),/creeper.*interruption radius/)
+ assert.deepEqual(camped.r.commands,[])
+})

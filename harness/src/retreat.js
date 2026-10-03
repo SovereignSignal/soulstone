@@ -4,7 +4,8 @@ import {Vec3} from 'vec3'
 import pathfinding from 'mineflayer-pathfinder'
 import {shelterLayout,shelterAccessLayout,inspectShelterSite} from './shelter.js'
 import {shelterLightBounds} from './lighting.js'
-import {survivalObservation,threatRadius} from './survival.js'
+import {survivalObservation,threatRadius,sealedOff} from './survival.js'
+import {threatReach} from './threat-reach.js'
 import {fillCell,solidCube,scaffoldItems,plainCube} from './scaffold.js'
 import {DoorAwareMovements} from './navigation.js'
 import {inProtectedSite} from './primitives.js'
@@ -30,7 +31,7 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
  // Here specifically: a held item would be used on the door instead of opening it.
  const open=async value=>{check();if(!valid())throw new Error('Retreat door missing or changed');if(halves().every(b=>b.getProperties().open===value))return;if(bot.entity.position.distanceTo(door.offset(.5,0,.5))>2.5)await walk(new goals.GoalLookAtBlock(door,bot.world,{reach:3}));check();await bot.unequip('hand');check();if(value&&leaving&&shelteredObservation(bot,project).passed){const threats=departureThreatObservation(bot,{base:project});if(threats.blocking.length)throw new Error('Departure blocked: a potential threat is on or near the door corridor; re-observe before leaving')}await bot.activateBlock(bot.blockAt(door));check();await settle(()=>valid()&&halves().every(b=>b.getProperties().open===value),'Retreat door state not confirmed')}
  const target=leaving?door.plus(layout.out.scaled(2)):inside
- if(leaving&&insideBase(bot,project)){const refusal=departureRefusal(bot);if(refusal)throw refusal}
+ if(leaving&&insideBase(bot,project)){const refusal=departureRefusal(bot,project);if(refusal)throw refusal}
  inspect();progress(leaving?(damage?`Leaving the base (it needs repair: ${damage})`:'Leaving the verified base'):'Retreating into the verified lit base')
  // From underground near an open back exit the base is entered by the shaft,
  // not the door: walk to the shaft's foot through the tunnels that lead there
@@ -149,13 +150,35 @@ export function backExitObservation(bot,project){
  }catch{return null}
 }
 
-// The nearest hostile inside its own interruption radius, or null.
-export const pressingOutside=bot=>{try{return (survivalObservation(bot).nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name)).sort((a,b)=>a.distance-b.distance)[0]||null}catch{return null}}
+// The nearest hostile inside its own interruption radius that could meet the
+// bot at the door, or null. The question is what the door opens on to, so a
+// hostile behind something is judged by the reach flood from the door's
+// outside cells, and one sealed off from there past the rock floors does not
+// count (lab run 32, 3 October: skeletons sealed in caves under the base held
+// the door shut by daylight after the camping creeper was gone).
+export const pressingOutside=(bot,project=null)=>{
+ try{
+  const near=(survivalObservation(bot).nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name))
+  const blocked=near.filter(t=>t.sightline?.status==='blocked'&&t.position)
+  if(blocked.length&&project?.build?.origin){
+   // Flood from the hostile toward the doorstep, not the other way: a sealed
+   // cave exhausts in a few hundred cells, and a mob in the open finds the
+   // doorstep at once, where a flood out from the door over open ground runs
+   // past the cell limit and proves nothing.
+   const o=new Vec3(project.build.origin.x,project.build.origin.y,project.build.origin.z),layout=shelterLayout(project.build.design),doorstep=o.plus(layout.door).plus(layout.out)
+   for(const t of blocked){
+    const from={entity:{position:new Vec3(t.position.x,t.position.y,t.position.z)},blockAt:p=>bot.blockAt(p),registry:bot.registry,game:bot.game}
+    t.reach=threatReach(from,[{position:doorstep}])[0]
+   }
+  }
+  return near.filter(t=>!sealedOff(t)).sort((a,b)=>a.distance-b.distance)[0]||null
+ }catch{return null}
+}
 // Why the door stays shut, or null. One answer for every way out: the
 // automatic exit before work, the planner's own leave_base step, and the
 // skills that open the door themselves (lab run 30, 3 October: prepare's own
 // departure walked out at night with a creeper eleven blocks off).
-export const departureRefusal=bot=>{
+export const departureRefusal=(bot,project=null)=>{
  // Work that starts outside with dusk under a minute away ends outside in the
  // dark: a furnace trip at 12500 met a zombie and a skeleton eighteen blocks
  // from the door. Stay in until daylight; the night wait resumes the request.
@@ -163,7 +186,7 @@ export const departureRefusal=bot=>{
  if(Number.isFinite(tod)&&(tod>=11500||tod<1000))return new Error(`Dusk is ${tod>=11500&&tod<12500?'less than a minute away':'here'}; staying in the base until daylight rather than starting work outside. Work underground can go on through the back exit (tunnel_out)`)
  // Nor onto a hostile already inside its interruption radius: that is the
  // same loop as the wait, through the other door.
- const pressing=pressingOutside(bot)
+ const pressing=pressingOutside(bot,project)
  if(pressing)return new Error(`A ${pressing.name} is ${pressing.distance} blocks from the base, inside its interruption radius; staying in until it moves on. Work underground can go on through the back exit (tunnel_out)`)
  return null
 }

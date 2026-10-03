@@ -818,7 +818,7 @@ export class Teammate extends EventEmitter {
     if(insideBase(this.runner.bot,this.projects.base)&&!inBackExit(this.runner.bot,this.projects.base)){
       const night=Number.isFinite(tod)&&(tod>=12500||tod<1000)
       // The same hold for a hostile camped inside its radius: the door would not open for it anyway.
-      const pressing=night?null:pressingOutside(this.runner.bot)
+      const pressing=night?null:pressingOutside(this.runner.bot,this.projects.base)
       if(night||pressing){
         const reason=night?'It is night and I am in the base.':`A ${pressing.name} is ${pressing.distance} blocks from the base.`
         // A base with a back exit gets one planning round first: the door is
@@ -1166,7 +1166,7 @@ export class Teammate extends EventEmitter {
       if(inBackExit(this.runner.bot,this.projects.base))return
       const occupied=insideBase(this.runner.bot,this.projects.base)?{name:'base',project:this.projects.base}:occupiedAlternative(this.runner.bot,this.projects)
       if(occupied&&occupied.name!==destinationName){
-        const refusal=departureRefusal(this.runner.bot);if(refusal)throw refusal
+        const refusal=departureRefusal(this.runner.bot,this.projects.base);if(refusal)throw refusal
         const goal=occupied.name==='base'?{project:structuredClone(occupied.project)}:{shelter:structuredClone(occupied)}
         await this.execute({action:'leave_base',goal,timeoutMs:30000},signal)
         if(signal.aborted)throw new Error('Cancelled')
@@ -1193,7 +1193,7 @@ export class Teammate extends EventEmitter {
     // shelter first: fleeing a creeper at the door used to open the door on it.
     if(!deferredDeparture&&!['defend','eat','craft','stop','leave_base','burrow','unburrow','flee','hut','climb','descend','tunnel_out'].includes(command.action))await this.leaveOccupiedShelter(signal,command.action==='retreat'?(command.goal?.shelter?.name||'base'):null)
     // The planner's own leave_base is the same door with the same answer.
-    if(command.action==='leave_base'&&(insideBase(this.runner.bot,this.projects.base)||occupiedAlternative(this.runner.bot,this.projects))){const refusal=departureRefusal(this.runner.bot);if(refusal)throw refusal}
+    if(command.action==='leave_base'&&(insideBase(this.runner.bot,this.projects.base)||occupiedAlternative(this.runner.bot,this.projects))){const refusal=departureRefusal(this.runner.bot,this.projects.base);if(refusal)throw refusal}
     return new Promise((resolve, reject) => {
       let taskId
       const cleanup = () => { this.runner.off('event', handler); signal.removeEventListener('abort', onAbort) }
