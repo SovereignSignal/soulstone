@@ -25,6 +25,7 @@ import {survivalObservation,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMER
 // Air, fire and a portal underfoot run their own recovery at once and preempt
 // any shelter attempt: each has a clock no shelter stops.
 const URGENT=new Set([WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY])
+export const STOP_HOLD_MS=60000
 import {burrowClearance,shelterExits} from '../burrow.js'
 import {roofed} from '../observations.js'
 import {inspectEmergencyShelter} from '../shelter-occupants.js'
@@ -97,7 +98,7 @@ export class Teammate extends EventEmitter {
     if(runner.task?.kind==='build'&&runner.task.goal?.origin&&!this.projects.base)this.projects.base={build:structuredClone(runner.task.goal),stations:{},built:runner.task.status==='completed'}
     if(runner.task?.kind==='construct'&&runner.task.goal?.name)this.projects[runner.task.goal.name]={construction:structuredClone(runner.task.goal),progress:runner.task.progress,result:runner.task.result,status:runner.task.status}
     if(runner.task?.goal?.project)this.projects.base=structuredClone(runner.task.goal.project)
-    runner.on('operator_command', c => { if (!this.dispatching && c.action !== 'status') { this.cancel(false);if(c.action==='stop'){this.safety={status:'cancelled',reason:'Operator stop'};if(canResume(this.requestProgress))this.requestProgress.status='cancelled';this.persist()} } })
+    runner.on('operator_command', c => { if (!this.dispatching && c.action !== 'status') { this.cancel(false);if(c.action==='stop'){this.safety={status:'cancelled',reason:'Operator stop',at:Date.now()};if(canResume(this.requestProgress))this.requestProgress.status='cancelled';this.persist()} } })
     runner.on('event', e => {
       if(e.type==='survival_tick'&&this.respawnAtDawn){
         const tod=runner.bot?.time?.timeOfDay
@@ -165,7 +166,12 @@ export class Teammate extends EventEmitter {
         // Once nothing is wrong it has nothing left to hold: left in place it
         // switched safety off for good, and a stopped bot stood through dusk
         // until a creeper found it.
-        if(!reason&&this.safety?.status==='cancelled'){this.safety=null;this.persist()}
+        // A Stop ends the current work and the current escape; it does not switch
+        // survival off for the night. After STOP_HOLD_MS the watch is back even
+        // while the danger lasts (3 October: a Stop left the walled-in family bot
+        // ignoring night and mobs until morning).
+        if(this.safety?.status==='cancelled'&&!Number.isFinite(this.safety.at))this.safety.at=Date.now()
+        if(this.safety?.status==='cancelled'&&(!reason||Date.now()-this.safety.at>=STOP_HOLD_MS)){this.safety=null;this.persist()}
         if(!reason){this.noteProgress();void this.stallRetry()}
         if(this.safety?.reason===WATER_EMERGENCY&&['failed','afloat'].includes(this.safety.status)&&observation.headSubmerged===false&&observation.inWater===false&&runner.bot.entity.onGround){
           this.safety=null;this.activity='';runner.bot.clearControlStates();this.phase=canResume(this.requestProgress)?'blocked':'ready'
@@ -271,7 +277,7 @@ export class Teammate extends EventEmitter {
   }
   dispatch(command) { this.runner.shelterProject=this.projects.base; this.runner.protectedSites=projectFootprints(this.projects); this.dispatching = true; try { this.runner.command(command) } finally { this.dispatching = false } }
   cancel(stop = true, disposition = 'cancelled') { if(['retreating','defending'].includes(this.safety?.status))this.safety.status=disposition; ++this.epoch; if(this.requestProgress?.status==='running'){this.requestProgress.status=disposition;this.persist()} this.episode?.end(disposition); this.episode = null; this.abort?.abort(); this.abort = null; this.phase = 'ready'; this.plan = []; this.stepIndex = -1; this.activity = ''; if (stop) this.dispatch({ action: 'stop' }); this.emit('change') }
-  stop() { const unfinished=['running','blocked','interrupted','paused'].includes(this.requestProgress?.status);this.cancel();if(unfinished){this.requestProgress.status='cancelled';this.persist()} this.safety={status:'cancelled',reason:'Operator stop'};this.say('Stopped. I will wait for your next instruction.') }
+  stop() { const unfinished=['running','blocked','interrupted','paused'].includes(this.requestProgress?.status);this.cancel();if(unfinished){this.requestProgress.status='cancelled';this.persist()} this.safety={status:'cancelled',reason:'Operator stop',at:Date.now()};this.say('Stopped. I will wait for your next instruction.') }
   interrupt(reason='Service stopped. Resume to continue the saved request.') {
     const active=this.requestProgress?.status==='running',request=this.requestProgress,task=this.runner.task
     // Recovery replaces the runner task. Preserve the interrupted work's observed

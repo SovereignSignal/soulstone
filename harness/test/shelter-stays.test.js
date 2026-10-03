@@ -8,7 +8,7 @@ import minecraftData from 'minecraft-data'
 import {Vec3} from 'vec3'
 import {THREAT_INTERRUPTION} from '../src/survival.js'
 import {insideBase} from '../src/retreat.js'
-import {Teammate,topUpWhileSheltered} from '../src/companion/controller.js'
+import {Teammate,topUpWhileSheltered,STOP_HOLD_MS} from '../src/companion/controller.js'
 const registry=minecraftData('1.21.4')
 // Lab, 2 October 2026, Normal difficulty at night: inside its lit base with a
 // creeper 2.8 blocks away beyond the door, the bot answered the threat with
@@ -249,4 +249,16 @@ test('hurt in a shelter below healing hunger, it eats what it carries, at most e
  fake.topUpAt=0;bot.food=18;await topUpWhileSheltered(fake,null,bot);assert.equal(eaten.length,1,'hunger 18 already heals')
  bot.food=10;bot.health=20;await topUpWhileSheltered(fake,null,bot);assert.equal(eaten.length,1,'at full health there is nothing to heal')
  bot.health=12;fake.runner.task={status:'running'};await topUpWhileSheltered(fake,null,bot);assert.equal(eaten.length,1,'never over a running task')
+})
+
+test('a Stop holds safety off for a minute, not for as long as the danger lasts',async()=>{
+ const {r,c,bot}=world(new Vec3(30.5,64,30.5));bot.time.timeOfDay=18000
+ c.stop();assert.equal(c.safety.status,'cancelled');assert.ok(Number.isFinite(c.safety.at))
+ c.safety.at=Date.now()-STOP_HOLD_MS-1
+ const reasons=[];c.seekSafety=async reason=>{reasons.push(reason)}
+ r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,20))
+ assert.notEqual(c.safety?.status,'cancelled','after the hold the cancelled record is gone, so the watch can act again')
+ // Within the hold it stays off.
+ c.stop();r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,20))
+ assert.equal(c.safety?.status,'cancelled')
 })
