@@ -152,3 +152,10 @@ test('resuming smelting counts stored fuel and ready output without consuming sp
  const result=await executeStationSkill(bot,{kind:'smelt',goal:{project:p,item:'iron_ingot',count:6}},api)
  assert.equal(result.count,6);assert.equal(bag.oak_planks,2)
 })
+
+import {validatePlan as validateSmeltPlan} from '../src/companion/planner.js'
+test('the furnace cooks raw meat: cooked foods are smelting outputs the planner may ask for',()=>{
+ const step={action:'smelt',name:'base',item:'cooked_porkchop',count:8,design:[],target:null}
+ assert.equal(validateSmeltPlan({reply:'Cooking.',steps:[step]}).steps[0].item,'cooked_porkchop')
+ assert.throws(()=>validateSmeltPlan({reply:'Cooking.',steps:[{...step,item:'cooked_dragon'}]}),/Unsupported smelting output/)
+})
