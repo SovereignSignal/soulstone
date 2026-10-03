@@ -35,14 +35,16 @@ import minecraftData from 'minecraft-data'
 import {tunnelOut,BACK_EXIT_DEPTH,BACK_EXIT_MIN_DEPTH} from '../src/back-exit.js'
 const registry=minecraftData('1.21.4')
 function world({pickaxe=true,at=[12.5,64,22.5]}={}){
- const cells=new Map(),inventory=pickaxe?[{name:'stone_pickaxe',count:1,type:registry.itemsByName.stone_pickaxe.id}]:[],dug=[]
+ const cells=new Map(),inventory=pickaxe?[{name:'stone_pickaxe',count:1,type:registry.itemsByName.stone_pickaxe.id}]:[],dug=[],placed=[]
  for(const d of design)cells.set(new Vec3(10+d.x,64+d.y,20+d.z).toString(),d.block)
  const bot={registry,entity:{position:new Vec3(...at),onGround:true},inventory:{items:()=>inventory},
   blockAt(p){const name=cells.get(p.toString())??(p.y>=64?'air':p.y===63?'grass_block':p.y>60?'dirt':'stone');return {name,position:p.clone(),boundingBox:registry.blocksByName[name]?.boundingBox}},
   pathfinder:{setGoal(){},async goto(g){bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}},clearControlStates(){},setControlState(){},
   tool:{async equipForBlock(){}},
-  async dig(block){dug.push(block.position.toString());cells.set(block.position.toString(),'air');const p=bot.entity.position;if(block.position.x===Math.floor(p.x)&&block.position.z===Math.floor(p.z)&&block.position.y<p.y)bot.entity.position=block.position.offset(.5,0,.5)}}
- return {bot,cells,dug}
+  async equip(){},
+  async placeBlock(ref,face){const at=ref.position.plus(face);const item=inventory.find(i=>i.name==='cobblestone');if(!item||item.count<1)throw new Error('nothing to place');item.count--;cells.set(at.toString(),'cobblestone');placed.push(at.toString())},
+  async dig(block){dug.push(block.position.toString());cells.set(block.position.toString(),'air');if(block.name==='stone'){const c=inventory.find(i=>i.name==='cobblestone');c?c.count++:inventory.push({name:'cobblestone',count:1,type:registry.itemsByName.cobblestone.id})}const p=bot.entity.position;if(block.position.x===Math.floor(p.x)&&block.position.z===Math.floor(p.z)&&block.position.y<p.y)bot.entity.position=block.position.offset(.5,0,.5)}}
+ return {bot,cells,dug,placed,inventory}
 }
 const api=()=>{const stages=[];return {check(){},stage(s){stages.push(s)},progress(){},persist(){},stages}}
 test('the back exit digs the shaft cell down to depth and leaves the bot at the bottom, recorded on the project',async()=>{
@@ -64,11 +66,11 @@ test('the back exit is refused from outside the base, without a pickaxe, and ove
  await assert.rejects(tunnelOut(lake.bot,{goal:{project}},api()),/Liquid/);assert.equal(lake.dug.length,0)
  assert.equal(project.backExit?.bottom,undefined,'nothing recorded as open')
 })
-test('a shaft that meets a cave past the minimum depth stops there and reports it; one that meets it early climbs back and fails',async()=>{
- const late=world();late.cells.set(new Vec3(13,58,22).toString(),'air');const p1=base()
+test('a shaft that meets liquid past the minimum depth stops there and reports it; one that meets it early climbs back and fails',async()=>{
+ const late=world();late.cells.set(new Vec3(13,58,22).toString(),'water');const p1=base()
  const result=await tunnelOut(late.bot,{goal:{project:p1}},api())
- assert.equal(result.depth,5,'dug to 59; the 58 cell has an open side');assert.match(result.stoppedBy,/open/);assert.equal(p1.backExit.bottom,59)
- const early=world();early.cells.set(new Vec3(13,62,22).toString(),'air');const p2=base(),a=api()
+ assert.equal(result.depth,5,'dug to 59; water beside the 58 cell');assert.match(result.stoppedBy,/Liquid/);assert.equal(p1.backExit.bottom,59)
+ const early=world();early.cells.set(new Vec3(13,62,22).toString(),'water');const p2=base(),a=api()
  early.bot.pathfinder.goto=async g=>{early.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}
  await assert.rejects(tunnelOut(early.bot,{goal:{project:p2}},a),/at least/)
  assert.equal(p2.backExit?.bottom,undefined,'a failed exit records no bottom');assert.ok(a.stages.includes('surfacing'))
@@ -84,4 +86,22 @@ test('every station and expedition action the planner may choose is one the runn
   assert.deepEqual(calls.map(c=>c[0]),[action],action)
  }
  assert.throws(()=>Runner.prototype.command.call({emit(){},skill(){}},{action:'dance',goal:{}}),/allowed actions/)
+})
+
+test('an open side beside the shaft is sealed with a carried block and the dig goes on; a cave of open sides stops it',async()=>{
+ // Lab run 19, 3 October 00:57 UTC: the bot's earlier burrows left a gallery of
+ // air two and three blocks under the base floor. The shaft met it at depth 2
+ // ("Shaft side is open at -624,66,-365") and gave up with a block in hand.
+ const w=world();w.inventory.push({name:'cobblestone',count:4,type:registry.itemsByName.cobblestone.id})
+ for(const y of [62,61])w.cells.set(new Vec3(12,y,23).toString(),'air') // beside the shaft at depths 2 and 3, like the lab
+ const project=base(),result=await tunnelOut(w.bot,{goal:{project}},api())
+ assert.equal(result.depth,BACK_EXIT_DEPTH);assert.equal(result.sealed,2)
+ assert.deepEqual(w.placed,[new Vec3(12,62,23).toString(),new Vec3(12,61,23).toString()],'each open side closed before that cell was dug')
+ assert.equal(w.bot.blockAt(new Vec3(12,62,23)).name,'cobblestone')
+ const cave=world();cave.inventory.push({name:'cobblestone',count:64,type:registry.itemsByName.cobblestone.id})
+ for(let y=59;y>=54;y--)for(const [dx,dz] of [[1,0],[-1,0],[0,1]])cave.cells.set(new Vec3(12+dx,y,22+dz).toString(),'air') // three open sides a level from depth 5 down
+ const p2=base(),r2=await tunnelOut(cave.bot,{goal:{project:p2}},api())
+ assert.equal(r2.depth,6,'eight seals close depths 5 and 6; the ninth opening at depth 7 is a cave');assert.match(r2.stoppedBy,/Too many open sides/);assert.equal(r2.sealed,8);assert.equal(p2.backExit.bottom,58)
+ const bare=world();bare.cells.set(new Vec3(12,62,23).toString(),'air') // nothing carried to seal with
+ await assert.rejects(tunnelOut(bare.bot,{goal:{project:base()}},api()),/Could not seal the open side at 12,62,23|at least/)
 })

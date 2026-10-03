@@ -25,11 +25,34 @@ import {centreOn} from './navigation.js'
 import {climbOut} from './burrow.js'
 import {setTimeout as delay} from 'node:timers/promises'
 import {insideBase} from './retreat.js'
+import {scaffoldItems} from './scaffold.js'
+import {fullCube} from './construction.js'
+const LIQUID=new Set(['water','lava','flowing_water','flowing_lava','bubble_column'])
+const SIDES=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0],[0,-1,0]]
+const solid=(bot,b)=>!!b&&fullCube(bot.registry,b.name)&&!LIQUID.has(b.name)
+// Open sides the shaft may close with carried blocks before giving up: the
+// bot's own earlier burrows run under a lived-in base (lab, 3 October: a
+// gallery at two and three below the floor). More than this is a cave.
+export const BACK_EXIT_SEALS=8
 // Deep enough that the base roof is not what stands between the bot and the
 // sky, and that a cave breach near the surface is not mistaken for arrival.
 export const BACK_EXIT_DEPTH=9
 export const BACK_EXIT_MIN_DEPTH=4
 const key=p=>`${p.x},${p.y},${p.z}`
+// Close one air cell beside the shaft with a carried cube, placed against any
+// solid neighbour, and judge it by the block being there (the burrow's cap rule).
+async function sealCell(bot,cell,{check,progress}){
+ const item=scaffoldItems(bot)[0];if(!item)return false
+ await bot.equip(item,'hand');check()
+ const closed=()=>solid(bot,bot.blockAt(cell))
+ for(const [dx,dy,dz] of SIDES){
+  if(closed())break
+  const ref=bot.blockAt(cell.offset(dx,dy,dz));if(!solid(bot,ref))continue
+  try{await bot.placeBlock(ref,cell.minus(ref.position))}catch(error){check();progress(`Seal at ${key(cell)} unconfirmed: ${error.message.slice(0,60)}`)}
+  check();try{await settle(closed,'seal',{check,ms:1500})}catch{}
+ }
+ return closed()
+}
 async function settle(predicate,message,{check,ms=3000,poll=50}){
  const end=Date.now()+ms
  while(Date.now()<end){check();if(predicate())return;await delay(poll)}
@@ -53,10 +76,21 @@ export async function tunnelOut(bot,task,{check,stage,progress,persist=()=>{}}){
   await bot.pathfinder.goto(new goals.GoalBlock(top.x,top.y,top.z));check()
  }
  await centreOn(bot,top,check)
- let depth=0,stopped=null
+ let depth=0,stopped=null,seals=0
  for(let d=1;d<=BACK_EXIT_DEPTH;d++){
   check()
-  const target=top.offset(0,-d,0),column=quarryColumn(bot,target,{top:d===1})
+  const target=top.offset(0,-d,0)
+  // Below the first cell every side must stand. An air side is closed with a
+  // carried block first; liquid, a missing floor or too many openings stop it.
+  if(d>1)for(const [dx,dy,dz] of SIDES.slice(0,4)){
+   const side=target.offset(dx,dy,dz),b=bot.blockAt(side)
+   if(!b||solid(bot,b)||LIQUID.has(b.name))continue
+   if(seals>=BACK_EXIT_SEALS){stopped=`Too many open sides to seal (${seals}); the shaft runs into a cave at ${key(side)}`;break}
+   if(!await sealCell(bot,side,{check,progress})){stopped=`Could not seal the open side at ${key(side)}`;break}
+   seals++;progress(`Sealed an open side at ${key(side)}`)
+  }
+  if(stopped)break
+  const column=quarryColumn(bot,target,{top:d===1})
   if(!column.ok){stopped=column.reason;break}
   const block=bot.blockAt(target)
   if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(block,{requireHarvest:true,getFromChest:false})
@@ -74,5 +108,5 @@ export async function tunnelOut(bot,task,{check,stage,progress,persist=()=>{}}){
   throw new Error(`The back exit stopped at depth ${depth}${stopped?`: ${stopped}`:''}; it needs at least ${BACK_EXIT_MIN_DEPTH}${climb}`)
  }
  const p=bot.entity.position
- return {item:'back_exit',count:1,receipt:'back_exit_open',cell,bottom:project.backExit.bottom,depth,...(stopped?{stoppedBy:stopped}:{}),position:{x:p.x,y:p.y,z:p.z}}
+ return {item:'back_exit',count:1,receipt:'back_exit_open',cell,bottom:project.backExit.bottom,depth,sealed:seals,...(stopped?{stoppedBy:stopped}:{}),position:{x:p.x,y:p.y,z:p.z}}
 }
