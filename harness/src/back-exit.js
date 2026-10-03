@@ -30,6 +30,11 @@ import {fullCube} from './construction.js'
 const LIQUID=new Set(['water','lava','flowing_water','flowing_lava','bubble_column'])
 const SIDES=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0],[0,-1,0]]
 const solid=(bot,b)=>!!b&&fullCube(bot.registry,b.name)&&!LIQUID.has(b.name)
+// Blocks the bot may have put in its own shaft and may dig back through: any
+// plain full cube it could have placed, never a container, a station, bedrock
+// or obsidian. Natural ground is the quarry's own list.
+const NEVER_THROUGH=new Set(['bedrock','obsidian','crying_obsidian','reinforced_deepslate','spawner','end_portal_frame','chest','trapped_chest','ender_chest','barrel','furnace','blast_furnace','smoker','crafting_table','beacon'])
+export const placedCube=bot=>b=>{const e=bot.registry.blocksByName[b.name];return !!e&&!NEVER_THROUGH.has(b.name)&&!/shulker_box$/.test(b.name)&&e.hardness>0&&e.hardness<=5&&fullCube(bot.registry,b.name)&&!LIQUID.has(b.name)}
 // Open sides the shaft may close with carried blocks before giving up: the
 // bot's own earlier burrows run under a lived-in base (lab, 3 October: a
 // gallery at two and three below the floor). More than this is a cave.
@@ -68,7 +73,7 @@ export async function tunnelOut(bot,task,{check,stage,progress,persist=()=>{}}){
  if(!bot.inventory.items().some(i=>/_pickaxe$/.test(i.name)))throw new Error('The back exit needs a pickaxe to open')
  const cell=shaftCell(project),top=new Vec3(cell.x,cell.y,cell.z)
  project.backExit={...(project.backExit||{}),cell};persist()
- const under=top.offset(0,-1,0),first=quarryColumn(bot,under,{top:true})
+ const through=placedCube(bot),under=top.offset(0,-1,0),first=quarryColumn(bot,under,{top:true,through})
  if(!first.ok)throw new Error(`Cannot open the back exit at ${key(under)}: ${first.reason}`)
  stage('tunnelling');progress(`Opening the back exit through the floor at ${key(top)}`)
  bot.pathfinder?.setGoal(null);bot.clearControlStates?.()
@@ -90,7 +95,7 @@ export async function tunnelOut(bot,task,{check,stage,progress,persist=()=>{}}){
    seals++;progress(`Sealed an open side at ${key(side)}`)
   }
   if(stopped)break
-  const column=quarryColumn(bot,target,{top:d===1})
+  const column=quarryColumn(bot,target,{top:d===1,through})
   if(!column.ok){stopped=column.reason;break}
   const block=bot.blockAt(target)
   if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(block,{requireHarvest:true,getFromChest:false})

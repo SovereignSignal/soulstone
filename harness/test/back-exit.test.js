@@ -105,3 +105,16 @@ test('an open side beside the shaft is sealed with a carried block and the dig g
  const bare=world();bare.cells.set(new Vec3(12,62,23).toString(),'air') // nothing carried to seal with
  await assert.rejects(tunnelOut(bare.bot,{goal:{project:base()}},api()),/Could not seal the open side at 12,62,23|at least/)
 })
+
+test('the shaft digs back through blocks the bot put there, never through a container or bedrock',async()=>{
+ // Lab run 20, 3 October 01:04 UTC: run 19's climb back had placed a spruce
+ // plank in the first shaft cell, and "Cannot quarry through spruce_planks"
+ // closed the back exit for good. The cap on re-entry would do the same.
+ const w=world();w.cells.set(new Vec3(12,63,22).toString(),'spruce_planks');w.cells.set(new Vec3(12,62,22).toString(),'cobblestone')
+ const result=await tunnelOut(w.bot,{goal:{project:base()}},api())
+ assert.equal(result.depth,BACK_EXIT_DEPTH);assert.ok(w.dug.includes(new Vec3(12,63,22).toString())&&w.dug.includes(new Vec3(12,62,22).toString()))
+ const chest=world();chest.cells.set(new Vec3(12,63,22).toString(),'chest')
+ await assert.rejects(tunnelOut(chest.bot,{goal:{project:base()}},api()),/Cannot quarry through chest/)
+ const rock=world();rock.cells.set(new Vec3(12,63,22).toString(),'bedrock')
+ await assert.rejects(tunnelOut(rock.bot,{goal:{project:base()}},api()),/Cannot quarry through bedrock/)
+})

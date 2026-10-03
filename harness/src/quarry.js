@@ -16,11 +16,14 @@ const SIDES=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]
 const solid=(bot,b)=>!!b&&fullCube(bot.registry,b.name)&&!LIQUID.has(b.name)
 const key=p=>`${p.x},${p.y},${p.z}`
 
-export function quarryColumn(bot,cell,{top=false}={}){
+// `through` widens what the column may pass beyond natural ground: the back
+// exit digs through blocks the bot placed in its own shaft (a plank from a
+// climb, the cobblestone cap on re-entry). Sides and floor are judged as ever.
+export function quarryColumn(bot,cell,{top=false,through=null}={}){
  const b=bot.blockAt(cell)
  if(!b)return {ok:false,reason:'Ground below is not observed'}
  if(LIQUID.has(b.name))return {ok:false,reason:`Liquid at ${key(cell)}`}
- if(!DIGGABLE.has(b.name))return {ok:false,reason:`Cannot quarry through ${b.name} at ${key(cell)}`}
+ if(!DIGGABLE.has(b.name)&&!(through&&through(b)))return {ok:false,reason:`Cannot quarry through ${b.name} at ${key(cell)}`}
  // The surface cell often has an open side on a slope; below it every wall must stand.
  for(const [dx,dy,dz] of SIDES){const s=cell.offset(dx,dy,dz),sb=bot.blockAt(s);if(LIQUID.has(sb?.name))return {ok:false,reason:`Liquid beside the shaft at ${key(s)}`};if(!top&&!solid(bot,sb))return {ok:false,reason:`Shaft side is open at ${key(s)}`}}
  const below=bot.blockAt(cell.offset(0,-1,0))
