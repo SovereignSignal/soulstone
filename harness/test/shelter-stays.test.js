@@ -207,3 +207,23 @@ test('the planner\'s own leave_base step meets the same refusals as the automati
  await outside.c.executeCommand({action:'leave_base',goal:{project:outside.c.projects.base},timeoutMs:5000},new AbortController().signal)
  assert.deepEqual(outside.r.commands,['leave_base'],'not inside anything, there is no door to refuse')
 })
+
+test('with a back exit, the indoor hold gives the planner one round first; a second stall then holds',async()=>{
+ // Lab run 29, 3 October: after a safety retreat the bot held indoors by day
+ // on a skeleton twelve blocks out, and the planner never got the round in
+ // which runs 24 to 27 had chosen tunnel_out.
+ const {r,c,bot}=world(new Vec3(1.5,64,1.5));bot.time.timeOfDay=6000 // creeper 2.8 blocks out, from the fixture
+ c.projects.base.backExit={cell:{x:1,y:64,z:2}}
+ let resumes=0;c.resume=async()=>{resumes++};c.phase='blocked'
+ c.requestProgress={id:'g',request:'mine iron',status:'blocked',blocker:'Safety interruption'};c.blockedSince=Date.now()
+ assert.equal(await c.stallRetry(),true);assert.equal(resumes,1,'one round for the planner, at once');assert.equal(c.requestProgress.stallContinuations,0,'it spends no stall budget')
+ assert.ok(c.messages.some(m=>/back exit/.test(m.text)))
+ c.phase='blocked';c.blockedSince=1
+ assert.equal(await c.stallRetry(),false);assert.equal(resumes,1,'the second stall holds as before');assert.equal(c.messages.filter(m=>/moved on/.test(m.text)).length,1)
+ // The hostile gone, the hold clears and the next hold would ask again.
+ bot.entities={};c.blockedSince=1;assert.equal(await c.stallRetry(),true);assert.equal(resumes,2);assert.equal(c.backExitAsked,false)
+ // Without a back exit the hold is unchanged.
+ const plain=world(new Vec3(1.5,64,1.5));plain.bot.time.timeOfDay=6000;let again=0;plain.c.resume=async()=>{again++};plain.c.phase='blocked'
+ plain.c.requestProgress={id:'h',request:'mine iron',status:'blocked',blocker:'x'};plain.c.blockedSince=1
+ assert.equal(await plain.c.stallRetry(),false);assert.equal(again,0)
+})

@@ -833,18 +833,26 @@ export class Teammate extends EventEmitter {
     // is still an ordinary stall: underground the work can go on.
     const tod=this.runner.bot?.time?.timeOfDay
     if(insideBase(this.runner.bot,this.projects.base)&&!inBackExit(this.runner.bot,this.projects.base)){
-      if(Number.isFinite(tod)&&(tod>=12500||tod<1000)){
-        if(!this.nightHold){this.nightHold=true;this.say('It is night and I am in the base. I will carry on with your request at daylight.')}
-        return false
-      }
+      const night=Number.isFinite(tod)&&(tod>=12500||tod<1000)
       // The same hold for a hostile camped inside its radius: the door would not open for it anyway.
-      const pressing=pressingOutside(this.runner.bot)
-      if(pressing){
-        if(!this.nightHold){this.nightHold=true;this.say(`A ${pressing.name} is ${pressing.distance} blocks from the base. I will carry on with your request when it has moved on.`)}
+      const pressing=night?null:pressingOutside(this.runner.bot)
+      if(night||pressing){
+        const reason=night?'It is night and I am in the base.':`A ${pressing.name} is ${pressing.distance} blocks from the base.`
+        // A base with a back exit gets one planning round first: the door is
+        // refused with a reason that names tunnel_out, and the planner decides
+        // whether the work can go on underground (lab run 29, 3 October: held
+        // indoors by day on a skeleton at twelve blocks, the exit never asked).
+        if(this.projects.base?.backExit?.cell&&!this.backExitAsked){
+          this.backExitAsked=true;this.say(`${reason} Checking whether the work can go on through the back exit.`)
+          request.stallContinuations=request.stallContinuations||0;this.blockedSince=null;this.persist()
+          await this.resume({automatic:true}).catch(error=>{request.blocker=error.message;this.persist()})
+          return true
+        }
+        if(!this.nightHold){this.nightHold=true;this.say(reason+(night?' I will carry on with your request at daylight.':' I will carry on with your request when it has moved on.'))}
         return false
       }
     }
-    this.nightHold=false
+    this.nightHold=false;this.backExitAsked=false
     if(!Number.isFinite(this.blockedSince)||Date.now()-this.blockedSince<STALL_RETRY_MS)return false
     const spent=request.stallContinuations||0
     if(spent>=STALL_CONTINUATIONS){
