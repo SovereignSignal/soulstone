@@ -325,6 +325,10 @@ export class Runner extends EventEmitter {
     if (!command || typeof command !== 'object') throw new Error('expected JSON command')
     if (this.closed) throw new Error('runner is closed')
     this.emit('operator_command', command)
+    // Station and expedition actions come from their own lists, so a new one
+    // reaches the runner the day it is declared. Run 18 (3 October) planned
+    // tunnel_out and the hand-written case list here threw it out as unknown.
+    if([...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(command.action)){this.skill(command.action,command.goal,command.timeoutMs);return}
     switch (command.action) {
       case 'navigate': this.navigate(command.goal, command.timeoutMs); break
       case 'follow': this.follow(command.player); break
@@ -334,7 +338,6 @@ export class Runner extends EventEmitter {
       case 'acquire': this.skill('acquire', command.goal, command.timeoutMs); break
       case 'construct': this.skill('construct', command.goal, command.timeoutMs); break
       case 'build': this.skill('build', command.goal, command.timeoutMs); break
-      case 'leave_base': case 'retreat': case 'stow': case 'prospect': case 'return_base': case 'place': case 'deposit': case 'withdraw': case 'smelt': case 'check_base': this.skill(command.action,command.goal,command.timeoutMs); break
       case 'defend': case 'harvest': case 'eat': case 'give': case 'use': this.skill(command.action, command.goal, command.timeoutMs); break
       case 'surface': this.skill('surface',{},command.timeoutMs); break
       case 'douse': this.skill('douse',{},command.timeoutMs); break

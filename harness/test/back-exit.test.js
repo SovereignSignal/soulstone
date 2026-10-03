@@ -73,3 +73,15 @@ test('a shaft that meets a cave past the minimum depth stops there and reports i
  await assert.rejects(tunnelOut(early.bot,{goal:{project:p2}},a),/at least/)
  assert.equal(p2.backExit?.bottom,undefined,'a failed exit records no bottom');assert.ok(a.stages.includes('surfacing'))
 })
+import {Runner} from '../src/runner.js'
+import {STATION_ACTIONS} from '../src/stations.js'
+import {EXPEDITION_ACTIONS} from '../src/prospecting.js'
+test('every station and expedition action the planner may choose is one the runner accepts',()=>{
+ // Lab run 18, 3 October: the planner chose tunnel_out and the runner answered
+ // "allowed actions: navigate, follow, ..." from a case list kept by hand.
+ for(const action of [...STATION_ACTIONS,...EXPEDITION_ACTIONS]){
+  const calls=[];Runner.prototype.command.call({emit(){},skill:(...a)=>calls.push(a)},{action,goal:{},timeoutMs:1})
+  assert.deepEqual(calls.map(c=>c[0]),[action],action)
+ }
+ assert.throws(()=>Runner.prototype.command.call({emit(){},skill(){}},{action:'dance',goal:{}}),/allowed actions/)
+})
