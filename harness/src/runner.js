@@ -26,6 +26,7 @@ export const TASK_TIMEOUT_MAX_MS = 600000
 // A skill's deadline is an idle window: real progress slides it forward, up
 // to a hard ceiling of three idle windows or thirty minutes, whichever is less.
 export const MAX_TASK_MS = 30 * 60 * 1000
+export const SLOW_RETRY_MS=60000
 export class Runner extends EventEmitter {
   constructor({ host, port = 25565, username = 'HarnessRunner', version = '1.21.4', statePath, chatControl = false, owner = '', auth = 'offline', profilesFolder, onMsaCode, worldId, profileIdentity, authenticate }) {
     super()
@@ -85,6 +86,7 @@ export class Runner extends EventEmitter {
       bot.collectBlock.movements = gathering
       bot.pathfinder.thinkTimeout = 3000
       this.stableTimer = setTimeout(() => { this.attempts = 0 }, 10000)
+      this.everJoined = true; this.slowRetry = false
       this.log('spawn', { version: bot.version, position: this.position() })
       this.applyGoal()
     })
@@ -133,6 +135,17 @@ export class Runner extends EventEmitter {
   retry() {
     if (this.closed) return
     if (++this.attempts > 5) {
+      // A server this bot has played on that stops answering is down, not
+      // misconfigured: keep knocking once a minute for as long as it takes.
+      // The family server restarted at 03:42 on 3 October, five tries failed in
+      // under a minute, and the bot stayed out for four hours. Giving up is for
+      // a connection that never worked (wrong address, account or version).
+      if (this.everJoined) {
+        if (!this.slowRetry) { this.slowRetry = true; if (['running', 'paused'].includes(this.task?.status)) this.finish('failed', 'server stopped answering') }
+        this.log('reconnecting', { delayMs: SLOW_RETRY_MS, slow: true })
+        this.retryTimer = setTimeout(() => this.connect(), SLOW_RETRY_MS)
+        return
+      }
       this.connectionExhausted = true
       if (['running', 'paused'].includes(this.task?.status)) this.finish('failed', 'reconnect limit exceeded')
       this.log('connection_exhausted'); this.close(); return

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {mkdtempSync,rmSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
-import {Runner} from '../src/runner.js'
+import {Runner,SLOW_RETRY_MS} from '../src/runner.js'
 
 function fixture() {
   const dir=mkdtempSync(join(tmpdir(),'soul-reconnect-'))
@@ -50,4 +50,22 @@ test('manual reconnect leaves healthy sessions, pending attempts and intentional
     assert.equal(runner.reconnect(),false)
     assert.equal(count(),0)
   } finally {cleanup()}
+})
+
+test('a server the bot has played on is retried once a minute without end; one never joined still gives up',()=>{
+  // 3 October 2026, 03:42 PDT: the family server restarted, five tries failed
+  // in under a minute, connection_exhausted, and the bot stayed out four hours.
+  const {runner,cleanup}=fixture()
+  try {
+    const events=[];runner.on('event',e=>events.push(e))
+    runner.everJoined=true;runner.task={id:'t',kind:'follow',status:'running',goal:{player:'Player'},deadline:Date.now()+60000}
+    runner.attempts=5;runner.retry()
+    assert.equal(runner.closed,false);assert.ok(!runner.connectionExhausted);assert.equal(runner.task.status,'failed')
+    assert.deepEqual(events.filter(e=>e.type==='reconnecting').map(e=>[e.delayMs,e.slow]),[[SLOW_RETRY_MS,true]])
+    clearTimeout(runner.retryTimer);runner.retry();runner.retry()
+    assert.equal(runner.closed,false,'it never gives up');assert.equal(events.filter(e=>e.type==='connection_exhausted').length,0)
+    clearTimeout(runner.retryTimer)
+  } finally {cleanup()}
+  const fresh=fixture()
+  try { fresh.runner.attempts=5;fresh.runner.retry();assert.equal(fresh.runner.closed,true);assert.equal(fresh.runner.connectionExhausted,true) } finally {fresh.cleanup()}
 })

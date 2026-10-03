@@ -171,6 +171,7 @@ runner.on('event', e=>{
   if(e.type==='death'){connectionIssue=null;lastConnectionFailure=null;authentication=null}
   if(['spawn','connection_error','kicked'].includes(e.type))authentication=null
   if(e.type==='spawn'){connectionIssue=null;lastConnectionFailure=null}
+  if(e.type==='reconnecting'&&e.slow)connectionIssue='The Minecraft server stopped answering. I am trying again every minute and will rejoin when it is back.'
   if(e.type==='connecting')connectionIssue=lastConnectionFailure||'Connecting to Minecraft…'
   if(e.type==='disconnected')connectionIssue=lastConnectionFailure||'Minecraft disconnected. Retrying the server connection…'
   if(['connection_error','kicked'].includes(e.type)){lastConnectionFailure=connectionFailure(e.reason);connectionIssue=lastConnectionFailure}
