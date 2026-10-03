@@ -23,9 +23,11 @@ test('down the shaft the bot is still inside its base; anywhere else below the f
  assert.equal(at(12.5,64,22.5),true,'standing on the shaft cell')
  assert.equal(at(12.5,60,22.5),true,'in the shaft')
  assert.equal(at(12.5,55,22.5),true,'at its bottom')
- assert.equal(at(12.5,54,22.5),false,'below the recorded bottom is somewhere else')
+ assert.equal(at(12.5,52,22.5),true,'a burrow from the shaft bottom is still under the floor')
+ assert.equal(at(12.5,50,22.5),false,'deeper than the exit and a burrow can dig is somewhere else')
  assert.equal(at(11.5,60,21.5),false,'another column under the floor is not the base')
  assert.equal(insideBase({entity:{position:new Vec3(12.5,60,22.5)}},base()),false,'no shaft recorded, no column')
+ assert.equal(insideBase({entity:{position:new Vec3(12.5,60,22.5)}},{...base(),backExit:{cell:{x:12,y:64,z:22}}}),true,'the recorded cell is enough; the bottom is a receipt, not a gate')
 })
 
 // Step 2: opening the back exit. The fake world is the quarry test's: a 4 by 4
@@ -117,4 +119,49 @@ test('the shaft digs back through blocks the bot put there, never through a cont
  await assert.rejects(tunnelOut(chest.bot,{goal:{project:base()}},api()),/Cannot quarry through chest/)
  const rock=world();rock.cells.set(new Vec3(12,63,22).toString(),'bedrock')
  await assert.rejects(tunnelOut(rock.bot,{goal:{project:base()}},api()),/Cannot quarry through bedrock/)
+})
+
+test('the first cell\'s sides are sealed too: an old burrow beside the floor is not a route to the surface',async()=>{
+ // Lab run 21, 3 October 01:10 UTC: an air pocket beside the first shaft cell
+ // joined the old gallery, the gallery reached the surface, and the threat
+ // rule fired at depth 1 with a creeper ten blocks away.
+ const w=world();w.inventory.push({name:'cobblestone',count:4,type:registry.itemsByName.cobblestone.id})
+ w.cells.set(new Vec3(13,63,22).toString(),'air')
+ const result=await tunnelOut(w.bot,{goal:{project:base()}},api())
+ assert.equal(result.depth,BACK_EXIT_DEPTH);assert.equal(result.sealed,1);assert.equal(w.placed[0],new Vec3(13,63,22).toString())
+})
+import {inspectRetreatShelter,retreatToShelter} from '../src/retreat.js'
+function hut({shaftOpen=false,backExit=null,at=[12.5,64,22.5]}={}){
+ // The back-exit fixture's hut with a spruce door in its gap, a torch inside
+ // and the retreat's entity list, so inspectRetreatShelter runs for real.
+ const w=world({at});w.inventory.push({name:'cobblestone',count:4,type:registry.itemsByName.cobblestone.id})
+ w.cells.set(new Vec3(11,64,22).toString(),'torch');if(shaftOpen)w.cells.set(new Vec3(12,63,22).toString(),'air')
+ let open=false,toggles=0;const inner=w.bot.blockAt
+ w.bot.blockAt=p=>{if(p.x===11&&p.z===20&&(p.y===64||p.y===65))return {name:'spruce_door',position:p.clone(),boundingBox:'block',shapes:[[0,0,0,1,1,.2]],getProperties:()=>({open,half:p.y===64?'lower':'upper'})};const b=inner(p);return {...b,shapes:[],getProperties:()=>({})}}
+ w.bot.world={getBlock:w.bot.blockAt};w.bot.entities={};w.bot.unequip=async()=>{};w.bot.activateBlock=async()=>{open=!open;toggles++}
+ const project={...base({torch:{position:{x:11,y:64,z:22},confirmed:true}}),backExit};project.build.wood='spruce_log'
+ const api={check(){},progress(){},stage(){},settle:async fn=>assert.ok(fn()),walk:async g=>{w.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}}
+ return {w,project,api,toggles:()=>toggles,isOpen:()=>open}
+}
+test('the base inspection accepts the recorded shaft cell open, and only that cell',()=>{
+ const open=hut({shaftOpen:true,backExit:{cell:{x:12,y:64,z:22},bottom:56}})
+ assert.doesNotThrow(()=>inspectRetreatShelter(open.w.bot,open.project))
+ const unknown=hut({shaftOpen:true})
+ assert.throws(()=>inspectRetreatShelter(unknown.w.bot,unknown.project),/lacks support at 12,64,22/)
+})
+test('retreat from down the back exit comes up, leaves the door shut and caps the shaft',async()=>{
+ const {w,project,api,toggles,isOpen}=hut({shaftOpen:true,backExit:{cell:{x:12,y:64,z:22},bottom:56},at:[12.5,58,22.5]})
+ assert.equal(insideBase(w.bot,project),true)
+ const result=await retreatToShelter(w.bot,{kind:'retreat',goal:{project}},api)
+ assert.equal(result.receipt,'sheltered_door_closed');assert.equal(result.capped,true)
+ assert.equal(toggles(),0,'the door was never touched');assert.equal(isOpen(),false)
+ assert.equal(w.bot.blockAt(new Vec3(12,63,22)).name,'cobblestone','the floor is back over the shaft')
+ assert.equal(project.backExit.bottom,undefined,'the shaft is closed; the cell stays reserved');assert.deepEqual(project.backExit.cell,{x:12,y:64,z:22})
+ assert.deepEqual(w.bot.entity.position,new Vec3(11.5,64,21.5),'standing just inside the door')
+ // Already inside at floor level with the shaft capped: nothing to place, door still shut.
+ const again=await retreatToShelter(w.bot,{kind:'retreat',goal:{project}},api)
+ assert.equal(again.capped,undefined);assert.equal(toggles(),0)
+ // From outside the old path still opens and closes the door.
+ const out=hut({at:[11.5,64,18.5]});await retreatToShelter(out.w.bot,{kind:'retreat',goal:{project:out.project}},out.api)
+ assert.equal(out.toggles(),2);assert.equal(out.isOpen(),false)
 })

@@ -4,6 +4,7 @@ import {Vec3} from 'vec3'
 import pathfinding from 'mineflayer-pathfinder'
 import {shelterLayout,shelterAccessLayout,inspectShelterSite} from './shelter.js'
 import {shelterLightBounds} from './lighting.js'
+import {fillCell,solidCube} from './scaffold.js'
 const {goals}=pathfinding
 export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
  const project=task.goal.project,build=project.build,o=new Vec3(build.origin.x,build.origin.y,build.origin.z),layout=shelterLayout(build.design)
@@ -25,6 +26,26 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
  const open=async value=>{check();if(!valid())throw new Error('Retreat door missing or changed');if(halves().every(b=>b.getProperties().open===value))return;if(bot.entity.position.distanceTo(door.offset(.5,0,.5))>2.5)await walk(new goals.GoalLookAtBlock(door,bot.world,{reach:3}));check();await bot.unequip('hand');check();if(value&&leaving&&shelteredObservation(bot,project).passed){const threats=departureThreatObservation(bot,{base:project});if(threats.blocking.length)throw new Error('Departure blocked: a potential threat is on or near the door corridor; re-observe before leaving')}await bot.activateBlock(bot.blockAt(door));check();await settle(()=>valid()&&halves().every(b=>b.getProperties().open===value),'Retreat door state not confirmed')}
  const target=leaving?door.plus(layout.out.scaled(2)):inside
  inspect();progress(leaving?(damage?`Leaving the base (it needs repair: ${damage})`:'Leaving the verified base'):'Retreating into the verified lit base')
+ if(!leaving&&insideBase(bot,project)){
+  // Already behind the walls, or down the back exit under them: the door
+  // stays shut (a creeper at it is why the bot is retreating). Come up to the
+  // interior and put the floor back over the shaft, so the base reads whole.
+  await walk(new goals.GoalBlock(target.x,target.y,target.z));check()
+  await settle(()=>bot.entity.onGround&&bot.entity.position.distanceTo(target.offset(.5,0,.5))<.85,'Retreat did not reach the interior')
+  await open(false)
+  let capped=false
+  const shaft=project.backExit?.cell
+  if(shaft){
+   const floor=new Vec3(shaft.x,shaft.y-1,shaft.z)
+   if(!solidCube(bot,bot.blockAt(floor))){
+    if(!await fillCell(bot,floor,{check,progress}))throw new Error(`Could not cap the back exit at ${floor.x},${floor.y},${floor.z}`)
+    capped=true
+   }
+   delete project.backExit.bottom
+  }
+  const lighting=inspect()
+  return {item:'shelter',count:1,receipt:'sheltered_door_closed',position:{x:bot.entity.position.x,y:bot.entity.position.y,z:bot.entity.position.z},door:{position:door,closed:true},lighting,...(capped?{capped:true}:{})}
+ }
  await open(true);await walk(new goals.GoalBlock(target.x,target.y,target.z));check()
  await settle(()=>bot.entity.onGround&&bot.entity.position.distanceTo(target.offset(.5,0,.5))<.85,'Retreat did not reach the interior')
  await open(false);const lighting=inspect()
@@ -37,7 +58,7 @@ export function inspectRetreatShelter(bot,project,{occupants=true}={}){
   for(const b of build.design)if(bot.blockAt(o.offset(b.x,b.y,b.z))?.name!==(b.block==='wood_planks'?build.wood.replace('_log','_planks'):b.block))throw new Error('Retreat shelter structure is missing or changed at '+o.offset(b.x,b.y,b.z)+': '+(bot.blockAt(o.offset(b.x,b.y,b.z))?.name||'unloaded'))
   // Retreat needs the doorway and its two-cell centre approach; the
   // builder's wider construction clearance can overlap neighbouring builds.
-  inspectShelterSite(bot,o,shelterAccessLayout(layout))
+  inspectShelterSite(bot,o,shelterAccessLayout(layout),{shaft:project.backExit?.cell||null})
   const t=project.stations?.torch?.position;if(!t)throw new Error('Retreat shelter has no recorded light')
   const lighting=shelterLightBounds(bot,new Vec3(t.x,t.y,t.z),layout.inside.flatMap(p=>[o.plus(p),o.plus(p).offset(0,1,0)]))
   if(lighting.some(c=>c.lowerBound<8))throw new Error('Retreat shelter lighting cannot be established')
@@ -67,9 +88,14 @@ export function insideBase(bot,project){
 // In the back exit's shaft, below the base floor. Inside the base for safety
 // (a retreat heads up the shaft), but not behind the door for departure: work
 // from here goes on through rock and never needs the door or the daylight.
+// BACK_EXIT_DEPTH (9) plus a burrow's four cells.
+export const BACK_EXIT_REACH=13
 export function inBackExit(bot,project){
  try{
   const shaft=project.backExit,o=project.build.origin,p=bot.entity.position.floored()
-  return !!shaft?.cell&&Number.isFinite(shaft.bottom)&&p.x===shaft.cell.x&&p.z===shaft.cell.z&&p.y>=shaft.bottom&&p.y<o.y
+  // Bounded by what the exit and a burrow from its bottom can dig, not by the
+  // recorded bottom: a safety burrow from the shaft (lab run 21) went four
+  // cells past the record, and the bot was still under its own floor.
+  return !!shaft?.cell&&p.x===shaft.cell.x&&p.z===shaft.cell.z&&p.y<o.y&&p.y>=o.y-BACK_EXIT_REACH
  }catch{return false}
 }

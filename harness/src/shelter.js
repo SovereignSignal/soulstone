@@ -29,11 +29,14 @@ export const shelterAccessLayout=layout=>({...layout,approach:layout.approach.fi
 // `support`, when given, collects the floor cells that are missing instead of
 // refusing the site: rebuilding a base a creeper cratered has to be able to put
 // its own ground back. A new site is never chosen that way.
-export function inspectShelterSite(bot,origin,layout,{repair=false,support=null}={}) {
+// `shaft` is the back exit's recorded floor cell: open, it is the base's own
+// way down, not missing ground (lab run 21: the safety retreat refused the
+// base over the shaft it had just dug).
+export function inspectShelterSite(bot,origin,layout,{repair=false,support=null,shaft=null}={}) {
  const remove=[]
  for(const rel of [...layout.inside,layout.door,...layout.approach]) {
   const p=origin.plus(rel),floor=bot.blockAt(p.offset(0,-1,0))
-  if(floor?.boundingBox!=='block'){
+  if(floor?.boundingBox!=='block'&&!(shaft&&p.x===shaft.x&&p.y===shaft.y&&p.z===shaft.z)){
    if(!support||!floor)throw new Error(`Shelter floor or approach lacks support at ${key(p)}`)
    if(!support.some(q=>q.equals(p.offset(0,-1,0))))support.push(p.offset(0,-1,0))
   }

@@ -25,11 +25,11 @@ import {centreOn} from './navigation.js'
 import {climbOut} from './burrow.js'
 import {setTimeout as delay} from 'node:timers/promises'
 import {insideBase} from './retreat.js'
-import {scaffoldItems} from './scaffold.js'
+import {fillCell,solidCube} from './scaffold.js'
 import {fullCube} from './construction.js'
 const LIQUID=new Set(['water','lava','flowing_water','flowing_lava','bubble_column'])
-const SIDES=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0],[0,-1,0]]
-const solid=(bot,b)=>!!b&&fullCube(bot.registry,b.name)&&!LIQUID.has(b.name)
+const SIDES=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]
+const solid=solidCube
 // Blocks the bot may have put in its own shaft and may dig back through: any
 // plain full cube it could have placed, never a container, a station, bedrock
 // or obsidian. Natural ground is the quarry's own list.
@@ -44,20 +44,6 @@ export const BACK_EXIT_SEALS=8
 export const BACK_EXIT_DEPTH=9
 export const BACK_EXIT_MIN_DEPTH=4
 const key=p=>`${p.x},${p.y},${p.z}`
-// Close one air cell beside the shaft with a carried cube, placed against any
-// solid neighbour, and judge it by the block being there (the burrow's cap rule).
-async function sealCell(bot,cell,{check,progress}){
- const item=scaffoldItems(bot)[0];if(!item)return false
- await bot.equip(item,'hand');check()
- const closed=()=>solid(bot,bot.blockAt(cell))
- for(const [dx,dy,dz] of SIDES){
-  if(closed())break
-  const ref=bot.blockAt(cell.offset(dx,dy,dz));if(!solid(bot,ref))continue
-  try{await bot.placeBlock(ref,cell.minus(ref.position))}catch(error){check();progress(`Seal at ${key(cell)} unconfirmed: ${error.message.slice(0,60)}`)}
-  check();try{await settle(closed,'seal',{check,ms:1500})}catch{}
- }
- return closed()
-}
 async function settle(predicate,message,{check,ms=3000,poll=50}){
  const end=Date.now()+ms
  while(Date.now()<end){check();if(predicate())return;await delay(poll)}
@@ -85,17 +71,20 @@ export async function tunnelOut(bot,task,{check,stage,progress,persist=()=>{}}){
  for(let d=1;d<=BACK_EXIT_DEPTH;d++){
   check()
   const target=top.offset(0,-d,0)
-  // Below the first cell every side must stand. An air side is closed with a
-  // carried block first; liquid, a missing floor or too many openings stop it.
-  if(d>1)for(const [dx,dy,dz] of SIDES.slice(0,4)){
+  // Every side of every cell must stand, the first included: under a lived-in
+  // base the bot's own old burrows run right beneath the floor (lab, run 21:
+  // an air pocket beside the first cell joined a gallery that reached the
+  // surface, and the threat rule fired at depth 1). An air side is closed
+  // with a carried block first; liquid, a missing floor or too many openings stop it.
+  for(const [dx,dy,dz] of SIDES){
    const side=target.offset(dx,dy,dz),b=bot.blockAt(side)
    if(!b||solid(bot,b)||LIQUID.has(b.name))continue
    if(seals>=BACK_EXIT_SEALS){stopped=`Too many open sides to seal (${seals}); the shaft runs into a cave at ${key(side)}`;break}
-   if(!await sealCell(bot,side,{check,progress})){stopped=`Could not seal the open side at ${key(side)}`;break}
+   if(!await fillCell(bot,side,{check,progress})){stopped=`Could not seal the open side at ${key(side)}`;break}
    seals++;progress(`Sealed an open side at ${key(side)}`)
   }
   if(stopped)break
-  const column=quarryColumn(bot,target,{top:d===1,through})
+  const column=quarryColumn(bot,target,{through})
   if(!column.ok){stopped=column.reason;break}
   const block=bot.blockAt(target)
   if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(block,{requireHarvest:true,getFromChest:false})
