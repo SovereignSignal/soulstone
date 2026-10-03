@@ -29,11 +29,12 @@ export function attachChatControl(runner, bot) {
   // A private message is already addressed to the teammate, so the whole line
   // is the request: this is what a server alias like /soul delivers.
   bot.on('whisper', (name, message) => {
-    if (!heard(name)) return
+    // Named, never quoted: who was turned away is worth a line, what they said is not.
+    if (!heard(name)) { if (name !== bot.username) runner.log?.('whisper_ignored', { name }); return }
     const line = String(message || '').trim()
     if (line.startsWith('!bot ')) { bot.emit('chat', name, line); return }
     const text = parseRequest(line, bot.username) || (line.length >= 2 && line.length <= 400 ? line : null)
-    if (text) runner.emit('chat_request', { name, text, private: true })
+    if (text) { runner.log?.('chat_request', { name, private: true }); runner.emit('chat_request', { name, text, private: true }) }
   })
   bot.on('chat', (name, message) => {
     if (!heard(name)) return
@@ -41,7 +42,7 @@ export function attachChatControl(runner, bot) {
       const command = parseChat(message)
       if (!command) {
         const text = parseRequest(message, bot.username)
-        if (text) runner.emit('chat_request', { name, text })
+        if (text) { runner.log?.('chat_request', { name }); runner.emit('chat_request', { name, text }) }
         return
       }
       if (command.action === 'ping') { runner.say(`ack ${name}`); return }
