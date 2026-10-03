@@ -1,3 +1,4 @@
+import {roofed} from './observations.js'
 import {projectFootprints} from './site-survey.js'
 import {inProtectedSite} from './primitives.js'
 import {plainCube} from './scaffold.js'
@@ -415,7 +416,10 @@ export async function executeWorldSkill(bot,task,context,gather) {
   }
   // The stance walk wades too: it usually starts in the pool the bucket was filled from
   // (trial 24's seven stance walks each failed at once from inside that water).
-  const travel=to=>travelTo(bot,{kind:'travel',goal:{x:to.x,y:Math.floor(bot.entity.position.y),z:to.z}},{check,stage,progress,movements:walking})
+  // Under rock a search leg tunnels at its own depth; the surface walk cannot
+  // start from a tunnel (test run 45, 3 October: six legs failed in a minute).
+  const travel=to=>roofed(bot)?dig(new Vec3(to.x,Math.floor(bot.entity.position.y),to.z),2,false)
+   :travelTo(bot,{kind:'travel',goal:{x:to.x,y:Math.floor(bot.entity.position.y),z:to.z}},{check,stage,progress,movements:walking})
   return makeObsidian(bot,task,{check,progress,stage,walk,settle,count,persist:context.persist,fill,travel,mine:(name,total)=>mineExposed(name,total,[task.kind]),approach:(p,range)=>dig(p,range,true)})
  }
  if(task.kind==='acquire'){try{await acquire(task.goal.item,task.goal.count)}finally{await reclaimTables()}return {item:task.goal.item,count:count(task.goal.item)}}
