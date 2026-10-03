@@ -127,3 +127,9 @@ test('in game chat the plan speaks once per new reply and the step narration sta
  const m=Teammate.prototype.say.call(fake,'I will gather 10 logs.','assistant',{game:false})
  assert.equal(m.game,false);assert.equal(Teammate.prototype.say.call(fake,'Getting you wood, Ada!').game,undefined)
 })
+test('game chat hears how a job ends only for a fixed chat command, and never step-by-step progress',()=>{
+ const said=[],fake={task:{id:'t',kind:'gather',status:'running'},halt(){},persist(){},log(){},say:t=>said.push(t)}
+ Runner.prototype.finish.call(fake,'completed','collected 16 logs');assert.deepEqual(said,[],'a teammate job: the teammate speaks for it')
+ fake.task={id:'u',kind:'navigate',status:'running',fromChat:true};Runner.prototype.finish.call(fake,'completed','arrived')
+ assert.deepEqual(said,['Done!'])
+})

@@ -62,6 +62,7 @@ export function attachChatControl(runner, bot) {
         if (!entity) throw new Error('I cannot see you yet')
         runner.command(command.action === 'follow' ? { action: 'follow', player: name } : { action: 'navigate', goal: { x: entity.position.x, y: entity.position.y, z: entity.position.z } })
       } else runner.command(command)
+      if (runner.task && ['running', 'paused'].includes(runner.task.status) && command.action !== 'stop') runner.task.fromChat = true
       if (command.action === 'status') {
         const items = bot.inventory.items().slice(0, 5).map(i => `${i.count} ${i.name}`).join(', ') || 'empty inventory'
         runner.say(`${runner.task?.status || 'idle'}; ${items}`)

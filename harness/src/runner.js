@@ -230,8 +230,14 @@ export class Runner extends EventEmitter {
     this.halt()
     if (this.task) { this.task.status = status; this.task.reason = reason; this.persist() }
     this.log('task_finished', { task: this.task, ...extra })
-    if (status === 'completed') this.say(`Done: ${reason}`)
-    else if (status === 'failed') this.say(`Task failed: ${reason}`)
+    // Game chat hears how a job ends only for a job typed as a fixed chat
+    // command (come, follow, stop); the teammate speaks for its own requests,
+    // and step-by-step progress belongs in the log (3 October: "Collecting
+    // logs: 0/16" every few seconds would bury the children's chat).
+    if (this.task?.fromChat) {
+      if (status === 'completed') this.say('Done!')
+      else if (status === 'failed') this.say(`I could not do that: ${String(reason || '').slice(0, 80)}`)
+    }
     if (status === 'completed' && returnTo) this.follow(returnTo)
   }
   // Chat is rate limited by the server, and a dropped line is a silent one: the
@@ -292,13 +298,13 @@ export class Runner extends EventEmitter {
       // Wear anything protective before working. Skipped for the time-critical
       // safety actions, where a pause to change clothes is the wrong instinct.
       if(!['defend','flee','surface','douse','leave_portal','climb','descend'].includes(task.kind)){
-        try{const worn=await wearBestArmor(bot,{check,progress:message=>{this.log('skill_progress',{message});this.say(message)}});if(worn.length)this.persist()}
+        try{const worn=await wearBestArmor(bot,{check,progress:message=>{this.log('skill_progress',{message})}});if(worn.length)this.persist()}
         catch(error){if(work.cancelled||this.bot!==bot)throw error}
       }
       const result = await executeSkill(bot, task, { check, shelterProject:this.shelterProject, movements: this.movements, gatheringMovements: bot.collectBlock.movements,
         persist: () => { this.extend(); this.persist() },
         stage: value => { work.stage = value; this.extend() },
-        progress: message => { check(); this.extend(); this.log('skill_progress', { message }); this.say(message) } })
+        progress: message => { check(); this.extend(); this.log('skill_progress', { message }) } })
       check(); work.finished = true
       if(task.departure)result.departure=structuredClone(task.departure)
       task.result=task.navigationRecovery?{...result,navigationRecovery:structuredClone(task.navigationRecovery)}:result;this.finish('completed', task.kind==='construct'?`${result.verifiedBlocks}/${result.totalBlocks} blocks${result.partial?' (more to build)':''}`:result.count===undefined||result.item===undefined?String(result.receipt):`${result.count} ${result.item}`, result)
