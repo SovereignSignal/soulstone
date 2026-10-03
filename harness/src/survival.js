@@ -20,8 +20,13 @@ export const CLOSE_FLOORS={melee:6,creeper:10}
 const WALL_BREACHING=new Set(['warden','vex','wither','ender_dragon','ghast'])
 // A hostile the tick found sealed off from the bot's own space, with the ray to
 // it blocked as well, cannot path, see or shoot in. Distance through stone is
-// not danger, so only the close floors still count for it.
-export const breachesRock=t=>WALL_BREACHING.has(t.name)||t.distance<=(t.name==='creeper'?CLOSE_FLOORS.creeper:CLOSE_FLOORS.melee)
+// not danger, so only these floors still count for it: a melee mob within
+// three (one or two blocks of rock the bot's own digging could open), a
+// creeper within fuse-and-blast range. The melee floor was six, and lab run 27
+// (3 October, y 50, cave country) spent its night re-sheltering from
+// skeletons and cave spiders at five and six blocks, every one sealed.
+export const ROCK_FLOORS={melee:3,creeper:CLOSE_FLOORS.creeper}
+export const breachesRock=t=>WALL_BREACHING.has(t.name)||t.distance<=(t.name==='creeper'?ROCK_FLOORS.creeper:ROCK_FLOORS.melee)
 const sealedOff=t=>t.reach==='sealed'&&t.sightline?.status==='blocked'&&!breachesRock(t)
 export const THREAT_INTERRUPTION='A potential hostile is within ten blocks'
 export const NIGHT_EXPOSURE='Night with no shelter'
