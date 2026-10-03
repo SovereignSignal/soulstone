@@ -8,7 +8,7 @@ import minecraftData from 'minecraft-data'
 import {Vec3} from 'vec3'
 import {THREAT_INTERRUPTION} from '../src/survival.js'
 import {insideBase} from '../src/retreat.js'
-import {Teammate} from '../src/companion/controller.js'
+import {Teammate,topUpWhileSheltered} from '../src/companion/controller.js'
 const registry=minecraftData('1.21.4')
 // Lab, 2 October 2026, Normal difficulty at night: inside its lit base with a
 // creeper 2.8 blocks away beyond the door, the bot answered the threat with
@@ -238,4 +238,15 @@ test('a hostile sealed off from the door does not hold it shut; one with a route
  const camped=world(new Vec3(1.5,64,1.5));camped.bot.time.timeOfDay=6000 // the fixture's creeper, 2.8 blocks past the door in the open
  await assert.rejects(camped.c.executeCommand({action:'goto',goal:{x:20,y:64,z:20},timeoutMs:5000},new AbortController().signal),/creeper.*interruption radius/)
  assert.deepEqual(camped.r.commands,[])
+})
+
+test('hurt in a shelter below healing hunger, it eats what it carries, at most every 30 seconds',async()=>{
+ const eaten=[],fake={runner:{task:null,log(){}},execute:async c=>{eaten.push(c.goal)},topUpAt:0}
+ const bot={health:12,food:17,game:{gameMode:'survival',difficulty:'normal'},inventory:{items:()=>[{name:'sweet_berries',count:9}]},entity:{position:new Vec3(0,64,0)},entities:{},blockAt:()=>null,registry}
+ await topUpWhileSheltered(fake,null,bot)
+ assert.deepEqual(eaten,[{item:'sweet_berries',count:8}])
+ await topUpWhileSheltered(fake,null,bot);assert.equal(eaten.length,1,'not again within 30 seconds')
+ fake.topUpAt=0;bot.food=18;await topUpWhileSheltered(fake,null,bot);assert.equal(eaten.length,1,'hunger 18 already heals')
+ bot.food=10;bot.health=20;await topUpWhileSheltered(fake,null,bot);assert.equal(eaten.length,1,'at full health there is nothing to heal')
+ bot.health=12;fake.runner.task={status:'running'};await topUpWhileSheltered(fake,null,bot);assert.equal(eaten.length,1,'never over a running task')
 })

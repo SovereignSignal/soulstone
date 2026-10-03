@@ -52,6 +52,19 @@ import {deliveredCount,satisfiedStep,currentRequestTask} from './progress.js'
 
 const designKey=design=>JSON.stringify((design||[]).map(b=>[b.x,b.y,b.z,b.block]).sort((a,b)=>a[0]-b[0]||a[1]-b[1]||a[2]-b[2]||a[3].localeCompare(b[3])))
 
+// Hurt and below the hunger that heals (18), with food in the bag, while
+// nothing else is running: eat during a shelter wait. Family world, 3 October:
+// a whole night walled in at health 12 and hunger 17 with 9 berries carried.
+// Never more than once in 30 seconds; a failed bite is not a failed wait. A
+// module function, not a method: test doubles borrow the prototype's methods.
+export async function topUpWhileSheltered(c,signal,bot){
+ if(!bot||!(bot.health<20)||!Number.isFinite(bot.food)||bot.food>=18||typeof c.execute!=='function')return false
+ if(Date.now()-(c.topUpAt||0)<30000||c.runner?.task?.status==='running')return false
+ const food=survivalObservation(bot).carriedFood?.[0];if(!food)return false
+ c.topUpAt=Date.now()
+ try{await c.execute({action:'eat',goal:{item:food.name,count:Math.min(8,food.count)},timeoutMs:20000},signal)}catch(error){c.runner?.log?.('top_up_failed',{reason:String(error.message).slice(0,120)})}
+ return false
+}
 export class Teammate extends EventEmitter {
   constructor(runner, planner, statePath, recorder = null) {
     super(); this.runner = runner; this.planner = planner; this.statePath = statePath; this.recorder = recorder
@@ -696,7 +709,7 @@ export class Teammate extends EventEmitter {
       // across so a threat holding station still comes due, before giving up.
       let result
       for(let watch=1;;watch++){
-        result=await awaitClearance({check,observe,quietMs,limitMs,onUpdate:record=>{safety.continuation={...record,watch};this.persist();this.emit('change')}})
+        result=await awaitClearance({check,observe,quietMs,limitMs,maintain:()=>topUpWhileSheltered(this,signal,bot),onUpdate:record=>{safety.continuation={...record,watch};this.persist();this.emit('change')}})
         check();safety.continuation={...result,watch};this.persist()
         if(result.status==='cleared'||watch>=watches)break
         this.say(`Still no clear area after ${Math.round(limitMs/60000)} minutes. I am staying dug in and watching again.`)
@@ -752,7 +765,7 @@ export class Teammate extends EventEmitter {
       const atBase=!safety.retreat.shelterName||safety.retreat.shelterName==='base'
       const observe=()=>{const o=clearanceObservation(bot,this.projects,safety.retreat.shelterName);return o.clear&&atBase&&night()?{clear:false,reason:'Waiting in the lit base for daylight'}:o}
       const limitMs=night()&&atBase?Math.max(recovery.limitMs||0,this.nightHoldMs??NIGHT_HOLD_MS):recovery.limitMs
-      const result=await awaitClearance({check,limitMs,maintain:recovery.maintain,observe,onUpdate:record=>{safety.continuation=record;this.persist();this.emit('change')}})
+      const result=await awaitClearance({check,limitMs,maintain:async()=>{const r=recovery.maintain?await recovery.maintain():false;await topUpWhileSheltered(this,signal,bot);return r},observe,onUpdate:record=>{safety.continuation=record;this.persist();this.emit('change')}})
       check();safety.continuation=result;this.persist()
       if(result.status!=='cleared'){this.say('I am staying sheltered. Resume is required because a clear area was not established in time.');return}
       // Record before dispatch so restart, Stop or a second threat cannot create
