@@ -27,6 +27,7 @@ const PLAIN=[
  [/inside its interruption radius; staying in/,'A monster is near the door, so I am staying inside for now.'],
  [/^Food is critically low/,'I am really hungry! Going to eat.'],
  [/^I have food and clear daylight ground\. Eating/,'Snack time!'],
+ [/^(?:I could not finish:|Blocked:).*(?:not visible|visible player|cannot see you|not in view|come into view)/i,'I cannot see you! Come closer so I can find you.'],
  [/^I could not finish:/,'I could not finish that one, sorry!'],
  [/^I died\./,'Oh no, I died! I will come back.'],
  [/^Respawning at the world spawn/,null],
@@ -42,6 +43,7 @@ export function gameLine(text){
  if(!t||INTERNAL.some(r=>r.test(t)))return null
  if(/^The executable checks passed\./.test(t))return 'Done!'
  for(const [pattern,plain] of PLAIN){const m=pattern.exec(t);if(m)return plain===null?null:plain.replace(/\$(\d)/g,(_,i)=>m[+i]||'')}
+ if(/^(?:I could not finish:|Blocked:).*(?:not visible|visible player|cannot see you|not in view|come into view)/i.test(t))return 'I cannot see you! Come closer so I can find you.'
  const blocked=/^Blocked: (.*?)(?:\. I will inspect the result and revise the plan\.?)?$/.exec(t)
  if(blocked)t=`That did not work (${blocked[1].replace(/\.$/,'').slice(0,120)}). Trying something else.`
  t=t.replace(/^I will Going to /,'I am going to ').replace(/^I will Digging /,'I am digging ')

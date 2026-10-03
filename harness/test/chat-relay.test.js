@@ -133,3 +133,8 @@ test('game chat hears how a job ends only for a fixed chat command, and never st
  fake.task={id:'u',kind:'navigate',status:'running',fromChat:true};Runner.prototype.finish.call(fake,'completed','arrived')
  assert.deepEqual(said,['Done!'])
 })
+
+test('when it cannot see the player who asked, it says so in words a kid can act on',()=>{
+ assert.equal(gameLine('I could not finish: Goal still incomplete. Finish standing near the visible player who asked for the wood.'),'I cannot see you! Come closer so I can find you.')
+ assert.equal(gameLine('Blocked: Ada is not visible. I will inspect the result and revise the plan.'),'I cannot see you! Come closer so I can find you.')
+})
