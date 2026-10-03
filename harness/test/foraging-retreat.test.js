@@ -60,6 +60,10 @@ test('retreat verifies shell and light then enters and closes the door without r
  bot.registry=minecraftData('1.21.4');bot.inventory={items:()=>[]};bot.findBlocks=()=>[];bot.recipesAll=()=>[]
  await assert.rejects(executeWorldSkill(bot,{kind:'acquire',goal:{item:'red_mushroom',count:1}},{...api,shelterProject:task.goal.project,stage(){},movements:{}},()=>{throw new Error('Must not gather through a blocked doorway')}),/Departure blocked|inside its interruption radius/)
  assert.equal(open,false);assert.deepEqual(bot.entity.position,new Vec3(1.5,64,1.5))
+ // At the foot of the back exit the same acquire needs no door: it goes straight to the work (lab run 31).
+ const foot={...task.goal,project:{...task.goal.project,backExit:{cell:{x:2,y:64,z:2},bottom:55}}};bot.entity.position=new Vec3(2.5,55,2.5)
+ await assert.rejects(executeWorldSkill(bot,{kind:'acquire',goal:{item:'red_mushroom',count:1}},{...api,shelterProject:foot.project,stage(){},movements:{}},()=>{throw new Error('gathering from the foot')}),/No reachable red_mushroom/,'past the door logic and on to the work itself')
+ assert.equal(open,false);bot.entity.position=new Vec3(1.5,64,1.5)
  bot.entities={}
  const departure=await retreatToShelter(bot,{kind:'leave_base',goal:task.goal},api)
  assert.equal(departure.receipt,'left_base_door_closed');assert.equal(open,false)

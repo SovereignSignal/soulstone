@@ -1,4 +1,4 @@
-import {insideBase,retreatToShelter} from './retreat.js'
+import {insideBase,inBackExit,retreatToShelter} from './retreat.js'
 import {harvestBerries} from './foraging.js'
 import {useHeldItem,dimensionOf} from './use-item.js'
 import {makeObsidian,fillableWaterSources} from './obsidian.js'
@@ -162,7 +162,9 @@ export async function executeWorldSkill(bot,task,context,gather) {
   catch(error){check();progress(`Long walk stopped short: ${error.message}`)}
  }
  async function leaveForWork(){
-  if(!['acquire','prepare'].includes(task.kind)||!insideBase(bot,context.shelterProject))return
+  // Down the back exit there is no door to leave by: the work starts there
+  // (lab run 31, 3 October: prepare and acquire were refused at the shaft's foot).
+  if(!['acquire','prepare'].includes(task.kind)||!insideBase(bot,context.shelterProject)||inBackExit(bot,context.shelterProject))return
   check()
   task.departure=await retreatToShelter(bot,{kind:'leave_base',goal:{project:context.shelterProject}},{check,progress,settle,walk:walkOutside})
   context.persist?.();check()
