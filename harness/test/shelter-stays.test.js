@@ -190,3 +190,20 @@ test('down the back exit, work starts without the door and the night hold does n
  const up=world(new Vec3(1.5,64,2.5));up.bot.entities={};up.bot.time.timeOfDay=18000;up.c.projects.base.backExit={cell:{x:1,y:64,z:2},bottom:56}
  await assert.rejects(up.c.executeCommand({action:'goto',goal:{x:20,y:64,z:20},timeoutMs:5000},new AbortController().signal),/Dusk is here/)
 })
+test('the planner\'s own leave_base step meets the same refusals as the automatic exit',async()=>{
+ // Lab run 17, 3 October 00:42 UTC: at 15500 with a spider six blocks out, the
+ // planner chose leave_base itself. That step was exempt from the automatic
+ // departure, and the dusk and hostile refusals lived only there.
+ const night=world(new Vec3(1.5,64,1.5));night.bot.entities={};night.bot.time.timeOfDay=15500
+ await assert.rejects(night.c.executeCommand({action:'leave_base',goal:{project:night.c.projects.base},timeoutMs:5000},new AbortController().signal),/Dusk is here.*tunnel_out/)
+ assert.deepEqual(night.r.commands,[],'the door never opened')
+ const camped=world(new Vec3(1.5,64,1.5));camped.bot.time.timeOfDay=6000 // creeper 2.8 blocks out, from the fixture
+ await assert.rejects(camped.c.executeCommand({action:'leave_base',goal:{project:camped.c.projects.base},timeoutMs:5000},new AbortController().signal),/creeper.*interruption radius/)
+ assert.deepEqual(camped.r.commands,[])
+ const day=world(new Vec3(1.5,64,1.5));day.bot.entities={};day.bot.time.timeOfDay=6000
+ await day.c.executeCommand({action:'leave_base',goal:{project:day.c.projects.base},timeoutMs:5000},new AbortController().signal)
+ assert.deepEqual(day.r.commands,['leave_base'],'by day with nothing pressing it leaves as before')
+ const outside=world(new Vec3(30.5,64,30.5));outside.bot.entities={};outside.bot.time.timeOfDay=15500
+ await outside.c.executeCommand({action:'leave_base',goal:{project:outside.c.projects.base},timeoutMs:5000},new AbortController().signal)
+ assert.deepEqual(outside.r.commands,['leave_base'],'not inside anything, there is no door to refuse')
+})

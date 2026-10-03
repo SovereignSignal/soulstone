@@ -20,6 +20,22 @@ const BURROW_WATCHES=4
 // A hostile inside its own interruption radius while the bot is indoors: the
 // door does not open for work onto it, and waiting on it is not a stall.
 const pressingOutside=bot=>(survivalObservation(bot).nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name)).sort((a,b)=>a.distance-b.distance)[0]||null
+// Why the door stays shut, or null. One answer for every way out: the
+// automatic exit before work, and the planner's own leave_base step. Lab run
+// 17 (3 October, 00:42 UTC) left by the second door at 15500 and met a spider.
+// A module helper, not a method: test doubles borrow the prototype's methods.
+const departureRefusal=bot=>{
+ // Work that starts outside with dusk under a minute away ends outside in the
+ // dark: a furnace trip at 12500 met a zombie and a skeleton eighteen blocks
+ // from the door. Stay in until daylight; the night wait resumes the request.
+ const tod=bot?.time?.timeOfDay
+ if(Number.isFinite(tod)&&(tod>=11500||tod<1000))return new Error(`Dusk is ${tod>=11500&&tod<12500?'less than a minute away':'here'}; staying in the base until daylight rather than starting work outside. Work underground can go on through the back exit (tunnel_out)`)
+ // Nor onto a hostile already inside its interruption radius: that is the
+ // same loop as the wait, through the other door.
+ const pressing=pressingOutside(bot)
+ if(pressing)return new Error(`A ${pressing.name} is ${pressing.distance} blocks from the base, inside its interruption radius; staying in until it moves on. Work underground can go on through the back exit (tunnel_out)`)
+ return null
+}
 const SAFETY_RETRIES=3
 const NIGHT_HOLD_MS=14*60*1000
 import {survivalObservation,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY} from '../survival.js'
@@ -1157,15 +1173,7 @@ export class Teammate extends EventEmitter {
       if(inBackExit(this.runner.bot,this.projects.base))return
       const occupied=insideBase(this.runner.bot,this.projects.base)?{name:'base',project:this.projects.base}:occupiedAlternative(this.runner.bot,this.projects)
       if(occupied&&occupied.name!==destinationName){
-        // Work that starts outside with dusk under a minute away ends outside in the
-        // dark: a furnace trip at 12500 met a zombie and a skeleton eighteen blocks
-        // from the door. Stay in until daylight; the night wait resumes the request.
-        const tod=this.runner.bot?.time?.timeOfDay
-        if(Number.isFinite(tod)&&(tod>=11500||tod<1000))throw new Error(`Dusk is ${tod>=11500&&tod<12500?'less than a minute away':'here'}; staying in the base until daylight rather than starting work outside`)
-        // Nor onto a hostile already inside its interruption radius: that is the
-        // same loop as the wait, through the other door.
-        const pressing=pressingOutside(this.runner.bot)
-        if(pressing)throw new Error(`A ${pressing.name} is ${pressing.distance} blocks from the base, inside its interruption radius; staying in until it moves on`)
+        const refusal=departureRefusal(this.runner.bot);if(refusal)throw refusal
         const goal=occupied.name==='base'?{project:structuredClone(occupied.project)}:{shelter:structuredClone(occupied)}
         await this.execute({action:'leave_base',goal,timeoutMs:30000},signal)
         if(signal.aborted)throw new Error('Cancelled')
@@ -1191,6 +1199,8 @@ export class Teammate extends EventEmitter {
     // The checked door exit is for work. A safety action never walks out of a
     // shelter first: fleeing a creeper at the door used to open the door on it.
     if(!deferredDeparture&&!['defend','eat','craft','stop','leave_base','burrow','unburrow','flee','hut','climb','descend','tunnel_out'].includes(command.action))await this.leaveOccupiedShelter(signal,command.action==='retreat'?(command.goal?.shelter?.name||'base'):null)
+    // The planner's own leave_base is the same door with the same answer.
+    if(command.action==='leave_base'&&(insideBase(this.runner.bot,this.projects.base)||occupiedAlternative(this.runner.bot,this.projects))){const refusal=departureRefusal(this.runner.bot);if(refusal)throw refusal}
     return new Promise((resolve, reject) => {
       let taskId
       const cleanup = () => { this.runner.off('event', handler); signal.removeEventListener('abort', onAbort) }
