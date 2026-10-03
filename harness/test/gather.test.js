@@ -178,3 +178,9 @@ test('under solid rock a search for logs fails at once and says why',async()=>{
  await assert.rejects(executeSkill(bot,{kind:'gather',goal:{item:'logs',count:1}},{check(){},progress(){},stage(){},movements:{}}),/underground.*surface/)
  assert.deepEqual(walked,[],'not one exploring leg');assert.ok(Date.now()-started<5000,'the collector\'s own three-second scan, then the answer')
 })
+test('at the foot of an open shaft, where no sky light reaches, the log search also fails at once; in the hut it does not',async()=>{
+ const mk=(skyLight)=>({registry:{blocksByName:{spruce_log:{id:1}}},inventory:{items:()=>[]},entity:{position:new Vec3(0,40,0)},findBlocks:()=>[],blockAt:p=>({position:p,name:'air',skyLight}),
+  pathfinder:{setGoal(){},setMovements(){},async goto(goal){this.walked=(this.walked||0)+1}},canDigBlock:()=>true,tool:{async equipForBlock(){}},dig:async()=>{}})
+ await assert.rejects(executeSkill(mk(0),{kind:'gather',goal:{item:'logs',count:1}},{check(){},progress(){},stage(){},movements:{}}),/underground.*surface/)
+ await assert.rejects(executeSkill(mk(15),{kind:'gather',goal:{item:'logs',count:1}},{check(){},progress(){},stage(){},movements:{}}),/after exploring/)
+})
