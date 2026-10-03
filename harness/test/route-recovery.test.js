@@ -169,3 +169,13 @@ test('a climb only succeeds if it reached ground it can walk off',async()=>{
  const ok=await climbFree(f.bot,{check(){},stage(){},progress(){},climb:climbed})
  assert.equal(ok,false,'a tower with air on every side is not an escape')
 })
+
+test('a pit exit never digs through a saved build\'s footprint',()=>{
+ // 3 October, family world: a pit escape beside the base dug up through the
+ // base's own roof, and the cobblestone patch left the base failing inspection.
+ const f=fixture();carrying(f.bot,8)
+ f.bot.blockAt=p=>(p.x===0&&p.z===0&&p.y===68)?{position:p,name:'spruce_planks',boundingBox:'block'}:pit()(p)
+ const roofed=pitExit(f.bot)
+ assert.ok(roofed&&roofed.roof&&roofed.roof.y===68,'outside any footprint a thin roof is an exit, as before')
+ assert.equal(pitExit(f.bot,undefined,{protectedSites:[{minX:-1,maxX:2,minZ:-1,maxZ:2,minY:64}]}),null,'inside the base footprint it is not')
+})

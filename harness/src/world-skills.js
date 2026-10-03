@@ -1,3 +1,4 @@
+import {projectFootprints} from './site-survey.js'
 import {inProtectedSite} from './primitives.js'
 import {plainCube} from './scaffold.js'
 import {insideBase,inBackExit,retreatToShelter} from './retreat.js'
@@ -183,7 +184,7 @@ export async function executeWorldSkill(bot,task,context,gather) {
  async function walkOutside(goal,recover=true) {
   await approach(goal)
   // A retreat walk to the lit base may cross thirty blocks of night terrain: give it the task's own window.
-  await walkWithTerrainRecovery(bot,goal,{movements:walking,check,stage,progress,attemptMs:task.kind==='retreat'?40000:15000,allowRecovery:recover&&task.kind!=='retreat',onRecovery:record=>{task.navigationRecovery=record;context.persist?.()}})
+  await walkWithTerrainRecovery(bot,goal,{movements:walking,check,stage,progress,protectedSites:[...(task.goal?.protectedSites||[]),...(context.shelterProject?projectFootprints({base:context.shelterProject}):[])],attemptMs:task.kind==='retreat'?40000:15000,allowRecovery:recover&&task.kind!=='retreat',onRecovery:record=>{task.navigationRecovery=record;context.persist?.()}})
  }
 
  async function settle(predicate,message) {
@@ -194,8 +195,21 @@ export async function executeWorldSkill(bot,task,context,gather) {
  async function place(pos,name,properties) {
   budget()
   if(properties||name==='torch')return placeBuildingBlock(bot,pos,{block:name,properties},{walk,check,stage,settle,approach:approachPlacement})
-  const existing=bot.blockAt(pos)
+  let existing=bot.blockAt(pos)
   if(existing?.name===name)return
+  // Repairing the saved base (its own origin, its own design cells): a plain cube
+  // standing where the design says something else is a patch, not an
+  // obstruction. The family base's roof had cobblestone where a plank belongs
+  // after a pit escape, and every repair refused it as "obstructed".
+  const ownBase=task.goal?.purpose==='shelter'&&task.goal?.origin&&['x','y','z'].every(k=>context.shelterProject?.build?.origin?.[k]===task.goal.origin[k])
+  if(ownBase&&existing&&existing.name!=='air'&&plainCube(bot)(existing)&&count(name)){
+   progress(`Replacing ${existing.name} with ${name} at ${key(pos)}`);stage('digging')
+   if(bot.entity.position.distanceTo(pos.offset(.5,.5,.5))>4)await walk(new goals.GoalLookAtBlock(pos,bot.world,{reach:4}),false)
+   if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(existing,{requireHarvest:false,getFromChest:false})
+   check();await bot.dig(existing);check()
+   await settle(()=>bot.blockAt(pos)?.name==='air','patch not removed').catch(()=>{})
+   existing=bot.blockAt(pos)
+  }
   if(existing?.name!=='air')throw new Error(`Build site obstructed by ${existing?.name||'unloaded terrain'} at ${key(pos)}`)
   if(!count(name))throw new Error(`Missing ${name}`)
   const goal=new goals.GoalPlaceBlock(pos,bot.world,{range:4.5})

@@ -1,6 +1,7 @@
 import {setTimeout as delay} from 'node:timers/promises'
 import {requireReachedGoal} from './navigation.js'
 import {climbOut,climbBlocks} from './burrow.js'
+import {inProtectedSite} from './primitives.js'
 
 const routeFailure=e=>['NoPath','Timeout'].includes(e.name)||e.code==='NAVIGATION_INCOMPLETE'
 const collision=(b,m)=>b?JSON.stringify([b.boundingBox,b.shapes,m.blocksToAvoid?.has(b.type),/^(water|lava)$/.test(b.name||'')?b.name:null]):null
@@ -61,7 +62,12 @@ export async function stepFree(bot,{check,progress}){
 // never towers or digs. Judge the pit by the open column above the bot and the
 // first height with a solid ledge beside it. Roofed columns are never dug.
 export const MAX_CLIMB=8
-export function pitExit(bot,feet=bot.entity.position.floored()){
+// A ceiling inside a saved build's footprint is never an exit: on 3 October a
+// pit escape beside the family base dug up through the base's own roof, a
+// cobblestone patch went back in its place, and the base stopped passing its
+// own inspection. protectedSites are the saved footprints (projectFootprints).
+export function pitExit(bot,feet=bot.entity.position.floored(),{protectedSites=[]}={}){
+ const owned=c=>inProtectedSite(c,protectedSites)
  // The block two above the feet is exactly the cap the bot puts over its own
  // burrow, and the roof of the hut it walls itself into. climbOut digs whatever
  // sits there on the way up, so refusing to judge an exit at all was stricter
@@ -70,13 +76,13 @@ export function pitExit(bot,feet=bot.entity.position.floored()){
  let roof=null
  const overhead=feet.offset(0,2,0)
  if(!clear(bot.blockAt(overhead))){
-  if(!thinRoof(bot,bot.blockAt(overhead),overhead.offset(0,1,0)))return null
+  if(owned(overhead)||!thinRoof(bot,bot.blockAt(overhead),overhead.offset(0,1,0)))return null
   roof=overhead
  }
  for(let h=2;h<=MAX_CLIMB;h++){
   const above=feet.offset(0,h+1,0)
   if(!clear(bot.blockAt(above))){
-   if(roof||!thinRoof(bot,bot.blockAt(above),above.offset(0,1,0)))return null
+   if(roof||owned(above)||!thinRoof(bot,bot.blockAt(above),above.offset(0,1,0)))return null
    roof=above
   }
   for(const [dx,dz] of SIDES){
@@ -86,9 +92,9 @@ export function pitExit(bot,feet=bot.entity.position.floored()){
  }
  return null
 }
-export async function climbFree(bot,{check,stage,progress,climb=climbOut}){
+export async function climbFree(bot,{check,stage,progress,climb=climbOut,protectedSites=[]}){
  if(!bot.blockAt||!bot.setControlState||bot.entity.onGround===false)return false
- const feet=bot.entity.position.floored(),exit=pitExit(bot,feet)
+ const feet=bot.entity.position.floored(),exit=pitExit(bot,feet,{protectedSites})
  if(!exit)return false
  const blocks=climbBlocks(bot)
  if(blocks<exit.height){progress(`In a pit ${exit.height} deep with ${blocks} carried blocks; too few to climb out`);return false}
@@ -118,7 +124,7 @@ const SELF_HELP=[[stepFree,'stepped_free'],[climbFree,'climbed_free']]
 // Self-help retries under the unchanged policy, then one retry only after
 // fresh evidence that the local route may differ. No larger drops, teleporting
 // or resource-action replay; the only blocks placed are the bot's own climb.
-export async function walkWithTerrainRecovery(bot,goal,{movements,check,stage,progress,onRecovery=()=>{},attemptMs=15000,waitMs=30000,allowRecovery=true,climb=climbOut}){
+export async function walkWithTerrainRecovery(bot,goal,{movements,check,stage,progress,onRecovery=()=>{},attemptMs=15000,waitMs=30000,allowRecovery=true,climb=climbOut,protectedSites=[]}){
  let changed=false
  const start=bot.entity.position.clone();let initialStanding=standing(bot)
  const updated=(before,after)=>{
@@ -141,7 +147,7 @@ export async function walkWithTerrainRecovery(bot,goal,{movements,check,stage,pr
    const record={status:'waiting',reason:error.message,startedAt:Date.now(),attempts:1}
    let last=error
    for(const [free,trigger] of SELF_HELP){
-    if(!await free(bot,{check,stage,progress,climb}))continue
+    if(!await free(bot,{check,stage,progress,climb,protectedSites}))continue
     bot.pathfinder.setGoal(null);bot.clearControlStates()
     record.status='retrying';record.attempts++;record.trigger=trigger;onRecovery({...record})
     progress(`${trigger==='stepped_free'?'Stepped free':'Climbed out'}; checking the walking route again`)
