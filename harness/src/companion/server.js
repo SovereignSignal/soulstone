@@ -18,7 +18,7 @@ import { Teammate } from './controller.js'
 import { startLocalModel } from './runtime.js'
 import { EpisodeRecorder } from './episodes.js'
 import { Listeners } from '../listeners.js'
-import { gameLine } from '../chat-voice.js'
+import { gameLine, busyFor } from '../chat-voice.js'
 
 // Packaged launches use a validated profile, never a developer .env file.
 const setup = process.env.MC_SETUP_FILE ? loadSetup(process.env.MC_SETUP_FILE) : null
@@ -47,12 +47,16 @@ teammate.planner.profiles = profiles
 // to it in chat is a request like any typed into the companion.
 let spoken = new Set(teammate.messages.map(m => m.id))
 teammate.on('change', () => {
-  for (const m of teammate.messages) if (!spoken.has(m.id) && m.role === 'assistant') { const line = gameLine(m.text); if (line) runner.say(line) }
+  for (const m of teammate.messages) if (!spoken.has(m.id) && m.role === 'assistant' && m.game !== false) { const line = gameLine(m.text); if (line) runner.say(line) }
   spoken = new Set(teammate.messages.map(m => m.id))
 })
 const listeners = new Listeners(resolve('state/listeners.json'), setup?.listen)
 runner.listening = listeners
-runner.on('chat_request', ({ name, text }) => { void teammate.submit(text,null,{requester:name}).catch(e => runner.say(e.message)) })
+runner.on('chat_request', ({ name, text }) => {
+  const busy = busyFor(teammate, name, owner)
+  if (busy) { runner.say(busy); return }
+  void teammate.submit(text,null,{requester:name}).catch(e => runner.say(gameLine(e.message) || 'Sorry, that did not work.'))
+})
 const routine = new DayRoutine(teammate,resolve('state/day-routine.json'))
 void startLocalModel({ binary: process.env.MC_LMS_BINARY, key: process.env.MC_MODEL_KEY, identifier: process.env.MC_MODEL || 'minecraft-teammate' }).catch(e => console.error('Local model startup:', e.message))
 const token = process.env.MC_COMPANION_TOKEN || randomBytes(32).toString('hex')

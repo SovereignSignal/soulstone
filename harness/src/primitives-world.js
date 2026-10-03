@@ -37,6 +37,9 @@ export function validateCollectGoal(goal) {
 const NOT_CREATURE = new Set(['item', 'experience_orb', 'arrow', 'spectral_arrow', 'trident', 'fishing_bobber', 'ender_dragon_part'])
 const PLACED = new Set(['item_frame', 'glow_item_frame', 'painting', 'armor_stand', 'boat', 'minecart'])
 const VILLAGE = new Set(['villager', 'wandering_trader', 'iron_golem', 'snow_golem'])
+// Animals players keep or ride. A child's dog is not a hunt (3 October: the
+// family world opens to Sov's children, who will ask for anything).
+const PETS = new Set(['wolf', 'cat', 'parrot', 'horse', 'donkey', 'mule', 'llama', 'trader_llama', 'camel', 'fox', 'axolotl', 'ocelot', 'allay', 'sniffer', 'skeleton_horse', 'zombie_horse'])
 const CREATURE_TYPES = new Set(['hostile', 'passive', 'animal', 'water_creature', 'ambient', 'mob'])
 const choose = ' Choose a mob such as zombie, cow or enderman.'
 
@@ -49,6 +52,7 @@ export function validateAttackGoal(goal, registry) {
   if (NOT_CREATURE.has(type)) throw new Error(`attack refuses ${type}: it is not a creature, so there is nothing to kill.${choose}`)
   if (PLACED.has(type)) throw new Error(`attack refuses ${type}: it is a placed object or vehicle, and breaking it is not a hunt.${choose}`)
   if (VILLAGE.has(type)) throw new Error(`attack refuses ${type}: hitting it turns the village against you.${choose}`)
+  if (PETS.has(type)) throw new Error(`attack refuses ${type}: players keep it as a pet or ride it.${choose}`)
   if (registry?.entitiesByName) {
     const category = registry.entitiesByName[type]?.type
     if (!category) throw new Error(`attack refuses ${type}: there is no entity named ${type} in this game version.${choose}`)

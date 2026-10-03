@@ -18,7 +18,11 @@ export function validateListeners(value={}){
   if(!players.some(q=>q.toLowerCase()===p.toLowerCase()))players.push(p)
  }
  if(mode==='list'&&!players.length)throw new Error('A named list needs at least one player')
- return {mode,players}
+ // Who reads the bot's game chat, in the admin's words ("kids aged 7, 10
+ // and 15"). The planner writes its chat replies for them.
+ const audience=value.audience==null?'':String(value.audience).replace(/\s+/g,' ').trim()
+ if(audience.length>120)throw new Error('Audience is at most 120 characters')
+ return {mode,players,...(audience?{audience}:{})}
 }
 export function allows(config,name,owner=''){
  const who=String(name||'').toLowerCase()
@@ -34,7 +38,7 @@ export class Listeners {
   try{saved=JSON.parse(readFileSync(path,'utf8'))}catch{}
   this.current=validateListeners(saved||initial||{})
  }
- snapshot(){return {mode:this.current.mode,players:[...this.current.players],modes:LISTEN_MODES}}
+ snapshot(){return {mode:this.current.mode,players:[...this.current.players],audience:this.current.audience||'',modes:LISTEN_MODES}}
  allows(name,owner){return allows(this.current,name,owner)}
  save(value){
   this.current=validateListeners(value)

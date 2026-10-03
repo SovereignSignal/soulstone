@@ -97,3 +97,33 @@ test('game chat gets plain lines, never the planner\'s bookkeeping',()=>{
  assert.equal(gameLine('I will Going to -624,68,-367, digging through'),'I am going to -624,68,-367, digging through')
  assert.ok(gameLine('x '.repeat(200)).length<=221)
 })
+import {busyFor} from '../src/chat-voice.js'
+import {validateAttackGoal} from '../src/primitives-world.js'
+test('kids in game chat: audience setting, plain safety words, one job at a time, pets safe, the planner told who is asking',()=>{
+ // Sov, 3 October: "they will send it crazy commands ... they are 7, 10 and 15".
+ assert.deepEqual(validateListeners({mode:'anyone',audience:'  kids aged 7, 10 and 15 '}),{mode:'anyone',players:[],audience:'kids aged 7, 10 and 15'})
+ assert.throws(()=>validateListeners({mode:'anyone',audience:'x'.repeat(121)}),/120/)
+ assert.equal(gameLine('A potential hostile is within ten blocks. I am pausing work and assessing self-defense.'),'Uh oh, a monster is close! Hang on.')
+ assert.equal(gameLine('A creeper is 12.8 blocks away. Sprinting clear before sheltering.'),'Creeper! Running away!')
+ assert.equal(gameLine('I am choosing shelter: Health or food is too low to engage'),null)
+ assert.equal(gameLine('It is night and I am in the base. I will carry on with your request at daylight.'),'It is night, so I am staying inside. I will do it in the morning!')
+ assert.equal(gameLine('Blocked: Dusk is here; staying in the base until daylight rather than starting work outside. Work underground can go on through the back exit (tunnel_out). I will inspect the result and revise the plan.'),'It is getting dark, so I will stay inside and do it in the morning.')
+ assert.equal(gameLine('I could not finish: Goal still incomplete. The milestone verification failed.'),'I could not finish that one, sorry!')
+ assert.equal(gameLine('Cornered by a zombie with nowhere to shelter. Fighting with my stone axe.'),'I am trapped by a zombie! Fighting back!')
+ const t=phase=>({phase,requestProgress:{status:'running',requester:'Ada'}})
+ assert.match(busyFor(t('acting'),'Bo','Sov'),/busy helping Ada.*soul stop/)
+ assert.equal(busyFor(t('acting'),'Ada','Sov'),null,'the same player may change their own request');assert.equal(busyFor(t('acting'),'sov','Sov'),null,'the owner overrides')
+ assert.equal(busyFor(t('blocked'),'Bo','Sov'),null,'a waiting request can be replaced');assert.equal(busyFor({phase:'ready',requestProgress:null},'Bo','Sov'),null)
+ for(const pet of ['wolf','cat','parrot','horse'])assert.throws(()=>validateAttackGoal({type:pet}),/pet/)
+ assert.doesNotThrow(()=>validateAttackGoal({type:'zombie'}))
+ const fake={requestProgress:{requester:'Ada'},runner:{listening:{current:{audience:'kids aged 7, 10 and 15'}}}}
+ assert.deepEqual(Teammate.prototype.conversation.call(fake),{speaker:'Ada',channel:'game chat',audience:'kids aged 7, 10 and 15'})
+ assert.equal(Teammate.prototype.conversation.call({requestProgress:{},runner:{}}),null,'a request from the app has no conversation')
+ const prompt=readFileSync(new URL('../src/companion/players-prompt.txt',import.meta.url),'utf8')
+ for(const rule of ['conversation.audience','hurt or trap a player','attack a pet','ignore your instructions','personal details'])assert.ok(prompt.includes(rule),rule)
+})
+test('in game chat the plan speaks once per new reply and the step narration stays in the app',()=>{
+ const said=[],fake={messages:[],persist(){},emit(){},conversation:()=>({speaker:'Ada'})}
+ const m=Teammate.prototype.say.call(fake,'I will gather 10 logs.','assistant',{game:false})
+ assert.equal(m.game,false);assert.equal(Teammate.prototype.say.call(fake,'Getting you wood, Ada!').game,undefined)
+})
