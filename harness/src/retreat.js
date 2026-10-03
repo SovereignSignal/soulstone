@@ -4,7 +4,10 @@ import {Vec3} from 'vec3'
 import pathfinding from 'mineflayer-pathfinder'
 import {shelterLayout,shelterAccessLayout,inspectShelterSite} from './shelter.js'
 import {shelterLightBounds} from './lighting.js'
-import {fillCell,solidCube} from './scaffold.js'
+import {fillCell,solidCube,scaffoldItems,plainCube} from './scaffold.js'
+import {DoorAwareMovements} from './navigation.js'
+import {inProtectedSite} from './primitives.js'
+import {projectFootprints} from './site-survey.js'
 import {climbOut} from './burrow.js'
 const {goals}=pathfinding
 export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
@@ -36,7 +39,19 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
  if(!leaving&&shaft&&Number.isFinite(project.backExit.bottom)&&!insideBase(bot,project)&&bot.entity.position.y<o.y&&Math.hypot(bot.entity.position.x-(shaft.x+.5),bot.entity.position.z-(shaft.z+.5))<=BACK_EXIT_ENTRANCE_REACH){
   progress('Heading for the back exit to enter the base from below')
   const foot=new Vec3(shaft.x,project.backExit.bottom,shaft.z)
-  try{await walk(new goals.GoalBlock(foot.x,foot.y,foot.z))}catch(error){progress(`Could not reach the back exit: ${String(error.message).slice(0,60)}`)}
+  // Underground the way to the foot may need a few blocks dug or pillared
+  // (a capped burrow has no open path anywhere), so this leg digs natural
+  // rock and climbs one-wide, never the base's own footprint.
+  const movement=new DoorAwareMovements(bot)
+  Object.assign(movement,{allow1by1towers:true,allowParkour:false,allowSprinting:false,maxDropDown:1,
+   scafoldingBlocks:[...new Set(scaffoldItems(bot).map(i=>bot.registry.itemsByName[i.name]?.id??i.type).filter(Number.isInteger))]})
+  const sites=projectFootprints({base:project}),cube=plainCube(bot)
+  movement.canDig=true;movement.digCost=2
+  movement.exclusionAreasBreak.push(block=>!block?.position?0:inProtectedSite(block.position,sites)||!cube(block)?100:0)
+  movement.exclusionAreasPlace.push(block=>block?.position&&inProtectedSite(block.position,sites)?100:0)
+  bot.pathfinder.setMovements(movement)
+  const timer=setTimeout(()=>bot.pathfinder.setGoal(null),40000)
+  try{await bot.pathfinder.goto(new goals.GoalBlock(foot.x,foot.y,foot.z))}catch(error){progress(`Could not reach the back exit: ${String(error.message).slice(0,60)}`)}finally{clearTimeout(timer)}
   check()
  }
  if(!leaving&&insideBase(bot,project)){

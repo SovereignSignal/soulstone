@@ -26,3 +26,10 @@ export async function fillCell(bot,cell,{check,progress=()=>{}}){
  }
  return closed()
 }
+
+// A plain full cube the bot may dig through on its own account: natural rock
+// and soil, ore, and anything it placed itself (hardness up to 5), never a
+// container, a station, bedrock or obsidian. The back exit's shaft passes
+// these, and the retreat's underground leg to the shaft digs them.
+const NEVER_THROUGH=new Set(['bedrock','obsidian','crying_obsidian','reinforced_deepslate','spawner','end_portal_frame','chest','trapped_chest','ender_chest','barrel','furnace','blast_furnace','smoker','crafting_table','beacon'])
+export const plainCube=bot=>b=>{const e=bot.registry.blocksByName[b.name];return !!e&&!NEVER_THROUGH.has(b.name)&&!/shulker_box$/.test(b.name)&&e.hardness>0&&e.hardness<=5&&fullCube(bot.registry,b.name)&&!LIQUID.has(b.name)}
