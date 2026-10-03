@@ -74,6 +74,82 @@ export function surveyPourSites(bot,{protectedSites=[],skip=new Set(),radius=64}
  return {sites:sites.sort((a,b)=>a.distance-b.distance).slice(0,16),report}
 }
 export const pourSites=(bot,options)=>surveyPourSites(bot,options).sites
+
+// Sealed lava. In the test world every lava source within 96 blocks sat in
+// solid rock, none open to the air (3 October, run 41). Water only converts a
+// source it touches, so a pocket becomes a pour site by uncovering it from
+// above: dig the block over a solid rim beside the lava (where the water will
+// land) and the lid over the lava itself, then the lid over neighbouring
+// sources within reach. Digging above lava is safe, lava never flows upward;
+// every dug block must have no liquid against it except the lava beneath a
+// lid. The bot works from a standing cell two out, reached by the tunnelling
+// walk, whose head room, feet and floor touch no liquid, and never steps onto
+// the uncovered pool. Nearest standing cell first.
+const LIQUID=new Set(['lava','water','flowing_water','flowing_lava','bubble_column'])
+const NEVER_DIG=new Set(['bedrock','obsidian','crying_obsidian','reinforced_deepslate','end_portal_frame','spawner','chest','barrel','furnace','crafting_table'])
+const SIX=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]
+export const MAX_OPENINGS=3,LID_REACH=4
+export function sealedOpenings(bot,{protectedSites=[],skip=new Set(),radius=64}={}){
+ const id=bot.registry.blocksByName.lava.id,here=bot.entity.position
+ const name=p=>bot.blockAt(p)?.name
+ const dryExcept=(p,below=false)=>SIX.every(([x,y,z])=>(below&&x===0&&y===-1&&z===0)||!LIQUID.has(name(p.offset(x,y,z))))
+ const diggableOrAir=p=>{const n=name(p);return !!n&&!LIQUID.has(n)&&(AIR.has(n)||fullCube(bot.registry,n)&&!NEVER_DIG.has(n))}
+ const out=[]
+ for(const lp of bot.findBlocks({matching:id,maxDistance:radius,count:256})||[]){
+  const lava=bot.blockAt(lp);if(!lava||!isSource(lava))continue
+  const lid=lava.position.offset(0,1,0)
+  for(const [dx,dz] of SIDES){
+   const rim=lava.position.offset(dx,0,dz),water=rim.offset(0,1,0),stand=lava.position.offset(2*dx,1,2*dz),floor=stand.offset(0,-1,0)
+   if(skip.has(key(rim)))continue
+   if(!fullCube(bot.registry,name(rim))||LIQUID.has(name(rim)))continue
+   if(AIR.has(name(water))&&AIR.has(name(lid)))continue // already open: the survey's business
+   if(!diggableOrAir(water)||!dryExcept(water))continue
+   if(!diggableOrAir(lid)||!dryExcept(lid,true))continue
+   if(!fullCube(bot.registry,name(floor))||LIQUID.has(name(floor))||!dryExcept(floor))continue
+   if(![stand,stand.offset(0,1,0)].every(c=>diggableOrAir(c)&&dryExcept(c)))continue
+   if([-1,0,1].some(y=>lavaBeside(bot,stand.offset(0,y,0))))continue
+   if([rim,water,lid,stand,stand.offset(0,1,0)].some(c=>inProtectedSite(c,protectedSites)))continue
+   out.push({lava:lava.position,rim,water,lid,stand,distance:stand.distanceTo(here)})
+  }
+ }
+ return out.sort((a,b)=>a.distance-b.distance).slice(0,16)
+}
+// Walk (tunnelling) to the standing cell, recheck, dig the block over the rim
+// and the lid, then any further lid within reach that joins an opened cell:
+// the next survey then sees an ordinary pour site over an open pool.
+async function openSealed(bot,site,{check,progress,stage,approach,settle}){
+ progress(`Opening sealed lava at ${key(site.lava)}: tunnelling to ${key(site.stand)}`);stage('tunnelling')
+ await approach(site.stand,0);check()
+ const feet=bot.entity.position.floored()
+ if(key(feet)!==key(site.stand))throw new Error(`the tunnel ended at ${key(feet)}, not ${key(site.stand)}`)
+ if([-1,0,1].some(y=>lavaBeside(bot,feet.offset(0,y,0))))throw new Error('lava beside the standing cell')
+ const name=p=>bot.blockAt(p)?.name
+ const wet=(p,below)=>SIX.some(([x,y,z])=>!(below&&x===0&&y===-1&&z===0)&&LIQUID.has(name(p.offset(x,y,z))))
+ const eye=bot.entity.position.offset(0,bot.entity.eyeHeight||1.62,0)
+ async function open(cell,overLava){
+  const block=bot.blockAt(cell);if(!block)throw new Error(`${key(cell)} is not loaded`)
+  if(AIR.has(block.name))return
+  if(LIQUID.has(block.name)||wet(cell,overLava))throw new Error(`liquid now touches ${key(cell)}`)
+  if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(block,{requireHarvest:false,getFromChest:false})
+  check();stage('digging');await bot.dig(block);check()
+  await settle(()=>AIR.has(name(cell)),`${key(cell)} did not open`)
+ }
+ await open(site.water,false)
+ await open(site.lid,true)
+ // More of the pool: lids over neighbouring sources, each joined to a cell
+ // already open, within reach, and dry but for the lava beneath.
+ const opened=[site.water,site.lid],lavaId=bot.registry.blocksByName.lava.id
+ const more=(bot.findBlocks({point:site.lava,matching:lavaId,maxDistance:LID_REACH,count:64})||[])
+  .map(p=>bot.blockAt(p)).filter(b=>b&&isSource(b)&&b.position.y===site.lava.y).map(b=>b.position.offset(0,1,0))
+  .filter(c=>!opened.some(o=>o.equals(c))).sort((a,b)=>a.distanceTo(site.lid)-b.distanceTo(site.lid))
+ for(const lid of more){
+  if(!opened.some(o=>o.distanceTo(lid)===1)||lid.offset(.5,.5,.5).distanceTo(eye)>4.5)continue
+  const n=name(lid);if(!n||LIQUID.has(n)||(!AIR.has(n)&&(!fullCube(bot.registry,n)||NEVER_DIG.has(n))))continue
+  try{await open(lid,true);opened.push(lid)}catch(error){check();progress(`Left the lid at ${key(lid)}: ${error.message}`)}
+ }
+ progress(`Uncovered ${opened.length-1} block${opened.length===2?'':'s'} over the lava`)
+}
+
 export function describeSurvey(r){
  if(!r.sources)return `saw 0 lava sources`
  const near=r.nearest?` (nearest at ${r.nearest.x},${r.nearest.y},${r.nearest.z})`:''
@@ -126,7 +202,7 @@ export async function makeObsidian(bot,task,{check,progress,stage,walk,settle,mi
  let reason='no attempt was made'
  const origin=record.origin??={x:Math.floor(bot.entity.position.x),z:Math.floor(bot.entity.position.z)}
  let legs=record.legs||0
- for(let round=0;round<8+SEARCH_LEGS&&count('obsidian')<total;round++){
+ for(let round=0;round<8+SEARCH_LEGS+MAX_OPENINGS&&count('obsidian')<total;round++){
   check()
   // Obsidian already safe to mine comes first; mine only returns at the total.
   try{await mine('obsidian',total);break}catch(error){check();reason=error.message}
@@ -138,6 +214,15 @@ export async function makeObsidian(bot,task,{check,progress,stage,walk,settle,mi
   const survey=surveyPourSites(bot,{protectedSites:goal.protectedSites,skip}),site=survey.sites[0]
   if(!site){
    reason=`no pour site within ${survey.report.radius} blocks: ${describeSurvey(survey.report)}`
+   // Lava in view but sealed in rock: open the nearest safe pocket first.
+   if((record.openings||0)<MAX_OPENINGS&&bot.dig){
+    const opening=sealedOpenings(bot,{protectedSites:goal.protectedSites,skip})[0]
+    if(opening){
+     record.openings=(record.openings||0)+1;persist?.()
+     try{await openSealed(bot,opening,{check,progress,stage,approach,settle});progress(`Opened a pour site above the rim at ${key(opening.rim)}`);continue}
+     catch(error){check();skip.add(key(opening.rim));record.skipped=[...skip];persist?.();reason=`opening sealed lava at ${key(opening.lava)} failed: ${error.message}`;continue}
+    }
+   }
    if(!travel||legs>=SEARCH_LEGS)break
    const [dx,dz]=[[0,-1],[1,0],[0,1],[-1,0]][legs%4],ring=Math.floor(legs/4)+1,to={x:origin.x+dx*SEARCH_LEG*ring,z:origin.z+dz*SEARCH_LEG*ring}
    legs++;record.legs=legs;persist?.()

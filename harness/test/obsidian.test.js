@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import minecraftData from 'minecraft-data'
 import blockLoader from 'prismarine-block'
 import {Vec3} from 'vec3'
-import {pourSites,makeObsidian,validateObsidianGoal} from '../src/obsidian.js'
+import {pourSites,makeObsidian,validateObsidianGoal,sealedOpenings} from '../src/obsidian.js'
 import {lavaBeside} from '../src/navigation.js'
 const registry=minecraftData('1.21.4'),Block=blockLoader(registry)
 const key=p=>`${p.x},${p.y},${p.z}`
@@ -214,4 +214,28 @@ test('with no open lava in view it searches six legs in growing rings, then says
  await assert.rejects(r,/no pour site within 64 blocks.*after 6 search legs/)
  const x=Math.floor(f.bot.entity.position.x),z=Math.floor(f.bot.entity.position.z)
  assert.deepEqual(legs,[[x,z-48],[x+48,z],[x,z+48],[x-48,z],[x,z-96],[x+96,z]])
+})
+
+test('lava sealed in rock is opened by digging one block above a dry rim, then poured and mined',async()=>{
+ // Test world, 3 October run 41: nine lava sources within 96 blocks, every
+ // one sealed in stone, and no pour site anywhere.
+ const extra={};for(let x=0;x<=2;x++)for(let z=0;z<=2;z++)extra[`${x},50,${z}`]='lava'
+ const f=fixture({pool:false,extra});f.bot.dig=async b=>{f.world.set(key(b.position),'air');f.log.push('dig '+key(b.position))}
+ const sites=sealedOpenings(f.bot);assert.ok(sites.length>0)
+ const first=sites[0];assert.equal(first.water.y,51);assert.equal(first.stand.y,51);assert.equal(first.rim.y,50)
+ // The tunnelling walk: it clears the standing cell and its head room on arrival.
+ const approach=async p=>{f.world.set(key(p),'air');f.world.set(key(p.offset(0,1,0)),'air');f.log.push('tunnel '+key(p));f.bot.entity.position=new Vec3(p.x+.5,p.y,p.z+.5)}
+ const r=await makeObsidian(f.bot,task(5),{...f.ctx,approach})
+ assert.equal(r.receipt,'obsidian_carried');assert.ok(f.count('obsidian')>=5)
+ const digs=f.log.filter(l=>/^dig /.test(l))
+ assert.equal(digs[0],'dig '+key(first.water),'the block over the rim first');assert.equal(digs[1],'dig '+key(first.lid),'then the lid over that lava')
+ assert.ok(digs.every(l=>l.endsWith(`,51,${l.split(',')[2]}`)||/,51,/.test(l)),'only ever the layer above the lava: '+digs.join(' '))
+ assert.ok(!digs.some(l=>/,50,/.test(l)),'never a block at the lava\'s own level')
+})
+test('a sealed pocket is refused when liquid touches the block to dig, or the floor of the standing cell',()=>{
+ const extra={'0,50,1':'lava','0,52,1':'lava'} // lava over the lid: opening the lid would let it in
+ const f=fixture({pool:false,extra})
+ assert.ok(!sealedOpenings(f.bot).some(s=>s.lava.y===50),'no opening for the source whose lid touches other lava')
+ const g=fixture({pool:false,extra:{'0,50,1':'lava','-2,49,1':'water'}})
+ assert.ok(!sealedOpenings(g.bot).some(s=>s.stand.x===-2&&s.stand.z===1),'no standing cell over a floor that touches water')
 })
