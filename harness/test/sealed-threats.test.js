@@ -83,3 +83,19 @@ test('the survival tick leaves the bot working behind rock and interrupts once i
  breach(cells)
  r.emit('event',{type:'survival_tick'});assert.deepEqual(calls,[THREAT_INTERRUPTION],'a route to the cave restores the rule')
 })
+
+test('a shut door is a wall to the reach flood below Hard; open, or on Hard, it is a way through',()=>{
+ // Lab run 24, 3 October: one cell under its own floor the bot was no longer
+ // on an interior cell, the threat rule asked the flood, and the flood walked
+ // out through the closed door to a spider in a cave. On Normal nothing opens
+ // or breaks that door.
+ const make=({open,difficulty='normal'})=>{
+  // A 1x1 cell at y 64 with a door on its +z side opening on to the mob's space.
+  const cells=new Map([[new Vec3(0,64,0).toString(),'air'],[new Vec3(0,65,0).toString(),'air'],[new Vec3(0,64,1).toString(),'spruce_door'],[new Vec3(0,65,1).toString(),'spruce_door']])
+  for(let z=2;z<=12;z++)for(const y of [64,65])cells.set(new Vec3(0,y,z).toString(),'air')
+  const bot={registry,game:{gameMode:'survival',difficulty,dimension:'overworld'},entity:{position:new Vec3(.5,64,.5)},
+   blockAt(p){const n=cells.get(p.toString())||'stone';return {name:n,position:p,boundingBox:registry.blocksByName[n]?.boundingBox,getProperties:()=>n==='spruce_door'?{open,half:p.y===64?'lower':'upper'}:{}}}}
+  return threatReach(bot,[{name:'zombie',position:new Vec3(.5,64,10.5)}])[0]
+ }
+ assert.equal(make({open:false}),'sealed');assert.equal(make({open:true}),'open');assert.equal(make({open:false,difficulty:'hard'}),'open','on Hard a zombie breaks the door')
+})

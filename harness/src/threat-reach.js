@@ -20,6 +20,12 @@ export function threatReach(bot,threats,{radius=REACH_RADIUS,limit=REACH_CELLS,o
  // skeleton at twenty-two blocks is not sealed off just for being past twenty.
  const reach=Math.max(radius,...threats.map(t=>Math.ceil(Math.hypot(t.position.x-p.x,t.position.y-p.y,t.position.z-p.z))+2))
  const solid=name=>{let v=solids.get(name);if(v===undefined)solids.set(name,v=fullCube(bot.registry,name));return v}
+ // A shut door, trapdoor or fence gate is not a full cube, but below Hard no
+ // mob opens or breaks one, so it closes the space like a wall (lab run 24,
+ // 3 October: from one cell under its own floor every hostile outside the hut
+ // read as reachable, through the closed door above).
+ const hard=bot.game?.difficulty==='hard'
+ const barrier=b=>!hard&&/_door$|_trapdoor$|_fence_gate$/.test(b.name)&&b.getProperties?.().open===false
  // Feet and head cell of each hostile; either one in the bot's space is contact.
  const wanted=new Map()
  threats.forEach((t,i)=>{const c=new Vec3(t.position.x,t.position.y,t.position.z).floored();for(const k of [c.toString(),c.offset(0,1,0).toString()])wanted.set(k,[...(wanted.get(k)||[]),i])})
@@ -34,7 +40,7 @@ export function threatReach(bot,threats,{radius=REACH_RADIUS,limit=REACH_CELLS,o
   if(c.distanceTo(origin)>reach)continue
   const b=bot.blockAt(c)
   if(!b){inconclusive=true;continue}
-  if(solid(b.name))continue
+  if(solid(b.name)||barrier(b))continue
   if(++cells>limit){inconclusive=true;break}
   for(const index of wanted.get(key)||[])found[index]=true
   for(const [x,y,z] of NEIGHBOURS)queue.push(c.offset(x,y,z))

@@ -162,6 +162,8 @@ export class Teammate extends EventEmitter {
         const underRock=!shelterAvailable&&Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500)&&roofed(runner.bot)
         const reason=emergencyReason({...observation,shelterAvailable,sheltered,recentDamageMs,roofed:underRock})
         // The journal should show the times rock was the reason work carried on.
+        // The flood's answer is the evidence for an interruption through rock; without it the log says only that a hostile was "within ten blocks".
+        if(reason===THREAT_INTERRUPTION&&pressing.some(t=>t.reach)&&Date.now()-(this.routeLogAt||0)>=5000){this.routeLogAt=Date.now();runner.log?.('threat_route',{threats:pressing.slice(0,4).map(t=>`${t.name}@${t.distance}/${t.verticalOffset}:${t.reach||'-'}:${t.sightline?.status||'-'}`)})}
         if(!reason&&pressing.some(t=>t.reach==='sealed')&&Date.now()-(this.sealedLogAt||0)>=30000&&emergencyReason({...observation,nearbyThreats:observation.nearbyThreats.map(t=>({...t,reach:undefined})),shelterAvailable,sheltered,recentDamageMs,roofed:underRock})===THREAT_INTERRUPTION){this.sealedLogAt=Date.now();runner.log?.('threat_sealed',{threats:pressing.slice(0,4).map(t=>`${t.name}@${t.distance}/${t.verticalOffset}:${t.reach}`)})}
         // Stop cancels the recovery in hand and stands while that emergency lasts.
         // Once nothing is wrong it has nothing left to hold: left in place it

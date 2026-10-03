@@ -74,7 +74,9 @@ export function inspectRetreatShelter(bot,project,{occupants=true}={}){
 export function shelteredObservation(bot,project){
  try{
   const lighting=inspectRetreatShelter(bot,project),build=project.build,o=new Vec3(build.origin.x,build.origin.y,build.origin.z),layout=shelterLayout(build.design),door=o.plus(layout.door),name=build.wood.replace('_log','_door')
-  const position=bot.entity.position.floored(),inside=bot.entity.onGround&&layout.inside.some(p=>o.plus(p).equals(position)),closed=[0,1].every(y=>{const b=bot.blockAt(door.offset(0,y,0));return b?.name===name&&b.getProperties().open===false&&b.getProperties().half===(y?'upper':'lower')})
+  // Down the back exit the same walls and door stand between the bot and the
+  // night; its shaft is sealed as it is dug. Being there is being inside.
+  const position=bot.entity.position.floored(),inside=bot.entity.onGround&&(layout.inside.some(p=>o.plus(p).equals(position))||inBackExit(bot,project)),closed=[0,1].every(y=>{const b=bot.blockAt(door.offset(0,y,0));return b?.name===name&&b.getProperties().open===false&&b.getProperties().half===(y?'upper':'lower')})
   return {inside,closed,lighting,passed:inside&&closed}
  }catch(error){return {passed:false,reason:error.message}}
 }

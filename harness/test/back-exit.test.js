@@ -130,7 +130,7 @@ test('the first cell\'s sides are sealed too: an old burrow beside the floor is 
  const result=await tunnelOut(w.bot,{goal:{project:base()}},api())
  assert.equal(result.depth,BACK_EXIT_DEPTH);assert.equal(result.sealed,1);assert.equal(w.placed[0],new Vec3(13,63,22).toString())
 })
-import {inspectRetreatShelter,retreatToShelter} from '../src/retreat.js'
+import {inspectRetreatShelter,retreatToShelter,shelteredObservation} from '../src/retreat.js'
 function hut({shaftOpen=false,backExit=null,at=[12.5,64,22.5]}={}){
  // The back-exit fixture's hut with a spruce door in its gap, a torch inside
  // and the retreat's entity list, so inspectRetreatShelter runs for real.
@@ -170,4 +170,16 @@ test('retreat from down the back exit climbs up through a burrow cap, leaves the
  // From outside the old path still opens and closes the door.
  const out=hut({at:[11.5,64,18.5]});await retreatToShelter(out.w.bot,{kind:'retreat',goal:{project:out.project}},out.api)
  assert.equal(out.toggles(),2);assert.equal(out.isOpen(),false)
+})
+
+test('down the back exit under the closed base the bot is sheltered; with the door open or a hostile in the hut it is not',()=>{
+ const down=hut({shaftOpen:true,backExit:{cell:{x:12,y:64,z:22},bottom:56},at:[12.5,58,22.5]})
+ const o=shelteredObservation(down.w.bot,down.project)
+ assert.equal(o.passed,true,JSON.stringify(o));assert.equal(o.inside,true);assert.equal(o.closed,true)
+ const ajar=hut({shaftOpen:true,backExit:{cell:{x:12,y:64,z:22},bottom:56},at:[12.5,58,22.5]});ajar.w.bot.activateBlock()
+ assert.equal(shelteredObservation(ajar.w.bot,ajar.project).passed,false,'door open')
+ const guest=hut({shaftOpen:true,backExit:{cell:{x:12,y:64,z:22},bottom:56},at:[12.5,58,22.5]});guest.w.bot.entities={1:{id:1,name:'zombie',position:new Vec3(11.5,64,22.5)}}
+ assert.equal(shelteredObservation(guest.w.bot,guest.project).passed,false,'a zombie in the hut')
+ const elsewhere=hut({at:[12.5,58,23.5]});elsewhere.project.backExit={cell:{x:12,y:64,z:22}}
+ assert.equal(shelteredObservation(elsewhere.w.bot,elsewhere.project).inside,false,'another column under the floor is not the shaft')
 })
