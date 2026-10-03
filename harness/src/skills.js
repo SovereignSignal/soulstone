@@ -19,6 +19,7 @@ import {OBSIDIAN_ACTIONS} from './obsidian.js'
 import {STATION_ACTIONS} from './stations.js'
 import {executeWorldSkill} from './world-skills.js'
 import {deliverItem} from './delivery.js'
+import {roofed} from './observations.js'
 import {tunnelOut} from './back-exit.js'
 import {craftWithWindowState} from './crafting.js'
 import { resourceNames, resourceLabel, gatherCandidates } from './resources.js'
@@ -93,6 +94,10 @@ export async function executeSkill(bot, task, context) {
     // from the bottom there is always another floating trunk within 40 blocks,
     // and returning to it spent all eight legs without a step.
     async function explore({ pastNear = false } = {}) {
+      // Trees do not grow under rock. From the foot of the back exit the eight
+      // legs each timed out against stone and a failed preparation took five
+      // minutes, twice a run (lab runs 32 and 33, 3 October). Say so at once.
+      if (roofed(bot)) throw new Error(`no ${resourceLabel(item)} underground: I am under solid rock and trees grow on the surface; get wood by daylight from the surface`)
       const origin = bot.entity.position.clone()
       // A leg that moves the bot nowhere was not spent searching, it was spent
       // standing still. Eight of those burn in seconds and then blame the world

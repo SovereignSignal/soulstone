@@ -1,3 +1,5 @@
+import {inProtectedSite} from './primitives.js'
+import {plainCube} from './scaffold.js'
 import {insideBase,inBackExit,retreatToShelter} from './retreat.js'
 import {harvestBerries} from './foraging.js'
 import {useHeldItem,dimensionOf} from './use-item.js'
@@ -231,9 +233,41 @@ export async function executeWorldSkill(bot,task,context,gather) {
    catch(error){check();if(!navigationFailure(error))throw error;progress(`Table at ${key(table.position)} is out of reach (${error.message}); placing one here`)}
   }
   await acquire('crafting_table',1,path)
-  const pos=tableSite(bot)
+  const pos=tableSite(bot)||await carveTableNook()
   if(!pos)throw new Error('No clear place for a crafting table within three blocks')
-  await place(pos,'crafting_table');return bot.blockAt(pos)
+  await place(pos,'crafting_table');ownTables.push(pos);return bot.blockAt(pos)
+ }
+ // In a one-wide shaft there is no room for a table: cut a two-high nook in a
+ // wall of plain rock with a floor under it, outside any saved build.
+ async function carveTableNook(){
+  const feet=bot.entity.position.floored(),cube=plainCube(bot),sites=task.goal.protectedSites||[]
+  for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]){
+   const low=feet.offset(dx,0,dz),high=low.offset(0,1,0),floor=bot.blockAt(low.offset(0,-1,0))
+   if(![low,high].every(c=>{const b=bot.blockAt(c);return b&&cube(b)&&!inProtectedSite(c,sites)})||floor?.boundingBox!=='block')continue
+   progress(`Cutting a nook for the crafting table at ${key(low)}`);stage('digging')
+   for(const c of [high,low]){const b=bot.blockAt(c);if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(b,{requireHarvest:false,getFromChest:false});check();await bot.dig(b);check()}
+   if(bot.blockAt(low)?.name==='air'&&bot.blockAt(high)?.name==='air')return low
+  }
+  return null
+ }
+ // A table this job put down away from the base comes back with the bot, so
+ // the next craft at night or underground needs no trip to the surface (lab
+ // run 32: the base table stood outside the wall, and the pickaxe that mines
+ // iron could not be made). Best effort: a table left behind is litter, not a failure.
+ const ownTables=[]
+ async function reclaimTables(){
+  for(const pos of ownTables.splice(0)){
+   try{
+    const b=bot.blockAt(pos);if(b?.name!=='crafting_table')continue
+    const before=count('crafting_table')
+    progress('Picking the crafting table back up');stage('digging')
+    if(bot.entity.position.distanceTo(pos.offset(.5,.5,.5))>4)await walk(new goals.GoalLookAtBlock(pos,bot.world,{reach:3}),false)
+    if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(b,{requireHarvest:false,getFromChest:false})
+    check();await bot.dig(b);check()
+    await walk(new goals.GoalBlock(pos.x,pos.y,pos.z),false).catch(()=>{})
+    await settle(()=>count('crafting_table')>before,'table not picked up').catch(()=>{})
+   }catch(error){check();progress(`Left the crafting table at ${key(pos)}: ${String(error.message).slice(0,60)}`)}
+  }
  }
  const sources={flint:['gravel'],cobblestone:['stone'],cobbled_deepslate:['deepslate'],coal:['coal_ore','deepslate_coal_ore'],raw_iron:['iron_ore','deepslate_iron_ore'],raw_copper:['copper_ore','deepslate_copper_ore'],diamond:['diamond_ore','deepslate_diamond_ore']}
  async function mine(name,total,path) {
@@ -345,7 +379,7 @@ export async function executeWorldSkill(bot,task,context,gather) {
  if(EXPEDITION_ACTIONS.includes(task.kind))return executeExpedition(bot,task,{check,progress,stage,persist:context.persist,walk,settle})
  if(STATION_ACTIONS.includes(task.kind))return executeStationSkill(bot,task,{check,progress,stage,persist:context.persist,walk,settle,acquire})
  if(task.kind==='construct')return executeConstruction(bot,task,{check,progress,stage,movements,persist:context.persist,place,walk,settle,chooseSite:(point,blueprint)=>fitConstructionSite(bot,blueprint,point,task.goal.protectedSites||[],task.goal.constructionLimits||{})})
- if(task.kind==='prepare')return prepareTools(bot,task.goal,{acquire,settle,check,progress})
+ if(task.kind==='prepare'){try{return await prepareTools(bot,task.goal,{acquire,settle,check,progress})}finally{await reclaimTables()}}
  if(task.kind==='make_obsidian'){
   // The bucket fills only from a source cell, and `use` owns the aim and the receipt.
   // goto's digging walk: bounded legs, and it refuses to break anything beside a liquid.
@@ -369,7 +403,7 @@ export async function executeWorldSkill(bot,task,context,gather) {
   // (trial 24's seven stance walks each failed at once from inside that water).
   return makeObsidian(bot,task,{check,progress,stage,walk,settle,count,persist:context.persist,fill,mine:(name,total)=>mineExposed(name,total,[task.kind]),approach:(p,range)=>dig(p,range,true)})
  }
- if(task.kind==='acquire'){await acquire(task.goal.item,task.goal.count);return {item:task.goal.item,count:count(task.goal.item)}}
+ if(task.kind==='acquire'){try{await acquire(task.goal.item,task.goal.count)}finally{await reclaimTables()}return {item:task.goal.item,count:count(task.goal.item)}}
  const design=validateDesign(task.goal.design)
  const layout=task.goal.purpose==='shelter'?shelterLayout(design):null
  const logs=LOG_ITEMS.filter(n=>bot.registry.itemsByName[n])

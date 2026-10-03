@@ -43,7 +43,7 @@ test('gathering walks toward a trunk sighted beyond the collection radius before
  const trunk=new Vec3(90,64,0)
  const bot={registry:{blocksByName:{spruce_log:{id:1}}},inventory:{items:()=>inventory},entity:{position:new Vec3(0,64,0)},
   findBlocks:({maxDistance})=>bot.entity.position.distanceTo(trunk)<=maxDistance?[trunk]:[],
-  blockAt:position=>({position,name:position.equals(trunk)?'spruce_log':'grass_block'}),
+  blockAt:position=>({position,name:position.equals(trunk)?'spruce_log':position.y>66?'air':'grass_block'}),
   pathfinder:{setGoal(){},setMovements(){},async goto(goal){walked.push([goal.x,goal.z]);bot.entity.position=new Vec3(goal.x,64,goal.z)}},
   canDigBlock:()=>true,tool:{async equipForBlock(){}},dig:async()=>{inventory=[{name:'spruce_log',count:1}]}}
  const result=await executeSkill(bot,{kind:'gather',goal:{item:'logs',count:1}},{check(){},progress:m=>messages.push(m),stage(){},movements:{}})
@@ -63,7 +63,7 @@ test('twelve unreachable trunks send the bot somewhere else instead of ending th
  let here=new Vec3(0,64,0)
  // Fifteen distinct trunks are always in view and none can be reached.
  const bot={registry:{blocksByName:{spruce_log:{id:1}}},inventory:{items:()=>[]},entity:{position:here},
-  findBlocks:()=>Array.from({length:15},(_,i)=>here.offset(5+i,0,3)),blockAt:position=>({position,name:'spruce_log'}),
+  findBlocks:()=>Array.from({length:15},(_,i)=>here.offset(5+i,0,3)),blockAt:position=>({position,name:position.y>here.y+2?'air':'spruce_log'}),
   canDigBlock:()=>false,tool:{async equipForBlock(){}},dig:async()=>{},
   pathfinder:{setGoal(){},setMovements(){},async goto(goal){
    if(goal.y===undefined&&goal.x!==undefined&&goal.z!==undefined){walked.push([goal.x,goal.z]);here=new Vec3(goal.x,64,goal.z);bot.entity.position=here;return}
@@ -167,4 +167,14 @@ test('a bot that cannot walk stops exploring and says so, instead of blaming the
  await assert.rejects(executeSkill(bot,{kind:'gather',goal:{item:'logs',count:1}},{check(){},progress(){},stage(){},movements:{}}),
   /no logs within 48 blocks after exploring 3 legs from the start: no route toward/)
  assert.equal(walked.length,3,'it gave up after three legs that moved it nowhere')
+})
+test('under solid rock a search for logs fails at once and says why',async()=>{
+ // Lab runs 32 and 33, 3 October: from the foot of the back exit a pickaxe
+ // preparation explored eight legs for logs through stone, five minutes a time.
+ const walked=[]
+ const bot={registry:{blocksByName:{spruce_log:{id:1}}},inventory:{items:()=>[]},entity:{position:new Vec3(0,40,0)},findBlocks:()=>[],blockAt:p=>({position:p,name:p.y===40||p.y===41?'air':'stone'}),
+  pathfinder:{setGoal(){},setMovements(){},async goto(goal){walked.push([goal.x,goal.z])}},canDigBlock:()=>true,tool:{async equipForBlock(){}},dig:async()=>{}}
+ const started=Date.now()
+ await assert.rejects(executeSkill(bot,{kind:'gather',goal:{item:'logs',count:1}},{check(){},progress(){},stage(){},movements:{}}),/underground.*surface/)
+ assert.deepEqual(walked,[],'not one exploring leg');assert.ok(Date.now()-started<5000,'the collector\'s own three-second scan, then the answer')
 })
