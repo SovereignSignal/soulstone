@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import minecraftData from 'minecraft-data'
+import {inProtectedSite} from '../src/primitives.js'
 import {Vec3} from 'vec3'
 import {fitConstructionSite} from '../src/construction-site.js'
 import {compileArchitecture,executeConstruction} from '../src/construction.js'
@@ -30,7 +31,13 @@ test('site selection excludes recorded buildings/stations, players and liquids',
  const f=fixture(),bp=compileArchitecture(design),near=f.bot.entity.position
  assert.equal(fitConstructionSite(f.bot,bp,near,[{minX:-30,maxX:30,minZ:-30,maxZ:30}]),null)
  const footprint=projectFootprints({base:{build:{origin:{x:10,y:64,z:10},design},stations:{chest:{position:{x:15,y:64,z:12}}}}})
- assert.deepEqual(footprint,[{minX:10,maxX:12,minZ:10,maxZ:12},{minX:15,maxX:15,minZ:12,maxZ:12}])
+ assert.deepEqual(footprint,[{minX:10,maxX:12,minZ:10,maxZ:12,minY:63},{minX:15,maxX:15,minZ:12,maxZ:12,minY:63}])
+ // The footprint has a floor: the build, the layer it stands on and its
+ // stations are protected; the ground under that is free to dig (lab run 25,
+ // 3 October: the back exit's work nine cells under the base was refused).
+ assert.equal(inProtectedSite({x:11,y:63,z:11},footprint),true,'the support layer');assert.equal(inProtectedSite({x:11,y:70,z:11},footprint),true,'above the build')
+ assert.equal(inProtectedSite({x:11,y:62,z:11},footprint),false,'under the support layer');assert.equal(inProtectedSite({x:15,y:58,z:12},footprint),false,'under a station')
+ assert.equal(inProtectedSite({x:11,y:50,z:11},[{minX:10,maxX:12,minZ:10,maxZ:12}]),true,'a site without a floor still protects its whole column')
  const survey=surveyGround(f.bot,near),sites=candidateSites(survey,bp.bounds,{players:[{x:0,y:66,z:0}]})
  assert.ok(sites.every(s=>!(0>s.origin.x-1&&0<s.origin.x+4&&0>s.origin.z-1&&0<s.origin.z+4)))
  const original=f.bot.blockAt;f.bot.blockAt=p=>({...original(p),name:p.y<=65?'water':'air',boundingBox:'empty'})

@@ -1,3 +1,4 @@
+import {inBackExit} from './retreat.js'
 import {remainingDurability,expeditionNeeds} from './supplies.js'
 export {remainingDurability} from './supplies.js'
 import {Vec3} from 'vec3'
@@ -97,6 +98,10 @@ export async function executeExpedition(bot,task,api){
   state.phase='at_base';state.pending=null;save()
  }
  if(task.kind==='return_base'){await home();return {item:'base',count:1,returned:true,position:point(bot.entity.position)}}
+ // From the back exit the trip starts underground; a trail saved from the
+ // door is a surface route that cannot be walked from here, so it is let go
+ // and a new one begins at the shaft's foot (home is then the shaft).
+ if(state.trail.length&&inBackExit(bot,project)){state.trail=[];state.frontier=[];state.phase='at_base';state.pending=null;save()}
  if(state.trail.length)await home()
  const {item,count:total}=task.goal
  if(count(item)>=total){await home();return {item,count:count(item),target:total,acquired:true,returned:true}}

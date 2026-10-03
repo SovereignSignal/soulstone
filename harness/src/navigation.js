@@ -1,3 +1,4 @@
+import {inProtectedSite} from './primitives.js'
 import {setTimeout as delay} from 'node:timers/promises'
 import pathfinding from 'mineflayer-pathfinder'
 import {WATER_BLOCKS,PORTAL_BLOCKS} from './survival.js'
@@ -22,7 +23,7 @@ export function allowGroundBreaking(bot,movement,{digCost=TRAVERSAL_DIG_COST,pro
  movement.digCost=digCost
  movement.exclusionAreasBreak.push(block=>{
   const p=block.position
-  if(p&&protectedSites().some(s=>p.x>=s.minX&&p.x<=s.maxX&&p.z>=s.minZ&&p.z<=s.maxZ))return 100
+  if(p&&inProtectedSite(p,protectedSites()))return 100
   return breakableWhileTravelling(block)?0:100
  })
  return movement

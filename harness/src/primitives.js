@@ -43,7 +43,7 @@ export function validateProtectedSites(sites) {
 }
 
 export function inProtectedSite(p, sites = []) {
-  return sites.some(s => p.x >= s.minX && p.x <= s.maxX && p.z >= s.minZ && p.z <= s.maxZ)
+  return sites.some(s => p.x >= s.minX && p.x <= s.maxX && p.z >= s.minZ && p.z <= s.maxZ && (s.minY === undefined || p.y >= s.minY))
 }
 
 export function validateGotoGoal(goal) {

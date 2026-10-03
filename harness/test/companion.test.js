@@ -1033,7 +1033,7 @@ test('a gather step carries the saved base footprint, since gather may dig towar
  await c.submit('Get three logs')
  const command=r.commands.find(x=>x.action==='gather')
  assert.ok(command,JSON.stringify(c.messages))
- assert.deepEqual(command.goal.protectedSites,[{minX:10,maxX:10,minZ:0,maxZ:0}])
+ assert.deepEqual(command.goal.protectedSites,[{minX:10,maxX:10,minZ:0,maxZ:0,minY:63}])
 })
 
 test('a collect step carries the saved base footprint, since collect may dig',async()=>{
@@ -1049,7 +1049,7 @@ test('a collect step carries the saved base footprint, since collect may dig',as
  await c.submit('Pick up the raw iron')
  const command=r.commands.find(x=>x.action==='collect')
  assert.ok(command,JSON.stringify(c.messages))
- assert.deepEqual(command.goal.protectedSites,[{minX:10,maxX:10,minZ:0,maxZ:0}])
+ assert.deepEqual(command.goal.protectedSites,[{minX:10,maxX:10,minZ:0,maxZ:0,minY:63}])
 })
 
 test('failed shelter retry carries only the same interrupted request eligibility and respects Stop',()=>{

@@ -170,3 +170,22 @@ test('a sand cell that refills after the cut is cut again and counted, and a san
  const sandy={blockAt:()=>({name:'water'}),pathfinder:{*getPathFromTo(){yield {result:{status:'noPath',path:[]}}}}}
  await assert.rejects(excavationPath(sandy,{},new Vec3(0,64,0),{},()=>{}),/standing on water, which the planner never cuts/)
 })
+
+test('an expedition begun from the back exit drops the saved surface trail and starts underground',async()=>{
+ // Lab run 25, 3 October: prospect from nine under the base began with
+ // "Retracing the cleared route to base" along a trail saved from the door,
+ // could not walk it from down there, and failed.
+ const p=structuredClone(project);p.backExit={cell:{x:31,y:64,z:31},bottom:55}
+ p.expedition={trail:[{x:25,y:64,z:25},{x:20,y:64,z:20}],frontier:[{x:20,y:64,z:20}],surveys:[],rejected:[],phase:'at_base'}
+ const bot={entity:{position:new Vec3(31.5,55,31.5)},inventory:{items:()=>[]},world:{}}
+ const walked=[],said=[];let saves=0
+ const api={check(){},progress(m){said.push(m)},stage(){},persist(){saves++},async walk(g){walked.push([g.x,g.y,g.z]);throw new Error('stop here')}}
+ await assert.rejects(executeExpedition(bot,{kind:'prospect',goal:{project:p,item:'raw_iron',count:8}},api))
+ // With nothing carried the trip then heads home for supplies (to `near`), which is not the old trail.
+ assert.ok(!walked.some(w=>w[0]===25||w[0]===20),'no walk along the old trail: '+JSON.stringify(walked));assert.deepEqual(p.expedition.trail,[]);assert.deepEqual(p.expedition.frontier,[]);assert.ok(saves)
+ // Up on the surface the saved trail is still walked home first.
+ const q=structuredClone(project);q.expedition={trail:[{x:25,y:64,z:25}],frontier:[],surveys:[],rejected:[]}
+ const up={entity:{position:new Vec3(28.5,64,28.5)},inventory:{items:()=>[]},world:{}};const went=[]
+ await assert.rejects(executeExpedition(up,{kind:'prospect',goal:{project:q,item:'raw_iron',count:8}},{...api,async walk(g){went.push([g.x,g.y,g.z]);throw new Error('stop here')}}))
+ assert.deepEqual(went,[[25,64,25]])
+})
