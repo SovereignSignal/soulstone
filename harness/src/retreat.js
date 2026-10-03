@@ -76,7 +76,8 @@ export function shelteredObservation(bot,project){
   const lighting=inspectRetreatShelter(bot,project),build=project.build,o=new Vec3(build.origin.x,build.origin.y,build.origin.z),layout=shelterLayout(build.design),door=o.plus(layout.door),name=build.wood.replace('_log','_door')
   // Down the back exit the same walls and door stand between the bot and the
   // night; its shaft is sealed as it is dug. Being there is being inside.
-  const position=bot.entity.position.floored(),inside=bot.entity.onGround&&(layout.inside.some(p=>o.plus(p).equals(position))||inBackExit(bot,project)),closed=[0,1].every(y=>{const b=bot.blockAt(door.offset(0,y,0));return b?.name===name&&b.getProperties().open===false&&b.getProperties().half===(y?'upper':'lower')})
+  // The shaft is one cell wide, so a bot in it is in it, climbing or not.
+  const position=bot.entity.position.floored(),inside=inBackExit(bot,project)||bot.entity.onGround&&layout.inside.some(p=>o.plus(p).equals(position)),closed=[0,1].every(y=>{const b=bot.blockAt(door.offset(0,y,0));return b?.name===name&&b.getProperties().open===false&&b.getProperties().half===(y?'upper':'lower')})
   return {inside,closed,lighting,passed:inside&&closed}
  }catch(error){return {passed:false,reason:error.message}}
 }
@@ -105,4 +106,15 @@ export function inBackExit(bot,project){
   // cells past the record, and the bot was still under its own floor.
   return !!shaft?.cell&&p.x===shaft.cell.x&&p.z===shaft.cell.z&&p.y<o.y&&p.y>=o.y-BACK_EXIT_REACH
  }catch{return false}
+}
+// What the planner is told about the back exit: where it is, whether it is
+// open, and whether the bot stands at its foot (lab run 26, 3 October: from
+// nine under its base the planner's first step was to go back up to the base).
+export function backExitObservation(bot,project){
+ try{
+  const shaft=project?.backExit;if(!shaft?.cell)return null
+  const o=project.build.origin,p=bot.entity.position.floored(),within=inBackExit(bot,project)
+  const open=Number.isFinite(shaft.bottom)
+  return {cell:{...shaft.cell},...(open?{bottom:shaft.bottom}:{}),open,inShaft:within,atFoot:within&&open&&p.y<=shaft.bottom+1,depthBelowFloor:within?o.y-p.y:0}
+ }catch{return null}
 }

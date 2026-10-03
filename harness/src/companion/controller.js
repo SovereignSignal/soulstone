@@ -11,7 +11,7 @@ import {adaptiveRecovery} from './adaptive-recovery.js'
 import {recoveryContext,recoveryState,recentRecovery,recordRecovery} from './recovery-context.js'
 import {THREAT_INTERRUPTION,clearanceObservation,awaitClearance,openGroundClearance} from './hazard-clearance.js'
 import {alternativeShelters,occupiedAlternative} from '../alternate-shelter.js'
-import {shelteredObservation,inspectRetreatShelter,insideBase,inBackExit} from '../retreat.js'
+import {shelteredObservation,inspectRetreatShelter,insideBase,inBackExit,backExitObservation} from '../retreat.js'
 import {fullCube} from '../construction.js'
 import {canopyLandings} from '../canopy.js'
 import {setTimeout as delay} from 'node:timers/promises'
@@ -270,7 +270,7 @@ export class Teammate extends EventEmitter {
     const base=this.projects.base
     if(base?.built===true&&base.stations?.torch?.confirmed===true){try{litShelterVerified=!!inspectRetreatShelter(b,base,{occupants:false})}catch{}}
     return { lastDeath:this.lastDeath??null, skillControl:{mode:this.skillControlMode,budget:this.requestProgress?.skillControl||null}, recovery:{shelterPlanning:!!this.shelterPlanning,mode:this.recoveryMode,context:this.threatContextMode,recentAttempts:recentRecovery(this)},litShelterVerified, threatJudge:{mode:this.threatJudge.enabled?(this.threatJudge.control?'control':'shadow'):'off',model:this.threatJudge.model}, phase: this.phase, connected: this.runner.ready, dead, respawning:!!this.runner.respawnPending, connectionId:this.runner.connectionId, owner: this.runner.owner, ownerVisible: !!owner, playingAsOwner:this.playingAsOwner(), position: this.runner.position(), ownerPosition: owner?.position || null,
-      health: b?.health ?? null, survival:survivalObservation(b), footing:footingObservation(b), tools:(b?.inventory?.items()||[]).filter(i=>i.maxDurability).map(i=>({name:i.name,remaining:remainingDurability(i),maximum:i.maxDurability})), inventory, places: this.places, task: this.runner.task, plan: this.plan, stepIndex: this.stepIndex,
+      health: b?.health ?? null, survival:survivalObservation(b), footing:footingObservation(b), backExit:backExitObservation(b,base), tools:(b?.inventory?.items()||[]).filter(i=>i.maxDurability).map(i=>({name:i.name,remaining:remainingDurability(i),maximum:i.maxDurability})), inventory, places: this.places, task: this.runner.task, plan: this.plan, stepIndex: this.stepIndex,
       safety:this.safety, activity: this.activity || '', messages: this.messages, model: this.planner.model, requestProgress:this.requestProgress,canResume:!dead&&!this.runner.respawnPending&&!['retreating','defending'].includes(this.phase)&&canResume(this.requestProgress),projects:this.projects,experienceCount:this.experience.entries.length }
   }
   dispatch(command) { this.runner.shelterProject=this.projects.base; this.runner.protectedSites=projectFootprints(this.projects); this.dispatching = true; try { this.runner.command(command) } finally { this.dispatching = false } }
