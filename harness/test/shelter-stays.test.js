@@ -174,3 +174,19 @@ test('the door does not open for work onto a hostile inside its interruption rad
  await zombie.c.executeCommand({action:'goto',goal:{x:20,y:64,z:20},timeoutMs:5000},new AbortController().signal)
  assert.deepEqual(zombie.r.commands,['leave_base','goto'],'a zombie at 12 is outside its ten-block radius')
 })
+test('down the back exit, work starts without the door and the night hold does not apply',async()=>{
+ // The back exit (back-exit-plan.md) puts the bot at the bottom of a shaft
+ // under its own floor. From there a work action must not walk back up to a
+ // door the night refuses, and a stall there is an ordinary stall.
+ const {r,c,bot}=world(new Vec3(1.5,58,2.5));bot.entities={};bot.time.timeOfDay=18000
+ c.projects.base.backExit={cell:{x:1,y:64,z:2},bottom:56}
+ assert.equal(insideBase(bot,c.projects.base),true,'the shaft still counts as the base for safety')
+ await c.executeCommand({action:'goto',goal:{x:20,y:58,z:20,dig:true},timeoutMs:5000},new AbortController().signal)
+ assert.deepEqual(r.commands,['goto'],'no leave_base, no dusk refusal: the work goes on through rock')
+ let resumes=0;c.resume=async()=>{resumes++};c.phase='blocked'
+ c.requestProgress={id:'f',request:'mine iron',status:'blocked',blocker:'No path'};c.blockedSince=1
+ assert.equal(await c.stallRetry(),true);assert.equal(resumes,1,'a stall at the shaft bottom at night retries like any other')
+ // Standing on the shaft cell at floor level is still behind the door.
+ const up=world(new Vec3(1.5,64,2.5));up.bot.entities={};up.bot.time.timeOfDay=18000;up.c.projects.base.backExit={cell:{x:1,y:64,z:2},bottom:56}
+ await assert.rejects(up.c.executeCommand({action:'goto',goal:{x:20,y:64,z:20},timeoutMs:5000},new AbortController().signal),/Dusk is here/)
+})

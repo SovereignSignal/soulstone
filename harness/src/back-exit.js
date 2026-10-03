@@ -7,7 +7,7 @@ import {shelterLayout} from './shelter.js'
 export function shaftCell(project){
  const build=project?.build
  if(!build?.design||!build.origin)throw new Error('A back exit needs a saved base')
- const kept=project.stations?.shaft?.position
+ const kept=project.backExit?.cell
  if(kept)return {x:kept.x,y:kept.y,z:kept.z}
  const layout=shelterLayout(build.design),o=build.origin
  const taken=new Set(Object.values(project.stations||{}).map(s=>s?.position).filter(Boolean).map(p=>`${p.x},${p.z}`))
@@ -16,4 +16,63 @@ export function shaftCell(project){
  const away=c=>Math.abs(c.x-layout.door.x)+Math.abs(c.z-layout.door.z)
  free.sort((a,b)=>away(b)-away(a)||a.x-b.x||a.z-b.z)
  return {x:free[0].x+o.x,y:o.y,z:free[0].z+o.z}
+}
+import {Vec3} from 'vec3'
+import pathfinder from 'mineflayer-pathfinder'
+const {goals}=pathfinder
+import {quarryColumn} from './quarry.js'
+import {centreOn} from './navigation.js'
+import {climbOut} from './burrow.js'
+import {setTimeout as delay} from 'node:timers/promises'
+import {insideBase} from './retreat.js'
+// Deep enough that the base roof is not what stands between the bot and the
+// sky, and that a cave breach near the surface is not mistaken for arrival.
+export const BACK_EXIT_DEPTH=9
+export const BACK_EXIT_MIN_DEPTH=4
+const key=p=>`${p.x},${p.y},${p.z}`
+async function settle(predicate,message,{check,ms=3000,poll=50}){
+ const end=Date.now()+ms
+ while(Date.now()<end){check();if(predicate())return;await delay(poll)}
+ throw new Error(message)
+}
+// Open the back exit: stand on the shaft cell inside the base and dig straight
+// down through checked rock to BACK_EXIT_DEPTH, or as far as the rock allows
+// past BACK_EXIT_MIN_DEPTH. The bot ends at the bottom with the shaft open
+// above it and the base's walls and roof still closed around the top.
+export async function tunnelOut(bot,task,{check,stage,progress,persist=()=>{}}){
+ check();const project=task.goal?.project
+ if(!insideBase(bot,project))throw new Error('The back exit is opened from inside the base; use the door or retreat first')
+ if(!bot.inventory.items().some(i=>/_pickaxe$/.test(i.name)))throw new Error('The back exit needs a pickaxe to open')
+ const cell=shaftCell(project),top=new Vec3(cell.x,cell.y,cell.z)
+ project.backExit={...(project.backExit||{}),cell};persist()
+ const under=top.offset(0,-1,0),first=quarryColumn(bot,under,{top:true})
+ if(!first.ok)throw new Error(`Cannot open the back exit at ${key(under)}: ${first.reason}`)
+ stage('tunnelling');progress(`Opening the back exit through the floor at ${key(top)}`)
+ bot.pathfinder?.setGoal(null);bot.clearControlStates?.()
+ if(Math.floor(bot.entity.position.x)!==top.x||Math.floor(bot.entity.position.z)!==top.z){
+  await bot.pathfinder.goto(new goals.GoalBlock(top.x,top.y,top.z));check()
+ }
+ await centreOn(bot,top,check)
+ let depth=0,stopped=null
+ for(let d=1;d<=BACK_EXIT_DEPTH;d++){
+  check()
+  const target=top.offset(0,-d,0),column=quarryColumn(bot,target,{top:d===1})
+  if(!column.ok){stopped=column.reason;break}
+  const block=bot.blockAt(target)
+  if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(block,{requireHarvest:true,getFromChest:false})
+  check();await bot.dig(block);check()
+  await settle(()=>Math.floor(bot.entity.position.y)<=target.y&&bot.entity.onGround!==false,`Did not land in the shaft at ${key(target)}`,{check})
+  depth=d;project.backExit.bottom=target.y;persist()
+  progress(`Back exit depth ${d}/${BACK_EXIT_DEPTH}`)
+ }
+ if(depth<BACK_EXIT_MIN_DEPTH){
+  // Too shallow to be an exit: come back up and say what stopped it. A climb
+  // that fails leaves the bot in a short hole under its own roof, still inside
+  // the base, so the depth is the error and the climb is a note on it.
+  let climb='';if(depth>0){stage('surfacing');try{await climbOut(bot,top,{check,stage,progress})}catch(error){climb=` (and could not climb back: ${error.message})`}}
+  delete project.backExit.bottom;persist()
+  throw new Error(`The back exit stopped at depth ${depth}${stopped?`: ${stopped}`:''}; it needs at least ${BACK_EXIT_MIN_DEPTH}${climb}`)
+ }
+ const p=bot.entity.position
+ return {item:'back_exit',count:1,receipt:'back_exit_open',cell,bottom:project.backExit.bottom,depth,...(stopped?{stoppedBy:stopped}:{}),position:{x:p.x,y:p.y,z:p.z}}
 }

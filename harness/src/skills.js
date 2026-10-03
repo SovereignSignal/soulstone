@@ -19,6 +19,7 @@ import {OBSIDIAN_ACTIONS} from './obsidian.js'
 import {STATION_ACTIONS} from './stations.js'
 import {executeWorldSkill} from './world-skills.js'
 import {deliverItem} from './delivery.js'
+import {tunnelOut} from './back-exit.js'
 import {craftWithWindowState} from './crafting.js'
 import { resourceNames, resourceLabel, gatherCandidates } from './resources.js'
 import pathfinding from 'mineflayer-pathfinder'
@@ -218,6 +219,7 @@ export async function executeSkill(bot, task, context) {
       await craftOne('oak_planks')
     }
   }
+  if (task.kind==='tunnel_out')return tunnelOut(bot,task,context)
   if (['harvest','use','acquire','build','construct',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(task.kind))return executeWorldSkill(bot,task,context,gather)
   if (task.kind === 'gather') {
     await gather(task.goal.count, task.goal.item)

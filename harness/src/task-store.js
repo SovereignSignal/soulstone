@@ -59,7 +59,7 @@ export function validateTaskGoal(kind, goal) {
     if(kind==='place'&&(!STATIONS.includes(goal.item)||goal.count!==1))throw new Error('Place one supported workstation or torch')
     if(['deposit','withdraw','smelt'].includes(kind)&&(!/^[a-z0-9_]{1,64}$/.test(goal.item||'')||!Number.isInteger(goal.count)||goal.count<1||goal.count>64))throw new Error('Station item target must be 1–64')
     if(kind==='smelt'&&(goal.count>16||!SMELTING[goal.item]))throw new Error('Unsupported furnace recipe')
-    return {project:structuredClone(p),...(['check_base','return_base','stow','retreat','leave_base'].includes(kind)?{}:{item:goal.item,count:goal.count})}
+    return {project:structuredClone(p),...(['check_base','return_base','stow','retreat','leave_base','tunnel_out'].includes(kind)?{}:{item:goal.item,count:goal.count})}
   }
 
   if(kind==='construct'&&goal?.constructionLimits!==undefined){

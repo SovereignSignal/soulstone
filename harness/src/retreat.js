@@ -61,7 +61,15 @@ export function insideBase(bot,project){
   if(p.y>=o.y&&p.y<o.y+layout.roof&&layout.inside.some(q=>q.x+o.x===p.x&&q.z+o.z===p.z))return true
   // The back exit's shaft is part of the base: a bot in it is behind the
   // base's walls, and a safety retreat from its bottom heads up, not out.
-  const shaft=project.stations?.shaft
-  return !!shaft?.position&&Number.isFinite(shaft.bottom)&&p.x===shaft.position.x&&p.z===shaft.position.z&&p.y>=shaft.bottom&&p.y<o.y
+  return inBackExit(bot,project)
+ }catch{return false}
+}
+// In the back exit's shaft, below the base floor. Inside the base for safety
+// (a retreat heads up the shaft), but not behind the door for departure: work
+// from here goes on through rock and never needs the door or the daylight.
+export function inBackExit(bot,project){
+ try{
+  const shaft=project.backExit,o=project.build.origin,p=bot.entity.position.floored()
+  return !!shaft?.cell&&Number.isFinite(shaft.bottom)&&p.x===shaft.cell.x&&p.z===shaft.cell.z&&p.y>=shaft.bottom&&p.y<o.y
  }catch{return false}
 }

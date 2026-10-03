@@ -9,7 +9,7 @@ import {shelterLightBounds} from './lighting.js'
 import {isLog} from './resources.js'
 const {goals}=pathfinding
 export const STATIONS=['crafting_table','furnace','chest','torch']
-export const STATION_ACTIONS=['place','deposit','withdraw','smelt','check_base','stow','retreat','leave_base']
+export const STATION_ACTIONS=['place','deposit','withdraw','smelt','check_base','stow','retreat','leave_base','tunnel_out']
 export const SMELTING={charcoal:'wood_log',stone:'cobblestone',glass:'sand',iron_ingot:'raw_iron',copper_ingot:'raw_copper',gold_ingot:'raw_gold'}
 const vec=p=>new Vec3(p.x,p.y,p.z)
 const same=(a,b)=>a.x===b.x&&a.y===b.y&&a.z===b.z
