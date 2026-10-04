@@ -71,3 +71,32 @@ export function attachChatControl(runner, bot) {
     } catch (error) { runner.say(error.message.slice(0, 150)) }
   })
 }
+// Idle company. A teammate with no job used to stand like a statue: Sov stood
+// beside it in the family world (4 October) and saw nothing happen. Now, with
+// nothing running, it turns to look at the nearest player within LOOK_RANGE,
+// and it greets each player once per session when they join or first come
+// near, with one line on how to talk to it.
+export const LOOK_RANGE=8,GREET_RANGE=16
+export function attachIdleCompany(runner,bot){
+ const greeted=new Set(),name=bot.username
+ const greet=who=>{
+  if(!who||who===name||greeted.has(who))return
+  if(runner.listening&&!runner.listening.allows(who,runner.owner))return
+  greeted.add(who);runner.say(`Hi ${who}! I am ${name}. Say "soul" and what you want, like: soul, follow me.`)
+ }
+ const idle=()=>!['running','paused'].includes(runner.task?.status)&&!bot.pathfinder?.isMoving?.()
+ const near=range=>Object.values(bot.players||{}).map(p=>p.entity).filter(e=>e&&e!==bot.entity&&e.position&&bot.entity?.position)
+  .map(e=>({e,d:e.position.distanceTo(bot.entity.position)})).filter(x=>x.d<=range).sort((a,b)=>a.d-b.d)
+ let ticks=0
+ bot.on('physicsTick',()=>{
+  if(++ticks%10)return
+  try{
+   for(const {e} of near(GREET_RANGE))greet(e.username)
+   if(!idle())return
+   const nearest=near(LOOK_RANGE)[0];if(!nearest)return
+   bot.lookAt(nearest.e.position.offset(0,nearest.e.height||1.62,0)).catch?.(()=>{})
+  }catch{}
+ })
+ bot.on('playerJoined',player=>{if(player?.username&&player.username!==name)setTimeout(()=>greet(player.username),3000)})
+ return {greeted}
+}

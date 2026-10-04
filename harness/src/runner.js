@@ -15,7 +15,7 @@ import {worldIdentity} from './profile-identity.js'
 import { loadTask, saveTask, validateGoal, validateTaskGoal } from './task-store.js'
 import { executeSkill } from './skills.js'
 import {wearBestArmor} from './armor.js'
-import { attachChatControl } from './chat-control.js'
+import { attachChatControl, attachIdleCompany } from './chat-control.js'
 import { endClientTicks } from './tick-end.js'
 import {fireObservation} from './survival.js'
 import {correctToolTierMaterials} from './tool-tiers.js'
@@ -60,7 +60,7 @@ export class Runner extends EventEmitter {
     bot.on('path_update',result=>this.pathUpdated(bot,result))
     bot.loadPlugin(collection.plugin)
     endClientTicks(bot)
-    if (this.chatControl) attachChatControl(this, bot)
+    if (this.chatControl) { attachChatControl(this, bot); attachIdleCompany(this, bot) }
     this.joinTimer = setTimeout(() => bot.end('join timeout'), this.options.auth === 'microsoft' ? 1200000 : 30000)
     bot.on('spawn', () => {
       if (this.bot !== bot || this.closed) return
