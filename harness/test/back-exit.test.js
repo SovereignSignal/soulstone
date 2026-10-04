@@ -36,7 +36,7 @@ test('down the shaft the bot is still inside its base; anywhere else below the f
 import minecraftData from 'minecraft-data'
 import {tunnelOut,BACK_EXIT_DEPTH,BACK_EXIT_MIN_DEPTH} from '../src/back-exit.js'
 const registry=minecraftData('1.21.4')
-function world({pickaxe=true,at=[12.5,64,22.5]}={}){
+function world({pickaxe=true,at=[12.5,64,22.5],gravity=false}={}){
  const cells=new Map(),inventory=pickaxe?[{name:'stone_pickaxe',count:1,type:registry.itemsByName.stone_pickaxe.id}]:[],dug=[],placed=[]
  for(const d of design)cells.set(new Vec3(10+d.x,64+d.y,20+d.z).toString(),d.block)
  const bot={registry,entity:{position:new Vec3(...at),onGround:true},inventory:{items:()=>inventory},
@@ -46,6 +46,11 @@ function world({pickaxe=true,at=[12.5,64,22.5]}={}){
   async equip(){},
   async placeBlock(ref,face){const at=ref.position.plus(face);const item=inventory.find(i=>i.name==='cobblestone');if(!item||item.count<1)throw new Error('nothing to place');item.count--;cells.set(at.toString(),'cobblestone');placed.push(at.toString())},
   async dig(block){dug.push(block.position.toString());cells.set(block.position.toString(),'air');if(block.name==='stone'){const c=inventory.find(i=>i.name==='cobblestone');c?c.count++:inventory.push({name:'cobblestone',count:1,type:registry.itemsByName.cobblestone.id})}const p=bot.entity.position;if(block.position.x===Math.floor(p.x)&&block.position.z===Math.floor(p.z)&&block.position.y<p.y)bot.entity.position=block.position.offset(.5,0,.5)}}
+ if(gravity){
+  // A bot over open cells falls to the next solid one, as the live bot does.
+  let pos=bot.entity.position
+  Object.defineProperty(bot.entity,'position',{get(){while(pos.y>0&&bot.blockAt(pos.floored().offset(0,-1,0)).name==='air')pos=pos.offset(0,-1,0);return pos},set(v){pos=v},configurable:true})
+ }
  return {bot,cells,dug,placed,inventory}
 }
 const api=()=>{const stages=[];return {check(){},stage(s){stages.push(s)},progress(){},persist(){},stages}}
@@ -230,4 +235,14 @@ test('a repair of the saved base may clear a foreign block from its interior; ot
  assert.throws(()=>inspectShelterSite(h.w.bot,o,layout,{repair:true}),/obstructed by cobblestone at 11,64,21/)
  const removed=inspectShelterSite(h.w.bot,o,layout,{repair:true,clear:b=>b.name==='cobblestone'})
  assert.ok(removed.some(c=>c.equals(new Vec3(11,64,21))))
+})
+
+test('a back exit left open by an earlier trip is dropped into, not refused, and the rest is dug as usual',async()=>{
+ // Test run 50, 4 October: "Cannot open the back exit at -624,67,-364: Cannot
+ // quarry through air", because the shaft from an earlier trip was never capped.
+ const w=world({gravity:true,at:[11.5,64,21.5]});for(let y=61;y<=63;y++)w.cells.set(new Vec3(12,y,22).toString(),'air')
+ const project=base(),r=await tunnelOut(w.bot,{goal:{project}},api())
+ assert.equal(r.receipt,'back_exit_open');assert.equal(r.depth,BACK_EXIT_DEPTH);assert.equal(project.backExit.bottom,64-BACK_EXIT_DEPTH)
+ assert.ok(!w.dug.some(k=>/, (61|62|63), /.test(k)),'the open cells were not dug: '+w.dug.join(' '))
+ assert.equal(w.dug.length,BACK_EXIT_DEPTH-3)
 })

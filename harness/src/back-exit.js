@@ -54,7 +54,18 @@ export async function tunnelOut(bot,task,{check,stage,progress,persist=()=>{}}){
  if(!bot.inventory.items().some(i=>/_pickaxe$/.test(i.name)))throw new Error('The back exit needs a pickaxe to open')
  const cell=shaftCell(project),top=new Vec3(cell.x,cell.y,cell.z)
  project.backExit={...(project.backExit||{}),cell};persist()
- const through=plainCube(bot),under=top.offset(0,-1,0),first=quarryColumn(bot,under,{top:true,through})
+ // Cells already open count as dug: a back exit opened on an earlier trip and
+ // never capped (test run 50, 4 October: "Cannot quarry through air") is
+ // still the way down. The column's liquid and floor checks apply as ever.
+ const open=b=>['air','cave_air','void_air'].includes(b?.name)
+ const through=b=>plainCube(bot)(b)||open(b)
+ // An open cell over another open cell defers the floor check to the next
+ // cell down; liquid anywhere below still stops it.
+ const columnOk=(cell,options)=>{
+  if(open(bot.blockAt(cell))){const below=bot.blockAt(cell.offset(0,-1,0));if(LIQUID.has(below?.name))return {ok:false,reason:`Liquid below ${key(cell)}`};if(open(below))return {ok:true}}
+  return quarryColumn(bot,cell,options)
+ }
+ const under=top.offset(0,-1,0),first=columnOk(under,{top:true,through})
  if(!first.ok)throw new Error(`Cannot open the back exit at ${key(under)}: ${first.reason}`)
  stage('tunnelling');progress(`Opening the back exit through the floor at ${key(top)}`)
  bot.pathfinder?.setGoal(null);bot.clearControlStates?.()
@@ -79,11 +90,13 @@ export async function tunnelOut(bot,task,{check,stage,progress,persist=()=>{}}){
    seals++;progress(`Sealed an open side at ${key(side)}`)
   }
   if(stopped)break
-  const column=quarryColumn(bot,target,{through})
+  const column=columnOk(target,{through})
   if(!column.ok){stopped=column.reason;break}
   const block=bot.blockAt(target)
-  if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(block,{requireHarvest:true,getFromChest:false})
-  check();await bot.dig(block);check()
+  if(!open(block)){
+   if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(block,{requireHarvest:true,getFromChest:false})
+   check();await bot.dig(block);check()
+  }
   await settle(()=>Math.floor(bot.entity.position.y)<=target.y&&bot.entity.onGround!==false,`Did not land in the shaft at ${key(target)}`,{check})
   depth=d;project.backExit.bottom=target.y;persist()
   progress(`Back exit depth ${d}/${BACK_EXIT_DEPTH}`)
