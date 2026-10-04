@@ -8,8 +8,8 @@ import {Vec3} from 'vec3'
 import {DoorAwareMovements,SOFT_GROUND as SOFT,centreOn} from './navigation.js'
 import {fullCube} from './construction.js'
 import {assertNoHostileOccupants,inspectEmergencyShelter} from './shelter-occupants.js'
-import {survivalObservation,RANGED,HEALTH_EMERGENCY_LINE,breachesRock} from './survival.js'
-import {threatReach} from './threat-reach.js'
+import {survivalObservation,RANGED,HEALTH_EMERGENCY_LINE,breachesRock,outOfReach} from './survival.js'
+import {threatReach,threatRoutes} from './threat-reach.js'
 import {roofed} from './observations.js'
 import {defenseDecision} from './combat.js'
 const {goals}=pathfinding
@@ -226,7 +226,12 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  let near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=(RANGED.has(t.name)?24:16))
  // A hostile the exits cannot reach is not waiting outside. The same floors as
  // the interruption rule still count, so leaving never walks into a re-trigger.
- if(exits&&near.length){const reach=threatReach(bot,near,{origins:exits});near=near.filter((t,i)=>reach[i]!=='sealed'||breachesRock(t))}
+ if(exits&&near.length){
+  // From the shelter's own exits, by the same test the alarm uses afterwards,
+  // so a hostile it ignores is never the one that sends the bot back in.
+  const routes=threatRoutes(bot,near,{origins:exits})
+  near=near.filter((t,i)=>!outOfReach({...t,reach:routes[i].reach,routeSteps:routes[i].steps,sightline:t.sightline?.status?t.sightline:{status:'blocked'}}))
+ }
  const scope='Loaded entities within 16 blocks and the world clock; not proof of a safe surface'
  if(!near.length)return {clear:true,health:s.health,timeOfDay:s.timeOfDay,scope}
  const lone=near.length===1?near[0]:null

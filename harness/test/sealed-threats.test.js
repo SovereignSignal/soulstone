@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import minecraftData from 'minecraft-data'
 import {Vec3} from 'vec3'
-import {threatReach} from '../src/threat-reach.js'
+import {threatReach,threatRoutes} from '../src/threat-reach.js'
 import {survivalObservation,emergencyReason,THREAT_INTERRUPTION} from '../src/survival.js'
 import {Teammate} from '../src/companion/controller.js'
 const registry=minecraftData('1.21.4')
@@ -81,7 +81,19 @@ test('the survival tick leaves the bot working behind rock and interrupts once i
  assert.deepEqual(logs,[['threat_sealed',{threats:['creeper@15.6/-13:sealed']}]])
  r.emit('event',{type:'survival_tick'});assert.equal(logs.length,1,'logged once per half minute, not every tick')
  breach(cells)
- r.emit('event',{type:'survival_tick'});assert.deepEqual(calls,[THREAT_INTERRUPTION],'a route to the cave restores the rule')
+ // The route is now open but long: four blocks of tunnel, an eleven-block shaft
+ // (no mob climbs one) and the cave floor, about 25 steps for a creeper whose
+ // sight is blocked. Run 46, 3 October: thirty shelter cycles on one such skeleton.
+ r.emit('event',{type:'survival_tick'});assert.deepEqual(calls,[],'a long way round with no sight is not yet an interruption')
+ const creeper=Object.values(bot.entities).find(e=>e.name==='creeper');creeper.position=new Vec3(-598.5,-48,-332.5)
+ r.emit('event',{type:'survival_tick'});assert.deepEqual(calls,[THREAT_INTERRUPTION],'at the foot of the shaft the route is short and the rule fires')
+})
+test('the flood reports the length of the shortest open route',()=>{
+ const {bot,cells}=trial42();breach(cells)
+ const creeper=Object.values(bot.entities).find(e=>e.name==='creeper')
+ const [far]=threatRoutes(bot,[{position:creeper.position}]);assert.equal(far.reach,'open');assert.ok(far.steps>24,'about 25: '+far.steps)
+ const [near]=threatRoutes(bot,[{position:new Vec3(-598.5,-48,-332.5)}]);assert.ok(near.steps<=20,'down the shaft: '+near.steps)
+ assert.deepEqual(threatRoutes(trial42().bot,[{position:creeper.position}]),[{reach:'sealed',steps:null}])
 })
 
 test('a shut door is a wall to the reach flood below Hard; open, or on Hard, it is a way through',()=>{
@@ -111,4 +123,15 @@ test('a sealed melee mob counts only within three blocks; a sealed creeper withi
  assert.equal(emergencyReason({...o,nearbyThreats:[sealed('creeper',8)]}),THREAT_INTERRUPTION);assert.equal(emergencyReason({...o,nearbyThreats:[sealed('creeper',11)]}),null)
  assert.equal(emergencyReason({...o,nearbyThreats:[sealed('warden',9)]}),THREAT_INTERRUPTION)
  assert.equal(emergencyReason({...o,nearbyThreats:[{...sealed('zombie',5),reach:'open'}]}),THREAT_INTERRUPTION,'an open route is an interruption at any distance inside the radius')
+})
+import {outOfReach,farRoute,ROUTE_FACTOR} from '../src/survival.js'
+test('out of reach: sealed, or out of sight with a route longer than one and a half alarm radii; never a wall-breacher or a close one',()=>{
+ const t=(name,distance,reach,routeSteps,sight='blocked')=>({name,distance,reach,routeSteps,sightline:{status:sight},risk:'potential_hostile'})
+ assert.equal(ROUTE_FACTOR,1.5)
+ assert.equal(outOfReach(t('skeleton',15.8,'open',25)),true,'run 46: the skeleton round the cave');assert.equal(outOfReach(t('skeleton',15.8,'open',24)),false)
+ assert.equal(outOfReach(t('zombie',8,'open',16)),true);assert.equal(outOfReach(t('zombie',8,'open',15)),false)
+ assert.equal(outOfReach(t('zombie',8,'open',40,'clear')),false,'in sight counts whatever the route')
+ assert.equal(outOfReach(t('zombie',2.5,'open',40)),false,'within the rock floor it counts');assert.equal(outOfReach(t('warden',12,'open',60)),false,'a warden always counts')
+ assert.equal(outOfReach(t('zombie',8,'unknown',null)),false,'an inconclusive flood proves nothing')
+ assert.equal(outOfReach(t('zombie',8,'sealed',null)),true);assert.equal(farRoute(t('zombie',8,'sealed',null)),false)
 })

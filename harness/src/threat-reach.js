@@ -12,9 +12,17 @@ const NEIGHBOURS=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]
 // 'open': the hostile stands in space connected to the bot. 'sealed': the whole
 // connected space within the radius was observed and it is not in it. 'unknown':
 // unloaded cells or more space than the limit, which proves nothing.
-export function threatReach(bot,threats,{radius=REACH_RADIUS,limit=REACH_CELLS,origins=null}={}){
+// threatRoutes also says how long the route is: the flood is breadth first,
+// so the step count at which a hostile's cell is reached is the length of the
+// shortest open route to it (6-neighbour steps, which overstate a diagonal
+// walk by up to about 1.4 in the plane). Test run 46, 3 October: one skeleton
+// standing still 15.8 blocks away behind rock, joined to the bot only by a
+// long winding cave, interrupted 30 cycles in 45 minutes because "open" was
+// all the rule knew.
+export function threatReach(bot,threats,options={}){return threatRoutes(bot,threats,options).map(r=>r.reach)}
+export function threatRoutes(bot,threats,{radius=REACH_RADIUS,limit=REACH_CELLS,origins=null}={}){
  const p=bot?.entity?.position
- if(!p||!bot.blockAt||!threats.every(t=>t.position))return threats.map(()=>'unknown')
+ if(!p||!bot.blockAt||!threats.every(t=>t.position))return threats.map(()=>({reach:'unknown',steps:null}))
  const origin=p.floored(),solids=new Map()
  // The search has to cover wherever the hostiles asked about are standing: a
  // skeleton at twenty-two blocks is not sealed off just for being past twenty.
@@ -30,10 +38,11 @@ export function threatReach(bot,threats,{radius=REACH_RADIUS,limit=REACH_CELLS,o
  const wanted=new Map()
  threats.forEach((t,i)=>{const c=new Vec3(t.position.x,t.position.y,t.position.z).floored();for(const k of [c.toString(),c.offset(0,1,0).toString()])wanted.set(k,[...(wanted.get(k)||[]),i])})
  // A shelter is judged from where it opens, not from inside its own walls.
- const found=threats.map(()=>false),seen=new Set(),queue=origins?[...origins]:[origin,origin.offset(0,1,0)]
+ const found=threats.map(()=>false),steps=threats.map(()=>null),seen=new Set(),queue=origins?[...origins]:[origin,origin.offset(0,1,0)]
+ const depth=new Map(queue.map(c=>[c.toString(),0]))
  let inconclusive=false,cells=0
  for(let i=0;i<queue.length&&!found.every(Boolean);i++){
-  const c=queue[i],key=c.toString()
+  const c=queue[i],key=c.toString(),d=depth.get(key)??0
   if(seen.has(key))continue
   seen.add(key)
   // Space that leaves the radius is a long way round, not an unknown.
@@ -42,8 +51,8 @@ export function threatReach(bot,threats,{radius=REACH_RADIUS,limit=REACH_CELLS,o
   if(!b){inconclusive=true;continue}
   if(solid(b.name)||barrier(b))continue
   if(++cells>limit){inconclusive=true;break}
-  for(const index of wanted.get(key)||[])found[index]=true
-  for(const [x,y,z] of NEIGHBOURS)queue.push(c.offset(x,y,z))
+  for(const index of wanted.get(key)||[])if(!found[index]){found[index]=true;steps[index]=d}
+  for(const [x,y,z] of NEIGHBOURS){const n=c.offset(x,y,z),k=n.toString();if(!depth.has(k))depth.set(k,d+1);queue.push(n)}
  }
- return found.map(hit=>hit?'open':inconclusive?'unknown':'sealed')
+ return found.map((hit,i)=>({reach:hit?'open':inconclusive?'unknown':'sealed',steps:hit?steps[i]:null}))
 }

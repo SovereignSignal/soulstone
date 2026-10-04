@@ -4,8 +4,8 @@ import {Vec3} from 'vec3'
 import pathfinding from 'mineflayer-pathfinder'
 import {shelterLayout,shelterAccessLayout,inspectShelterSite} from './shelter.js'
 import {shelterLightBounds} from './lighting.js'
-import {survivalObservation,threatRadius,sealedOff} from './survival.js'
-import {threatReach} from './threat-reach.js'
+import {survivalObservation,threatRadius,sealedOff,outOfReach} from './survival.js'
+import {threatReach,threatRoutes} from './threat-reach.js'
 import {fillCell,solidCube,scaffoldItems,plainCube} from './scaffold.js'
 import {DoorAwareMovements} from './navigation.js'
 import {inProtectedSite} from './primitives.js'
@@ -168,10 +168,10 @@ export const pressingOutside=(bot,project=null)=>{
    const o=new Vec3(project.build.origin.x,project.build.origin.y,project.build.origin.z),layout=shelterLayout(project.build.design),doorstep=o.plus(layout.door).plus(layout.out)
    for(const t of blocked){
     const from={entity:{position:new Vec3(t.position.x,t.position.y,t.position.z)},blockAt:p=>bot.blockAt(p),registry:bot.registry,game:bot.game}
-    t.reach=threatReach(from,[{position:doorstep}])[0]
+    const route=threatRoutes(from,[{position:doorstep}])[0];t.reach=route.reach;t.routeSteps=route.steps
    }
   }
-  return near.filter(t=>!sealedOff(t)).sort((a,b)=>a.distance-b.distance)[0]||null
+  return near.filter(t=>!outOfReach(t)).sort((a,b)=>a.distance-b.distance)[0]||null
  }catch{return null}
 }
 // Why the door stays shut, or null. One answer for every way out: the
