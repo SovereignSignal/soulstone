@@ -324,8 +324,12 @@ test('goto dig:true will not tunnel through workstations, storage, lights or doo
   const block = name => ({ name, boundingBox: 'block', position: new Vec3(8, 64, 0), diggable: true })
   for (const name of ['furnace', 'crafting_table', 'barrel', 'torch', 'red_bed', 'oak_door', 'spruce_trapdoor', 'oak_fence_gate', 'oak_wall_sign', 'white_shulker_box', 'anvil'])
     assert.ok(digging.exclusionBreak(block(name)) >= 100, `${name} must not be a tunnel candidate`)
-  for (const name of ['stone', 'obsidian', 'deepslate'])
+  for (const name of ['stone', 'deepslate', 'dirt', 'iron_ore', 'oak_leaves'])
     assert.equal(digging.exclusionBreak(block(name)), 0, `${name} stays breakable`)
+  // A world shared with players (4 October): never tunnel through what someone
+  // built, a portal included. Obsidian is mined on purpose by make_obsidian.
+  for (const name of ['oak_planks', 'cobblestone', 'glass', 'white_wool', 'bricks', 'oak_log', 'obsidian', 'stone_bricks'])
+    assert.ok(digging.exclusionBreak(block(name)) >= 100, `${name} is a building block, not a tunnel`)
 })
 
 test('goto dig:true prices digging like travel, so a short detour beats a tunnel', async () => {
@@ -697,4 +701,15 @@ test('landing wait remains cancellable', async () => {
   context.check=()=>{if(cancelled)throw new Error('cancelled')}
   await assert.rejects(()=>digToward(bot,{kind:'dig',goal:validateDigGoal({x:1,y:64,z:0,count:1})},context),/cancelled/)
   assert.equal(bot._dug||0,0)
+})
+
+test('dig never breaks a building block: it says to go around', async () => {
+  // The family world is shared with players from 4 October; dig breaks only natural ground.
+  const planks = fakeBot({ fills: [[1, 64, 0, { name: 'oak_planks', boundingBox: 'block', diggable: true }], [1, 63, 0, stone]] })
+  planks.canDigBlock = eyeReach(planks)
+  await assert.rejects(() => digToward(planks, { kind: 'dig', goal: validateDigGoal({ x: 1, y: 64, z: 0, count: 1 }) }, deps()), /oak_planks at 1,64,0 is not natural ground.*Go around it/)
+  assert.equal(planks._dug || 0, 0)
+  const { isNatural } = await import('../src/natural.js')
+  for (const n of ['stone', 'deepslate', 'grass_block', 'gravel', 'iron_ore', 'deepslate_diamond_ore', 'oak_leaves', 'netherrack', 'orange_terracotta']) assert.equal(isNatural(n), true, n)
+  for (const n of ['oak_planks', 'oak_log', 'cobblestone', 'glass', 'white_wool', 'bricks', 'obsidian', 'chest', 'orange_glazed_terracotta', '', undefined]) assert.equal(isNatural(n), false, String(n))
 })

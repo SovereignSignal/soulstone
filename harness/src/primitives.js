@@ -1,3 +1,4 @@
+import { isNatural } from './natural.js'
 import {scaffoldItems} from './scaffold.js'
 // Thin movement/dig primitives the planner can compose when travel/climb refuse.
 // goto walks to a point (optionally digging through harvestable blocks); dig
@@ -119,6 +120,8 @@ export function movementProfile(bot, { dig, protectedSites = [], wade = false })
     movement.exclusionAreasBreak.push(block => {
       if (!block?.position) return 100
       if (LIQUID.has(block.name) || GRAVITY.has(block.name) || protectedBlock(block.name)) return 100
+      // Only natural ground: never tunnel through something a player built.
+      if (block.boundingBox === 'block' && !isNatural(block.name)) return 100
       if (inProtectedSite(block.position, protectedSites)) return 100
       const above = bot.blockAt(block.position.offset(0, 1, 0))
       if (above && (LIQUID.has(above.name) || GRAVITY.has(above.name))) return 100
@@ -351,6 +354,7 @@ function refuseDigCell(bot, cell, { protectedSites = [], role = 'target' } = {})
   }
   // Reach is the caller's to fix by walking; only an unbreakable block is refused here.
   if (block.diggable === false) return `${block.name} at ${key(cell)} cannot be broken`
+  if (!isNatural(block.name)) return `${block.name} at ${key(cell)} is not natural ground; dig breaks only stone, soil, sand, ore and leaves, so it never wrecks something a player built. Go around it.`
   return null
 }
 
