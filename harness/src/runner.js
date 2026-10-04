@@ -60,7 +60,6 @@ export class Runner extends EventEmitter {
     bot.loadPlugin(pathfinder)
     bot.on('path_update',result=>this.pathUpdated(bot,result))
     bot.loadPlugin(collection.plugin)
-    installEconomicalTools(bot)
     endClientTicks(bot)
     if (this.chatControl) { attachChatControl(this, bot); attachIdleCompany(this, bot) }
     this.joinTimer = setTimeout(() => bot.end('join timeout'), this.options.auth === 'microsoft' ? 1200000 : 30000)
@@ -69,6 +68,10 @@ export class Runner extends EventEmitter {
       clearTimeout(this.joinTimer); clearTimeout(this.stableTimer)
       // Before any dig or path search reads a dig time; see tool-tiers.js.
       correctToolTierMaterials(bot.registry)
+      // After spawn: mineflayer injects plugins (pathfinder, tool) only once the
+      // connection allows it, so installing at creation wrapped nothing (the
+      // test-world canary still dug with the diamond pickaxe, 4 October).
+      installEconomicalTools(bot)
       this.ready = true
       this.respawnPending = false; clearTimeout(this.respawnTimer)
       const movements = new DoorAwareMovements(bot)
