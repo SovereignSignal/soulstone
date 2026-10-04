@@ -143,10 +143,12 @@ import {attachIdleCompany} from '../src/chat-control.js'
 test('with nothing to do it looks at the nearest player and greets each player once',async()=>{
  // Family world, 4 October: Sov stood beside the idle bot and saw it do nothing at all.
  const said=[],looks=[],runner={owner:'SovereignSignal',say:t=>said.push(t),task:null,listening:{allows:()=>true}}
- const bot=new EventEmitter();bot.username='SoulStone303';bot.entity={position:new Vec3(0,64,0)};bot.pathfinder={isMoving:()=>false}
+ // Attached before login, as the runner does: the name arrives later.
+ const bot=new EventEmitter();bot.entity={position:new Vec3(0,64,0)};bot.pathfinder={isMoving:()=>false}
  bot.lookAt=async p=>{looks.push(p)}
  bot.players={Ada:{username:'Ada',entity:{username:'Ada',position:new Vec3(3,64,0),height:1.8}},Bo:{username:'Bo',entity:{username:'Bo',position:new Vec3(30,64,0)}}}
- attachIdleCompany(runner,bot)
+ attachIdleCompany(runner,bot);bot.username='SoulStone303'
+ bot.players.SoulStone303={username:'SoulStone303',entity:{username:'SoulStone303',position:new Vec3(0,64,0)}}
  for(let i=0;i<20;i++)bot.emit('physicsTick')
  assert.deepEqual(said,['Hi Ada! I am SoulStone303. Say "soul" and what you want, like: soul, follow me.'],'greets the near player once, not the far one')
  assert.ok(looks.length>=1);assert.deepEqual([looks[0].x,looks[0].y,looks[0].z],[3,65.8,0])

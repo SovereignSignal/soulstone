@@ -78,14 +78,17 @@ export function attachChatControl(runner, bot) {
 // near, with one line on how to talk to it.
 export const LOOK_RANGE=8,GREET_RANGE=16
 export function attachIdleCompany(runner,bot){
- const greeted=new Set(),name=bot.username
+ // The name is read when needed: at attach time the login has not finished
+ // and bot.username is not set yet (it greeted itself as "undefined").
+ const greeted=new Set()
  const greet=who=>{
-  if(!who||who===name||greeted.has(who))return
+  const name=bot.username
+  if(!who||!name||who===name||greeted.has(who))return
   if(runner.listening&&!runner.listening.allows(who,runner.owner))return
   greeted.add(who);runner.say(`Hi ${who}! I am ${name}. Say "soul" and what you want, like: soul, follow me.`)
  }
  const idle=()=>!['running','paused'].includes(runner.task?.status)&&!bot.pathfinder?.isMoving?.()
- const near=range=>Object.values(bot.players||{}).map(p=>p.entity).filter(e=>e&&e!==bot.entity&&e.position&&bot.entity?.position)
+ const near=range=>Object.values(bot.players||{}).filter(p=>p.username!==bot.username).map(p=>p.entity).filter(e=>e&&e!==bot.entity&&e.position&&bot.entity?.position)
   .map(e=>({e,d:e.position.distanceTo(bot.entity.position)})).filter(x=>x.d<=range).sort((a,b)=>a.d-b.d)
  let ticks=0
  bot.on('physicsTick',()=>{
@@ -97,6 +100,6 @@ export function attachIdleCompany(runner,bot){
    bot.lookAt(nearest.e.position.offset(0,nearest.e.height||1.62,0)).catch?.(()=>{})
   }catch{}
  })
- bot.on('playerJoined',player=>{if(player?.username&&player.username!==name)setTimeout(()=>greet(player.username),3000)})
+ bot.on('playerJoined',player=>{if(player?.username)setTimeout(()=>greet(player.username),3000)})
  return {greeted}
 }
