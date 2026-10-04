@@ -25,7 +25,11 @@ const WALL_BREACHING=new Set(['warden','vex','wither','ender_dragon','ghast'])
 // creeper within fuse-and-blast range. The melee floor was six, and lab run 27
 // (3 October, y 50, cave country) spent its night re-sheltering from
 // skeletons and cave spiders at five and six blocks, every one sealed.
-export const ROCK_FLOORS={melee:3,creeper:CLOSE_FLOORS.creeper}
+// A creeper lights its fuse only near a target it can see, so one sealed
+// behind rock never fuses: test run 47 (4 October) held the bot walled in at
+// y 29 over a cave of four creepers 5 to 7 blocks below, all sealed and out of
+// sight, under the old floor of 10. Four keeps a margin over the fuse range.
+export const ROCK_FLOORS={melee:3,creeper:4}
 export const breachesRock=t=>WALL_BREACHING.has(t.name)||t.distance<=(t.name==='creeper'?ROCK_FLOORS.creeper:ROCK_FLOORS.melee)
 export const sealedOff=t=>t.reach==='sealed'&&t.sightline?.status==='blocked'&&!breachesRock(t)
 // Out of sight with only a long way round: a hostile that cannot see the bot

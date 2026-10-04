@@ -57,8 +57,10 @@ test('hostiles the exits cannot reach do not hold a shelter closed; a route, a c
  assert.equal(burrowClearance(sealed.bot,{exits}).clear,true,'the trial 42 wait')
  const open=deep({mobs:RECORDED});breach(open.cells)
  assert.equal(burrowClearance(open.bot,{exits}).clear,false,'the west exit opens onto the cave')
- const close=deep({mobs:[['creeper',-595.5,-45,-332.5]]})
- assert.equal(burrowClearance(close.bot,{exits}).clear,false,'a creeper inside fuse range counts through rock')
+ const close=deep({mobs:[['creeper',-595.5,-39,-332.5]]})
+ assert.equal(burrowClearance(close.bot,{exits}).clear,false,'a creeper within four blocks counts through rock')
+ const below=deep({mobs:[['creeper',-595.5,-45,-332.5]]})
+ assert.equal(burrowClearance(below.bot,{exits}).clear,true,'sealed nine below, it cannot see the bot to fuse (run 47)')
  // A ranged mob holds a shelter out to twenty-four blocks, past the default search radius.
  const far=deep({mobs:[['skeleton',-571.5,-36,-332.5]]});for(let x=2;x<=26;x++)for(const y of [0,1])far.cells.set(HUT.offset(x,y,0).toString(),'air')
  assert.equal(burrowClearance(far.bot,{exits}).clear,false,'a skeleton down an open corridor from the exit')

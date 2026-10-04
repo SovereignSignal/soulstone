@@ -62,7 +62,7 @@ test('a hostile sealed off behind rock interrupts only inside the close floors; 
  const at=(name,distance)=>({...observed,nearbyThreats:[{name,distance,risk:'potential_hostile',reach:'sealed',sightline:{status:'blocked'}}]})
  assert.equal(emergencyReason(at('skeleton',16)),null)
  assert.equal(emergencyReason(at('zombie',8)),null)
- assert.equal(emergencyReason(at('creeper',10)),THREAT_INTERRUPTION,'a creeper in fuse range')
+ assert.equal(emergencyReason(at('creeper',4)),THREAT_INTERRUPTION,'a creeper near fuse range');assert.equal(emergencyReason(at('creeper',10)),null,'sealed at ten it cannot see the bot to fuse')
  assert.equal(emergencyReason(at('zombie',3)),THREAT_INTERRUPTION,'a hostile through one block of rock');assert.equal(emergencyReason(at('zombie',6)),null,'six blocks of rock is rock (lab run 27)')
  assert.equal(emergencyReason(at('warden',9)),THREAT_INTERRUPTION,'a warden hits through walls')
  assert.equal(emergencyReason(at('vex',9)),THREAT_INTERRUPTION,'a vex passes through walls')
@@ -112,7 +112,7 @@ test('a shut door is a wall to the reach flood below Hard; open, or on Hard, it 
  assert.equal(make({open:false}),'sealed');assert.equal(make({open:true}),'open');assert.equal(make({open:false,difficulty:'hard'}),'open','on Hard a zombie breaks the door')
 })
 
-test('a sealed melee mob counts only within three blocks; a sealed creeper within ten; wall-breachers always',()=>{
+test('a sealed melee mob counts only within three blocks; a sealed creeper within four; wall-breachers always',()=>{
  // Lab run 27, 3 October: at y 50 the bot was interrupted every few seconds by
  // skeletons and cave spiders at 5.2 to 6.0 blocks, each sealed and blocked,
  // and spent the night burrowing, clearing and unburrowing in place.
@@ -120,7 +120,7 @@ test('a sealed melee mob counts only within three blocks; a sealed creeper withi
  const sealed=(name,distance)=>({risk:'potential_hostile',name,distance,reach:'sealed',sightline:{status:'blocked'}})
  assert.equal(emergencyReason({...o,nearbyThreats:[sealed('skeleton',5.3),sealed('cave_spider',4),sealed('zombie',3.1)]}),null)
  assert.equal(emergencyReason({...o,nearbyThreats:[sealed('zombie',2.9)]}),THREAT_INTERRUPTION,'through one block of rock it still counts')
- assert.equal(emergencyReason({...o,nearbyThreats:[sealed('creeper',8)]}),THREAT_INTERRUPTION);assert.equal(emergencyReason({...o,nearbyThreats:[sealed('creeper',11)]}),null)
+ assert.equal(emergencyReason({...o,nearbyThreats:[sealed('creeper',3.9)]}),THREAT_INTERRUPTION);assert.equal(emergencyReason({...o,nearbyThreats:[sealed('creeper',5.5)]}),null,'run 47: sealed creepers in the cave below')
  assert.equal(emergencyReason({...o,nearbyThreats:[sealed('warden',9)]}),THREAT_INTERRUPTION)
  assert.equal(emergencyReason({...o,nearbyThreats:[{...sealed('zombie',5),reach:'open'}]}),THREAT_INTERRUPTION,'an open route is an interruption at any distance inside the radius')
 })
