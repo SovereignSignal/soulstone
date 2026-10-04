@@ -11,6 +11,22 @@ import {observedSightline} from './visibility.js'
 export const DEFENDABLE_MOBS=new Set(['zombie','husk','spider','skeleton'])
 export const DEFENSE_HEALTH={zombie:12,husk:12,spider:12,skeleton:16}
 export const ENGAGE_RANGE=10
+// Armour changes the arithmetic. In full iron a zombie's hit falls from 3 to
+// about 1.2, and digging a burrow with two zombies on its back cost the test
+// bot 14 health in ten seconds and then its life (4 October 19:09Z), because
+// the one-mob rule sent it to dig. Armoured to GROUP_ARMOR points or more, it
+// fights up to GROUP_SIZE melee mobs, nearest first; ranged mobs, creepers and
+// bigger groups still send it to shelter.
+export const GROUP_ARMOR=15,GROUP_SIZE=3,GROUP_MOBS=new Set(['zombie','husk','spider'])
+const ARMOR_POINTS={leather_helmet:1,leather_chestplate:3,leather_leggings:2,leather_boots:1,golden_helmet:2,golden_chestplate:5,golden_leggings:3,golden_boots:1,
+ chainmail_helmet:2,chainmail_chestplate:5,chainmail_leggings:4,chainmail_boots:1,iron_helmet:2,iron_chestplate:6,iron_leggings:5,iron_boots:2,turtle_helmet:2,
+ diamond_helmet:3,diamond_chestplate:8,diamond_leggings:6,diamond_boots:3,netherite_helmet:3,netherite_chestplate:8,netherite_leggings:6,netherite_boots:3}
+export function armorPoints(bot){
+ return ['head','torso','legs','feet'].reduce((n,slot)=>{const i=bot?.getEquipmentDestSlot?.(slot);return n+(ARMOR_POINTS[Number.isInteger(i)?bot.inventory?.slots?.[i]?.name:'']||0)},0)
+}
+// A group fight is allowed while every hostile near is a melee mob of the
+// group kinds, there are at most GROUP_SIZE of them, and the armour holds.
+export function groupFightable(bot,threats){return threats.length>=1&&threats.length<=GROUP_SIZE&&threats.every(t=>GROUP_MOBS.has(t.name))&&armorPoints(bot)>=GROUP_ARMOR}
 const weapons={wooden_axe:7,golden_axe:7,stone_axe:9,iron_axe:9,diamond_axe:9,netherite_axe:10,wooden_sword:4,golden_sword:4,stone_sword:5,iron_sword:6,diamond_sword:7,netherite_sword:8}
 const point=p=>new Vec3(p.x,p.y,p.z)
 const distance=(a,b)=>point(a).distanceTo(point(b))
@@ -67,16 +83,17 @@ export function defenseDecision(bot,{healthFloor=12,foodFloor=10,mobMargins=true
  if(s.gameMode!=='survival'||!['easy','normal','hard'].includes(s.difficulty))return reject('Combat requires observed hostile Survival difficulty')
  if(!Number.isFinite(s.health)||s.health<healthFloor||s.food<foodFloor||!Number.isFinite(s.food))return reject('Health or food is too low to engage')
  if(!knownPoint(bot.entity?.position)||!bot.entity.onGround||bot.entity.isInWater||bot.entity.isInLava||bot.currentWindow)return reject('Not ready on stable ground with inventory closed')
- const threats=dangerNearby(bot,ENGAGE_RANGE)
- if(threats.length!==1||threats[0].distance>ENGAGE_RANGE||!DEFENDABLE_MOBS.has(threats[0].name))return reject('Threat type or nearby numbers exceed basic melee defense')
+ const threats=dangerNearby(bot,ENGAGE_RANGE).sort((a,b)=>a.distance-b.distance)
+ const group=threats.length>1&&groupFightable(bot,threats)
+ if(!group&&(threats.length!==1||threats[0].distance>ENGAGE_RANGE||!DEFENDABLE_MOBS.has(threats[0].name)))return reject('Threat type or nearby numbers exceed basic melee defense')
  if(mobMargins&&s.health<DEFENSE_HEALTH[threats[0].name])return reject(`Health is too low to engage a ${threats[0].name}`)
- const target=Object.values(bot.entities||{}).find(e=>identified(e)&&e.name===threats[0].name&&distance(e.position,bot.entity.position)<=ENGAGE_RANGE)
+ const target=Object.values(bot.entities||{}).filter(e=>identified(e)&&e.name===threats[0].name&&distance(e.position,bot.entity.position)<=ENGAGE_RANGE).sort((a,b)=>distance(a.position,bot.entity.position)-distance(b.position,bot.entity.position))[0]
  // A blocked line (wall, doorway, roof) is not a reason to hide: the defense
  // loop closes in through doors and gives up after twelve seconds without a strike.
  if(!target)return reject('Target identity is unavailable')
  const weapon=weaponFor(bot,target)
  if(!weapon)return reject('No serviceable melee weapon safe to use near bystanders')
- return {engage:true,target:{targetId:target.id,targetUuid:target.uuid,targetName:target.name},weapon:weapon.name}
+ return {engage:true,target:{targetId:target.id,targetUuid:target.uuid,targetName:target.name},weapon:weapon.name,...(group?{group:threats.length}:{})}
 }
 export function validateDefenseGoal(g){
  if(!g||!Number.isInteger(g.targetId)||g.targetId<0||typeof g.targetUuid!=='string'||!/^[\da-f-]{36}$/i.test(g.targetUuid)||!DEFENDABLE_MOBS.has(g.targetName)||typeof g.connectionId!=='string'||!/^[\da-f-]{36}$/i.test(g.connectionId))throw new Error('Defense requires an observed mob identity and current connection')
@@ -116,7 +133,7 @@ export async function defendAgainstMob(bot,task,{check,stage,progress,persist,mo
   const threats=dangerNearby(bot)
   // Cornered, the other mobs are why: only a creeper close by ends the fight.
   if(goal.cornered){if(threats.some(e=>e.name==='creeper'&&e.distance<=CORNER_RANGE))throw new Error('A creeper closed in; the cornered fight ends')}
-  else if(threats.length>1||threats.some(e=>e.name!==goal.targetName||distance(e.position,target.position)>.05))throw new Error('Additional nearby threats require retreat')
+  else if(!groupFightable(bot,threats)&&(threats.length>1||threats.some(e=>e.name!==goal.targetName||distance(e.position,target.position)>.05)))throw new Error('Additional nearby threats require retreat')
  }
  try{
   check();stage('arming');await bot.equip(weapon,'hand');guard()

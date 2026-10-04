@@ -151,3 +151,21 @@ test('cornered, the nearest mob in reach is fought whatever the count, down to t
  assert.equal(cornerWeapon(f.bot,f.target).name,'diamond_pickaxe');assert.equal(corneredDecision(f.bot).weapon,'diamond_pickaxe')
  f.target.position=new Vec3(6,64,0);second.position=new Vec3(0,64,6);assert.equal(corneredDecision(f.bot).engage,false,'nothing within four blocks is not cornered')
 })
+
+import {armorPoints,groupFightable,GROUP_ARMOR} from '../src/combat.js'
+test('in full iron the bot fights up to three zombies, husks or spiders, nearest first; skeletons, creepers and crowds still send it to shelter',()=>{
+ // Test world, 4 October 19:09Z: two zombies followed the bot while it dug a
+ // burrow, 18.6 to 4.8 health in ten seconds, then death. It wore full iron
+ // and carried an axe, and the one-mob rule never let it swing.
+ const f=fixture(),zombie=(id,x)=>({id,uuid:'10000000-0000-0000-0000-00000000000'+id,...registry('1.21.4').entitiesByName.husk,name:'husk',position:new Vec3(x,64,0)})
+ f.bot.entities[3]=zombie(3,4)
+ assert.equal(defenseDecision(f.bot).engage,false,'two husks, no armour: shelter, as before')
+ const slots=[];f.bot.inventory.slots=slots;f.bot.getEquipmentDestSlot=s=>({head:5,torso:6,legs:7,feet:8})[s]
+ for(const [i,n] of [[5,'iron_helmet'],[6,'iron_chestplate'],[7,'iron_leggings'],[8,'iron_boots']])slots[i]={name:n}
+ assert.equal(armorPoints(f.bot),15);assert.equal(GROUP_ARMOR,15)
+ const d=defenseDecision(f.bot);assert.equal(d.engage,true);assert.equal(d.target.targetId,7,'the nearer one first');assert.equal(d.group,2)
+ f.bot.entities[4]=zombie(4,5);assert.equal(defenseDecision(f.bot).engage,true,'three');f.bot.entities[5]=zombie(5,6);assert.equal(defenseDecision(f.bot).engage,false,'four is a crowd')
+ delete f.bot.entities[5];f.bot.entities[4]={...registry('1.21.4').entitiesByName.skeleton,id:4,uuid:'10000000-0000-0000-0000-000000000004',name:'skeleton',position:new Vec3(5,64,0)}
+ assert.equal(defenseDecision(f.bot).engage,false,'a skeleton in the group: shelter')
+ slots[6]=null;assert.equal(armorPoints(f.bot),9);assert.equal(groupFightable(f.bot,[{name:'husk'},{name:'husk'}]),false,'without the chestplate, no group fight')
+})
