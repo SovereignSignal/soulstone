@@ -1,3 +1,5 @@
+import {remainingDurability} from './supplies.js'
+import {PRECIOUS,TOOL_RESERVE} from './tool-choice.js'
 import {roofed} from './observations.js'
 import {projectFootprints} from './site-survey.js'
 import {inProtectedSite} from './primitives.js'
@@ -147,6 +149,7 @@ export function miningGoal(block,world){
  const near=new goals.GoalNear(block.position.x,block.position.y,block.position.z,1.5)
  return block.shapes?.length===0?near:new goals.GoalCompositeAll([new goals.GoalLookAtBlock(block.position,world),near])
 }
+const SEARCH_TUNNEL_USES=64
 export async function executeWorldSkill(bot,task,context,gather) {
  const {check,progress,stage,movements}=context
  const walking=movements
@@ -418,7 +421,10 @@ export async function executeWorldSkill(bot,task,context,gather) {
   // (trial 24's seven stance walks each failed at once from inside that water).
   // Under rock a search leg tunnels at its own depth; the surface walk cannot
   // start from a tunnel (test run 45, 3 October: six legs failed in a minute).
-  const travel=to=>roofed(bot)?dig(new Vec3(to.x,Math.floor(bot.entity.position.y),to.z),2,false)
+  // A tunnelled leg costs a pickaxe use per block. Only plain pickaxes pay for
+  // it: the diamond one wore out this way in the family world (4 October).
+  const plainPickUses=()=>bot.inventory.items().filter(i=>/_pickaxe$/.test(i.name)&&!PRECIOUS.test(i.name)).reduce((n,i)=>n+Math.max(0,remainingDurability(i)-TOOL_RESERVE),0)
+  const travel=to=>roofed(bot)?(plainPickUses()<SEARCH_TUNNEL_USES?Promise.reject(new Error(`plain pickaxes have ${plainPickUses()} uses left, too few to tunnel a search leg; craft a stone pickaxe first`)):dig(new Vec3(to.x,Math.floor(bot.entity.position.y),to.z),2,false))
    :travelTo(bot,{kind:'travel',goal:{x:to.x,y:Math.floor(bot.entity.position.y),z:to.z}},{check,stage,progress,movements:walking})
   return makeObsidian(bot,task,{check,progress,stage,walk,settle,count,persist:context.persist,fill,travel,mine:(name,total)=>mineExposed(name,total,[task.kind]),approach:(p,range)=>dig(p,range,true)})
  }

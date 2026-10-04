@@ -1,3 +1,4 @@
+import {economicalTool} from './tool-choice.js'
 import {inBackExit} from './retreat.js'
 import {remainingDurability,expeditionNeeds} from './supplies.js'
 export {remainingDurability} from './supplies.js'
@@ -139,9 +140,8 @@ export async function executeExpedition(bot,task,api){
   if(!movement.safeToBreak(block)||supportsPlayer(vec(p),bot.entity.position))throw new Error(`Unsafe excavation at ${key(p)} (${block?.name||'unloaded'})`)
   if(bot.entity.position.distanceTo(vec(p).offset(.5,.5,.5))>4.5)throw new Error('Excavation face out of reach')
   const harvest=Object.keys(block.harvestTools||{}).map(Number)
-  const tools=bot.inventory.items().filter(i=>remainingDurability(i)>8&&(!harvest.length||harvest.includes(i.type)))
-  tools.sort((a,b)=>block.digTime(a.type)-block.digTime(b.type)||remainingDurability(b)-remainingDurability(a))
-  const tool=tools[0]
+  // The cheapest helpful tool, never a diamond pickaxe for plain stone (tool-choice.js).
+  const tool=economicalTool(bot,block)
   if(harvest.length&&!tool)throw new Error('Tool durability reserve reached; acquire an additional pickaxe at base')
   state.pending={position:point(p),block:block.name};state.phase='excavating';save()
   if(tool){await bot.equip(tool,'hand');check()}

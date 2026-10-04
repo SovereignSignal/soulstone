@@ -19,6 +19,7 @@ import { attachChatControl, attachIdleCompany } from './chat-control.js'
 import { endClientTicks } from './tick-end.js'
 import {fireObservation} from './survival.js'
 import {correctToolTierMaterials} from './tool-tiers.js'
+import {installEconomicalTools} from './tool-choice.js'
 
 const { pathfinder, goals } = pathfinding
 // The longest idle window a command may ask for; real progress slides it forward.
@@ -59,6 +60,7 @@ export class Runner extends EventEmitter {
     bot.loadPlugin(pathfinder)
     bot.on('path_update',result=>this.pathUpdated(bot,result))
     bot.loadPlugin(collection.plugin)
+    installEconomicalTools(bot)
     endClientTicks(bot)
     if (this.chatControl) { attachChatControl(this, bot); attachIdleCompany(this, bot) }
     this.joinTimer = setTimeout(() => bot.end('join timeout'), this.options.auth === 'microsoft' ? 1200000 : 30000)

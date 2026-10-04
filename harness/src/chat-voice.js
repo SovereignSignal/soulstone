@@ -45,7 +45,9 @@ export function gameLine(text){
  for(const [pattern,plain] of PLAIN){const m=pattern.exec(t);if(m)return plain===null?null:plain.replace(/\$(\d)/g,(_,i)=>m[+i]||'')}
  if(/^(?:I could not finish:|Blocked:).*(?:not visible|visible player|cannot see you|not in view|come into view)/i.test(t))return 'I cannot see you! Come closer so I can find you.'
  const blocked=/^Blocked: (.*?)(?:\. I will inspect the result and revise the plan\.?)?$/.exec(t)
- if(blocked)t=`That did not work (${blocked[1].replace(/\.$/,'').slice(0,120)}). Trying something else.`
+ // The reason is for the app; a kid in game chat gets the gist (4 October:
+ // "That did not work (Goto leg exceeded its 25 second budget ...)").
+ if(blocked)return 'Hmm, that did not work. Trying something else!'
  t=t.replace(/^I will Going to /,'I am going to ').replace(/^I will Digging /,'I am digging ')
  if(t.length>220){const cut=t.slice(0,220),end=Math.max(cut.lastIndexOf('. '),cut.lastIndexOf('! '));t=end>80?cut.slice(0,end+1):cut.replace(/\s+\S*$/,'')+'…'}
  return t

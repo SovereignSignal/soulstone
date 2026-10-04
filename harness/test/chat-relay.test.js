@@ -93,7 +93,7 @@ test('game chat gets plain lines, never the planner\'s bookkeeping',()=>{
  assert.equal(gameLine('That set of completion criteria would pass without doing the work. Restating them.'),null)
  assert.equal(gameLine('Automatically continuing the saved request: mine 8 iron'),null)
  assert.equal(gameLine('The executable checks passed. Still needs your review: the chestplate is worn'),'Done!')
- assert.equal(gameLine('Blocked: No path to the goal!. I will inspect the result and revise the plan.'),'That did not work (No path to the goal!). Trying something else.')
+ assert.equal(gameLine('Blocked: No path to the goal!. I will inspect the result and revise the plan.'),'Hmm, that did not work. Trying something else!')
  assert.equal(gameLine('I will Going to -624,68,-367, digging through'),'I am going to -624,68,-367, digging through')
  assert.ok(gameLine('x '.repeat(200)).length<=221)
 })
