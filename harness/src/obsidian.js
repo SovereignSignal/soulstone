@@ -220,7 +220,7 @@ export async function makeObsidian(bot,task,{check,progress,stage,walk,settle,mi
     if(opening){
      record.openings=(record.openings||0)+1;persist?.()
      try{await openSealed(bot,opening,{check,progress,stage,approach,settle});progress(`Opened a pour site above the rim at ${key(opening.rim)}`);continue}
-     catch(error){check();skip.add(key(opening.rim));record.skipped=[...skip];persist?.();reason=`opening sealed lava at ${key(opening.lava)} failed: ${error.message}`;continue}
+     catch(error){check();skip.add(key(opening.rim));record.skipped=[...skip];persist?.();reason=`opening sealed lava at ${key(opening.lava)} failed: ${error.message}`;progress(`Opening sealed lava at ${key(opening.lava)} failed: ${error.message}`);continue}
     }
    }
    if(!travel||legs>=SEARCH_LEGS)break
