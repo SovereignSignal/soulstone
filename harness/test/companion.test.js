@@ -242,6 +242,24 @@ test('a generic structure beside a house is not silently forced into a shelter',
  assert.equal(r.commands.find(x=>x.action==='build').goal.purpose,undefined)
 })
 
+// Lab, 5 October: a creeper cratered the base floor and blew the door out.
+// Every retreat refused the base for an hour, and the planner, reading only
+// built:true in projects, never thought of repairing it.
+test('the planner is told when the saved base no longer passes the retreat inspection',async()=>{
+ const design=[]
+ for(let x=0;x<4;x++)for(let z=0;z<4;z++)for(let y=0;y<3;y++)if((y===2||x===0||x===3||z===0||z===3)&&!(x===1&&z===0&&y<2))design.push({x,y,z,block:'cobblestone'})
+ const cells=new Map(design.map(d=>[new Vec3(10+d.x,64+d.y,20+d.z).toString(),d.block]))
+ cells.set(new Vec3(11,63,21).toString(),'air')
+ const registry=(await import('minecraft-data')).default('1.21.4')
+ let observed
+ const [r,c]=setup(async(_,o)=>{observed=o;return {reply:'Noted.',steps:[]}})
+ r.bot.registry=registry;r.bot.findBlocks=()=>[]
+ r.bot.blockAt=p=>{const name=cells.get(p.toString())??(p.y>=64?'air':'dirt');return {name,position:p.clone(),boundingBox:registry.blocksByName[name]?.boundingBox}}
+ c.projects.base={build:{origin:{x:10,y:64,z:20},wood:'oak_log',design},built:true,stations:{torch:{position:{x:12,y:64,z:22},confirmed:true}}}
+ await c.submit('how is the house')
+ assert.equal(observed.baseCondition.usable,false);assert.match(observed.baseCondition.reason,/lacks support at 11,64,21/)
+})
+
 test('base projects and station locations survive unrelated tasks and a controller restart',async()=>{
  const [r,c]=setup(async()=>({reply:'Hello.',steps:[]}))
  c.projects.base={build:{origin:{x:4,y:64,z:5},wood:'spruce_log',design:[{x:0,y:0,z:0,block:'wood_planks'}]},stations:{chest:{position:{x:2,y:64,z:5},confirmed:true}}};c.persist()

@@ -272,6 +272,16 @@ export class Teammate extends EventEmitter {
     const speaker=this.requestProgress?.requester;if(!speaker)return null
     return {speaker,channel:'game chat',audience:this.runner.listening?.current?.audience||null}
   }
+  // projects.base says the base was built, not that it still stands. Lab, 5
+  // October: a creeper cratered the floor and blew the door out; every retreat
+  // refused the base for an hour and the planner, reading built:true, never
+  // thought to repair it. This is the retreat's own inspection, as a fact.
+  baseCondition(){
+    const b=this.runner.bot,base=this.projects.base
+    if(!base?.build?.design?.length||base.built===false||typeof b?.blockAt!=='function')return null
+    try{inspectRetreatShelter(b,base,{occupants:false});return {usable:true}}
+    catch(error){return /: unloaded$/.test(error.message)?{usable:null,reason:'The base is too far away to see from here'}:{usable:false,reason:error.message}}
+  }
   snapshot() {
     const b = this.runner.bot, owner = this.playingAsOwner() ? null : b?.players?.[this.runner.owner]?.entity
     const inventory = {}; for (const i of (b?.currentWindow||b?.inventory)?.items() || []) inventory[i.name] = (inventory[i.name] || 0) + i.count
@@ -952,7 +962,7 @@ export class Teammate extends EventEmitter {
         this.verifyGoal()
         const experience=this.experience.retrieve(text,this.requestProgress.goal,b?.version||'unknown')
         this.requestProgress.retrievedExperience=experience.map(e=>e.id);this.persist()
-        const observation=expeditionObservation({...(this.threatContextMode==='legacy'?{}:{recovery:recoveryContext(this,b)}),goal:this.requestProgress.goal,verification:this.requestProgress.verification,activeMilestone:missionFocus(this.requestProgress.mission),experience,terrain:this.requestProgress.goal?terrainSummary(b,{near:ownerPosition||position,projects:this.projects}):null,connected,owner,ownerVisible,position,ownerPosition,health,survival,foraging:berryObservation(b),footing:footingObservation(b),world:worldObservation(b,{goal:this.requestProgress.goal,requestedBlocks:this.requestProgress.requestedBlocks}),interactables:interactableObservation(b,{names:useTargetNames(this.requestProgress.goal)}),localTerrain:terrainSummary(b,{projects:this.projects}),tools,inventory,places,task:currentTask,nearby,feedback:feedback.slice(-24),projects:structuredClone(this.projects),existingBuild:existingTask?.kind==='build'?existingTask:null,requestProgress:structuredClone(this.requestProgress),lastDeath,conversation:this.conversation(),remainingPlanningRounds:PLANNING_ROUNDS-planningRound})
+        const observation=expeditionObservation({...(this.threatContextMode==='legacy'?{}:{recovery:recoveryContext(this,b)}),goal:this.requestProgress.goal,verification:this.requestProgress.verification,activeMilestone:missionFocus(this.requestProgress.mission),experience,terrain:this.requestProgress.goal?terrainSummary(b,{near:ownerPosition||position,projects:this.projects}):null,connected,owner,ownerVisible,position,ownerPosition,health,survival,foraging:berryObservation(b),footing:footingObservation(b),world:worldObservation(b,{goal:this.requestProgress.goal,requestedBlocks:this.requestProgress.requestedBlocks}),interactables:interactableObservation(b,{names:useTargetNames(this.requestProgress.goal)}),localTerrain:terrainSummary(b,{projects:this.projects}),tools,inventory,places,task:currentTask,nearby,feedback:feedback.slice(-24),projects:structuredClone(this.projects),baseCondition:this.baseCondition(),existingBuild:existingTask?.kind==='build'?existingTask:null,requestProgress:structuredClone(this.requestProgress),lastDeath,conversation:this.conversation(),remainingPlanningRounds:PLANNING_ROUNDS-planningRound})
         return observation
     }
     const activeStarted=Date.now();let stagnant=0,lastFingerprint=progressFingerprint(this.snapshot())
