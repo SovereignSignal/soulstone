@@ -500,6 +500,6 @@ export async function executeWorldSkill(bot,task,context,gather) {
  }
  const missing=resolved.filter(b=>bot.blockAt(origin.offset(b.x,b.y,b.z))?.name!==b.block)
  if(missing.length)throw new Error(`Build verification failed: ${missing.length} blocks differ`)
- const usability=layout?await finishShelter(bot,origin,layout,chosen,{check,walk,settle,acquire,progress,stage,persist:context.persist}):null
+ const usability=layout?await finishShelter(bot,origin,layout,chosen,{check,walk,settle,acquire,progress,stage,persist:context.persist,shaft}):null
  return {item:'build',count:resolved.length,origin:task.goal.origin,verifiedBlocks:resolved.length,...(usability?{usability}:{})}
 }

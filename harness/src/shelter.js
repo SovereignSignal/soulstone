@@ -54,13 +54,16 @@ export function inspectShelterSite(bot,origin,layout,{repair=false,support=null,
  }
  return remove
 }
+// `shaft`, the saved base's back-exit cell, is open by design: every inspection
+// here accepts it and the walkthrough never stands on it (lab run 60: the
+// repair refused its own back exit before the door went back).
 export async function finishShelter(bot,origin,layout,wood,api) {
- const {check,walk,settle,acquire,progress,stage,persist}=api
+ const {check,walk,settle,acquire,progress,stage,persist,shaft=null}=api
  const cleared=[]
  // Re-observe after every dig, including falling sand/gravel. Never clear a
  // wall, unknown block, player build or more than the nine-cell approach.
  for(let pass=0;pass<5;pass++){
-  const pending=inspectShelterSite(bot,origin,layout,{repair:true}).sort((a,b)=>b.y-a.y)
+  const pending=inspectShelterSite(bot,origin,layout,{repair:true,shaft}).sort((a,b)=>b.y-a.y)
   if(!pending.length)break
   for(const p of pending){
    check();const b=bot.blockAt(p);if(b?.name==='air')continue
@@ -71,7 +74,7 @@ export async function finishShelter(bot,origin,layout,wood,api) {
    cleared.push({x:p.x,y:p.y,z:p.z});persist()
   }
  }
- inspectShelterSite(bot,origin,layout)
+ inspectShelterSite(bot,origin,layout,{shaft})
  const door=origin.plus(layout.door),outside=door.plus(layout.out.scaled(2)),inside=door.minus(layout.out)
  const name=wood.replace('_log','_door')
  if(bot.blockAt(door)?.name==='air') {
@@ -93,9 +96,9 @@ export async function finishShelter(bot,origin,layout,wood,api) {
  async function visit(p,label){await walk(new goals.GoalBlock(p.x,p.y,p.z));check();if(bot.entity.position.distanceTo(p.offset(.5,0,.5))>0.9)throw new Error(`Shelter walkthrough missed ${label}`);visits.push({label,position:bot.entity.position.clone()});progress(`Shelter checked: ${label}`)}
  await visit(outside,'outside approach');await toggle(false);await toggle(true)
  await visit(inside,'entered through door')
- for(const p of layout.inside)await visit(origin.plus(p),'interior floor')
+ for(const p of layout.inside.map(p=>origin.plus(p)).filter(p=>!(shaft&&p.x===shaft.x&&p.y===shaft.y&&p.z===shaft.z)))await visit(p,'interior floor')
  await visit(inside,'inside doorway');await toggle(false);await toggle(true)
  await visit(outside,'exited through door');await toggle(false)
- inspectShelterSite(bot,origin,layout)
+ inspectShelterSite(bot,origin,layout,{shaft})
  return {status:'usable',interiorCells:layout.inside.length,headroom:layout.roof,door:{position:door,name,closed:true},cleared,visits}
 }

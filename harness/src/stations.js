@@ -210,7 +210,7 @@ export async function executeStationSkill(bot,task,api) {
  if(task.kind==='check_base') {
   for(const name of STATIONS)if(!project.stations[name]?.confirmed||bot.blockAt(vec(project.stations[name].position))?.name!==name)throw new Error(`Base is missing a verified ${name}`)
   const origin=vec(project.build.origin),layout=shelterLayout(project.build.design)
-  const usability=await finishShelter(bot,origin,shelterAccessLayout(layout),project.build.wood,api)
+  const usability=await finishShelter(bot,origin,shelterAccessLayout(layout),project.build.wood,{...api,shaft:project.backExit?.cell||null})
   const lighting=shelterLightBounds(bot,vec(project.stations.torch.position),layout.inside.flatMap(p=>[origin.plus(p),origin.plus(p).offset(0,1,0)]))
   if(lighting.some(p=>p.lowerBound<8))throw new Error('Cannot establish interior block light of at least 8 from the observed room; lighting needs repair')
   const contents=await chestInventory();await openWindow('furnace',async()=>{});await openWindow('crafting_table',async()=>{})

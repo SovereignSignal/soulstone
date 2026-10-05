@@ -226,7 +226,18 @@ test('the leave routine itself refuses at night and with a hostile in radius, wh
  const r=await retreatToShelter(day.w.bot,{kind:'leave_base',goal:{project:day.project}},day.api);assert.equal(r.receipt,'left_base_door_closed')
 })
 
-import {inspectShelterSite,shelterLayout} from '../src/shelter.js'
+import {inspectShelterSite,shelterLayout,finishShelter} from '../src/shelter.js'
+test('finishing the saved base accepts its open back exit and never walks onto it',async()=>{
+ // Lab run 60, 5 October: the repair put back a creeper-cratered floor, then
+ // refused its own back exit ("lacks support at -624,68,-364") before the door
+ // went back. The walkthrough would also have stepped into the shaft.
+ const h=hut({shaftOpen:true,backExit:{cell:{x:12,y:64,z:22},bottom:63}})
+ const o=new Vec3(10,64,20),layout=shelterLayout(design),walked=[]
+ const api={...h.api,acquire:async()=>{},persist(){},walk:async g=>{walked.push([g.x,g.y,g.z]);h.w.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}}
+ const r=await finishShelter(h.w.bot,o,layout,'spruce_log',{...api,shaft:h.project.backExit.cell})
+ assert.equal(r.status,'usable');assert.ok(!walked.some(([x,y,z])=>x===12&&y===64&&z===22),'never stands on the open shaft')
+ await assert.rejects(finishShelter(h.w.bot,o,layout,'spruce_log',api),/lacks support at 12,64,22/)
+})
 test('a repair of the saved base may clear a foreign block from its interior; otherwise it obstructs',()=>{
  // 3 October, family world: a climb left a cobblestone pillar block in the
  // cell just inside the door, and every repair refused it as "obstructed".
