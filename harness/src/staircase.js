@@ -30,6 +30,19 @@ export function nextStair(feet,target){
  const down=target.y<feet.y?1:0,next=feet.offset(sx,-down,sz)
  return {next,cells:down?[next.offset(0,2,0),next.offset(0,1,0),next]:[next.offset(0,1,0),next]}
 }
+export const MAX_DROP=3
+// The first cell at most MAX_DROP below `from` that stands on solid, dry ground,
+// with nothing liquid on the way down and not below the target's level.
+export function dropLanding(bot,from,target){
+ for(let k=1;k<=MAX_DROP;k++){
+  const cell=from.offset(0,-k,0),here=bot.blockAt(cell)
+  if(!here||LIQUID.has(here.name)||cell.y<target.y)return null
+  if(!open(here))return null
+  const under=bot.blockAt(cell.offset(0,-1,0))
+  if(under&&under.boundingBox==='block'&&!LIQUID.has(under.name))return cell
+ }
+ return null
+}
 export async function digStaircase(bot,to,{check,progress=()=>{},stage=()=>{},protectedSites=[],maxSteps=STAIR_STEPS}){
  const target=new Vec3(to.x,to.y,to.z).floored()
  let steps=0
@@ -39,9 +52,16 @@ export async function digStaircase(bot,to,{check,progress=()=>{},stage=()=>{},pr
   if(feet.equals(target))return {receipt:'staircase_arrived',steps,at:{x:feet.x,y:feet.y,z:feet.z}}
   if(target.y>feet.y)throw new Error(`the staircase only goes down or level; ${key(target)} is above ${key(feet)}`)
   if(++steps>maxSteps)throw new Error(`the staircase passed ${maxSteps} steps without reaching ${key(target)}`)
-  const {next,cells}=nextStair(feet,target)
+  let {next,cells}=nextStair(feet,target)
   const floor=bot.blockAt(next.offset(0,-1,0))
-  if(!floor||floor.boundingBox!=='block'||LIQUID.has(floor.name))throw new Error(`no solid floor under ${key(next)} (${floor?.name??'unloaded'}); the staircase stops at ${key(feet)}`)
+  if(!floor||floor.boundingBox!=='block'||LIQUID.has(floor.name)){
+   // Open ground falling away (a hillside, a ledge): when the next column is
+   // already open, step down to a solid landing at most MAX_DROP below, not
+   // below the target and not liquid. Rock over a hole is a cave: refused.
+   const landing=cells.every(c=>open(bot.blockAt(c)))&&!LIQUID.has(floor?.name)?dropLanding(bot,next,target):null
+   if(!landing)throw new Error(`no solid floor under ${key(next)} (${floor?.name??'unloaded'}); the staircase stops at ${key(feet)}`)
+   next=landing;cells=[]
+  }
   stage('digging')
   for(const cell of cells){
    const refusal=refuseDigCell(bot,cell,{protectedSites,role:cell.equals(next)?'feet':'head'})

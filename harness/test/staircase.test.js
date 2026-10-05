@@ -42,3 +42,13 @@ test('a step clears feet, head and, going down, the head room above',()=>{
  assert.deepEqual(next.toArray(),[1,63,0]);assert.deepEqual(cells.map(c=>c.y),[65,64,63])
  assert.deepEqual(nextStair(new Vec3(0,64,0),new Vec3(5,64,1)).cells.map(c=>c.y),[65,64],'level: feet and head')
 })
+
+test('on open ground falling away it steps down to a landing at most three below; a deeper drop or a crust over a hole stops it',async()=>{
+ // 4 October run 54: the staircase stopped on a hillside, "no solid floor under -623,73,-445 (air)".
+ const hill=new Map();for(let x=1;x<=6;x++)for(let y=62;y<=63;y++)hill.set(new Vec3(x,y,0).toString(),'air')
+ const w=world(hill),r=await run(w,[6,59,0]);assert.deepEqual(r.at,{x:6,y:59,z:0})
+ const cliff=new Map();for(let x=1;x<=6;x++)for(let y=56;y<=63;y++)cliff.set(new Vec3(x,y,0).toString(),'air')
+ await assert.rejects(run(world(cliff),[6,50,0]),/no solid floor under 1,63,0/,'an eight-block drop is a cliff')
+ const crust=new Map([[new Vec3(1,62,0).toString(),'air'],[new Vec3(1,61,0).toString(),'air']])
+ await assert.rejects(run(world(crust),[6,59,0]),/no solid floor/,'stone over a hole is a cave, not a step')
+})
