@@ -142,6 +142,39 @@ test('the burrow nudges itself onto the column centre before the first dig, with
  assert.ok(pulses>=2,'nudged');assert.ok(Math.abs(w.bot.entity.position.x-10.5)<=.15);assert.equal(result.receipt,'burrowed_capped')
 })
 
+// Lab run 57, 5 October: a mob came back while the bot was digging out, and
+// each fresh burrow started at the bottom of the last one, four deeper every
+// time (y 55 to y 28 in twenty minutes, below the lava it was working toward).
+test('a bot still standing in its own shaft puts the cap back instead of digging under it',async()=>{
+ const w=world();await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ const cap=new Vec3(10,63,10).toString()
+ w.cells.set(cap,'air');w.dug.length=0;w.placed.length=0
+ const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ assert.deepEqual(w.dug,[]);assert.deepEqual(w.placed,[cap]);assert.equal(w.bot.entity.position.y,60)
+ assert.equal(result.receipt,'burrow_recapped');assert.equal(result.shelterName,'burrow');assert.equal(result.capped,true)
+ assert.deepEqual(result.surface,{x:10,y:64,z:10})
+})
+test('a shaft whose cap is still on is re-entered with nothing dug or placed',async()=>{
+ const w=world();await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ w.dug.length=0;w.placed.length=0
+ const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ assert.deepEqual(w.dug,[]);assert.deepEqual(w.placed,[])
+ assert.equal(result.receipt,'burrow_reentered');assert.deepEqual(result.surface,{x:10,y:64,z:10})
+})
+test('an old shaft that no longer verifies as closed is not claimed; the bot digs in afresh',async()=>{
+ const w=world();await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ w.cells.set(new Vec3(11,61,10).toString(),'water');w.dug.length=0
+ const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ assert.equal(result.receipt,'burrowed_capped');assert.ok(w.dug.includes(new Vec3(10,59,10).toString()))
+})
+// The cap goes above the head: within two of it there is no room under it.
+test('a bot that has climbed to just under the cap does not reuse the shaft',async()=>{
+ const w=world();await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ for(const y of [60,61])w.cells.set(new Vec3(10,y,10).toString(),'dirt')
+ w.bot.entity.position=new Vec3(10.5,62,10.5);w.dug.length=0
+ const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ assert.equal(result.receipt,'burrowed_capped');assert.ok(w.dug.includes(new Vec3(10,61,10).toString()))
+})
 test('creepers trigger the interruption at sixteen blocks, other hostiles at ten',()=>{
  const base={gameMode:'survival',health:20,food:20,difficulty:'normal',headSubmerged:false,oxygen:20}
  assert.equal(emergencyReason({...base,nearbyThreats:[{name:'creeper',risk:'potential_hostile',distance:15}]}),THREAT_INTERRUPTION)

@@ -81,7 +81,46 @@ async function settle(predicate,message,{check,ms=3000,poll=50}){
  while(Date.now()<end){check();if(predicate())return;await delay(poll)}
  throw new Error(message)
 }
+async function placeCap(bot,cap,cells,{check,progress}){
+ assertNoHostileOccupants(bot,cells)
+ const item=capItem(bot)
+ if(!item)return false
+ // The block-update event can be missed through the version bridge; judge the
+ // cap by the block being there, and try each solid side as the reference.
+ const capped=()=>solid(bot,bot.blockAt(cap))
+ await bot.equip(item,'hand');check()
+ for(const ref of SIDES.map(([dx,dy,dz])=>bot.blockAt(cap.offset(dx,dy,dz))).filter(b=>solid(bot,b))){
+  if(capped())break
+  try{await bot.placeBlock(ref,cap.minus(ref.position))}catch(error){check();progress(`Cap placement unconfirmed: ${error.message.slice(0,60)}`)}
+  check()
+  try{await settle(capped,'cap',{check,ms:1500})}catch{}
+  if(capped())break
+ }
+ return capped()
+}
+// The last shaft each bot dug. Lab run 57, 5 October: a mob came back while
+// the bot was digging out, and every fresh burrow started at the bottom of the
+// last one, four deeper each time: y 55 to y 28 in twenty minutes, below the
+// lava it was working toward. Still standing in its own shaft, the bot puts
+// the cap back instead of digging another under it.
+const shafts=new WeakMap()
+async function reuseShaft(bot,{check,progress}){
+ const shaft=shafts.get(bot),feet=bot.entity?.position?.floored()
+ // The cap goes above the head, so the feet must be at least two under it.
+ if(!shaft||!feet||feet.x!==shaft.cap.x||feet.z!==shaft.cap.z||feet.y<shaft.bottom||feet.y>shaft.cap.y-2)return null
+ const cells=[];for(let y=shaft.cap.y;y>=feet.y;y--)cells.push(new Vec3(feet.x,y,feet.z))
+ const open=!solid(bot,bot.blockAt(shaft.cap))
+ if(open&&!await placeCap(bot,shaft.cap,cells,{check,progress}))return null
+ let protection
+ try{protection=inspectEmergencyShelter(bot)}catch{return null}
+ progress(open?'Put the cap back on my shaft; closed burrow verified':'Still in my capped shaft; closed burrow verified')
+ const s=survivalObservation(bot),p=bot.entity.position
+ return {item:'safety',count:1,receipt:open?'burrow_recapped':'burrow_reentered',protection,shelterName:'burrow',capped:true,position:{x:p.x,y:p.y,z:p.z},
+  surface:{x:shaft.surface.x,y:shaft.surface.y,z:shaft.surface.z},cap:{x:shaft.cap.x,y:shaft.cap.y,z:shaft.cap.z},health:s.health,timeOfDay:s.timeOfDay}
+}
 export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
+ check()
+ const reused=await reuseShaft(bot,{check,progress});if(reused)return reused
  check();const found=findBurrowColumn(bot)
  if(!found.site)throw new Error('No safe burrow here: '+found.reasons[0])
  let site=found.site
@@ -104,25 +143,7 @@ export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
  await centreOn(bot,site.surface,check)
  stage('burrowing');progress('Digging in to wait out the danger')
  const inColumn=()=>{const p=bot.entity.position;return Math.floor(p.x)===site.surface.x&&Math.floor(p.z)===site.surface.z}
- async function seal(){
-  assertNoHostileOccupants(bot,site.cells)
-  const cap=capItem(bot)
-  if(cap){
-   // The block-update event can be missed through the version bridge; judge the
-   // cap by the block being there, and try each solid side as the reference.
-   const capped=()=>solid(bot,bot.blockAt(site.cap))
-   await bot.equip(cap,'hand');check()
-   for(const ref of SIDES.map(([dx,dy,dz])=>bot.blockAt(site.cap.offset(dx,dy,dz))).filter(b=>solid(bot,b))){
-    if(capped())break
-    try{await bot.placeBlock(ref,site.cap.minus(ref.position))}catch(error){check();progress(`Cap placement unconfirmed: ${error.message.slice(0,60)}`)}
-    check()
-    try{await settle(capped,'cap',{check,ms:1500})}catch{}
-    if(capped())break
-   }
-   if(capped())return true
-  }
-  return false
- }
+ const seal=()=>placeCap(bot,site.cap,site.cells,{check,progress})
  let sealed=false
  for(const [index,c] of site.cells.entries()){
   check();assertNoHostileOccupants(bot,site.cells);const block=bot.blockAt(c)
@@ -167,6 +188,7 @@ export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
  if(!sealed)sealed=await seal()
  if(!sealed)throw new Error('Burrow cap could not be verified; protection is not established')
  const protection=inspectEmergencyShelter(bot),receipt='burrowed_capped'
+ shafts.set(bot,{cap:site.cap.clone(),surface:site.surface.clone(),bottom:site.cells.at(-1).y})
  progress('Closed, unoccupied burrow verified; watching protection and the surface')
  const s=survivalObservation(bot),p=bot.entity.position
  return {item:'safety',count:1,receipt,protection,shelterName:'burrow',capped:receipt==='burrowed_capped',position:{x:p.x,y:p.y,z:p.z},
