@@ -1,3 +1,4 @@
+import {digStaircase} from './staircase.js'
 import {remainingDurability} from './supplies.js'
 import {PRECIOUS,TOOL_RESERVE} from './tool-choice.js'
 import {roofed} from './observations.js'
@@ -424,9 +425,10 @@ export async function executeWorldSkill(bot,task,context,gather) {
   // A tunnelled leg costs a pickaxe use per block. Only plain pickaxes pay for
   // it: the diamond one wore out this way in the family world (4 October).
   const plainPickUses=()=>bot.inventory.items().filter(i=>/_pickaxe$/.test(i.name)&&!PRECIOUS.test(i.name)).reduce((n,i)=>n+Math.max(0,remainingDurability(i)-TOOL_RESERVE),0)
-  const travel=to=>roofed(bot)?(plainPickUses()<SEARCH_TUNNEL_USES?Promise.reject(new Error(`plain pickaxes have ${plainPickUses()} uses left, too few to tunnel a search leg; craft a stone pickaxe first`)):dig(new Vec3(to.x,Math.floor(bot.entity.position.y),to.z),2,false))
+  const staircase=to=>digStaircase(bot,to,{check,progress,stage,protectedSites:task.goal.protectedSites||[]})
+  const travel=to=>roofed(bot)?(plainPickUses()<SEARCH_TUNNEL_USES?Promise.reject(new Error(`plain pickaxes have ${plainPickUses()} uses left, too few to tunnel a search leg; craft a stone pickaxe first`)):staircase(new Vec3(to.x,Math.floor(bot.entity.position.y),to.z)))
    :travelTo(bot,{kind:'travel',goal:{x:to.x,y:Math.floor(bot.entity.position.y),z:to.z}},{check,stage,progress,movements:walking})
-  return makeObsidian(bot,task,{check,progress,stage,walk,settle,count,persist:context.persist,fill,travel,mine:(name,total)=>mineExposed(name,total,[task.kind]),approach:(p,range)=>dig(p,range,true)})
+  return makeObsidian(bot,task,{check,progress,stage,walk,settle,count,persist:context.persist,fill,travel,staircase,mine:(name,total)=>mineExposed(name,total,[task.kind]),approach:(p,range)=>dig(p,range,true)})
  }
  if(task.kind==='acquire'){try{await acquire(task.goal.item,task.goal.count)}finally{await reclaimTables()}return {item:task.goal.item,count:count(task.goal.item)}}
  const design=validateDesign(task.goal.design)

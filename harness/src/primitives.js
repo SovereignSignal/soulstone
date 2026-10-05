@@ -324,7 +324,7 @@ export async function gotoPosition(bot, task, { check, stage, progress, movement
   return walkNear(bot, goal, { dig: goal.dig, protectedSites: goal.protectedSites || [], check, stage, progress, movements })
 }
 
-function refuseDigCell(bot, cell, { protectedSites = [], role = 'target' } = {}) {
+export function refuseDigCell(bot, cell, { protectedSites = [], role = 'target' } = {}) {
   const block = bot.blockAt(cell)
   if (!block) {
     const here = bot.entity?.position
@@ -358,7 +358,7 @@ function refuseDigCell(bot, cell, { protectedSites = [], role = 'target' } = {})
   return null
 }
 
-async function digOne(bot, block, check) {
+export async function digOne(bot, block, check) {
   if (!block || AIR.has(block.name) || block.boundingBox === 'empty') return { dug: false, harvestable: false }
   const harvestable = !block.harvestTools || Object.keys(block.harvestTools).length === 0
     || bot.inventory.items().some(i => Object.prototype.hasOwnProperty.call(block.harvestTools, String(i.type)) || Object.prototype.hasOwnProperty.call(block.harvestTools, i.type))

@@ -117,9 +117,12 @@ export function sealedOpenings(bot,{protectedSites=[],skip=new Set(),radius=64}=
 // Walk (tunnelling) to the standing cell, recheck, dig the block over the rim
 // and the lid, then any further lid within reach that joins an opened cell:
 // the next survey then sees an ordinary pour site over an open pool.
-async function openSealed(bot,site,{check,progress,stage,approach,settle}){
+async function openSealed(bot,site,{check,progress,stage,approach,settle,staircase=null}){
  progress(`Opening sealed lava at ${key(site.lava)}: tunnelling to ${key(site.stand)}`);stage('tunnelling')
- await approach(site.stand,0);check()
+ // Down or level, a dug staircase; a route search through rock times out.
+ if(staircase&&site.stand.y<=Math.floor(bot.entity.position.y))await staircase(site.stand)
+ else await approach(site.stand,0)
+ check()
  const feet=bot.entity.position.floored()
  if(key(feet)!==key(site.stand))throw new Error(`the tunnel ended at ${key(feet)}, not ${key(site.stand)}`)
  if([-1,0,1].some(y=>lavaBeside(bot,feet.offset(0,y,0))))throw new Error('lava beside the standing cell')
@@ -192,7 +195,7 @@ const near=(bot,name,point,maxDistance,filter=()=>true)=>(bot.findBlocks({point,
 // after each. Test run 39 (3 October) saw two lava sources, both sealed in
 // rock, and stopped where it stood.
 export const SEARCH_LEGS=6,SEARCH_LEG=48
-export async function makeObsidian(bot,task,{check,progress,stage,walk,settle,mine,fill,count,persist,travel=null,approach=p=>walk(new goals.GoalBlock(p.x,p.y,p.z))}){
+export async function makeObsidian(bot,task,{check,progress,stage,walk,settle,mine,fill,count,persist,travel=null,staircase=null,approach=p=>walk(new goals.GoalBlock(p.x,p.y,p.z))}){
  const goal=validateObsidianGoal(task.goal),total=goal.count,start=count('obsidian')
  const record=task.obsidian??={pours:0,converted:0,skipped:[]}
  const done=extra=>({item:'obsidian',count:count('obsidian'),requested:total,pours:record.pours,converted:record.converted,...extra})
@@ -219,7 +222,7 @@ export async function makeObsidian(bot,task,{check,progress,stage,walk,settle,mi
     const opening=sealedOpenings(bot,{protectedSites:goal.protectedSites,skip})[0]
     if(opening){
      record.openings=(record.openings||0)+1;persist?.()
-     try{await openSealed(bot,opening,{check,progress,stage,approach,settle});progress(`Opened a pour site above the rim at ${key(opening.rim)}`);continue}
+     try{await openSealed(bot,opening,{check,progress,stage,approach,settle,staircase});progress(`Opened a pour site above the rim at ${key(opening.rim)}`);continue}
      catch(error){check();skip.add(key(opening.rim));record.skipped=[...skip];persist?.();reason=`opening sealed lava at ${key(opening.lava)} failed: ${error.message}`;progress(`Opening sealed lava at ${key(opening.lava)} failed: ${error.message}`);continue}
     }
    }
