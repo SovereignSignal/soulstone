@@ -23,10 +23,12 @@ async function settle(bot,predicate,message,check,ms=3000){
  while(Date.now()<end){check();if(predicate())return;await delay(50)}
  throw new Error(message)
 }
-export function nextStair(feet,target){
+export function nextStair(feet,target,{secondary=false}={}){
  const dx=target.x-feet.x,dz=target.z-feet.z
  if(!dx&&!dz){const next=feet.offset(0,-1,0);return {next,cells:[next]}}
- const [sx,sz]=Math.abs(dx)>=Math.abs(dz)?[Math.sign(dx),0]:[0,Math.sign(dz)]
+ const xFirst=Math.abs(dx)>=Math.abs(dz),useX=secondary?!xFirst:xFirst
+ if(secondary&&!(useX?dx:dz))return null
+ const [sx,sz]=useX?[Math.sign(dx),0]:[0,Math.sign(dz)]
  const down=target.y<feet.y?1:0,next=feet.offset(sx,-down,sz)
  return {next,cells:down?[next.offset(0,2,0),next.offset(0,1,0),next]:[next.offset(0,1,0),next]}
 }
@@ -43,6 +45,24 @@ export function dropLanding(bot,from,target){
  }
  return null
 }
+// Whether a planned step can be taken, without digging: the floor (or a
+// landing over open ground) and every block to clear.
+function judgeStep(bot,feet,{next,cells},target,protectedSites){
+ const floor=bot.blockAt(next.offset(0,-1,0))
+ if(!floor||floor.boundingBox!=='block'||LIQUID.has(floor.name)){
+  // Open ground falling away (a hillside, a ledge): when the next column is
+  // already open, step down to a solid landing at most MAX_DROP below, not
+  // below the target and not liquid. Rock over a hole is a cave: refused.
+  const landing=cells.every(c=>open(bot.blockAt(c)))&&!LIQUID.has(floor?.name)?dropLanding(bot,next,target):null
+  if(!landing)return {ok:false,reason:`no solid floor under ${key(next)} (${floor?.name??'unloaded'}); the staircase stops at ${key(feet)}`}
+  return {ok:true,next:landing,cells:[]}
+ }
+ for(const cell of cells){
+  const refusal=refuseDigCell(bot,cell,{protectedSites,role:cell.equals(next)?'feet':'head'})
+  if(refusal)return {ok:false,reason:`the staircase stops at ${key(feet)}: ${refusal}`}
+ }
+ return {ok:true,next,cells}
+}
 export async function digStaircase(bot,to,{check,progress=()=>{},stage=()=>{},protectedSites=[],maxSteps=STAIR_STEPS}){
  const target=new Vec3(to.x,to.y,to.z).floored()
  let steps=0
@@ -52,20 +72,20 @@ export async function digStaircase(bot,to,{check,progress=()=>{},stage=()=>{},pr
   if(feet.equals(target))return {receipt:'staircase_arrived',steps,at:{x:feet.x,y:feet.y,z:feet.z}}
   if(target.y>feet.y)throw new Error(`the staircase only goes down or level; ${key(target)} is above ${key(feet)}`)
   if(++steps>maxSteps)throw new Error(`the staircase passed ${maxSteps} steps without reaching ${key(target)}`)
-  let {next,cells}=nextStair(feet,target)
-  const floor=bot.blockAt(next.offset(0,-1,0))
-  if(!floor||floor.boundingBox!=='block'||LIQUID.has(floor.name)){
-   // Open ground falling away (a hillside, a ledge): when the next column is
-   // already open, step down to a solid landing at most MAX_DROP below, not
-   // below the target and not liquid. Rock over a hole is a cave: refused.
-   const landing=cells.every(c=>open(bot.blockAt(c)))&&!LIQUID.has(floor?.name)?dropLanding(bot,next,target):null
-   if(!landing)throw new Error(`no solid floor under ${key(next)} (${floor?.name??'unloaded'}); the staircase stops at ${key(feet)}`)
-   next=landing;cells=[]
+  // The step along the axis with more ground left; if that one is blocked (a
+  // pit, a player's build, water), the step along the other axis, as a player
+  // sidesteps (run 56: the straight line crossed a pit dug by earlier pours).
+  let step=null,why=null
+  for(const secondary of [false,true]){
+   const plan=nextStair(feet,target,{secondary});if(!plan)continue
+   const judged=judgeStep(bot,feet,plan,target,protectedSites)
+   if(judged.ok){step=judged;break}
+   why??=judged.reason
   }
+  if(!step)throw new Error(why)
+  const {next,cells}=step
   stage('digging')
   for(const cell of cells){
-   const refusal=refuseDigCell(bot,cell,{protectedSites,role:cell.equals(next)?'feet':'head'})
-   if(refusal)throw new Error(`the staircase stops at ${key(feet)}: ${refusal}`)
    const block=bot.blockAt(cell);if(open(block))continue
    await digOne(bot,block,check)
   }

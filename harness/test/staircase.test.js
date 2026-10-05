@@ -52,3 +52,11 @@ test('on open ground falling away it steps down to a landing at most three below
  const crust=new Map([[new Vec3(1,62,0).toString(),'air'],[new Vec3(1,61,0).toString(),'air']])
  await assert.rejects(run(world(crust),[6,59,0]),/no solid floor/,'stone over a hole is a cave, not a step')
 })
+
+test('a blocked step along one axis is taken along the other, as a player sidesteps',async()=>{
+ // Run 56: the straight line crossed a pit dug by earlier pours.
+ const pit=new Map();for(let y=55;y<=63;y++)pit.set(new Vec3(1,y,0).toString(),'air')
+ const w=world(pit),r=await run(w,[4,61,2]);assert.deepEqual(r.at,{x:4,y:61,z:2},'went round the pit along z first')
+ const walled=new Map();for(let y=55;y<=63;y++){walled.set(new Vec3(1,y,0).toString(),'air')}
+ await assert.rejects(run(world(walled),[4,61,0]),/no solid floor/,'with no ground left along the other axis it stops')
+})
