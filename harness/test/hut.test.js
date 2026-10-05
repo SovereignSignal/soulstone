@@ -44,6 +44,15 @@ test('walling in places eight walls, a helper and a roof from carried logs, then
  const out=await executeSkill(w.bot,{kind:'unhut',goal:{}},api)
  assert.equal(out.receipt,'unwalled');assert.equal(w.dug.length,2)
 })
+// Lab run 57, 5 October: carrying obsidian first, the hut walled in with it,
+// opened one side to leave and left the rest in the cave (10 obsidian to 9).
+test('the hut never walls in with obsidian, and does not count it toward the blocks it needs',async()=>{
+ const w=world({logs:10});w.inventory.unshift({name:'obsidian',count:9})
+ const result=await executeSkill(w.bot,{kind:'hut',goal:{}},api)
+ assert.equal(result.receipt,'walled_in');assert.ok(![...w.cells.values()].includes('obsidian'));assert.equal(w.inventory.find(i=>i.name==='obsidian').count,9)
+ const short=world({logs:9});short.inventory.unshift({name:'obsidian',count:9})
+ assert.match(hutSite(short.bot).reason,/10 blocks needed to close this spot and 9 carried/)
+})
 test('a dropped placement is retried once; a wall that never lands fails the hut loudly',async()=>{
  const w=world();const place=w.bot.placeBlock;let flaky=true
  w.bot.placeBlock=async(ref,face)=>{if(flaky){flaky=false;throw new Error('rejected')}await place(ref,face)}
