@@ -232,6 +232,16 @@ test('lava sealed in rock is opened by digging one block above a dry rim, then p
  assert.ok(digs.every(l=>l.endsWith(`,51,${l.split(',')[2]}`)||/,51,/.test(l)),'only ever the layer above the lava: '+digs.join(' '))
  assert.ok(!digs.some(l=>/,50,/.test(l)),'never a block at the lava\'s own level')
 })
+// Family run 3, 5 October: from y 13, three route searches to the standing
+// cell at y 44 timed out; the staircase refused any target above.
+test('a standing cell above the bot is climbed to by the staircase, not a route search',async()=>{
+ const extra={};for(let x=0;x<=2;x++)for(let z=0;z<=2;z++)extra[`${x},50,${z}`]='lava'
+ const f=fixture({pool:false,extra});f.bot.dig=async b=>{f.world.set(key(b.position),'air')}
+ f.bot.entity.position=new Vec3(-5.5,40,1.5)
+ const used=[],move=kind=>async p=>{used.push(kind);f.world.set(key(p),'air');f.world.set(key(p.offset(0,1,0)),'air');f.bot.entity.position=new Vec3(p.x+.5,p.y,p.z+.5)}
+ await makeObsidian(f.bot,task(1),{...f.ctx,approach:move('approach'),staircase:move('staircase')}).catch(()=>{})
+ assert.equal(used[0],'staircase',used.join(' '))
+})
 test('a sealed pocket is refused when liquid touches the block to dig, or the floor of the standing cell',()=>{
  const extra={'0,50,1':'lava','0,52,1':'lava'} // lava over the lid: opening the lid would let it in
  const f=fixture({pool:false,extra})

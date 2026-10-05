@@ -119,8 +119,10 @@ export function sealedOpenings(bot,{protectedSites=[],skip=new Set(),radius=64}=
 // the next survey then sees an ordinary pour site over an open pool.
 async function openSealed(bot,site,{check,progress,stage,approach,settle,staircase=null}){
  progress(`Opening sealed lava at ${key(site.lava)}: tunnelling to ${key(site.stand)}`);stage('tunnelling')
- // Down or level, a dug staircase; a route search through rock times out.
- if(staircase&&site.stand.y<=Math.floor(bot.entity.position.y))await staircase(site.stand)
+ // A dug staircase, down, level or up; a route search through rock times
+ // out. Straight overhead the staircase cannot climb, so that one is walked.
+ const at=bot.entity.position.floored(),overhead=site.stand.y>at.y&&site.stand.x===at.x&&site.stand.z===at.z
+ if(staircase&&!overhead)await staircase(site.stand)
  else await approach(site.stand,0)
  check()
  const feet=bot.entity.position.floored()

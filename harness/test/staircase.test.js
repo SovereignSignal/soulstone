@@ -28,14 +28,13 @@ test('the staircase reaches a cell below and to the side, one step down per step
 test('it digs straight down when it is above the target',async()=>{
  const w=world(),r=await run(w,[0,60,0]);assert.deepEqual(r.at,{x:0,y:60,z:0});assert.equal(r.steps,4)
 })
-test('it stops for water against a block it would dig, for a player\'s planks, for a missing floor, and for a target above',async()=>{
+test('it stops for water against a block it would dig, for a player\'s planks and for a missing floor',async()=>{
  const wet=world(new Map([[new Vec3(1,63,-1).toString(),'water']]))
  await assert.rejects(run(wet,[4,61,0]),/borders water/)
  const house=world(new Map([[new Vec3(1,64,0).toString(),'oak_planks']]))
  await assert.rejects(run(house,[4,61,0]),/oak_planks .* not natural ground/)
  const cave=world(new Map([[new Vec3(1,62,0).toString(),'air'],[new Vec3(1,61,0).toString(),'air']]))
  await assert.rejects(run(cave,[4,61,0]),/no solid floor under 1,63,0/)
- await assert.rejects(run(world(),[3,66,0]),/only goes down or level/)
 })
 test('a step clears feet, head and, going down, the head room above',()=>{
  const {next,cells}=nextStair(new Vec3(0,64,0),new Vec3(5,60,1))
@@ -59,4 +58,30 @@ test('a blocked step along one axis is taken along the other, as a player sidest
  const w=world(pit),r=await run(w,[4,61,2]);assert.deepEqual(r.at,{x:4,y:61,z:2},'went round the pit along z first')
  const walled=new Map();for(let y=55;y<=63;y++){walled.set(new Vec3(1,y,0).toString(),'air')}
  await assert.rejects(run(world(walled),[4,61,0]),/no solid floor/,'with no ground left along the other axis it stops')
+})
+
+// Family run 3, 5 October: tunnelled down to y 13, the bot could not get back
+// up to the sealed pocket's standing cell at y 44; the staircase refused any
+// target above and three route searches through rock timed out.
+const pocket=(cells=new Map())=>{for(const y of [50,51])cells.set(new Vec3(0,y,0).toString(),'air');return world(cells,[0.5,50,0.5])}
+test('climbing, each step clears the head room above, then the next feet and head, and rises one',async()=>{
+ const step=nextStair(new Vec3(0,50,0),new Vec3(4,54,1))
+ assert.deepEqual(step.next.toArray(),[1,51,0]);assert.deepEqual(step.cells.map(c=>c.toArray()),[[0,52,0],[1,52,0],[1,51,0]])
+ const w=pocket(),r=await run(w,[4,54,1])
+ assert.equal(r.receipt,'staircase_arrived');assert.deepEqual(r.at,{x:4,y:54,z:1});assert.equal(r.steps,5)
+ assert.ok(w.dug.every(k=>{const y=Number(k.slice(1,-1).split(', ')[1]);return y>=50&&y<=55}),w.dug.join(' '))
+})
+// Climbing six with one block to cross: a two by two spiral away from the
+// target rises four a turn on rock it has not dug, then the stairs head over.
+test('a climb steeper than the ground to cross spirals in a two by two first',async()=>{
+ const w=pocket(),r=await run(w,[1,56,0])
+ assert.deepEqual(r.at,{x:1,y:56,z:0});assert.equal(r.steps,10)
+ assert.ok(w.dug.every(k=>{const [x,,z]=k.slice(1,-1).split(', ').map(Number);return x>=-1&&x<=1&&z>=0&&z<=1}),w.dug.join(' '))
+ await assert.rejects(run(pocket(),[0,55,0]),/directly under/)
+})
+test('climbing stops under lava and over a hole, never digging into either',async()=>{
+ const lava=pocket(new Map([[new Vec3(0,53,0).toString(),'lava']]))
+ await assert.rejects(run(lava,[4,54,0]),/supports liquid \(lava\)/);assert.ok(!lava.dug.includes(new Vec3(0,52,0).toString()))
+ const hole=pocket(new Map([[new Vec3(1,50,0).toString(),'air']]))
+ await assert.rejects(run(hole,[4,54,0]),/no solid step under 1,51,0/)
 })
