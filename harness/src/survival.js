@@ -1,5 +1,6 @@
 import {setTimeout as delay} from 'node:timers/promises'
 import {observedSightline} from './visibility.js'
+import {roofed} from './observations.js'
 
 // Ordinary food only. Special effects, teleportation and valuable consumables
 // need a separate explicit capability rather than automatic hunger management.
@@ -80,7 +81,9 @@ export function survivalObservation(bot) {
  const head=p?.offset&&bot.blockAt?bot.blockAt(p.offset(0,1.6,0).floored()):null
  const headSubmerged=head?WATER_BLOCKS.has(head.name)||head.getProperties?.().waterlogged===true:null
  // Surface spiders are neutral in daylight; treating them as hostile sends the bot underground for nothing.
- const tod=bot?.time?.timeOfDay,daylight=Number.isFinite(tod)&&tod>=1000&&tod<12500
+ // Under rock there is no daylight to calm them: two spiders killed the bot at
+ // y -16 at 2986 ticks while the clock called them neutral (lab run 58).
+ const tod=bot?.time?.timeOfDay,daylight=Number.isFinite(tod)&&tod>=1000&&tod<12500&&!(p&&roofed(bot))
  const nearbyThreats=p?Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&e.position&&(hostile.has(e.name)||conditional.has(e.name))).map(e=>({name:e.name,distance:Math.round(e.position.distanceTo(p)*10)/10,position:{x:e.position.x,y:e.position.y,z:e.position.z},risk:conditional.has(e.name)||e.name==='spider'&&daylight?'conditional':'potential_hostile'})).filter(e=>e.distance<=24).sort((a,b)=>a.distance-b.distance).slice(0,16):[]
  for(const t of nearbyThreats){t.verticalOffset=Math.round((t.position.y-p.y)*10)/10;t.sightline=observedSightline(bot,{x:p.x,y:p.y+(bot.entity.eyeHeight||1.62),z:p.z},{x:t.position.x,y:t.position.y+1,z:t.position.z})}
  // Farm animals within 32 blocks, so the planner hunts what is actually there.

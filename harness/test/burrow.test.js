@@ -245,6 +245,19 @@ test('a spider in daylight is conditional, not a trigger, and does not hold the 
  w.bot.health=16;assert.equal(burrowClearance(w.bot).clear,true)
  w.bot.time.timeOfDay=15000;const night=survivalObservation(w.bot);assert.equal(night.nearbyThreats[0].risk,'potential_hostile');assert.equal(emergencyReason(night),THREAT_INTERRUPTION)
 })
+// Lab run 58, 5 October: two spiders killed the bot at y -16 at 2986 ticks.
+// Called neutral by the clock, they were skipped by the cornered fight, which
+// ran from a zombie eleven blocks off instead. Spiders calm in bright light,
+// and under rock there is none at any hour.
+test('under rock a spider is hostile at noon, and a cornered bot fights it',async()=>{
+ const {corneredDecision}=await import('../src/combat.js')
+ const w=world();w.bot.time.timeOfDay=6000;w.bot.health=17;w.bot.entity.position=new Vec3(10.5,40,10.5)
+ for(const y of [40,41])w.cells.set(new Vec3(10,y,10).toString(),'air')
+ w.bot.entities={1:{id:1,uuid:'s',type:'mob',name:'spider',position:new Vec3(11.5,40,10.5)}}
+ w.inventory.push({name:'iron_sword',count:1,maxDurability:250,durabilityUsed:0})
+ const cave=survivalObservation(w.bot);assert.equal(cave.nearbyThreats[0].risk,'potential_hostile');assert.equal(emergencyReason(cave),THREAT_INTERRUPTION)
+ assert.equal(corneredDecision(w.bot).engage,true)
+})
 
 test('dusk with no built base is an emergency; a built base, daylight or peaceful is not',()=>{
  const base={gameMode:'survival',health:20,food:20,difficulty:'normal',headSubmerged:false,oxygen:20,nearbyThreats:[],carriedFood:[]}
