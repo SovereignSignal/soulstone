@@ -275,3 +275,19 @@ test('shapeless resources have a reachable mining stance without inventing a vis
  assert.equal(miningGoal(stone,world).isEnd(new Vec3(2,64,0)),false,'solid mining still requires a visible face')
  assert.equal(miningGoal(plant,world).isEnd(new Vec3(0,64,0)),false,'plant stance must remain in pickup range')
 })
+
+// Family run 6, 6 October: mining took any exposed block of the kind within 32
+// blocks. The saved base's own footprint, a portal frame among it, is never a mine.
+test('mining never takes a block inside the saved base',async()=>{
+ const registry=(await import('minecraft-data')).default('1.21.4')
+ const inside=new Vec3(1,64,1),seen=[]
+ const bot={registry,_client:new EventEmitter(),inventory:{items:()=>[{name:'diamond_pickaxe',type:registry.itemsByName.diamond_pickaxe.id,count:1}]},
+  findBlocks:({useExtraInfo})=>[inside].filter(p=>{if(!useExtraInfo)return true;const b=bot.blockAt(p),ok=useExtraInfo(b);seen.push(ok);return ok}),findBlock:()=>null,
+  blockAt:p=>({name:p.equals(inside)?'obsidian':p.y===65&&p.x===1&&p.z===1?'air':'stone',position:p.clone(),boundingBox:'block',getProperties:()=>({})}),
+  entity:{position:new Vec3(5.5,64,5.5),onGround:true},world:{raycast:()=>null},clearControlStates(){},
+  pathfinder:{setMovements(){},setGoal(){},async goto(){}},recipesAll:()=>[],recipesFor:()=>[]}
+ Object.setPrototypeOf(bot,new EventEmitter())
+ const base={build:{origin:{x:0,y:64,z:0},design:[{x:0,y:0,z:0,block:'cobblestone'},{x:3,y:2,z:3,block:'dirt'}]}}
+ await assert.rejects(executeWorldSkill(bot,{kind:'acquire',goal:{item:'obsidian',count:1}},{check(){},stage(){},persist(){},progress(){},movements:{},shelterProject:base},()=>{throw new Error('must not gather')}),/No reachable obsidian/)
+ assert.deepEqual(seen,[false],'the block inside the footprint was offered and refused')
+})

@@ -8,7 +8,7 @@ import {plainCube} from './scaffold.js'
 import {insideBase,inBackExit,retreatToShelter} from './retreat.js'
 import {harvestBerries} from './foraging.js'
 import {useHeldItem,dimensionOf} from './use-item.js'
-import {makeObsidian,fillableWaterSources} from './obsidian.js'
+import {makeObsidian,fillableWaterSources,takeableObsidian} from './obsidian.js'
 import {walkNear} from './primitives.js'
 import {fitConstructionSite} from './construction-site.js'
 import {surveyGround,candidateSites} from './site-survey.js'
@@ -301,8 +301,11 @@ export async function executeWorldSkill(bot,task,context,gather) {
    if(count(name)<total)throw new Error(`Quarry ended with ${count(name)}/${total} ${name}: ${error.message}`)
   }
  }
- async function mineExposed(name,total,path) {
+ // Never inside a saved build, and only what `accept` allows: obsidian is
+ // taken from pools and ruined portals, never from a frame somebody built.
+ async function mineExposed(name,total,path,{accept=null}={}) {
   const names=sources[name]||[name],ids=names.map(n=>bot.registry.blocksByName[n]?.id).filter(Number.isInteger)
+  const sites=[...(task.goal?.protectedSites||[]),...(context.shelterProject?projectFootprints({base:context.shelterProject}):[])]
   if(!ids.length)throw new Error(`No mining source for ${name}`)
   const skipped=new Set()
   while(count(name)<total){
@@ -311,10 +314,10 @@ export async function executeWorldSkill(bot,task,context,gather) {
     const adjacent=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].map(([x,y,z])=>bot.blockAt(b.position.offset(x,y,z)))
     return adjacent.every(n=>n&&!WATER_BLOCKS.has(n.name)&&n.name!=='lava'&&n.getProperties?.().waterlogged!==true)&&adjacent.some(n=>n.name==='air')
    }
-   const candidates=bot.findBlocks({matching:ids,maxDistance:32,count:128,useExtraInfo:b=>exposed(b)&&!skipped.has(key(b.position))&&!supportsPlayer(b.position,bot.entity.position)}).map(p=>bot.blockAt(p)).filter(Boolean)
+   const candidates=bot.findBlocks({matching:ids,maxDistance:32,count:128,useExtraInfo:b=>exposed(b)&&!skipped.has(key(b.position))&&!supportsPlayer(b.position,bot.entity.position)&&!inProtectedSite(b.position,sites)}).map(p=>bot.blockAt(p)).filter(Boolean)
    candidates.sort((a,b)=>a.position.distanceTo(bot.entity.position)-b.position.distanceTo(bot.entity.position))
-   const block=candidates[0]
-   if(!block)throw new Error(`No reachable ${names.join(' or ')} observed within 32 blocks`)
+   const block=candidates.find(b=>!accept||accept(b))
+   if(!block)throw new Error(candidates.length?`No ${names.join(' or ')} within 32 blocks is safe to take: ${candidates.length} look${candidates.length===1?'s':''} like part of a build`:`No reachable ${names.join(' or ')} observed within 32 blocks`)
    try {
     // Stand beside a seam before digging so drops stay within pickup range;
     // a visible block at the bottom of a pit is not an accessible resource.
@@ -434,7 +437,7 @@ export async function executeWorldSkill(bot,task,context,gather) {
    return staircase(new Vec3(to.x,Math.floor(bot.entity.position.y),to.z))
   }
   try{await stockTunnelPickaxes(bot,{plainUses:plainPickUses,needed:SEARCH_TUNNEL_USES,underRock:roofed(bot),acquire,settle,check,progress})}finally{await reclaimTables()}
-  return makeObsidian(bot,task,{check,progress,stage,walk,settle,count,persist:context.persist,fill,travel,staircase,mine:(name,total)=>mineExposed(name,total,[task.kind]),approach:(p,range)=>dig(p,range,true)})
+  return makeObsidian(bot,task,{check,progress,stage,walk,settle,count,persist:context.persist,fill,travel,staircase,mine:(name,total)=>mineExposed(name,total,[task.kind],{accept:b=>takeableObsidian(bot,b.position)}),approach:(p,range)=>dig(p,range,true)})
  }
  if(task.kind==='acquire'){try{await acquire(task.goal.item,task.goal.count)}finally{await reclaimTables()}return {item:task.goal.item,count:count(task.goal.item)}}
  const design=validateDesign(task.goal.design)

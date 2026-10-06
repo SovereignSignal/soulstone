@@ -165,6 +165,26 @@ async function openSealed(bot,site,{check,progress,stage,approach,settle,stairca
  progress(`Uncovered ${opened.length-1} block${opened.length===2?'':'s'} over the lava`)
 }
 
+// Obsidian the job may take. A pour turns one level of lava, so what it makes
+// lies flat; a ruined portal stands on netherrack with magma, crying obsidian
+// or gold about it. Obsidian joined across more than one level with none of
+// that against it is a frame somebody built (family run 6, 6 October: the job
+// mined seven blocks of a ruined portal, and would have mined a frame the kids
+// built just the same). The whole joined piece is judged, since a frame's
+// bottom middle has air above it like any pool layer.
+const RUIN=new Set(['netherrack','magma_block','crying_obsidian','gold_block'])
+export function takeableObsidian(bot,pos){
+ const name=p=>bot.blockAt(p)?.name,seen=new Set(),queue=[pos],piece=[]
+ while(queue.length&&piece.length<48){
+  const p=queue.shift(),k=key(p)
+  if(seen.has(k))continue;seen.add(k)
+  if(name(p)!=='obsidian')continue
+  piece.push(p);for(const [x,y,z] of SIX)queue.push(p.offset(x,y,z))
+ }
+ if(new Set(piece.map(p=>p.y)).size<=1)return true
+ return piece.some(p=>{for(let dx=-1;dx<=1;dx++)for(let dz=-1;dz<=1;dz++)for(let dy=-2;dy<=1;dy++)if(RUIN.has(name(p.offset(dx,dy,dz))))return true;return false})
+}
+
 export function describeSurvey(r){
  if(!r.sources)return `saw 0 lava sources`
  const near=r.nearest?` (nearest at ${r.nearest.x},${r.nearest.y},${r.nearest.z})`:''

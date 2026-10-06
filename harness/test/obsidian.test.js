@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import minecraftData from 'minecraft-data'
 import blockLoader from 'prismarine-block'
 import {Vec3} from 'vec3'
-import {pourSites,makeObsidian,validateObsidianGoal,sealedOpenings} from '../src/obsidian.js'
+import {pourSites,makeObsidian,validateObsidianGoal,sealedOpenings,takeableObsidian} from '../src/obsidian.js'
 import {lavaBeside} from '../src/navigation.js'
 const registry=minecraftData('1.21.4'),Block=blockLoader(registry)
 const key=p=>`${p.x},${p.y},${p.z}`
@@ -269,4 +269,21 @@ test('a sealed pocket is refused when liquid touches the block to dig, or the fl
  assert.ok(!sealedOpenings(f.bot).some(s=>s.lava.y===50),'no opening for the source whose lid touches other lava')
  const g=fixture({pool:false,extra:{'0,50,1':'lava','-2,49,1':'water'}})
  assert.ok(!sealedOpenings(g.bot).some(s=>s.stand.x===-2&&s.stand.z===1),'no standing cell over a floor that touches water')
+})
+
+// Family run 6, 6 October: the job mined seven obsidian from a ruined portal
+// (the server confirmed the structure, netherrack beneath). It would have
+// mined a portal frame the kids built just the same.
+test('obsidian is taken from flat pool layers and ruined portals, never from a bare frame',()=>{
+ const world=new Map(),at=(x,y,z,n)=>world.set(`${x},${y},${z}`,n)
+ const bot={blockAt:p=>({name:world.get(`${p.x},${p.y},${p.z}`)??'stone'})}
+ const v=(x,y,z)=>({x,y,z,offset(a,b,c){return v(x+a,y+b,z+c)}})
+ at(0,40,0,'obsidian');at(1,40,0,'obsidian')
+ assert.equal(takeableObsidian(bot,v(0,40,0)),true,'a flat layer the pour made')
+ // A four by five frame: its bottom middle has air above it, like a pool layer.
+ for(const y of [70,71,72,73,74]){at(10,y,0,'obsidian');at(13,y,0,'obsidian')}
+ for(const x of [11,12]){at(x,70,0,'obsidian');at(x,74,0,'obsidian');for(const y of [71,72,73])at(x,y,0,'air')}
+ assert.equal(takeableObsidian(bot,v(11,70,0)),false,'the bottom of a built frame');assert.equal(takeableObsidian(bot,v(10,72,0)),false,'its side')
+ at(20,69,0,'netherrack');for(const y of [70,71,72,73])at(20,y,0,'obsidian')
+ assert.equal(takeableObsidian(bot,v(20,73,0)),true,'a ruined portal: netherrack below the frame')
 })
