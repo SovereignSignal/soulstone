@@ -117,7 +117,7 @@ export function sealedOpenings(bot,{protectedSites=[],skip=new Set(),radius=64}=
 // Walk (tunnelling) to the standing cell, recheck, dig the block over the rim
 // and the lid, then any further lid within reach that joins an opened cell:
 // the next survey then sees an ordinary pour site over an open pool.
-async function openSealed(bot,site,{check,progress,stage,approach,settle,staircase=null}){
+async function openSealed(bot,site,{check,progress,stage,approach,settle,staircase=null,protectedSites=[]}){
  progress(`Opening sealed lava at ${key(site.lava)}: tunnelling to ${key(site.stand)}`);stage('tunnelling')
  // A dug staircase, down, level or up; a route search through rock times
  // out. Straight overhead the staircase cannot climb, so that one is walked.
@@ -148,7 +148,7 @@ async function openSealed(bot,site,{check,progress,stage,approach,settle,stairca
   .map(p=>bot.blockAt(p)).filter(b=>b&&isSource(b)&&b.position.y===site.lava.y).map(b=>b.position.offset(0,1,0))
   .filter(c=>!opened.some(o=>o.equals(c))).sort((a,b)=>a.distanceTo(site.lid)-b.distanceTo(site.lid))
  for(const lid of more){
-  if(!opened.some(o=>o.distanceTo(lid)===1)||lid.offset(.5,.5,.5).distanceTo(eye)>4.5)continue
+  if(!opened.some(o=>o.distanceTo(lid)===1)||lid.offset(.5,.5,.5).distanceTo(eye)>4.5||inProtectedSite(lid,protectedSites))continue
   const n=name(lid);if(!n||LIQUID.has(n)||(!AIR.has(n)&&(!fullCube(bot.registry,n)||NEVER_DIG.has(n))))continue
   try{await open(lid,true);opened.push(lid)}catch(error){check();progress(`Left the lid at ${key(lid)}: ${error.message}`)}
  }
@@ -158,7 +158,7 @@ async function openSealed(bot,site,{check,progress,stage,approach,settle,stairca
  // inaccessible, the rock over the rim cell leaving no head room there).
  const head=site.water.offset(0,1,0),hn=name(head)
  if(hn&&!AIR.has(hn)&&fullCube(bot.registry,hn)&&!NEVER_DIG.has(hn)){
-  const refused=refuseDigCell(bot,head,{role:'head'})
+  const refused=refuseDigCell(bot,head,{protectedSites,role:'head'})
   if(refused)progress(`Left the rock over the rim at ${key(head)}: ${refused}`)
   else try{await open(head,false)}catch(error){check();progress(`Left the rock over the rim at ${key(head)}: ${error.message}`)}
  }
@@ -234,7 +234,7 @@ export async function makeObsidian(bot,task,{check,progress,stage,walk,settle,mi
     const opening=sealedOpenings(bot,{protectedSites:goal.protectedSites,skip})[0]
     if(opening){
      record.openings=(record.openings||0)+1;persist?.()
-     try{await openSealed(bot,opening,{check,progress,stage,approach,settle,staircase});progress(`Opened a pour site above the rim at ${key(opening.rim)}`);continue}
+     try{await openSealed(bot,opening,{check,progress,stage,approach,settle,staircase,protectedSites:goal.protectedSites||[]});progress(`Opened a pour site above the rim at ${key(opening.rim)}`);continue}
      catch(error){check();skip.add(key(opening.rim));record.skipped=[...skip];persist?.();reason=`opening sealed lava at ${key(opening.lava)} failed: ${error.message}`;progress(`Opening sealed lava at ${key(opening.lava)} failed: ${error.message}`);continue}
     }
    }

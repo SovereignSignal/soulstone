@@ -247,6 +247,22 @@ test('a standing cell above the bot is climbed to by the staircase, not a route 
  await makeObsidian(f.bot,task(1),{...f.ctx,approach:move('approach'),staircase:move('staircase')}).catch(()=>{})
  assert.equal(used[0],'staircase',used.join(' '))
 })
+// Review of 60af9fe, 6 October: the head room over the rim and the extra lids
+// over neighbouring sources were dug without the job's protected sites.
+test('the opener digs no head room or extra lid inside a saved build',async()=>{
+ const extra={};for(let x=0;x<=2;x++)for(let z=0;z<=2;z++)extra[`${x},50,${z}`]='lava'
+ const f=fixture({pool:false,extra});f.bot.dig=async b=>{f.world.set(key(b.position),'air');f.log.push('dig '+key(b.position))}
+ const site0=sealedOpenings(f.bot)[0],head=site0.water.offset(0,1,0)
+ const spare=[0,1,2].flatMap(x=>[0,1,2].map(z=>new Vec3(x,51,z))).find(c=>!c.equals(site0.water)&&!c.equals(site0.lid)&&c.distanceTo(site0.lid)===1)
+ const protectedSites=[{minX:head.x,maxX:head.x,minZ:head.z,maxZ:head.z,minY:52},{minX:spare.x,maxX:spare.x,minZ:spare.z,maxZ:spare.z,minY:51}]
+ assert.ok(sealedOpenings(f.bot,{protectedSites})[0].water.equals(site0.water),'the same site stays usable')
+ const approach=async p=>{f.world.set(key(p),'air');f.world.set(key(p.offset(0,1,0)),'air');f.bot.entity.position=new Vec3(p.x+.5,p.y,p.z+.5)}
+ await makeObsidian(f.bot,{kind:'make_obsidian',goal:validateObsidianGoal({count:5,protectedSites})},{...f.ctx,approach}).catch(()=>{})
+ const digs=f.log.filter(l=>/^dig /.test(l))
+ assert.ok(digs.includes('dig '+key(site0.lid)),'the opening itself went ahead: '+digs.join(' '))
+ assert.ok(!digs.includes('dig '+key(head)),'no head room inside a saved build: '+digs.join(' '))
+ assert.ok(!digs.includes('dig '+key(spare)),'no extra lid inside a saved build: '+digs.join(' '))
+})
 test('a sealed pocket is refused when liquid touches the block to dig, or the floor of the standing cell',()=>{
  const extra={'0,50,1':'lava','0,52,1':'lava'} // lava over the lid: opening the lid would let it in
  const f=fixture({pool:false,extra})
