@@ -768,6 +768,20 @@ test('a request interrupted only by a service restart continues once automatical
  const d=new Teammate(new FakeRunner(),{model:'fake',plan:async()=>({reply:'',steps:[]})},path);assert.equal(d.restoreRequest,false)
 })
 
+// Lab, 5 October 02:52Z: a failed repair carried a design with a solid
+// bottom layer (filling the room and its doorway), and the saved design was
+// replaced by it; every retreat after that refused the base as malformed.
+test('a failed build at the saved base keeps the saved design; a completed one replaces it',()=>{
+ const [r,c]=setup(async()=>({reply:'',steps:[]}))
+ const good={design:[{x:0,y:1,z:0,block:'cobblestone'}],origin:{x:4,y:64,z:5},near:{x:1,y:64,z:2},wood:'oak_log',purpose:'shelter'}
+ r.emit('event',{type:'task_finished',task:{id:'b1',kind:'build',status:'completed',goal:good}})
+ const bad={...good,design:[{x:0,y:0,z:0,block:'cobblestone'},{x:0,y:1,z:0,block:'cobblestone'}]}
+ r.emit('event',{type:'task_finished',task:{id:'b2',kind:'build',status:'failed',goal:bad}})
+ assert.deepEqual(c.projects.base.build.design,good.design);assert.equal(c.projects.base.built,true)
+ r.emit('event',{type:'task_finished',task:{id:'b3',kind:'build',status:'completed',goal:bad}})
+ assert.deepEqual(c.projects.base.build.design,bad.design)
+})
+
 test('only a shelter build becomes the base, and it counts as shelter only once it completed',()=>{
  const [r,c]=setup(async()=>({reply:'',steps:[]}))
  const goal={design:[{x:0,y:0,z:0,block:'wood_planks'}],origin:{x:4,y:64,z:5},near:{x:1,y:64,z:2},wood:'oak_log',purpose:'shelter'}

@@ -222,7 +222,11 @@ export class Teammate extends EventEmitter {
       // Only a shelter build is the base. Any other build adopted it and wiped the
       // station records, after which every place, deposit and check_base threw and
       // the bot was homeless at dusk.
-      if(e.type==='task_finished'&&e.task?.kind==='build'&&e.task.goal?.origin&&e.task.goal.purpose==='shelter'){const sameSite=JSON.stringify(this.projects.base?.build?.origin)===JSON.stringify(e.task.goal.origin);this.projects.base={...(sameSite?this.projects.base:{}),build:structuredClone(e.task.goal),stations:sameSite?(this.projects.base?.stations||{}):{},built:e.task.status==='completed'||(sameSite&&this.projects.base?.built===true)};this.persist()}
+      // A failed build at the saved base changed nothing it can vouch for, so the
+      // saved design stays (lab, 5 October: a failed repair's design, a solid
+      // floor across the room and doorway, replaced it, and every retreat then
+      // refused the base as malformed).
+      if(e.type==='task_finished'&&e.task?.kind==='build'&&e.task.goal?.origin&&e.task.goal.purpose==='shelter'){const sameSite=JSON.stringify(this.projects.base?.build?.origin)===JSON.stringify(e.task.goal.origin),completed=e.task.status==='completed',keep=sameSite&&!completed&&this.projects.base?.build?.design?.length;this.projects.base={...(sameSite?this.projects.base:{}),build:keep?this.projects.base.build:structuredClone(e.task.goal),stations:sameSite?(this.projects.base?.stations||{}):{},built:completed||(sameSite&&this.projects.base?.built===true)};this.persist()}
       if (e.type === 'skill_progress') { this.activity = e.message; this.emit('change') }
       if (e.type === 'death') {
         const recovery=['retreating','defending'].includes(this.phase),action=this.phase==='defending'?'defense':'retreat'
