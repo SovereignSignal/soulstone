@@ -19,6 +19,22 @@ export async function prepareTools(bot,goal,{acquire,settle,check,progress}){
  return {item,count:usableToolCount(items(),item),crafted:missing,minimumRemaining:'at least half maximum durability and 32 uses',tools:items().filter(i=>i.name===item).map(i=>({remaining:remainingDurability(i),maximum:i.maxDurability})),receipt:'serviceable_tools_verified'}
 }
 
+// A tunnelled trip spends a pickaxe use per block, and only plain pickaxes
+// should pay for it (tool-choice.js keeps diamond for what needs it). Family
+// run 3, 5 October: the iron, stone and wooden pickaxes reached their reserve
+// at y 13 with no wood to make more, and the diamond one dug on. Before the
+// trip, above ground, is when stone pickaxes can still be made: the wood is
+// there and so is a table. Under rock this only says so; a failure is a note.
+export const TUNNEL_PICKAXES=3
+export async function stockTunnelPickaxes(bot,{plainUses,needed,underRock,acquire,settle,check,progress}){
+ const have=plainUses()
+ if(have>=needed)return {stocked:0}
+ if(underRock){progress(`Plain pickaxes have ${have} uses left and there is no wood under rock to make more`);return {stocked:0,reason:'under rock'}}
+ progress(`Plain pickaxes have ${have} uses left; making stone pickaxes before tunnelling`)
+ try{return {stocked:(await prepareTools(bot,{item:'stone_pickaxe',count:TUNNEL_PICKAXES},{acquire,settle,check,progress})).crafted}}
+ catch(error){check();progress(`Could not make stone pickaxes: ${error.message}`);return {stocked:0,reason:error.message}}
+}
+
 export function expeditionNeeds(bot,{bootstrap=false}={}){
  const items=bot.inventory.items(),needs=[]
  if(!items.some(i=>/_pickaxe$/.test(i.name)&&remainingDurability(i)>=16))needs.push('Prepare a serviceable pickaxe before continuing')

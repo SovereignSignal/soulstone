@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {prepareTools,expeditionNeeds,usableToolCount} from '../src/supplies.js'
+import {prepareTools,expeditionNeeds,usableToolCount,stockTunnelPickaxes} from '../src/supplies.js'
 import {validatePlan} from '../src/companion/planner.js'
 
 test('preparation replaces worn tools without throwing them away or counting them as ready',async()=>{
@@ -38,4 +38,21 @@ test('runner skill dispatch reaches tool preparation and rejects unavailable ite
  const {executeSkill}=await import('../src/skills.js')
  const bot={inventory:{items:()=>[]},registry:{itemsByName:{},blocksByName:{}},findBlocks:()=>[]}
  await assert.rejects(()=>executeSkill(bot,{kind:'prepare',goal:{item:'iron_pickaxe',count:2}},{check(){},progress(){},stage(){}}),/tool available/)
+})
+
+// Family run 3, 5 October: the iron, stone and wooden pickaxes reached their
+// reserve at y 13 with no wood to make more, and the diamond one dug on.
+test('an obsidian trip short of plain pickaxe uses makes stone pickaxes first, above ground only',async()=>{
+ const kit=()=>{
+  const items=[{name:'iron_pickaxe',count:1,maxDurability:250,durabilityUsed:243}],asked=[]
+  const bot={registry:{itemsByName:{stone_pickaxe:{id:2}}},inventory:{items:()=>items}}
+  const deps={check(){},progress(){},settle:async p=>assert.ok(p()),needed:64,plainUses:()=>0,
+   acquire:async(name,total)=>{asked.push([name,total]);while(items.filter(i=>i.name===name).length<total)items.push({name,count:1,maxDurability:131,durabilityUsed:0})}}
+  return {bot,deps,asked}
+ }
+ const below=kit();assert.equal((await stockTunnelPickaxes(below.bot,{...below.deps,underRock:true})).stocked,0);assert.deepEqual(below.asked,[])
+ const above=kit();assert.equal((await stockTunnelPickaxes(above.bot,{...above.deps,underRock:false})).stocked,3);assert.deepEqual(above.asked,[['stone_pickaxe',3]])
+ const enough=kit();assert.equal((await stockTunnelPickaxes(enough.bot,{...enough.deps,plainUses:()=>369,underRock:false})).stocked,0);assert.deepEqual(enough.asked,[])
+ const treeless=kit(),r=await stockTunnelPickaxes(treeless.bot,{...treeless.deps,underRock:false,acquire:async()=>{throw new Error('no trees in reach')}})
+ assert.equal(r.stocked,0);assert.match(r.reason,/no trees/)
 })

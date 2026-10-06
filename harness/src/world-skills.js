@@ -14,7 +14,7 @@ import {fitConstructionSite} from './construction-site.js'
 import {surveyGround,candidateSites} from './site-survey.js'
 import {placeBuildingBlock} from './building-blocks.js'
 import {executeConstruction,fullCube} from './construction.js'
-import {prepareTools} from './supplies.js'
+import {prepareTools,stockTunnelPickaxes} from './supplies.js'
 import {executeExpedition,EXPEDITION_ACTIONS} from './prospecting.js'
 import {executeStationSkill,STATION_ACTIONS} from './stations.js'
 import {nearbyResources} from './observations.js'
@@ -428,6 +428,7 @@ export async function executeWorldSkill(bot,task,context,gather) {
   const staircase=to=>digStaircase(bot,to,{check,progress,stage,protectedSites:task.goal.protectedSites||[]})
   const travel=to=>roofed(bot)?(plainPickUses()<SEARCH_TUNNEL_USES?Promise.reject(new Error(`plain pickaxes have ${plainPickUses()} uses left, too few to tunnel a search leg; craft a stone pickaxe first`)):staircase(new Vec3(to.x,Math.floor(bot.entity.position.y),to.z)))
    :travelTo(bot,{kind:'travel',goal:{x:to.x,y:Math.floor(bot.entity.position.y),z:to.z}},{check,stage,progress,movements:walking})
+  try{await stockTunnelPickaxes(bot,{plainUses:plainPickUses,needed:SEARCH_TUNNEL_USES,underRock:roofed(bot),acquire,settle,check,progress})}finally{await reclaimTables()}
   return makeObsidian(bot,task,{check,progress,stage,walk,settle,count,persist:context.persist,fill,travel,staircase,mine:(name,total)=>mineExposed(name,total,[task.kind]),approach:(p,range)=>dig(p,range,true)})
  }
  if(task.kind==='acquire'){try{await acquire(task.goal.item,task.goal.count)}finally{await reclaimTables()}return {item:task.goal.item,count:count(task.goal.item)}}
