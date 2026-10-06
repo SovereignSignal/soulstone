@@ -229,7 +229,12 @@ test('lava sealed in rock is opened by digging one block above a dry rim, then p
  assert.equal(r.receipt,'obsidian_carried');assert.ok(f.count('obsidian')>=5)
  const digs=f.log.filter(l=>/^dig /.test(l))
  assert.equal(digs[0],'dig '+key(first.water),'the block over the rim first');assert.equal(digs[1],'dig '+key(first.lid),'then the lid over that lava')
- assert.ok(digs.every(l=>l.endsWith(`,51,${l.split(',')[2]}`)||/,51,/.test(l)),'only ever the layer above the lava: '+digs.join(' '))
+ // Family run 4, 6 October: the pocket turned to obsidian and was skipped as
+ // inaccessible; mining stands within a block and a half, and the rock over
+ // the rim cell left no head room there. The cell above the poured one opens too.
+ const head=first.water.offset(0,1,0)
+ assert.ok(digs.includes('dig '+key(head)),'the head room over the rim cell: '+digs.join(' '))
+ assert.ok(digs.every(l=>/,51,/.test(l)||l==='dig '+key(head)),'only the layer above the lava and that head room: '+digs.join(' '))
  assert.ok(!digs.some(l=>/,50,/.test(l)),'never a block at the lava\'s own level')
 })
 // Family run 3, 5 October: from y 13, three route searches to the standing

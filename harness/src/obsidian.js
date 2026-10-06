@@ -11,7 +11,7 @@
 import pathfinding from 'mineflayer-pathfinder'
 import {fullCube} from './construction.js'
 import {lavaBeside} from './navigation.js'
-import {inProtectedSite,validateProtectedSites} from './primitives.js'
+import {inProtectedSite,validateProtectedSites,refuseDigCell} from './primitives.js'
 const {goals}=pathfinding
 export const OBSIDIAN_ACTIONS=['make_obsidian']
 const AIR=new Set(['air','cave_air','void_air'])
@@ -151,6 +151,16 @@ async function openSealed(bot,site,{check,progress,stage,approach,settle,stairca
   if(!opened.some(o=>o.distanceTo(lid)===1)||lid.offset(.5,.5,.5).distanceTo(eye)>4.5)continue
   const n=name(lid);if(!n||LIQUID.has(n)||(!AIR.has(n)&&(!fullCube(bot.registry,n)||NEVER_DIG.has(n))))continue
   try{await open(lid,true);opened.push(lid)}catch(error){check();progress(`Left the lid at ${key(lid)}: ${error.message}`)}
+ }
+ // Room to stand over the rim afterwards. Mining wants the bot within a block
+ // and a half of the obsidian, and the standing cell is two away (family run 4,
+ // 6 October: the pocket at -651,43,-427 turned to obsidian and was skipped as
+ // inaccessible, the rock over the rim cell leaving no head room there).
+ const head=site.water.offset(0,1,0),hn=name(head)
+ if(hn&&!AIR.has(hn)&&fullCube(bot.registry,hn)&&!NEVER_DIG.has(hn)){
+  const refused=refuseDigCell(bot,head,{role:'head'})
+  if(refused)progress(`Left the rock over the rim at ${key(head)}: ${refused}`)
+  else try{await open(head,false)}catch(error){check();progress(`Left the rock over the rim at ${key(head)}: ${error.message}`)}
  }
  progress(`Uncovered ${opened.length-1} block${opened.length===2?'':'s'} over the lava`)
 }

@@ -320,7 +320,7 @@ export async function executeWorldSkill(bot,task,context,gather) {
     // a visible block at the bottom of a pit is not an accessible resource.
     await walk(miningGoal(block,bot.world))
     if(bot.canSeeBlock&&!bot.canSeeBlock(block))throw new Error('Mining target has no clear line of sight')
-   }catch(e){check();skipped.add(key(block.position));if(skipped.size>=12)throw new Error(`No accessible ${name} after 12 targets: ${e.message}`);progress(`Skipping inaccessible ${block.name}; inspecting another source`);continue}
+   }catch(e){check();skipped.add(key(block.position));if(skipped.size>=12)throw new Error(`No accessible ${name} after 12 targets: ${e.message}`);progress(`Skipping inaccessible ${block.name} at ${key(block.position)} (${String(e.message).slice(0,80)}); inspecting another source`);continue}
 
    const harvest=Object.keys(block.harvestTools||{}).map(Number)
    if(harvest.length&&!bot.inventory.items().some(i=>harvest.includes(i.type))) {
