@@ -41,18 +41,24 @@ test('runner skill dispatch reaches tool preparation and rejects unavailable ite
 })
 
 // Family run 3, 5 October: the iron, stone and wooden pickaxes reached their
-// reserve at y 13 with no wood to make more, and the diamond one dug on.
-test('an obsidian trip short of plain pickaxe uses makes stone pickaxes first, above ground only',async()=>{
- const kit=()=>{
-  const items=[{name:'iron_pickaxe',count:1,maxDurability:250,durabilityUsed:243}],asked=[]
+// reserve at y 13 with no wood to make more, and the diamond one dug on. Family
+// run 4, 6 October: the same, 312 diamond uses in ten minutes. A player makes
+// pickaxes before the trip and packs sticks and a table to make more down there.
+test('an obsidian trip short of plain pickaxes makes them first and packs the means to make more',async()=>{
+ const kit=(extra=[])=>{
+  const items=[{name:'iron_pickaxe',count:1,maxDurability:250,durabilityUsed:243},...extra],asked=[]
   const bot={registry:{itemsByName:{stone_pickaxe:{id:2}}},inventory:{items:()=>items}}
+  const add=(name,n)=>{const slot=items.find(i=>i.name===name&&!i.maxDurability);slot?slot.count+=n:items.push({name,count:n})}
   const deps={check(){},progress(){},settle:async p=>assert.ok(p()),needed:64,plainUses:()=>0,
-   acquire:async(name,total)=>{asked.push([name,total]);while(items.filter(i=>i.name===name).length<total)items.push({name,count:1,maxDurability:131,durabilityUsed:0})}}
-  return {bot,deps,asked}
+   acquire:async(name,total)=>{asked.push([name,total]);if(name==='stone_pickaxe')while(items.filter(i=>i.name===name).length<total)items.push({name,count:1,maxDurability:131,durabilityUsed:0});else add(name,total)}}
+  return {bot,deps,asked,items}
  }
- const below=kit();assert.equal((await stockTunnelPickaxes(below.bot,{...below.deps,underRock:true})).stocked,0);assert.deepEqual(below.asked,[])
- const above=kit();assert.equal((await stockTunnelPickaxes(above.bot,{...above.deps,underRock:false})).stocked,3);assert.deepEqual(above.asked,[['stone_pickaxe',3]])
+ const above=kit();assert.equal((await stockTunnelPickaxes(above.bot,{...above.deps,underRock:false})).stocked,3)
+ assert.deepEqual(above.asked,[['stone_pickaxe',3],['stick',6],['crafting_table',1]])
  const enough=kit();assert.equal((await stockTunnelPickaxes(enough.bot,{...enough.deps,plainUses:()=>369,underRock:false})).stocked,0);assert.deepEqual(enough.asked,[])
+ const bare=kit();assert.equal((await stockTunnelPickaxes(bare.bot,{...bare.deps,underRock:true})).stocked,0);assert.deepEqual(bare.asked,[],'under rock with nothing to make them from')
+ const packed=kit([{name:'stick',count:4},{name:'cobblestone',count:64},{name:'crafting_table',count:1}])
+ assert.equal((await stockTunnelPickaxes(packed.bot,{...packed.deps,underRock:true})).stocked,2);assert.deepEqual(packed.asked,[['stone_pickaxe',2]],'two sticks a pickaxe')
  const treeless=kit(),r=await stockTunnelPickaxes(treeless.bot,{...treeless.deps,underRock:false,acquire:async()=>{throw new Error('no trees in reach')}})
  assert.equal(r.stocked,0);assert.match(r.reason,/no trees/)
 })
