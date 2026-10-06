@@ -20,7 +20,8 @@
 import pathfinding from 'mineflayer-pathfinder'
 import {setTimeout as delay} from 'node:timers/promises'
 import {Vec3} from 'vec3'
-import {refuseDigCell,digOne,AIR,LIQUID} from './primitives.js'
+import {refuseDigCell,digOne,inProtectedSite,AIR,LIQUID} from './primitives.js'
+import {fillCell,scaffoldItems,solidCube} from './scaffold.js'
 const {goals}=pathfinding
 export const STAIR_STEPS=96
 const key=p=>`${p.x},${p.y},${p.z}`
@@ -64,13 +65,30 @@ export function dropLanding(bot,from,target){
  }
  return null
 }
-// Whether a planned step can be taken, without digging: the floor (or a
-// landing over open ground) and every block to clear.
+// Climbing or level, open ground where the next step stands is a hole a
+// player steps over on a placed block (run 61, 6 October: inside a tunnel the
+// block in front of the feet is air, and level legs stopped at holes in the
+// tunnel floor). Never into liquid, a protected build or a non-full block.
+const SIX=[[0,-1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0]]
+function treadFor(bot,cell,block,protectedSites){
+ if(!block)return 'it is not loaded'
+ if(LIQUID.has(block.name))return `it is ${block.name}`
+ if(!open(block))return `a step cannot be placed into ${block.name}`
+ if(inProtectedSite(cell,protectedSites))return 'it is inside a saved build'
+ if(!scaffoldItems(bot).length)return 'carry blocks to step on'
+ if(!SIX.some(([x,y,z])=>solidCube(bot,bot.blockAt(cell.offset(x,y,z)))))return 'nothing to place a step against'
+ return null
+}
+// Whether a planned step can be taken, without digging: the floor (a placed
+// tread, or a landing over open ground going down) and every block to clear.
 function judgeStep(bot,feet,{next,cells},target,protectedSites){
- const floor=bot.blockAt(next.offset(0,-1,0))
- // Climbing, the step is the block in front; open ground there is a hole.
- if(next.y>feet.y&&(!floor||floor.boundingBox!=='block'||LIQUID.has(floor.name)))return {ok:false,reason:`no solid step under ${key(next)} (${floor?.name??'unloaded'}); the staircase stops at ${key(feet)}`}
- if(!floor||floor.boundingBox!=='block'||LIQUID.has(floor.name)){
+ const floorAt=next.offset(0,-1,0),floor=bot.blockAt(floorAt)
+ let tread=null
+ if(next.y>=feet.y&&(!floor||floor.boundingBox!=='block'||LIQUID.has(floor.name))){
+  const refused=treadFor(bot,floorAt,floor,protectedSites)
+  if(refused)return {ok:false,reason:`no solid ${next.y>feet.y?'step':'floor'} under ${key(next)} (${floor?.name??'unloaded'}): ${refused}; the staircase stops at ${key(feet)}`}
+  tread=floorAt
+ }else if(!floor||floor.boundingBox!=='block'||LIQUID.has(floor.name)){
   // Open ground falling away (a hillside, a ledge): when the next column is
   // already open, step down to a solid landing at most MAX_DROP below, not
   // below the target and not liquid. Rock over a hole is a cave: refused.
@@ -82,7 +100,7 @@ function judgeStep(bot,feet,{next,cells},target,protectedSites){
   const refusal=refuseDigCell(bot,cell,{protectedSites,role:cell.equals(next)?'feet':'head'})
   if(refusal)return {ok:false,reason:`the staircase stops at ${key(feet)}: ${refusal}`}
  }
- return {ok:true,next,cells}
+ return {ok:true,next,cells,tread}
 }
 export async function digStaircase(bot,to,{check,progress=()=>{},stage=()=>{},protectedSites=[],maxSteps=STAIR_STEPS}){
  const target=new Vec3(to.x,to.y,to.z).floored()
@@ -110,12 +128,13 @@ export async function digStaircase(bot,to,{check,progress=()=>{},stage=()=>{},pr
    why??=judged.reason
   }
   if(!step)throw new Error(why)
-  const {next,cells}=step
+  const {next,cells,tread}=step
   stage('digging')
   for(const cell of cells){
    const block=bot.blockAt(cell);if(open(block))continue
    await digOne(bot,block,check)
   }
+  if(tread){stage('placing');if(!await fillCell(bot,tread,{check,progress}))throw new Error(`could not place a step at ${key(tread)}; the staircase stops at ${key(feet)}`)}
   if(!(next.x===feet.x&&next.z===feet.z)){
    stage('walking')
    await bot.pathfinder.goto(new goals.GoalBlock(next.x,next.y,next.z)).catch(()=>{})
