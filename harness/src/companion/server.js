@@ -18,6 +18,7 @@ import { Teammate } from './controller.js'
 import { startLocalModel } from './runtime.js'
 import { EpisodeRecorder } from './episodes.js'
 import { Listeners } from '../listeners.js'
+import { PortalTravel } from '../portal-travel.js'
 import { gameLine, busyFor } from '../chat-voice.js'
 
 // Packaged launches use a validated profile, never a developer .env file.
@@ -52,6 +53,9 @@ teammate.on('change', () => {
 })
 const listeners = new Listeners(resolve('state/listeners.json'), setup?.listen)
 runner.listening = listeners
+// Whether this world lets the bot through a portal to the Nether (nether-plan.md). Off unless saved on.
+const portalTravel = new PortalTravel(resolve('state/portal-travel.json'))
+runner.portalTravel = portalTravel
 runner.on('chat_request', ({ name, text }) => {
   const busy = busyFor(teammate, name, owner)
   if (busy) { runner.say(busy); return }
@@ -99,7 +103,8 @@ const server = http.createServer(async (req,res) => {
   if (req.method === 'GET' && req.url === '/state') return send(200,{ ...teammate.snapshot(), worldId:setup?.id??null, survivalSession:routine.snapshot(), botName:runner.bot?.username??null, minecraftVersion:versionBridge?.serverVersion||runner.bot?.version||null, translation:versionBridge?`Compatibility mode · client ${versionBridge.version}`:null, connectionIssue, authentication:authentication && authentication.expiresAt>Date.now()?authentication:null, modelReady, providerKind:profiles.current.kind, modelLabel:profiles.current.label })
   if (req.method === 'GET' && req.url === '/models') return send(200,profiles.snapshot())
   if (req.method === 'GET' && req.url === '/listeners') return send(200,{...listeners.snapshot(),owner})
-  if (req.method !== 'POST' || !['/message','/resume','/respawn','/stop','/reconnect','/shutdown','/models','/listeners','/credentials','/survival-session'].includes(req.url)) return send(404,{error:'Not found'})
+  if (req.method === 'GET' && req.url === '/portal-travel') return send(200,portalTravel.snapshot())
+  if (req.method !== 'POST' || !['/message','/resume','/respawn','/stop','/reconnect','/shutdown','/models','/listeners','/portal-travel','/credentials','/survival-session'].includes(req.url)) return send(404,{error:'Not found'})
   try {
     let body = ''; for await (const chunk of req) { body += chunk; if (body.length > 10000) throw new Error('Message too large') }
     const payload = JSON.parse(body || '{}')
@@ -130,6 +135,7 @@ const server = http.createServer(async (req,res) => {
     }
     if (req.url === '/credentials') {profiles.unlock(payload.id,payload.apiKey,payload.url);void checkModel();return send(200,{ok:true})}
     if (req.url === '/listeners') return send(200,{...listeners.save(payload),owner})
+    if (req.url === '/portal-travel') return send(200,portalTravel.save(payload))
     if (req.url === '/models') {
       const previous=JSON.stringify(profiles.current)
       const result=profiles.save(payload, payload.apiKey || '', payload.activate !== false)
