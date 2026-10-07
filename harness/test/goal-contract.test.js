@@ -202,6 +202,14 @@ test('the capabilities brief tells the planner how a damaged base is repaired',(
  assert.match(brief,/build at the saved base origin sources and places only the blocks that differ/)
 })
 
+// Lab run 66, 7 October: a corner-less portal frame stopped at 17 of 25, its
+// top row with nothing to be placed against. The ignition check reads only the
+// ten frame cells and the interior, so filled corners cost nothing.
+test('the capabilities brief tells the planner to fill a portal frame\'s corners',()=>{
+ const brief=readFileSync(new URL('../src/companion/survival-capabilities.txt',import.meta.url),'utf8')
+ assert.match(brief,/PORTAL FRAMES: build a Nether portal frame with its four corner cells filled/)
+})
+
 test('the reachability audit fixes hold: a lone hunt or sleep plans, and three criteria read what the runtime writes',async()=>{
  const {guardIntent}=await import('../src/companion/intent.js')
  for(const action of ['hunt','sleep']){
