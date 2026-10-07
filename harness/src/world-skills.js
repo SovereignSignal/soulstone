@@ -189,7 +189,7 @@ export async function executeWorldSkill(bot,task,context,gather) {
  async function walkOutside(goal,recover=true) {
   await approach(goal)
   // A retreat walk to the lit base may cross thirty blocks of night terrain: give it the task's own window.
-  await walkWithTerrainRecovery(bot,goal,{movements:walking,check,stage,progress,protectedSites:[...(task.goal?.protectedSites||[]),...(context.shelterProject?projectFootprints({base:context.shelterProject}):[])],attemptMs:task.kind==='retreat'?40000:15000,allowRecovery:recover&&task.kind!=='retreat',onRecovery:record=>{task.navigationRecovery=record;context.persist?.()}})
+  await walkWithTerrainRecovery(bot,goal,{movements:walking,check,stage,progress,protectedSites:[...(task.goal?.protectedSites||[]),...(context.shelterProject?projectFootprints({base:context.shelterProject},dimensionOf(bot)):[])],attemptMs:task.kind==='retreat'?40000:15000,allowRecovery:recover&&task.kind!=='retreat',onRecovery:record=>{task.navigationRecovery=record;context.persist?.()}})
  }
 
  async function settle(predicate,message) {
@@ -305,7 +305,7 @@ export async function executeWorldSkill(bot,task,context,gather) {
  // taken from pools and ruined portals, never from a frame somebody built.
  async function mineExposed(name,total,path,{accept=null}={}) {
   const names=sources[name]||[name],ids=names.map(n=>bot.registry.blocksByName[n]?.id).filter(Number.isInteger)
-  const sites=[...(task.goal?.protectedSites||[]),...(context.shelterProject?projectFootprints({base:context.shelterProject}):[])]
+  const sites=[...(task.goal?.protectedSites||[]),...(context.shelterProject?projectFootprints({base:context.shelterProject},dimensionOf(bot)):[])]
   if(!ids.length)throw new Error(`No mining source for ${name}`)
   const skipped=new Set()
   while(count(name)<total){

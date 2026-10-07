@@ -1,4 +1,5 @@
-import {validateUseGoal,interactableObservation,useTargetNames} from '../use-item.js'
+import {validateUseGoal,interactableObservation,useTargetNames,dimensionOf} from '../use-item.js'
+import {projectDimension,sameDimension} from '../dimension.js'
 import {updateMission,syncMissionStatus,missionFocus} from './milestones.js'
 import {SkillControl,selectSkill} from './skill-control.js'
 import {eatOnClearGround} from './food-recovery.js'
@@ -96,7 +97,7 @@ export class Teammate extends EventEmitter {
     if(this.requestProgress?.status==='interrupted'){this.requestProgress.reviewRequired=interruptedEffect(runner.task);this.requestProgress.blocker=this.requestProgress.reviewRequired||'Service restarted. Resume to re-observe and continue.';this.phase='blocked'}
     syncMissionStatus(this.requestProgress)
     if(runner.task?.kind==='build'&&runner.task.goal?.origin&&!this.projects.base)this.projects.base={build:structuredClone(runner.task.goal),stations:{},built:runner.task.status==='completed'}
-    if(runner.task?.kind==='construct'&&runner.task.goal?.name)this.projects[runner.task.goal.name]={construction:structuredClone(runner.task.goal),progress:runner.task.progress,result:runner.task.result,status:runner.task.status}
+    if(runner.task?.kind==='construct'&&runner.task.goal?.name)this.projects[runner.task.goal.name]={construction:structuredClone(runner.task.goal),progress:runner.task.progress,result:runner.task.result,status:runner.task.status,dimension:this.projects[runner.task.goal.name]?.dimension||dimensionOf(runner.bot)||'overworld'}
     if(runner.task?.goal?.project)this.projects.base=structuredClone(runner.task.goal.project)
     runner.on('operator_command', c => { if (!this.dispatching && c.action !== 'status') { this.cancel(false);if(c.action==='stop'){this.safety={status:'cancelled',reason:'Operator stop',at:Date.now()};if(canResume(this.requestProgress))this.requestProgress.status='cancelled';this.persist()} } })
     runner.on('event', e => {
@@ -218,7 +219,7 @@ export class Teammate extends EventEmitter {
         else if(reason&&this.safety?.status==='failed'&&this.safety.error!=='Agent died'&&!this.snapshot().dead&&(this.safety.retries||0)<SAFETY_RETRIES&&Date.now()-(this.safety.failedAt||0)>=3000){const retries=(this.safety.retries||0)+1,resumeInterrupted=this.safety.resumeRequestId===this.requestProgress?.id&&this.requestProgress?.status==='interrupted'&&canResume(this.requestProgress);this.safety=null;void this.seekSafety(reason,{retries,resumeInterrupted})}
       }
       if(['task_started','task_finished'].includes(e.type)&&e.task?.goal?.project){this.projects.base=structuredClone(e.task.goal.project);this.persist()}
-      if(['task_started','task_finished'].includes(e.type)&&e.task?.kind==='construct'&&e.task.goal?.name){this.projects[e.task.goal.name]={construction:structuredClone(e.task.goal),progress:structuredClone(e.task.progress||null),result:structuredClone(e.task.result||null),status:e.task.status};this.persist()}
+      if(['task_started','task_finished'].includes(e.type)&&e.task?.kind==='construct'&&e.task.goal?.name){this.projects[e.task.goal.name]={construction:structuredClone(e.task.goal),progress:structuredClone(e.task.progress||null),result:structuredClone(e.task.result||null),status:e.task.status,dimension:this.projects[e.task.goal.name]?.dimension||dimensionOf(runner.bot)||'overworld'};this.persist()}
       // Only a shelter build is the base. Any other build adopted it and wiped the
       // station records, after which every place, deposit and check_base threw and
       // the bot was homeless at dusk.
@@ -226,7 +227,8 @@ export class Teammate extends EventEmitter {
       // saved design stays (lab, 5 October: a failed repair's design, a solid
       // floor across the room and doorway, replaced it, and every retreat then
       // refused the base as malformed).
-      if(e.type==='task_finished'&&e.task?.kind==='build'&&e.task.goal?.origin&&e.task.goal.purpose==='shelter'){const sameSite=JSON.stringify(this.projects.base?.build?.origin)===JSON.stringify(e.task.goal.origin),completed=e.task.status==='completed',keep=sameSite&&!completed&&this.projects.base?.build?.design?.length;this.projects.base={...(sameSite?this.projects.base:{}),build:keep?this.projects.base.build:structuredClone(e.task.goal),stations:sameSite?(this.projects.base?.stations||{}):{},built:completed||(sameSite&&this.projects.base?.built===true)};this.persist()}
+      // The base is the Overworld's: a shelter built anywhere else never replaces it.
+      if(e.type==='task_finished'&&e.task?.kind==='build'&&e.task.goal?.origin&&e.task.goal.purpose==='shelter'&&(dimensionOf(runner.bot)||'overworld')==='overworld'){const sameSite=JSON.stringify(this.projects.base?.build?.origin)===JSON.stringify(e.task.goal.origin),completed=e.task.status==='completed',keep=sameSite&&!completed&&this.projects.base?.build?.design?.length;this.projects.base={...(sameSite?this.projects.base:{}),build:keep?this.projects.base.build:structuredClone(e.task.goal),stations:sameSite?(this.projects.base?.stations||{}):{},built:completed||(sameSite&&this.projects.base?.built===true)};this.persist()}
       if (e.type === 'skill_progress') { this.activity = e.message; this.emit('change') }
       if (e.type === 'death') {
         const recovery=['retreating','defending'].includes(this.phase),action=this.phase==='defending'?'defense':'retreat'
@@ -235,7 +237,7 @@ export class Teammate extends EventEmitter {
         // five minutes. `safety` already carries deathPosition, but the respawn
         // branch below nulls it before any reader sees it, so keep a copy that
         // survives the clear and reaches observe().
-        this.lastDeath={position:runner.position()}
+        this.lastDeath={position:runner.position(),dimension:dimensionOf(runner.bot)||'overworld'}
         if(canResume(this.requestProgress)){this.requestProgress.blocker='The agent died. Respawn first, then review the lost inventory before resuming.';this.persist()}
         this.say('I died. Use Respawn agent to return to the world. The saved request will stay paused; inventory may have been dropped.')
         // The drop pile despawns in five minutes, and on 20 September nobody was
@@ -297,7 +299,7 @@ export class Teammate extends EventEmitter {
       health: b?.health ?? null, survival:survivalObservation(b), footing:footingObservation(b), backExit:backExitObservation(b,base), worn:b?wornArmour(b):[], tools:(b?.inventory?.items()||[]).filter(i=>i.maxDurability).map(i=>({name:i.name,remaining:remainingDurability(i),maximum:i.maxDurability})), inventory, places: this.places, task: this.runner.task, plan: this.plan, stepIndex: this.stepIndex,
       safety:this.safety, conversation:this.conversation(), activity: this.activity || '', messages: this.messages, model: this.planner.model, requestProgress:this.requestProgress,canResume:!dead&&!this.runner.respawnPending&&!['retreating','defending'].includes(this.phase)&&canResume(this.requestProgress),projects:this.projects,experienceCount:this.experience.entries.length }
   }
-  dispatch(command) { this.runner.shelterProject=this.projects.base; this.runner.protectedSites=projectFootprints(this.projects); this.dispatching = true; try { this.runner.command(command) } finally { this.dispatching = false } }
+  dispatch(command) { this.runner.shelterProject=this.projects.base; this.runner.protectedSites=projectFootprints(this.projects,dimensionOf(this.runner.bot)); this.dispatching = true; try { this.runner.command(command) } finally { this.dispatching = false } }
   cancel(stop = true, disposition = 'cancelled') { if(['retreating','defending'].includes(this.safety?.status))this.safety.status=disposition; ++this.epoch; if(this.requestProgress?.status==='running'){this.requestProgress.status=disposition;this.persist()} this.episode?.end(disposition); this.episode = null; this.abort?.abort(); this.abort = null; this.phase = 'ready'; this.plan = []; this.stepIndex = -1; this.activity = ''; if (stop) this.dispatch({ action: 'stop' }); this.emit('change') }
   stop() { const unfinished=['running','blocked','interrupted','paused'].includes(this.requestProgress?.status);this.cancel();if(unfinished){this.requestProgress.status='cancelled';this.persist()} this.safety={status:'cancelled',reason:'Operator stop',at:Date.now()};this.say('Stopped. I will wait for your next instruction.') }
   interrupt(reason='Service stopped. Resume to continue the saved request.') {
@@ -1088,7 +1090,7 @@ export class Teammate extends EventEmitter {
             if(step.action==='remember') {
               const p=this.runner.bot?.players[this.recipient()]?.entity?.position
               if(!p)throw new Error(`${this.recipient()} is not visible`)
-              this.places[step.name]={x:p.x,y:p.y,z:p.z};this.persist()
+              this.places[step.name]={x:p.x,y:p.y,z:p.z,dimension:dimensionOf(this.runner.bot)||'overworld'};this.persist()
             } else if(step.action==='follow') {
               if(!this.runner.bot?.players[this.recipient()]?.entity)throw new Error(`${this.recipient()} is not visible`)
               await this.leaveOccupiedShelter(abort.signal)
@@ -1100,22 +1102,23 @@ export class Teammate extends EventEmitter {
               if(step.item){applyInspectBlockRequest(this.requestProgress,step.item);this.persist()}
             } else if(step.action!=='inspect') {
               let command
-              if(step.action==='gather'){const sites=projectFootprints(this.projects);command={action:'gather',goal:{item:step.item||'oak_log',count:step.count,...(sites.length?{protectedSites:sites}:{})},timeoutMs:180000}}
+              if(step.action==='gather'){const sites=projectFootprints(this.projects,dimensionOf(this.runner.bot));command={action:'gather',goal:{item:step.item||'oak_log',count:step.count,...(sites.length?{protectedSites:sites}:{})},timeoutMs:180000}}
               else if(['acquire','prepare','eat','harvest','hunt'].includes(step.action))command={action:step.action,goal:{item:step.item,count:step.count},timeoutMs:600000}
-              else if(OBSIDIAN_ACTIONS.includes(step.action))command={action:'make_obsidian',goal:validateObsidianGoal({count:step.count,protectedSites:projectFootprints(this.projects)}),timeoutMs:600000}
+              else if(OBSIDIAN_ACTIONS.includes(step.action))command={action:'make_obsidian',goal:validateObsidianGoal({count:step.count,protectedSites:projectFootprints(this.projects,dimensionOf(this.runner.bot))}),timeoutMs:600000}
               else if(step.action==='travel')command={action:'travel',goal:validateObservedTravelGoal(this.runner.bot,step.target),timeoutMs:180000}
-              else if(step.action==='goto')command={action:'goto',goal:validateGotoGoal({...step.target,protectedSites:projectFootprints(this.projects)}),timeoutMs:180000}
-              else if(step.action==='dig')command={action:'dig',goal:validateDigGoal({...step.target,count:step.count,protectedSites:projectFootprints(this.projects)}),timeoutMs:120000}
-              else if(step.action==='place_at')command={action:'place_at',goal:validatePlaceAtGoal({...step.target,item:step.item,protectedSites:projectFootprints(this.projects)}),timeoutMs:90000}
-              else if(step.action==='collect')command={action:'collect',goal:validateCollectGoal({item:step.item||'',count:step.count,protectedSites:projectFootprints(this.projects)}),timeoutMs:120000}
+              else if(step.action==='goto')command={action:'goto',goal:validateGotoGoal({...step.target,protectedSites:projectFootprints(this.projects,dimensionOf(this.runner.bot))}),timeoutMs:180000}
+              else if(step.action==='dig')command={action:'dig',goal:validateDigGoal({...step.target,count:step.count,protectedSites:projectFootprints(this.projects,dimensionOf(this.runner.bot))}),timeoutMs:120000}
+              else if(step.action==='place_at')command={action:'place_at',goal:validatePlaceAtGoal({...step.target,item:step.item,protectedSites:projectFootprints(this.projects,dimensionOf(this.runner.bot))}),timeoutMs:90000}
+              else if(step.action==='collect')command={action:'collect',goal:validateCollectGoal({item:step.item||'',count:step.count,protectedSites:projectFootprints(this.projects,dimensionOf(this.runner.bot))}),timeoutMs:120000}
               else if(step.action==='attack')command={action:'attack',goal:validateAttackGoal({type:step.item}),timeoutMs:120000}
-              else if(step.action==='use')command={action:'use',goal:validateUseGoal({item:step.item,count:1,expect:step.name,target:step.target,protectedSites:projectFootprints(this.projects)}),timeoutMs:120000}
+              else if(step.action==='use')command={action:'use',goal:validateUseGoal({item:step.item,count:1,expect:step.name,target:step.target,protectedSites:projectFootprints(this.projects,dimensionOf(this.runner.bot))}),timeoutMs:120000}
               else if(['descend','climb'].includes(step.action))command={action:step.action,goal:{},timeoutMs:45000}
               else if(step.action==='sleep')command={action:'sleep',goal:this.projects.base?{project:structuredClone(this.projects.base)}:{},timeoutMs:180000}
               else if(step.action==='give')command={action:'give',goal:{item:step.item,count:step.count-deliveredCount(feedback,step.item),player:this.recipient()},timeoutMs:30000}
               else if([...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(step.action)){
                 const occupied=step.action==='leave_base'?occupiedAlternative(this.runner.bot,this.projects):null
                 if(!this.projects.base&&!occupied&&step.action!=='smelt')throw new Error('No saved base; build or identify a shelter first')
+                if(this.projects.base&&!occupied&&!sameDimension(this.runner.bot,this.projects.base))throw new Error(`The base is in the ${projectDimension(this.projects.base)}; go back through the portal before using it`)
                 command={action:step.action,goal:occupied?{shelter:structuredClone(occupied)}:{item:step.item,count:step.count,project:this.projects.base?structuredClone(this.projects.base):null},timeoutMs:600000}
               } else if(['construct','revise'].includes(step.action)) {
                 enforceProjectIntent(this.requestProgress.goal,step,this.projects)
@@ -1128,7 +1131,7 @@ export class Teammate extends EventEmitter {
                   if(saved.previousDesign&&(this.projects[step.name].status!=='completed'||this.projects[step.name].result?.partial===true))throw new Error('Continue the pending revision with construct and an empty design before another edit')
                   previousDesign=saved.design;design=reviseArchitecture(saved.design,step.design)
                 }
-                command={action:'construct',goal:{name:step.name,design,...(previousDesign?{previousDesign}:{}),near:{x:near.x,y:near.y,z:near.z},...(saved?.origin?{origin:saved.origin}:{protectedSites:projectFootprints(this.projects),constructionLimits:constructionLimits(this.requestProgress.goal,step.name)})},timeoutMs:600000}
+                command={action:'construct',goal:{name:step.name,design,...(previousDesign?{previousDesign}:{}),near:{x:near.x,y:near.y,z:near.z},...(saved?.origin?{origin:saved.origin}:{protectedSites:projectFootprints(this.projects,dimensionOf(this.runner.bot)),constructionLimits:constructionLimits(this.requestProgress.goal,step.name)})},timeoutMs:600000}
               } else if(step.action==='build') {
                 const site=buildSiteAnchor(this.runner)
                 if(!site)throw new Error('Position is unknown; cannot choose a build site')
@@ -1148,11 +1151,12 @@ export class Teammate extends EventEmitter {
                   const base=this.projects.base?.build
                   const saved=shelter&&base?.origin&&withinBuildReach(near,base.origin)?base:null
                   const from=prior?.task?.goal?.origin?prior.task.goal:saved
-                  return from?{origin:from.origin,...(from.wood?{wood:from.wood}:{})}:{protectedSites:projectFootprints(this.projects)}
+                  return from?{origin:from.origin,...(from.wood?{wood:from.wood}:{})}:{protectedSites:projectFootprints(this.projects,dimensionOf(this.runner.bot))}
                 }).call(this)},timeoutMs:600000}
               } else {
                 const p=step.action==='come'?this.runner.bot?.players[this.recipient()]?.entity?.position:this.places[step.name]
                 if(!p)throw new Error('That location is unavailable. Come into view or name a saved place.')
+                if(step.action!=='come'&&!sameDimension(this.runner.bot,p))throw new Error(`${step.name} is in the ${projectDimension(p)}; go through the portal before walking there`)
                 // The pathfinder searches a bounded region, so one goto across a
                 // hundred blocks reports no route where an easy walk exists. Cross
                 // real distances in stages instead.

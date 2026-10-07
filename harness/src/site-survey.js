@@ -1,13 +1,17 @@
 import {Vec3} from 'vec3'
+import {projectDimension} from './dimension.js'
 const natural=new Set(['grass_block','dirt','coarse_dirt','rooted_dirt','sand','sandstone','red_sand','red_sandstone','stone','gravel','deepslate','granite','andesite','diorite'])
 const key=(x,z)=>`${x},${z}`
 // A footprint protects a build, the ground it stands on (one layer under its
 // lowest block) and its stations, as an x/z rectangle from minY up. Below that
 // the ground is nobody's: the back exit's work starts nine cells under the
 // base, and lab run 25 (3 October) saw dig and goto refuse every cell there.
-export function projectFootprints(projects={}) {
+// Given a dimension, only the builds made there: a Nether frame protects no
+// Overworld ground. Without one, every build, as before.
+export function projectFootprints(projects={},dimension=null) {
  const sites=[]
  for(const p of Object.values(projects)){
+  if(dimension&&projectDimension(p)!==dimension)continue
   const b=p.construction||p.build
   if(b?.origin&&b.design?.length){const cells=b.design.filter(r=>r.block!=='checkpoint');if(cells.length)sites.push({minX:b.origin.x+Math.min(...cells.map(r=>r.x)),maxX:b.origin.x+Math.max(...cells.map(r=>r.x2??r.x)),minZ:b.origin.z+Math.min(...cells.map(r=>r.z)),maxZ:b.origin.z+Math.max(...cells.map(r=>r.z2??r.z)),minY:b.origin.y+Math.min(...cells.map(r=>r.y))-1})}
   for(const station of Object.values(p.stations||{})){const q=station.position;if(q)sites.push({minX:q.x,maxX:q.x,minZ:q.z,maxZ:q.z,minY:q.y-1})}

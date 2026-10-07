@@ -11,6 +11,7 @@ import {DoorAwareMovements} from './navigation.js'
 import {inProtectedSite} from './primitives.js'
 import {projectFootprints} from './site-survey.js'
 import {climbOut} from './burrow.js'
+import {projectDimension,sameDimension} from './dimension.js'
 const {goals}=pathfinding
 export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
  const project=task.goal.project,build=project.build,o=new Vec3(build.origin.x,build.origin.y,build.origin.z),layout=shelterLayout(build.design)
@@ -48,7 +49,7 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
   const movement=new DoorAwareMovements(bot)
   Object.assign(movement,{allow1by1towers:true,allowParkour:false,allowSprinting:false,maxDropDown:1,
    scafoldingBlocks:[...new Set(scaffoldItems(bot).map(i=>bot.registry.itemsByName[i.name]?.id??i.type).filter(Number.isInteger))]})
-  const sites=projectFootprints({base:project}),cube=plainCube(bot)
+  const sites=projectFootprints({base:project},projectDimension(project)),cube=plainCube(bot)
   movement.canDig=true;movement.digCost=2
   movement.exclusionAreasBreak.push(block=>!block?.position?0:inProtectedSite(block.position,sites)||!cube(block)?100:0)
   movement.exclusionAreasPlace.push(block=>block?.position&&inProtectedSite(block.position,sites)?100:0)
@@ -88,6 +89,7 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
 }
 
 export function inspectRetreatShelter(bot,project,{occupants=true}={}){
+ if(!sameDimension(bot,project))throw new Error(`The base is in the ${projectDimension(project)}; go back through the portal to reach it`)
  const build=project.build,o=new Vec3(build.origin.x,build.origin.y,build.origin.z),layout=shelterLayout(build.design)
   for(const b of build.design)if(bot.blockAt(o.offset(b.x,b.y,b.z))?.name!==(b.block==='wood_planks'?build.wood.replace('_log','_planks'):b.block))throw new Error('Retreat shelter structure is missing or changed at '+o.offset(b.x,b.y,b.z)+': '+(bot.blockAt(o.offset(b.x,b.y,b.z))?.name||'unloaded'))
   // Retreat needs the doorway and its two-cell centre approach; the
@@ -114,6 +116,8 @@ export function shelteredObservation(bot,project){
 // Occupancy is geometry, not a claim that a damaged/unlit base is safe. Its
 // checked leave action can still open the door and verify an exterior arrival.
 export function insideBase(bot,project){
+ // The same x and z in another dimension is somewhere else.
+ if(!sameDimension(bot,project))return false
  try{
   const build=project.build,o=new Vec3(build.origin.x,build.origin.y,build.origin.z),layout=shelterLayout(build.design),p=bot.entity.position.floored()
   if(p.y>=o.y&&p.y<o.y+layout.roof&&layout.inside.some(q=>q.x+o.x===p.x&&q.z+o.z===p.z))return true
@@ -130,6 +134,7 @@ export const BACK_EXIT_REACH=13
 // How far underground the shaft counts as the way home (an expedition's starter bounds).
 export const BACK_EXIT_ENTRANCE_REACH=32
 export function inBackExit(bot,project){
+ if(!sameDimension(bot,project))return false
  try{
   const shaft=project.backExit,o=project.build.origin,p=bot.entity.position.floored()
   // Bounded by what the exit and a burrow from its bottom can dig, not by the

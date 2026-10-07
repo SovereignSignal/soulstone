@@ -1,5 +1,6 @@
 import {Vec3} from 'vec3'
 import {surveyGround,candidateSites,projectFootprints} from './site-survey.js'
+import {dimensionOf} from './dimension.js'
 const AIR=new Set(['air','cave_air','void_air'])
 const isAir=b=>!b||AIR.has(b.name)
 const blockId=item=>{const m=/^([a-z0-9_]{1,64})/.exec(item||'');return m?m[1]:null}
@@ -213,7 +214,7 @@ export function worldObservation(bot,{goal=null,requestedBlocks=[],radius,limit=
 // placement; these candidates are observations, never reservations.
 export function terrainSummary(bot,{near=bot?.entity?.position,projects={}}={}) {
  if(!near||!bot?.blockAt)return null
- const survey=surveyGround(bot,near,{protectedSites:projectFootprints(projects)}),selected=[]
+ const survey=surveyGround(bot,near,{protectedSites:projectFootprints(projects,dimensionOf(bot))}),selected=[]
  for(const [width,depth] of [[7,7],[5,7],[7,5],[5,5],[3,5],[5,3]]){
   const sites=candidateSites(survey,{minX:0,maxX:width-1,minZ:0,maxZ:depth-1,height:3},{limit:1,players:Object.values(bot.players||{}).map(p=>p.entity?.position).filter(Boolean)})
   if(sites[0]){const s=sites[0];selected.push({origin:s.origin,width,depth,elevationOffset:s.rise,foundationBlocks:s.foundationBlocks,foundationMaterial:'cobblestone'})}

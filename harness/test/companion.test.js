@@ -206,7 +206,7 @@ test('completed meeting capture survives replanning after the owner moves',async
  const [r,c]=setup(async()=>++calls===1?{reply:'Saving',steps:[{action:'remember',name:'meeting'},{action:'inspect'}]}:{reply:'Return',steps:[{action:'remember',name:'meeting'},{action:'return',name:'meeting'}]})
  const original=c.planner.plan;c.planner.plan=async(...args)=>{if(calls===1)r.bot.players.Sov.entity.position={x:30,y:64,z:30};return original(...args)}
  await c.submit('collect supplies and return here')
- assert.deepEqual(c.places.meeting,{x:1,y:64,z:2});assert.deepEqual(r.commands.find(x=>x.action==='navigate').goal,{x:1,y:64,z:2})
+ assert.deepEqual(c.places.meeting,{x:1,y:64,z:2,dimension:'overworld'});assert.deepEqual(r.commands.find(x=>x.action==='navigate').goal,{x:1,y:64,z:2})
 })
 test('a false success reply cannot erase the last failed action',async()=>{
  let calls=0

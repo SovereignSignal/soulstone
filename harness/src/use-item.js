@@ -24,7 +24,8 @@ const AIR=new Set(['air','cave_air','void_air'])
 const FACE=[new Vec3(0,-1,0),new Vec3(0,1,0),new Vec3(0,0,-1),new Vec3(0,0,1),new Vec3(-1,0,0),new Vec3(1,0,0)]
 const AROUND=[[0,0,0],[0,-1,0],[0,1,0],[0,0,-1],[0,0,1],[-1,0,0],[1,0,0]]
 
-export const dimensionOf=bot=>String(bot?.game?.dimension||'').replace(/^minecraft:/,'')||null
+import {dimensionOf} from './dimension.js'
+export {dimensionOf}
 const key=p=>`${p.x}, ${p.y}, ${p.z}`
 // The server measures reach from the eyes: a target below the bot is further than its feet say.
 const eye=bot=>bot.entity.position.offset(0,bot.entity.eyeHeight||1.62,0)
