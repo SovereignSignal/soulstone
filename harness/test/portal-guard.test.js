@@ -87,3 +87,32 @@ test('a portal that does not carry the bot across is stepped back out of, and sa
  await assert.rejects(usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true},{pollMs:5,crossMs:60}),/did not carry/)
  assert.equal(survivalObservation(f.bot).inPortal,false)
 })
+
+// Run 69, 8 October: the walk to the portal timed out short of it, and the
+// last step "by direct control" walked the bot from there into a water hole,
+// where it drowned. The blind step is taken only from a standing cell beside
+// the portal; anywhere else use_portal stops with the reason.
+test('use_portal steps in only from a standing cell beside the portal, never from wherever a walk stopped',async()=>{
+ const f=crossing('overworld')
+ f.bot.pathfinder.goto=async()=>{f.log.push('walk');throw new Error('Took to long to decide path to goal!')}
+ f.bot.entity.position=new Vec3(-2.5,64,0.5)
+ await assert.rejects(usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true},{pollMs:5}),/did not reach a standing cell beside the portal/)
+ assert.ok(!f.log.some(l=>/^step /.test(l)),'no blind step: '+f.log.join(' | '))
+ const g=crossing('overworld');let target
+ g.bot.pathfinder.goto=async goal=>{target=[goal.x,goal.y,goal.z];g.bot.entity.position=new Vec3(goal.x+.5,goal.y,goal.z+.5)}
+ await usePortal(g.bot,{kind:'use_portal',goal:{}},{...g.api,netherAllowed:true},{pollMs:5})
+ assert.equal(target[1],64,'the walk aims at the portal\'s bottom level');assert.equal(Math.abs(target[0]-2)+Math.abs(target[2]),1,'beside the portal: '+target)
+})
+
+// A frame built on the ground lifts the portal's bottom cell one above the
+// ground: the bot stands one lower beside it and jumps in, as a player does.
+test('a portal one block above the ground is entered with a jump from beside it',async()=>{
+ const f=fixture({'2,65,0':'nether_portal','2,66,0':'nether_portal','2,64,0':'obsidian'})
+ f.bot.game.dimension='minecraft:overworld'
+ f.bot.findBlock=()=>f.bot.blockAt(new Vec3(2,65,0))
+ f.bot.pathfinder.goto=async g=>{f.log.push('walk '+[g.x,g.y,g.z]);f.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}
+ const step=f.bot.setControlState
+ f.bot.setControlState=(k,v)=>{if(k==='jump'&&v)f.log.push('jump');step(k,v);if(k==='forward'&&v&&!f.crossed){f.crossed=true;setTimeout(()=>{f.bot.game.dimension='minecraft:the_nether'},20)}}
+ const r=await usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true},{pollMs:5})
+ assert.equal(r.receipt,'crossed');assert.ok(f.log.some(l=>/^walk .*,64,/.test(l)),f.log.join(' | '));assert.ok(f.log.includes('jump'))
+})

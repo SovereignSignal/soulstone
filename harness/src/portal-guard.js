@@ -52,15 +52,29 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
  if(!['overworld','the_nether'].includes(from))throw new Error(`No portal travel from ${from||'an unknown dimension'}`)
  const block=bot.findBlock({matching:bot.registry.blocksByName.nether_portal.id,maxDistance:24})
  if(!block)throw new Error('No lit nether portal within 24 blocks')
- const portal=block.position.clone?.()??block.position
+ // The bottom portal cell, and the standing cells beside it at that level.
+ let portal=block.position.clone?.()??block.position
+ while(bot.blockAt(portal.offset(0,-1,0))?.name==='nether_portal')portal=portal.offset(0,-1,0)
  if(!inside()){
-  stage('walking');progress(`Walking to the portal at ${key(portal)}`)
-  const timer=setTimeout(()=>bot.pathfinder.setGoal(null),reachMs)
-  try{await bot.pathfinder.goto(new goals.GoalNear(portal.x,portal.y,portal.z,2))}catch(error){check();progress(`The walk to the portal ended early: ${String(error.message).slice(0,60)}`)}
-  finally{clearTimeout(timer)}
-  check()
+  // Run 69: a walk that timed out short of the portal, then a blind step from
+  // there, put the bot in a water hole and it drowned. The blind step is taken
+  // only from a standing cell beside the portal.
+  const here=bot.entity.position
+  // Level with the bottom cell, or one lower for a frame built on the ground, jumped in from.
+  const stands=[0,-1].flatMap(dy=>[[1,0],[-1,0],[0,1],[0,-1]].map(([dx,dz])=>portal.offset(dx,dy,dz))).filter(p=>standable(bot,p)).sort((a,b)=>(b.y-a.y)||a.distanceTo(here)-b.distanceTo(here))
+  if(!stands.length)throw new Error(`No standing cell beside the portal at ${key(portal)}; it is walled or flooded`)
+  const beside=()=>stands.some(p=>{const f=bot.entity.position;return Math.floor(f.x)===p.x&&Math.floor(f.y)===p.y&&Math.floor(f.z)===p.z})
+  if(!beside()){
+   stage('walking');progress(`Walking to the portal at ${key(portal)}`)
+   const timer=setTimeout(()=>bot.pathfinder.setGoal(null),reachMs)
+   try{await bot.pathfinder.goto(new goals.GoalBlock(stands[0].x,stands[0].y,stands[0].z))}catch(error){check();progress(`The walk to the portal ended early: ${String(error.message).slice(0,60)}`)}
+   finally{clearTimeout(timer)}
+   check()
+   if(!beside())throw new Error(`I did not reach a standing cell beside the portal at ${key(portal)}; not stepping toward it from ${key(bot.entity.position.floored())}`)
+  }
   stage('entering');progress('Stepping into the portal')
-  await bot.lookAt(portal.offset(.5,0,.5),true);bot.setControlState('forward',true)
+  const below=Math.floor(bot.entity.position.y)<portal.y
+  await bot.lookAt(portal.offset(.5,0,.5),true);bot.setControlState('forward',true);if(below)bot.setControlState('jump',true)
   try{if(!await until(inside,enterMs))throw new Error(`Could not step into the portal at ${key(portal)}`)}finally{bot.clearControlStates()}
  }
  progress('In the portal; waiting to cross')
