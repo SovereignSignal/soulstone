@@ -3,6 +3,7 @@ import {portalObservation} from './survival.js'
 import {standable} from './fire-safety.js'
 import pathfinding from 'mineflayer-pathfinder'
 import {dimensionOf} from './dimension.js'
+import {wearBestArmor} from './armor.js'
 const {goals}=pathfinding
 
 // Sov's limit: never step through a portal or enter the Nether. A survival
@@ -72,5 +73,7 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
  await until(()=>!!bot.blockAt(bot.entity.position.floored().offset(0,-1,0)),loadMs)
  const arrival=bot.findBlock({matching:bot.registry.blocksByName.nether_portal.id,maxDistance:4})?.position
  const out=await leavePortal(bot,task,{check,stage,progress})
+ // Gold boots on arrival in the Nether, iron back on in the Overworld, before anything nearby decides.
+ await wearBestArmor(bot,{check,progress})
  return {item:'portal',count:1,receipt:'crossed',from:{dimension:from,portal:xyz(portal)},to:{dimension:to,portal:arrival?xyz(arrival):null,position:out.position}}
 }

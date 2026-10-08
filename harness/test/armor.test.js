@@ -64,3 +64,15 @@ test('the brief tells the planner to bank what it earns, since death drops every
  assert.match(brief,/A base chest is death insurance/)
  assert.match(brief,/deposit spare tools, ores, food and torches before any risky trip/)
 })
+
+// workstreams/minecraft/nether-plan.md, step 6: piglins attack anyone without
+// a gold armour piece. In the Nether golden boots take the feet slot; back in
+// the Overworld the ordinary ranking puts the iron ones back on.
+test('in the Nether carried golden boots are worn over iron, and in the Overworld iron wins again',()=>{
+ const nether=bot([item('golden_boots')],{feet:'iron_boots'});nether.game={dimension:'minecraft:the_nether'}
+ assert.deepEqual(armorUpgrades(nether).map(p=>[p.slot,p.name]),[['feet','golden_boots']])
+ const home=bot([item('iron_boots')],{feet:'golden_boots'});home.game={dimension:'minecraft:overworld'}
+ assert.deepEqual(armorUpgrades(home).map(p=>[p.slot,p.name]),[['feet','iron_boots']])
+ const wearing=bot([item('iron_boots')],{feet:'golden_boots'});wearing.game={dimension:'minecraft:the_nether'}
+ assert.deepEqual(armorUpgrades(wearing),[],'already wearing gold in the Nether: keep it')
+})

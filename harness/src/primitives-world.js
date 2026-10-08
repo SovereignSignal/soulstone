@@ -53,6 +53,8 @@ export function validateAttackGoal(goal, registry) {
   if (PLACED.has(type)) throw new Error(`attack refuses ${type}: it is a placed object or vehicle, and breaking it is not a hunt.${choose}`)
   if (VILLAGE.has(type)) throw new Error(`attack refuses ${type}: hitting it turns the village against you.${choose}`)
   if (PETS.has(type)) throw new Error(`attack refuses ${type}: players keep it as a pet or ride it.${choose}`)
+  // One hit turns the whole group: zombified piglins and piglins call each other in.
+  if (['zombified_piglin', 'piglin'].includes(type)) throw new Error(`attack refuses ${type}: hitting one turns every one nearby against you.${choose}`)
   if (registry?.entitiesByName) {
     const category = registry.entitiesByName[type]?.type
     if (!category) throw new Error(`attack refuses ${type}: there is no entity named ${type} in this game version.${choose}`)

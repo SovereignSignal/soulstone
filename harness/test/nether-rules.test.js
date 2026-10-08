@@ -34,3 +34,11 @@ test('in the Nether the daylight walk onto open ground is skipped',async()=>{
  assert.equal(await c.leaveOnOpenGround(c.epoch,new AbortController().signal,r.bot,false),'skipped')
  assert.deepEqual(r.commands,[])
 })
+
+// Step 6: one hit on a zombified piglin turns every one nearby against the
+// bot, and a hit piglin calls its group the same way.
+import {validateAttackGoal} from '../src/primitives-world.js'
+test('the planner may not attack zombified piglins or piglins',()=>{
+ assert.throws(()=>validateAttackGoal({type:'zombified_piglin',count:1}),/turns every one nearby/)
+ assert.throws(()=>validateAttackGoal({type:'piglin',count:1}),/turns every one nearby/)
+})

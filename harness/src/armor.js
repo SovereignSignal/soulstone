@@ -1,6 +1,7 @@
 // Armour: the agent had died fourteen times in one session and taken four
 // hundred hearts of damage while wearing nothing at all. Anything protective it
 // carries or crafts is worn, best piece per slot, before it starts work.
+import {inNether} from './dimension.js'
 const SLOTS={helmet:'head',chestplate:'torso',leggings:'legs',boots:'feet'}
 // Ordinary survival materials only. Chainmail is not craftable and turtle
 // helmets need scute, but both are worn when found.
@@ -19,19 +20,23 @@ const better=(candidate,worn)=>{
  if(!worn)return true
  return candidate.rank>worn.rank||candidate.rank===worn.rank&&candidate.remaining>worn.remaining
 }
+// In the Nether golden boots outrank everything in the feet slot: piglins
+// attack anyone without a gold piece (nether-plan.md, step 6). Elsewhere the
+// ordinary ranking puts iron back on.
 export function armorUpgrades(bot){
  const items=bot?.inventory?.items?.()||[]
+ const nether=inNether(bot),rank=p=>nether&&p.material==='golden'&&p.slot==='feet'?RANK.length:p.rank
  const equipped={}
  for(const slot of Object.values(SLOTS)){
   const index=bot.getEquipmentDestSlot?.(slot)
   const item=Number.isInteger(index)?bot.inventory?.slots?.[index]:null
   const p=piece(item?.name)
-  if(p)equipped[slot]={...p,remaining:remaining(item),name:item.name}
+  if(p)equipped[slot]={...p,rank:rank(p),remaining:remaining(item),name:item.name}
  }
  const best={}
  for(const item of items){
   const p=piece(item.name);if(!p)continue
-  const candidate={...p,remaining:remaining(item),item,name:item.name}
+  const candidate={...p,rank:rank(p),remaining:remaining(item),item,name:item.name}
   if(better(candidate,best[p.slot])&&better(candidate,equipped[p.slot]))best[p.slot]=candidate
  }
  return Object.values(best).sort((a,b)=>a.slot.localeCompare(b.slot))
