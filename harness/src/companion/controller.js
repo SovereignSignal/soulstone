@@ -160,7 +160,8 @@ export class Teammate extends EventEmitter {
         const underRock=!shelterAvailable&&Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500)&&roofed(runner.bot)
         // use_portal stands in a portal on purpose; every other way into one is still an emergency.
         const crossing=runner.task?.kind==='use_portal'&&runner.task.status==='running'
-        const raw=emergencyReason({...observation,shelterAvailable,sheltered,recentDamageMs,roofed:underRock}),reason=crossing&&raw===PORTAL_EMERGENCY?null:raw
+        // Once it is stepping in, a hostile does not stop it either: the far side is the escape (run 72).
+        const raw=emergencyReason({...observation,shelterAvailable,sheltered,recentDamageMs,roofed:underRock}),reason=crossing&&(raw===PORTAL_EMERGENCY||raw===THREAT_INTERRUPTION&&runner.work?.stage==='entering')?null:raw
         // The journal should show the times rock was the reason work carried on.
         // The flood's answer is the evidence for an interruption through rock; without it the log says only that a hostile was "within ten blocks".
         if(reason===THREAT_INTERRUPTION&&pressing.some(t=>t.reach)&&Date.now()-(this.routeLogAt||0)>=5000){this.routeLogAt=Date.now();runner.log?.('threat_route',{threats:pressing.slice(0,4).map(t=>`${t.name}@${t.distance}/${t.verticalOffset}:${t.reach||'-'}${Number.isFinite(t.routeSteps)?'~'+t.routeSteps:''}:${t.sightline?.status||'-'}`)})}

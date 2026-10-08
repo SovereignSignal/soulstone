@@ -100,3 +100,18 @@ test('in the Nether danger sends the bot back through a nearby portal before any
  assert.equal(acts[0],'use_portal',acts.join(' '));assert.ok(!acts.includes('retreat'),'no walk toward an Overworld base from the Nether')
  assert.equal(c.safety,null,'safe on the Overworld side')
 })
+
+// Run 72, 8 October: twice the bot reached the portal, began stepping in, and
+// a creeper's interruption cancelled the crossing a second later. Stepping
+// into the portal is the fastest way out: nothing follows to the far side.
+import {THREAT_INTERRUPTION} from '../src/survival.js'
+test('a hostile nearby does not stop a crossing already stepping in; on the walk there it still does',async()=>{
+ const [r,c]=companion(async()=>({reply:'',steps:[]}))
+ r.bot.entities={9:{name:'creeper',position:new Vec3(5.5,64,0.5)}}
+ r.task={id:'x',kind:'use_portal',status:'running',goal:{}};r.work={stage:'entering'}
+ r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,20))
+ assert.equal(c.safety,null,'stepping in: carry on')
+ r.work={stage:'walking'}
+ r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,20))
+ assert.equal(c.safety?.reason,THREAT_INTERRUPTION)
+})
