@@ -308,3 +308,15 @@ test('an inventory criterion counts armour the agent is wearing', () => {
   // carried still works
   assert.equal(evaluateGoal(contract, { ...snap, inventory: { iron_helmet: 1 } }, bare, []).verdict, 'passed')
 })
+
+// workstreams/minecraft/nether-plan.md, step 7: the brief describes the switch,
+// use_portal and the Nether's rules, and still never allows the End.
+test('the brief allows a portal only through use_portal behind the switch, and states the Nether rules',()=>{
+ const brief=readFileSync(new URL('../src/companion/survival-capabilities.txt',import.meta.url),'utf8')
+ const teammate=readFileSync(new URL('../src/companion/teammate-prompt.txt',import.meta.url),'utf8')
+ assert.match(brief,/The one way through is the use_portal action, and from the Overworld only when observation.portalTravel.nether is "on"/)
+ assert.match(brief,/The End is never entered/)
+ assert.match(brief,/THE NETHER: .*no water .*no bed .*Never mine obsidian there/s)
+ assert.match(teammate,/Action use_portal: /)
+ assert.doesNotMatch(brief,/never go through a portal or into the Nether/,'the old blanket rule is replaced, not contradicted')
+})
