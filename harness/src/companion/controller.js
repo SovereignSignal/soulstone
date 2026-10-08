@@ -510,6 +510,24 @@ export class Teammate extends EventEmitter {
         if(open!=='skipped'||epoch!==this.epoch||abort.signal.aborted)return
         this.safety.status='retreating';this.phase='retreating'
       }
+      // In the Nether the way home is the shelter: the base is out of reach and
+      // the arrival portal is usually a few steps away (run 70: a blaze killed
+      // the bot a block from it while retreat, burrow and hut each refused).
+      if(inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:16})){
+        const attempt={name:'portal_home',status:'trying'};this.safety.attempts=[attempt];this.persist()
+        this.say('Danger in the Nether. Going back through the portal.')
+        try{
+          await this.execute({action:'use_portal',goal:{},timeoutMs:45000},abort.signal)
+          if(epoch!==this.epoch||abort.signal.aborted)return
+          attempt.status='crossed';this.safety=null;this.phase=canResume(this.requestProgress)?'blocked':'ready';this.persist()
+          this.say('I am back in the Overworld, away from the danger.')
+          return
+        }catch(error){
+          if(epoch!==this.epoch||abort.signal.aborted)return
+          attempt.status='rejected';attempt.reason=error.message;this.persist()
+          this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)
+        }
+      }
       const candidates=[...(this.projects.base?[{name:'base',goal:{project:structuredClone(this.projects.base)}}]:[]),...alternativeShelters(recoveryBot,this.projects).slice(0,3).map(shelter=>({name:shelter.name,goal:{shelter:structuredClone(shelter)}}))]
       this.safety.attempts=[]
       const recoveryDeadline=Date.now()+120000

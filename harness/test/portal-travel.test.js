@@ -80,3 +80,23 @@ test('the intent guard lets a use_portal plan through',()=>{
  const plan={reply:'Through and back.',steps:[{action:'use_portal',name:'',count:0,item:''},{action:'use_portal',name:'',count:0,item:''}]}
  assert.deepEqual(guardIntent(plan,'go through the portal, wait 30 seconds on the other side, then come back through it'),plan)
 })
+
+// Run 70, 8 October: the first crossing landed beside a Nether fortress, and a
+// blaze set the bot alight from out of sight. Retreat refused (the base is in
+// the Overworld), burrow refused (nether bricks), hut refused (the portal in
+// the way), and it died a block from the way home. In the Nether a lit portal
+// close by is the first shelter.
+import {HEALTH_EMERGENCY} from '../src/survival.js'
+test('in the Nether danger sends the bot back through a nearby portal before any other shelter',async()=>{
+ const r=new PortalRunner();r.bot.game.dimension='minecraft:the_nether';r.bot.health=8
+ r.bot.findBlock=({matching})=>matching===registry.blocksByName.nether_portal.id?{name:'nether_portal',position:new Vec3(1,64,0)}:null
+ r.command=function(c){this.commands.push(c);this.task={id:String(this.commands.length),kind:c.action,status:'running',goal:c.goal}
+  if(c.action==='use_portal')this.bot.game.dimension='minecraft:overworld'
+  if(c.action!=='stop')setTimeout(()=>this.emit('event',{type:'task_finished',task:{...this.task,status:'completed',result:{receipt:c.action==='use_portal'?'crossed':'done'}}}),1)}
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-companion-')),'state.json'))
+ c.projects.base={build:{origin:{x:100,y:64,z:100},design:[{x:0,y:0,z:0,block:'cobblestone'}]}}
+ await c.seekSafety(HEALTH_EMERGENCY)
+ const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop')
+ assert.equal(acts[0],'use_portal',acts.join(' '));assert.ok(!acts.includes('retreat'),'no walk toward an Overworld base from the Nether')
+ assert.equal(c.safety,null,'safe on the Overworld side')
+})

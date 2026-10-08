@@ -42,3 +42,14 @@ test('the planner may not attack zombified piglins or piglins',()=>{
  assert.throws(()=>validateAttackGoal({type:'zombified_piglin',count:1}),/turns every one nearby/)
  assert.throws(()=>validateAttackGoal({type:'piglin',count:1}),/turns every one nearby/)
 })
+
+// Run 70: health fell from 20 to 7 under blaze fire while the threat list was
+// empty. Blazes and ghasts shoot from well past the 24 blocks other mobs are
+// watched at, so they are watched to 48.
+import {survivalObservation} from '../src/survival.js'
+test('a blaze or a ghast 35 blocks away is a threat; a zombie there is not',()=>{
+ const b=bot('the_nether')
+ b.entities={1:{name:'blaze',position:new Vec3(35.5,70,0.5)},2:{name:'ghast',position:new Vec3(0.5,70,40.5)},3:{name:'zombie',position:new Vec3(-35.5,70,0.5)}}
+ const names=survivalObservation(b).nearbyThreats.map(t=>t.name).sort()
+ assert.deepEqual(names,['blaze','ghast'])
+})
