@@ -174,8 +174,13 @@ async function openSealed(bot,site,{check,progress,stage,approach,settle,stairca
 // built just the same). The whole joined piece is judged, since a frame's
 // bottom middle has air above it like any pool layer.
 const RUIN=new Set(['netherrack','magma_block','crying_obsidian','gold_block'])
+// Never the way home (nether-plan.md, step 4): no obsidian within two blocks
+// of a portal block, and none at all in the Nether, where the arrival frame
+// stands on netherrack and would read as a ruin.
 export function takeableObsidian(bot,pos){
  const name=p=>bot.blockAt(p)?.name,seen=new Set(),queue=[pos],piece=[]
+ if(inNether(bot))return false
+ for(let dx=-2;dx<=2;dx++)for(let dy=-2;dy<=2;dy++)for(let dz=-2;dz<=2;dz++)if(name(pos.offset(dx,dy,dz))==='nether_portal')return false
  while(queue.length&&piece.length<48){
   const p=queue.shift(),k=key(p)
   if(seen.has(k))continue;seen.add(k)

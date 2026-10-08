@@ -287,3 +287,18 @@ test('obsidian is taken from flat pool layers and ruined portals, never from a b
  at(20,69,0,'netherrack');for(const y of [70,71,72,73])at(20,y,0,'obsidian')
  assert.equal(takeableObsidian(bot,v(20,73,0)),true,'a ruined portal: netherrack below the frame')
 })
+
+// workstreams/minecraft/nether-plan.md, step 4: the way home is never mined.
+// The arrival portal in the Nether stands on netherrack, which the rule above
+// reads as a ruined portal, so in the Nether no obsidian is taken at all, and
+// anywhere obsidian within two blocks of a portal block stays.
+test('obsidian beside a portal, or anywhere in the Nether, is never taken',()=>{
+ const world=new Map(),at=(x,y,z,n)=>world.set(`${x},${y},${z}`,n)
+ const v=(x,y,z)=>({x,y,z,offset(a,b,c){return v(x+a,y+b,z+c)}})
+ const bot=dimension=>({game:{dimension:`minecraft:${dimension}`},blockAt:p=>({name:world.get(`${p.x},${p.y},${p.z}`)??'stone'})})
+ at(0,40,0,'obsidian');at(1,40,0,'obsidian')
+ assert.equal(takeableObsidian(bot('overworld'),v(0,40,0)),true,'a pool layer, as before')
+ assert.equal(takeableObsidian(bot('the_nether'),v(0,40,0)),false,'not in the Nether')
+ at(30,40,0,'obsidian');at(31,41,0,'nether_portal')
+ assert.equal(takeableObsidian(bot('overworld'),v(30,40,0)),false,'not beside a portal')
+})
