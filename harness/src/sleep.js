@@ -7,6 +7,7 @@ import {Vec3} from 'vec3'
 import {DoorAwareMovements} from './navigation.js'
 import {shelterLayout} from './shelter.js'
 import {survivalObservation} from './survival.js'
+import {dimensionOf} from './dimension.js'
 const {goals}=pathfinding
 export const SLEEP_START=12541,SLEEP_END=23458
 const isBed=b=>!!b&&/_bed$/.test(b.name)
@@ -42,6 +43,8 @@ export function bedSite(bot,project){
 }
 export async function sleepThroughNight(bot,task,{check,stage,progress}){
  check()
+ const here=dimensionOf(bot)
+ if(here&&here!=='overworld')throw new Error(`A bed explodes in the ${here.replace('the_','')}; sleep only in the Overworld`)
  const observed=survivalObservation(bot)
  const thunderstorm=!!bot.isRaining&&bot.thunderState>0
  if(!sleepable({...observed,thunderstorm}))throw new Error('Not night; a bed can only be used after dusk or in a thunderstorm')

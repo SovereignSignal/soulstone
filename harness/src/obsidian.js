@@ -12,6 +12,7 @@ import pathfinding from 'mineflayer-pathfinder'
 import {fullCube} from './construction.js'
 import {lavaBeside} from './navigation.js'
 import {inProtectedSite,validateProtectedSites,refuseDigCell} from './primitives.js'
+import {inNether} from './dimension.js'
 const {goals}=pathfinding
 export const OBSIDIAN_ACTIONS=['make_obsidian']
 const AIR=new Set(['air','cave_air','void_air'])
@@ -229,6 +230,7 @@ const near=(bot,name,point,maxDistance,filter=()=>true)=>(bot.findBlocks({point,
 export const SEARCH_LEGS=6,SEARCH_LEG=48
 export async function makeObsidian(bot,task,{check,progress,stage,walk,settle,mine,fill,count,persist,travel=null,staircase=null,approach=p=>walk(new goals.GoalBlock(p.x,p.y,p.z))}){
  const goal=validateObsidianGoal(task.goal),total=goal.count,start=count('obsidian')
+ if(inNether(bot))throw new Error('Water evaporates in the Nether, so no pour can make obsidian here; make it in the Overworld')
  const record=task.obsidian??={pours:0,converted:0,skipped:[]}
  const done=extra=>({item:'obsidian',count:count('obsidian'),requested:total,pours:record.pours,converted:record.converted,...extra})
  if(start>=total)return done({receipt:'obsidian_already_carried'})

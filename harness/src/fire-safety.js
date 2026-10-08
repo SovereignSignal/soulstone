@@ -3,6 +3,7 @@ import pathfinding from 'mineflayer-pathfinder'
 import {fireObservation} from './survival.js'
 import {DoorAwareMovements} from './navigation.js'
 import {fullCube} from './construction.js'
+import {inNether} from './dimension.js'
 const {goals}=pathfinding
 const AIR=new Set(['air','cave_air','void_air'])
 
@@ -81,7 +82,8 @@ export async function douseFire(bot,task,{check,stage,progress,movements},{limit
  // wherever it landed.
  const pourHere=async()=>{
   const bucket=carried(bot,'water_bucket')
-  if(!bucket)return false
+  // Water evaporates in the Nether: the bucket would be spent for nothing.
+  if(!bucket||inNether(bot))return false
   if(!fireObservation(bot).inLava&&!await until(()=>bot.entity.onGround,500,pollMs,check))return false
   const feet=bot.entity.position.floored(),head=feet.offset(0,1,0)
   const outlined=b=>!!b&&!AIR.has(b.name)&&b.boundingBox==='empty'&&!['water','lava'].includes(b.name)

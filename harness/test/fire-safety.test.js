@@ -156,3 +156,11 @@ test('a source that lands at head height anyway is taken back at once',async()=>
  assert.notEqual(f.world.get('0,65,0'),'water','a source at head height drowns the bot')
  assert.equal(r.waterBucket,true)
 })
+
+// workstreams/minecraft/nether-plan.md, step 3: a water bucket evaporates in
+// the Nether, so burning there the bot never spends one; it walks out instead.
+test('in the Nether a burning bot keeps its water bucket and does not pour',async()=>{
+ const f=fixture();f.bot.game.dimension='minecraft:the_nether'
+ await douseFire(f.bot,{kind:'douse',goal:{}},f.api,{limitMs:300,walkMs:50,climbMs:50}).catch(()=>{})
+ assert.ok(!f.log.some(l=>/^use water_bucket/.test(l)),f.log.join(' | '))
+})

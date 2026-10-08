@@ -1,6 +1,6 @@
 import {Vec3} from 'vec3'
 import {surveyGround,candidateSites,projectFootprints} from './site-survey.js'
-import {dimensionOf} from './dimension.js'
+import {dimensionOf,inNether} from './dimension.js'
 const AIR=new Set(['air','cave_air','void_air'])
 const isAir=b=>!b||AIR.has(b.name)
 const blockId=item=>{const m=/^([a-z0-9_]{1,64})/.exec(item||'');return m?m[1]:null}
@@ -143,7 +143,8 @@ export function columnAbove(bot){
 // Under this much rock the sky's clock is not the bot's business: caves spawn
 // in the dark at any hour, and night adds nothing to them.
 export const ROOFED_CELLS=8
-export const roofed=bot=>columnAbove(bot).solidCells>=ROOFED_CELLS
+// The Nether is all under rock: no sky, and no sunrise to wait for (nether-plan.md).
+export const roofed=bot=>inNether(bot)||columnAbove(bot).solidCells>=ROOFED_CELLS
 
 const entityKind=e=>{
  if(e?.type==='player')return 'player'

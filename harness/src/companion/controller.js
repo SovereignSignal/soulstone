@@ -1,5 +1,5 @@
 import {validateUseGoal,interactableObservation,useTargetNames,dimensionOf} from '../use-item.js'
-import {projectDimension,sameDimension} from '../dimension.js'
+import {projectDimension,sameDimension,inNether} from '../dimension.js'
 import {updateMission,syncMissionStatus,missionFocus} from './milestones.js'
 import {SkillControl,selectSkill} from './skill-control.js'
 import {eatOnClearGround} from './food-recovery.js'
@@ -608,7 +608,8 @@ export class Teammate extends EventEmitter {
   }
   async leaveOnOpenGround(epoch,signal,bot,interruptedActiveRequest) {
     const s=survivalObservation(bot),near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=16),lone=near.length===1?near[0]:null
-    if(!(s.timeOfDay>=1000&&s.timeOfDay<12000)||!(s.health>=12))return 'skipped'
+    // Open ground is a daylight answer; the Nether has no daylight, only ghasts.
+    if(inNether(bot)||!(s.timeOfDay>=1000&&s.timeOfDay<12000)||!(s.health>=12))return 'skipped'
     // Open ground is only better than a hole if nothing is already on the bot.
     // A daylight spider counts as conditional, but it still bites: one chased
     // the agent through a flight from 20 health to 0.
