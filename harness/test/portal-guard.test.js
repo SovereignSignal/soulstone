@@ -5,7 +5,7 @@ import blockLoader from 'prismarine-block'
 import {Vec3} from 'vec3'
 import {DoorAwareMovements} from '../src/navigation.js'
 import {survivalObservation,emergencyReason,PORTAL_EMERGENCY,FIRE_EMERGENCY} from '../src/survival.js'
-import {leavePortal} from '../src/portal-guard.js'
+import {leavePortal,usePortal} from '../src/portal-guard.js'
 const registry=minecraftData('1.21.4'),Block=blockLoader(registry)
 const key=p=>`${p.x},${p.y},${p.z}`
 
@@ -53,4 +53,37 @@ test('leaving a portal steps straight out to a standing cell that is not portal'
 test('a portal it cannot get out of is a failure, never a success',async()=>{
  const f=fixture({'0,64,0':'nether_portal','0,65,0':'nether_portal'});f.bot.setControlState=()=>{}
  await assert.rejects(leavePortal(f.bot,{},f.api,{pollMs:1,stepMs:20}),/Still in the portal/)
+})
+
+// workstreams/minecraft/nether-plan.md, step 5: use_portal, the one deliberate
+// way through, only where the world's switch allows the Nether. Coming home
+// from the Nether is always allowed: turning the switch off never strands it.
+function crossing(dimension,{carries=true}={}){
+ const f=fixture({'2,64,0':'nether_portal','2,65,0':'nether_portal'})
+ f.bot.game.dimension=`minecraft:${dimension}`
+ f.bot.findBlock=({matching,maxDistance})=>{for(const k of ['2,64,0','2,65,0']){const [x,y,z]=k.split(',').map(Number),p=new Vec3(x,y,z);if([matching].flat().includes(registry.blocksByName.nether_portal.id)&&p.distanceTo(f.bot.entity.position)<=maxDistance)return f.bot.blockAt(p)}return null}
+ f.bot.pathfinder.goto=async g=>{f.log.push('walk');f.bot.entity.position=new Vec3(1.5,64,0.5)}
+ const step=f.bot.setControlState
+ f.bot.setControlState=(k,v)=>{step(k,v);const p=f.bot.entity.position.floored();if(carries&&k==='forward'&&v&&p.x===2&&!f.crossed){f.crossed=true;setTimeout(()=>{f.bot.game.dimension=`minecraft:${dimension==='overworld'?'the_nether':'overworld'}`;f.log.push('crossed')},20)}}
+ return f
+}
+test('use_portal walks in, crosses, steps out on the far side and records both portals',async()=>{
+ const f=crossing('overworld')
+ const r=await usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true},{pollMs:5})
+ assert.equal(r.receipt,'crossed');assert.equal(r.from.dimension,'overworld');assert.equal(r.to.dimension,'the_nether')
+ assert.deepEqual(r.from.portal,{x:2,y:64,z:0})
+ assert.equal(survivalObservation(f.bot).inPortal,false,'stepped out of the arrival portal')
+})
+test('use_portal from the Overworld is refused while the switch is off; from the Nether it always goes home',async()=>{
+ const off=crossing('overworld')
+ await assert.rejects(usePortal(off.bot,{kind:'use_portal',goal:{}},{...off.api,netherAllowed:false},{pollMs:5}),/off for this world/)
+ assert.ok(!off.log.includes('walk'),'not a step toward the portal')
+ const home=crossing('the_nether')
+ const r=await usePortal(home.bot,{kind:'use_portal',goal:{}},{...home.api,netherAllowed:false},{pollMs:5})
+ assert.equal(r.to.dimension,'overworld')
+})
+test('a portal that does not carry the bot across is stepped back out of, and said so',async()=>{
+ const f=crossing('overworld',{carries:false})
+ await assert.rejects(usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true},{pollMs:5,crossMs:60}),/did not carry/)
+ assert.equal(survivalObservation(f.bot).inPortal,false)
 })

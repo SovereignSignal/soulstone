@@ -24,7 +24,7 @@ export function validateGoal(goal) {
   return { x: goal.x, y: goal.y, z: goal.z }
 }
 export function validateTaskGoal(kind, goal) {
-  if(['surface','douse','leave_portal','burrow','hut','unhut'].includes(kind))return {}
+  if(['surface','douse','leave_portal','use_portal','burrow','hut','unhut'].includes(kind))return {}
   if(kind==='travel')return validateTravelGoal(goal)
   if(kind==='goto')return validateGotoGoal(goal)
   if(kind==='dig')return validateDigGoal(goal)
