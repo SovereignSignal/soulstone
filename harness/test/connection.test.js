@@ -69,3 +69,18 @@ test('a server the bot has played on is retried once a minute without end; one n
   const fresh=fixture()
   try { fresh.runner.attempts=5;fresh.runner.retry();assert.equal(fresh.runner.closed,true);assert.equal(fresh.runner.connectionExhausted,true) } finally {fresh.cleanup()}
 })
+
+// Run 69, 8 October: the test bot died, the agent restarted for a deploy, and
+// on every rejoin the server logged it in dead. A dead player gets the death
+// screen, not a spawn, so the 30 second join timer ended each connection and
+// five rejoins later the runner gave up. Dying at login is a completed join.
+test('a bot that logs in dead keeps its connection, so it can be respawned',async()=>{
+ const {runner,cleanup}=fixture();let ended=false
+ const bot={isAlive:false,health:0,end(){ended=true},clearControlStates(){},quit(){}}
+ runner.bot=bot;runner.joinTimer=setTimeout(()=>bot.end('join timeout'),40)
+ try{
+  runner.onDeath(bot)
+  await new Promise(res=>setTimeout(res,80))
+  assert.equal(ended,false,'the join timer no longer ends a dead login');assert.equal(runner.ready,false)
+ }finally{cleanup()}
+})

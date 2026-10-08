@@ -115,15 +115,7 @@ export class Runner extends EventEmitter {
       const distance = this.distance()
       if (distance <= 2) this.finish('completed', 'destination reached', { distance, position: this.position() })
     })
-    bot.on('death', () => {
-      if (this.bot !== bot) return
-      this.ready = false; this.halt()
-      this.respawnPending = false; clearTimeout(this.respawnTimer)
-      if (this.task?.status === 'running') {
-        this.task.status = 'paused'; this.task.reason = 'death: explicit resume required'; this.persist()
-      }
-      this.log('death', { task: this.task })
-    })
+    bot.on('death', () => this.onDeath(bot))
     bot.on('kicked', reason => { if (this.bot === bot) this.log('kicked', {reason:JSON.stringify(reason)?.slice(0,2000)}) })
     bot.on('error', error => { if (this.bot === bot) this.log('connection_error', { reason: error.message }) })
     bot.on('end', () => {
@@ -336,6 +328,19 @@ export class Runner extends EventEmitter {
     this.task.status = 'running'; delete this.task.reason; this.extend(); this.persist()
     if (this.bot && !this.bot.isAlive) this.bot.respawn()
     else this.applyGoal()
+  }
+  onDeath(bot) {
+    if (this.bot !== bot) return
+    // Dying at login is a completed join: the server sends the death screen,
+    // not a spawn, and the join timer used to end every such connection
+    // (run 69: five rejoins, then the runner gave up on a dead bot).
+    clearTimeout(this.joinTimer)
+    this.ready = false; this.halt()
+    this.respawnPending = false; clearTimeout(this.respawnTimer)
+    if (this.task?.status === 'running') {
+      this.task.status = 'paused'; this.task.reason = 'death: explicit resume required'; this.persist()
+    }
+    this.log('death', { task: this.task })
   }
   respawn() {
     if(this.closed||!this.bot)throw new Error('Connect to Minecraft before respawning')
