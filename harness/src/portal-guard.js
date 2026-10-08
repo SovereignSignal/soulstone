@@ -75,7 +75,15 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
   stage('entering');progress('Stepping into the portal')
   const below=Math.floor(bot.entity.position.y)<portal.y
   await bot.lookAt(portal.offset(.5,0,.5),true);bot.setControlState('forward',true);if(below)bot.setControlState('jump',true)
-  try{if(!await until(inside,enterMs))throw new Error(`Could not step into the portal at ${key(portal)}`)}finally{bot.clearControlStates()}
+  try{
+   if(!await until(inside,enterMs))throw new Error(`Could not step into the portal at ${key(portal)}`)
+   // On to the middle of the cell: the portal's working shape is a thin plane
+   // there, and the feet reaching the cell can leave the body short of it (run 73).
+   const cell=bot.entity.position.floored(),middle=cell.offset(.5,0,.5)
+   const centred=()=>{const p=bot.entity.position;return Math.abs(p.x-middle.x)<0.2&&Math.abs(p.z-middle.z)<0.2}
+   await bot.lookAt(middle.offset(0,.5,0),true)
+   await until(()=>{if(centred())return true;bot.setControlState('forward',true);return false},1000)
+  }finally{bot.clearControlStates()}
  }
  progress('In the portal; waiting to cross')
  if(!await until(()=>dimensionOf(bot)!==from,crossMs)){

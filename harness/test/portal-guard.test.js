@@ -116,3 +116,22 @@ test('a portal one block above the ground is entered with a jump from beside it'
  const r=await usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true},{pollMs:5})
  assert.equal(r.receipt,'crossed');assert.ok(f.log.some(l=>/^walk .*,64,/.test(l)),f.log.join(' | '));assert.ok(f.log.includes('jump'))
 })
+
+// Run 73, 8 October: twice the bot stood "in" a portal for 15 seconds and was
+// not carried across. A portal's working shape is a thin plane in the middle
+// of its block; stopping the moment the feet reach the portal cell can leave
+// the body short of it. The step in goes on to the middle of the cell.
+test('stepping in goes on to the middle of the portal cell before waiting to cross',async()=>{
+ const f=crossing('overworld',{carries:false})
+ f.bot.pathfinder.goto=async g=>{f.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}
+ // Held forward walks a tenth of a block per tick toward where the bot looks, as the client does.
+ let forward=false
+ f.bot.setControlState=(k,v)=>{if(k==='forward')forward=v}
+ f.bot.clearControlStates=()=>{forward=false}
+ const walk=setInterval(()=>{if(!forward||!f.bot.lookTarget)return;const p=f.bot.entity.position,t=f.bot.lookTarget,dx=t.x-p.x,dz=t.z-p.z,d=Math.hypot(dx,dz);if(d>0.01){const st=Math.min(0.1,d);f.bot.entity.position=new Vec3(p.x+dx/d*st,p.y,p.z+dz/d*st)}},2)
+ let centred=false
+ const poll=setInterval(()=>{const p=f.bot.entity.position;if(Math.floor(p.x)===2&&Math.abs(p.x-2.5)<0.2&&Math.abs(p.z-0.5)<0.2)centred=true},2)
+ await usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true},{pollMs:5,crossMs:60}).catch(()=>{})
+ clearInterval(poll);clearInterval(walk)
+ assert.ok(centred,'reached the middle of the portal cell')
+})
