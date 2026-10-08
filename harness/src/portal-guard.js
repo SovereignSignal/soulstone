@@ -50,8 +50,8 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
  const from=dimensionOf(bot)
  if(from==='overworld'&&!netherAllowed)throw new Error('Portal travel to the Nether is off for this world; only the owner can turn it on')
  if(!['overworld','the_nether'].includes(from))throw new Error(`No portal travel from ${from||'an unknown dimension'}`)
- const block=bot.findBlock({matching:bot.registry.blocksByName.nether_portal.id,maxDistance:24})
- if(!block)throw new Error('No lit nether portal within 24 blocks')
+ const block=bot.findBlock({matching:bot.registry.blocksByName.nether_portal.id,maxDistance:48})
+ if(!block)throw new Error('No lit nether portal within 48 blocks')
  // The bottom portal cell, and the standing cells beside it at that level.
  let portal=block.position.clone?.()??block.position
  while(bot.blockAt(portal.offset(0,-1,0))?.name==='nether_portal')portal=portal.offset(0,-1,0)

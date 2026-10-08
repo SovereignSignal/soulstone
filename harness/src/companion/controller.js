@@ -514,7 +514,9 @@ export class Teammate extends EventEmitter {
       // In the Nether the way home is the shelter: the base is out of reach and
       // the arrival portal is usually a few steps away (run 70: a blaze killed
       // the bot a block from it while retreat, burrow and hut each refused).
-      if(inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:16})){
+      // Run 73: twenty blocks from the portal the bot walled itself in, opened up and
+      // walled in again among wither skeletons; the walk home is worth more.
+      if(inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})){
         const attempt={name:'portal_home',status:'trying'};this.safety.attempts=[attempt];this.persist()
         this.say('Danger in the Nether. Going back through the portal.')
         try{
