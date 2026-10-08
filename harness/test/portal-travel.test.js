@@ -71,3 +71,12 @@ test('standing in the portal during use_portal is not an emergency; anywhere els
  r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,20))
  assert.equal(c.safety?.reason,'Standing in a portal')
 })
+
+// Run 68, 8 October: the first live use_portal plan was thrown out by the
+// intent guard ("I could not validate the proposed actions"), whose list of
+// open-ended actions had no use_portal.
+import {guardIntent} from '../src/companion/intent.js'
+test('the intent guard lets a use_portal plan through',()=>{
+ const plan={reply:'Through and back.',steps:[{action:'use_portal',name:'',count:0,item:''},{action:'use_portal',name:'',count:0,item:''}]}
+ assert.deepEqual(guardIntent(plan,'go through the portal, wait 30 seconds on the other side, then come back through it'),plan)
+})
