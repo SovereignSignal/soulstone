@@ -20,6 +20,8 @@ import { endClientTicks } from './tick-end.js'
 import {fireObservation} from './survival.js'
 import {correctToolTierMaterials} from './tool-tiers.js'
 import {installEconomicalTools} from './tool-choice.js'
+import {OwnBlocks,trackOwnPlacements} from './natural.js'
+import {dirname,join as joinPath} from 'node:path'
 
 const { pathfinder, goals } = pathfinding
 // The longest idle window a command may ask for; real progress slides it forward.
@@ -72,6 +74,7 @@ export class Runner extends EventEmitter {
       // connection allows it, so installing at creation wrapped nothing (the
       // test-world canary still dug with the diamond pickaxe, 4 October).
       installEconomicalTools(bot)
+      trackOwnPlacements(bot,this.ownBlocks??=new OwnBlocks(this.statePath?joinPath(dirname(this.statePath),'own-blocks.json'):null))
       this.ready = true
       this.respawnPending = false; clearTimeout(this.respawnTimer)
       const movements = new DoorAwareMovements(bot)
