@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {Vec3} from 'vec3'
-import {aimPitch,arrowPath,ARROW} from '../src/archery.js'
+import {aimPitch,arrowPath,ARROW,lineOfFireBlocker} from '../src/archery.js'
 
 // The dragon ladder needs a bow: blazes keep their distance and the dragon's
 // end crystals sit on towers. A fully drawn arrow leaves at 3 blocks a tick,
@@ -102,4 +102,30 @@ test('a bystander stepping into the line of fire while the bow is drawn cancels 
  await assert.rejects(shootTarget(r.bot,{kind:'shoot',goal:{type:'zombie'}},api,{...fast,drawMs:40}),/line of fire.*cat|cat.*line of fire/)
  assert.ok(!r.log.includes('release'),'the drawn arrow was not loosed: '+r.log.join(' '))
  assert.ok(r.log.includes('slot 1'),'the draw was cancelled by changing the held slot')
+})
+
+// Security review of ae7e4aa: (1) holding fire must leave no arrow drawn, or the
+// runner's cleanup (which calls deactivateItem) looses it after all; (2) the line
+// of fire is the arrow's arc, not the straight line to the aim point; (3) the
+// protected lists are one read-only check, not exported mutable sets.
+import {isProtectedBystander} from '../src/primitives-world.js'
+import * as world from '../src/primitives-world.js'
+test('after holding fire nothing is left drawn for a later cleanup to loose',async()=>{
+ const r=range();r.bot.quickBarSlot=0;r.bot.setQuickBarSlot=n=>{r.log.push('slot '+n)}
+ const draw=r.bot.activateItem
+ r.bot.activateItem=()=>{draw();setTimeout(()=>{r.bot.entities[9]={id:9,name:'cat',type:'animal',height:0.7,position:new Vec3(0.5,64,10)}},5)}
+ await assert.rejects(shootTarget(r.bot,{kind:'shoot',goal:{type:'zombie'}},api,{...fast,drawMs:40}),/line of fire/)
+ r.bot.deactivateItem();assert.ok(!r.log.includes('release'),'a cleanup deactivate after the stand-down looses nothing: '+r.log.join(' '))
+})
+test('the line of fire follows the arc: the arrow passes over a villager on the ground, not one on a ledge in its path',()=>{
+ // A 60-block shot from eye height to foot level rises to y 68.5 at the 30-block mark.
+ const from=new Vec3(0.5,65.62,0.5),aimAt=new Vec3(0.5,65,60.5),target={id:2,position:new Vec3(0.5,64,60.5)}
+ const villagerAt=y=>({entities:{1:{id:1,name:'villager',type:'passive',height:1.9,position:new Vec3(0.5,y,30.5)}},entity:{}})
+ assert.equal(lineOfFireBlocker(villagerAt(64),from,aimAt,target),null,'on the ground, 3.5 blocks under the arc: clear (the straight line would have held it)')
+ assert.notEqual(lineOfFireBlocker(villagerAt(67),from,aimAt,target),null,'on a ledge where the arc passes: held')
+})
+test('the protected lists are one read-only check, not exported sets',()=>{
+ assert.equal(world.PETS,undefined);assert.equal(world.VILLAGE,undefined);assert.equal(world.PLACED,undefined)
+ for(const e of [{type:'player'},{name:'wolf'},{name:'villager'},{name:'armor_stand'},{name:'piglin'}])assert.equal(isProtectedBystander(e),true,JSON.stringify(e))
+ for(const e of [{name:'zombie'},{name:'cow'},{name:'blaze'}])assert.equal(isProtectedBystander(e),false,JSON.stringify(e))
 })
