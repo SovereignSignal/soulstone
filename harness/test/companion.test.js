@@ -599,7 +599,30 @@ test('automatic respawn is bounded so a spawn camp cannot loop it',async()=>{
   r.emit('event',{type:'spawn'})
  }
  assert.equal(respawns,AUTO_RESPAWN_LIMIT,'it stops after the budget instead of dying in a loop')
- assert.match(c.messages.at(-1).text,/Use Respawn agent/,'and the last word is the one asking a human to act')
+ assert.match(c.messages.at(-1).text,/next sunrise/,'and it says when it will try again')
+ c.cancel?.(true)
+})
+
+// Fresh-world round 3 on pi1, 9 October: a creeper, a pillager and a creeper
+// killed the empty-handed bot three times in two minutes at its spawn. After
+// the budget it waited for a person who was not there, and lay dead for the
+// rest of the run. It now waits for the next sunrise, a whole day for the
+// crowd to move or burn, and tries again with a fresh budget.
+test('after the respawn budget the bot tries again at the next sunrise with a fresh budget',async()=>{
+ const {AUTO_RESPAWN_LIMIT}=await import('../src/companion/continuity.js')
+ const wait=ms=>new Promise(res=>setTimeout(res,ms))
+ const [r,c]=setup(async()=>({reply:'ok',steps:[]}));let now=0;c.now=()=>now;c.dawnPollMs=5
+ c.phase='blocked';c.requestProgress={id:'d',request:'get a diamond',status:'blocked'}
+ let respawns=0;r.respawn=()=>{respawns++;r.respawnPending=true}
+ r.bot.time={timeOfDay:2000}
+ const die=()=>{r.ready=false;r.bot.health=0;r.bot.isAlive=false;r.emit('event',{type:'death'})}
+ const live=()=>{r.bot.health=20;r.bot.isAlive=true;r.respawnPending=false;r.ready=true;r.emit('event',{type:'spawn'})}
+ for(let i=0;i<AUTO_RESPAWN_LIMIT;i++){die();live()}
+ die();assert.equal(respawns,AUTO_RESPAWN_LIMIT)
+ now+=10*60000;await wait(30);assert.equal(respawns,AUTO_RESPAWN_LIMIT,'not in the same day, even with the clock reading daylight')
+ now+=10*60000;await wait(30);assert.equal(respawns,AUTO_RESPAWN_LIMIT+1,'at the next sunrise it comes back')
+ assert.equal(c.requestProgress.autoRespawns,1,'with a fresh budget')
+ c.cancel?.(true)
 })
 test('the brief tells the planner that death now recovers itself, and where the drop pile is',()=>{
  // A source-text assertion is the right shape here and only here: the prompt IS

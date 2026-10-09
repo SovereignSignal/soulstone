@@ -249,6 +249,12 @@ export class Teammate extends EventEmitter {
             this.requestProgress.autoRespawns=(this.requestProgress.autoRespawns||0)+1;this.persist()
             try{this.respawn()}catch(error){this.runner.log?.('auto_respawn_failed',{error:error.message})}
           }
+        }else if(canResume(this.requestProgress)){
+          // Round 3 on pi1 (9 October): killed three times in two minutes at its
+          // spawn, the bot then waited for a person who was not there. A whole day
+          // lets the crowd move or burn; then it tries again with a fresh budget.
+          this.respawnAtDawn=true;this.watchForDawn({nextSunrise:true})
+          this.say('I keep getting knocked out here. I will try again at the next sunrise.')
         }
       }
       if(e.type==='spawn'&&this.restoreBurrow&&runner.ready){this.restoreBurrow=false;this.phase='blocked';this.safety.status='burrowed';delete this.safety.error;this.persist();const abort=this.abort=new AbortController();this.say('Service restarted while I was dug in. Waiting for daylight before digging out.');void this.waitInBurrow(this.epoch,abort.signal,runner.bot,this.requestProgress?.status==='interrupted')}
@@ -261,17 +267,20 @@ export class Teammate extends EventEmitter {
   // Nor does its clock move: through the bridge no time packet reached the dead
   // bot, not even a /time set. So dawn is worked out from the time of death at
   // twenty ticks a second, and a time update that does arrive counts at once.
-  watchForDawn() {
+  // With nextSunrise the budget is spent: only the clock's next dawn counts, a
+  // reading of daylight now does not, and the budget starts again.
+  watchForDawn({nextSunrise=false}={}) {
     clearInterval(this.dawnTimer)
     const now=()=>this.now?.()??Date.now(),diedAt=now(),tod=this.runner.bot?.time?.timeOfDay
-    const dawnAt=Number.isFinite(tod)?diedAt+((25000-tod)%24000)*50:Infinity
+    const dawnAt=Number.isFinite(tod)?diedAt+((25000-tod)%24000)*50:nextSunrise?diedAt+24000*50:Infinity
     this.dawnTimer=setInterval(()=>{
       const stop=()=>{clearInterval(this.dawnTimer);this.dawnTimer=null}
       if(!this.respawnAtDawn)return stop()
       const seen=this.runner.bot?.time?.timeOfDay
-      if(!(now()>=dawnAt||Number.isFinite(seen)&&seen>=1000&&seen<12500))return
+      if(!(now()>=dawnAt||!nextSunrise&&Number.isFinite(seen)&&seen>=1000&&seen<12500))return
       this.respawnAtDawn=false;stop()
       if(this.snapshot().dead&&canResume(this.requestProgress)){
+        if(nextSunrise)this.requestProgress.autoRespawns=0
         this.requestProgress.autoRespawns=(this.requestProgress.autoRespawns||0)+1;this.persist()
         try{this.respawn()}catch(error){this.runner.log?.('auto_respawn_failed',{error:error.message})}
       }
