@@ -136,6 +136,34 @@ test('stepping in goes on to the middle of the portal cell before waiting to cro
  assert.ok(centred,'reached the middle of the portal cell')
 })
 
+// Run 80, 9 October: an escape stepped into the arrival portal, waited 15
+// seconds and was not carried, then stepped out from the cell's edge. The
+// centring is held for the whole wait, and the server counts only time in the
+// middle: a bot pushed back to the edge walks to the middle again.
+test('the wait to cross keeps the bot in the middle of the portal',async()=>{
+ const f=crossing('overworld',{carries:false})
+ f.bot.pathfinder.goto=async g=>{f.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}
+ let forward=false,middleMs=0,pushed=false
+ f.bot.setControlState=(k,v)=>{if(k==='forward')forward=v}
+ f.bot.clearControlStates=()=>{forward=false}
+ const walk=setInterval(()=>{
+  const p=f.bot.entity.position,mid=Math.floor(p.x)===2&&Math.abs(p.x-2.5)<0.2&&Math.abs(p.z-0.5)<0.2
+  if(mid&&!pushed&&f.log.includes('say In the portal; waiting to cross')){pushed=true;f.bot.entity.position=new Vec3(2.02,64,0.5);return}
+  if(mid&&pushed&&(middleMs+=2)>=40&&!f.crossed){f.crossed=true;f.bot.game.dimension='minecraft:the_nether'}
+  if(!forward||!f.bot.lookTarget)return;const t=f.bot.lookTarget,dx=t.x-p.x,dz=t.z-p.z,d=Math.hypot(dx,dz);if(d>0.01){const st=Math.min(0.1,d);f.bot.entity.position=new Vec3(p.x+dx/d*st,p.y,p.z+dz/d*st)}},2)
+ const r=await usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true},{pollMs:5,crossMs:400}).finally(()=>clearInterval(walk))
+ assert.equal(r.receipt,'crossed')
+})
+test('a portal that never carries the bot says whether it stood in the middle',async()=>{
+ const f=crossing('overworld',{carries:false})
+ f.bot.entity.position=new Vec3(1.5,64,0.5)
+ f.bot.pathfinder.goto=async()=>{}
+ // In at the edge and held there until it gives up and steps back out.
+ const step=f.bot.setControlState
+ f.bot.setControlState=(k,v)=>{if(k==='forward'&&v&&f.bot.entity.position.x<2){f.bot.entity.position=new Vec3(2.03,64,0.5);return}if(f.log.some(l=>l.includes('Stepping out')))step(k,v)}
+ await assert.rejects(usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true},{pollMs:5,crossMs:60}),/never reached the middle of the portal/)
+})
+
 // Run 73: the escape fired from inside a hut and the walk could not leave it.
 test('use_portal from inside a hut opens the wall facing the portal, then walks',async()=>{
  const walls={}

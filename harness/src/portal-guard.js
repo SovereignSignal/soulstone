@@ -83,20 +83,30 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
   stage('entering');progress('Stepping into the portal')
   const below=Math.floor(bot.entity.position.y)<portal.y
   await bot.lookAt(portal.offset(.5,0,.5),true);bot.setControlState('forward',true);if(below)bot.setControlState('jump',true)
-  try{
-   if(!await until(inside,enterMs))throw new Error(`Could not step into the portal at ${key(portal)}`)
-   // On to the middle of the cell: the portal's working shape is a thin plane
-   // there, and the feet reaching the cell can leave the body short of it (run 73).
-   const cell=bot.entity.position.floored(),middle=cell.offset(.5,0,.5)
-   const centred=()=>{const p=bot.entity.position;return Math.abs(p.x-middle.x)<0.2&&Math.abs(p.z-middle.z)<0.2}
-   await bot.lookAt(middle.offset(0,.5,0),true)
-   await until(()=>{if(centred())return true;bot.setControlState('forward',true);return false},1000)
-  }finally{bot.clearControlStates()}
+  try{if(!await until(inside,enterMs))throw new Error(`Could not step into the portal at ${key(portal)}`)}
+  finally{bot.clearControlStates()}
+ }
+ // The portal's working shape is a thin plane in the middle of its cell; the
+ // feet reaching the cell can leave the body short of it (run 73), and only
+ // time in the middle counts toward crossing. The bot walks to the middle and
+ // back to it whenever it is off it, for the whole wait (run 80).
+ const middle=bot.entity.position.floored().offset(.5,0,.5)
+ const centred=()=>{const p=bot.entity.position;return Math.abs(p.x-middle.x)<0.2&&Math.abs(p.z-middle.z)<0.2}
+ let reached=false
+ const hold=()=>{
+  if(dimensionOf(bot)!==from)return true
+  if(centred()){reached=true;bot.setControlState('forward',false)}
+  else{bot.lookAt(middle.offset(0,.5,0),true)?.catch?.(()=>{});bot.setControlState('forward',true)}
+  return false
  }
  progress('In the portal; waiting to cross')
- if(!await until(()=>dimensionOf(bot)!==from,crossMs)){
+ let crossed
+ try{crossed=await until(hold,crossMs)}finally{bot.clearControlStates()}
+ if(!crossed){
   await leavePortal(bot,task,{check,stage,progress})
-  throw new Error(`The portal at ${key(portal)} did not carry me across in ${Math.round(crossMs/1000)} seconds; I stepped back out`)
+  throw new Error(reached
+   ?`The portal at ${key(portal)} did not carry me across in ${Math.round(crossMs/1000)} seconds; I stepped back out`
+   :`I never reached the middle of the portal at ${key(portal)} in ${Math.round(crossMs/1000)} seconds, so it could not carry me; I stepped back out`)
  }
  const to=dimensionOf(bot)
  // The far side's ground arrives after the dimension does.
