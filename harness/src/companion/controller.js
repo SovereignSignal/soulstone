@@ -22,7 +22,7 @@ const BURROW_WATCHES=4
 // door does not open for work onto it, and waiting on it is not a stall.
 const SAFETY_RETRIES=3
 const NIGHT_HOLD_MS=14*60*1000
-import {survivalObservation,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY} from '../survival.js'
+import {survivalObservation,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS} from '../survival.js'
 // Air, fire and a portal underfoot run their own recovery at once and preempt
 // any shelter attempt: each has a clock no shelter stops.
 const URGENT=new Set([WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY])
@@ -154,7 +154,8 @@ export class Teammate extends EventEmitter {
         if(this.phase==='blocked'&&canResume(this.requestProgress)){this.blockedSince??=Date.now()}else this.blockedSince=null
         // Whether the hostiles in range share the bot's open space: asked only
         // when one of them is behind something, since a mob in plain view counts anyway.
-        const pressing=observation.nearbyThreats.filter(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name))
+        // Out to the health alarm's radius too, so it judges a hidden hostile by reach as well.
+        const pressing=observation.nearbyThreats.filter(t=>t.risk==='potential_hostile'&&t.distance<=Math.max(threatRadius(t.name),HEALTH_THREAT_RADIUS))
         if(pressing.some(t=>t.sightline?.status==='blocked')){const routes=threatRoutes(runner.bot,pressing);pressing.forEach((t,i)=>{t.reach=routes[i].reach;t.routeSteps=routes[i].steps})}
         // Night only matters where the sky is: asked when it is dark and there is no base.
         const underRock=!shelterAvailable&&Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500)&&roofed(runner.bot)

@@ -49,6 +49,8 @@ export const NIGHT_EXPOSURE='Night with no shelter'
 export const HEALTH_EMERGENCY='Health is at or below half'
 // The line that sends a hurt bot to cover, and that it must be above to leave it.
 export const HEALTH_EMERGENCY_LINE=10
+// How far the health alarm looks for a hostile; the tick judges reach out to here.
+export const HEALTH_THREAT_RADIUS=16
 // How recently health must have dropped to count as still under attack. One
 // survival tick is about a second, so this is a few ticks of grace.
 export const DAMAGE_WINDOW_MS=4000
@@ -134,7 +136,10 @@ export function emergencyReason(observation){
  // An emergency is something safety can act on. Low health matters when a
  // hostile is near or a base exists to retreat to; low food matters when there
  // is food to eat. Otherwise the planner keeps working and forages itself.
- const hostileNear=!!observation.difficulty&&observation.difficulty!=='peaceful'&&(observation.nearbyThreats||[]).some(t=>t.risk==='potential_hostile'&&t.distance<=16)
+ // Judged by reach like the threat alarm and the shelter's clearance: a hostile
+ // sealed behind rock or snow kept a hurt bot walling in and opening up every
+ // 22 seconds on pi1's fresh world (9 October), never planning.
+ const hostileNear=!!observation.difficulty&&observation.difficulty!=='peaceful'&&(observation.nearbyThreats||[]).some(t=>t.risk==='potential_hostile'&&t.distance<=HEALTH_THREAT_RADIUS&&!outOfReach(t))
  // Low health is an emergency only when something can be done about it: a threat
  // to escape, or nightfall with a lit base to reach that the bot is not already
  // sitting in. Hunger under eighteen stops natural regeneration, so a hurt bot

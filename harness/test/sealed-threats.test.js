@@ -124,6 +124,20 @@ test('a sealed melee mob counts only within three blocks; a sealed creeper withi
  assert.equal(emergencyReason({...o,nearbyThreats:[sealed('warden',9)]}),THREAT_INTERRUPTION)
  assert.equal(emergencyReason({...o,nearbyThreats:[{...sealed('zombie',5),reach:'open'}]}),THREAT_INTERRUPTION,'an open route is an interruption at any distance inside the radius')
 })
+// Fresh-world test on pi1, 9 October: hurt to 9 with no food, a creeper sealed
+// three blocks below behind snow. The health alarm counted any hostile within
+// sixteen blocks while the shelter's clearance judged it by reach: walled in,
+// "Daylight with no hostile nearby. Opening up.", walled in again, every 22
+// seconds for over an hour, and the planner was never called.
+test('the health alarm judges a hidden hostile by reach, as the threat alarm and the clearance do',async()=>{
+ const {emergencyReason,HEALTH_EMERGENCY}=await import('../src/survival.js')
+ const o={gameMode:'survival',health:9,difficulty:'normal',timeOfDay:6000,sheltered:false,shelterAvailable:false,food:17,carriedFood:[],nearbyThreats:[]}
+ const hidden=(name,distance,reach)=>({risk:'potential_hostile',name,distance,reach,sightline:{status:'blocked'}})
+ assert.equal(emergencyReason({...o,nearbyThreats:[hidden('creeper',9.9,'sealed')]}),null,'the pi1 creeper')
+ assert.equal(emergencyReason({...o,nearbyThreats:[hidden('zombie',13,'sealed')]}),null)
+ assert.equal(emergencyReason({...o,nearbyThreats:[hidden('creeper',9.9,'open')]}),HEALTH_EMERGENCY,'a route in still counts')
+ assert.equal(emergencyReason({...o,nearbyThreats:[{...hidden('zombie',13,'sealed'),sightline:{status:'clear'}}]}),HEALTH_EMERGENCY,'in sight still counts')
+})
 import {outOfReach,farRoute,ROUTE_FACTOR} from '../src/survival.js'
 test('out of reach: sealed, or out of sight with a route longer than one and a half alarm radii; never a wall-breacher or a close one',()=>{
  const t=(name,distance,reach,routeSteps,sight='blocked')=>({name,distance,reach,routeSteps,sightline:{status:sight},risk:'potential_hostile'})
