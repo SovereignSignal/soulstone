@@ -1,4 +1,4 @@
-import {subscriptionKinds,requestSubscriptionPlan} from './subscriptions.js'
+import {subscriptionKinds,requestSubscriptionPlan,PLAN_TIMEOUT_MS} from './subscriptions.js'
 import {readFileSync,writeFileSync,renameSync,mkdirSync} from 'node:fs'
 import {dirname} from 'node:path'
 export const isLocal = url => ['localhost','127.0.0.1','[::1]'].includes(new URL(url).hostname)
@@ -46,7 +46,9 @@ export async function requestPlan(profile,key,messages,schema,signal,fetcher=fet
     text:{format:{type:'json_schema',name:'teammate_plan',strict:true,schema}}}
     : {model:profile.model,messages,max_tokens:profile.maxTokens,stream:false,
       ...(profile.kind==='local'?{temperature:0.1}:{}),response_format:{type:'json_schema',json_schema:{name:'teammate_plan',strict:true,schema}}}
-  const response=await fetcher(profile.url,{method:'POST',headers,body:JSON.stringify(body),redirect:'error',signal:AbortSignal.any([signal,AbortSignal.timeout(120000)])})
+  // The same time to answer as the subscription planners: a local model that
+  // thinks first ran past a 120 second cut on every call (pi1, 9 October).
+  const response=await fetcher(profile.url,{method:'POST',headers,body:JSON.stringify(body),redirect:'error',signal:AbortSignal.any([signal,AbortSignal.timeout(PLAN_TIMEOUT_MS)])})
   // Never echo a provider error body: it may contain credentials or input data.
   if(!response.ok)throw new Error(`${profile.label}: HTTP ${response.status}. Check the model ID, key, account access and provider limits in Models.`)
   const data=await response.json()

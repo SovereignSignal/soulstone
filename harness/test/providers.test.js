@@ -73,3 +73,18 @@ test('all providers receive one leading system message with current observations
  }
  await planner.plan('What am I carrying?',{inventory:{stone_pickaxe:1}},[{role:'user',text:'hello'},{role:'assistant',text:'Hi'}],signal())
 })
+// Fresh-world test on pi1, 9 October: the M3's qwen3.6:35b thinks before it
+// answers, and every planning call ran past a 120 second cut while the
+// subscription planners had 300. The planner is the variable under test, so
+// every provider gets the same time to answer.
+test('every provider gets the same planning time as the subscription planners',async()=>{
+ const {PLAN_TIMEOUT_MS}=await import('../src/companion/subscriptions.js')
+ const seen=[],timeout=AbortSignal.timeout
+ AbortSignal.timeout=ms=>{seen.push(ms);return timeout.call(AbortSignal,ms)}
+ try{
+  const ok=async()=>({ok:true,json:async()=>({choices:[{finish_reason:'stop',message:{content:JSON.stringify(reply)}}]})})
+  await requestPlan(local,'',[],schema,signal(),ok)
+  await requestPlan({...cloud,kind:'compatible',url:'https://provider.example/v1/chat/completions'},'k',[],schema,signal(),ok)
+ }finally{AbortSignal.timeout=timeout}
+ assert.deepEqual(seen,[PLAN_TIMEOUT_MS,PLAN_TIMEOUT_MS])
+})
