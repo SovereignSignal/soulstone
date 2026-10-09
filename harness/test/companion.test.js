@@ -567,19 +567,22 @@ test('a death during a resumable request respawns without waiting for an operato
 // check ran on the survival tick, which comes from physics ticks, and a dead
 // player has none. Daylight is watched on a clock of its own.
 test('a bot that died at night comes back at daylight with no physics ticks while dead',async()=>{
- const [r,c]=setup(async()=>({reply:'ok',steps:[]}))
- c.dawnPollMs=10
- c.phase='blocked';c.requestProgress={id:'d',request:'get a diamond',status:'blocked'}
- let respawns=0;r.respawn=()=>{respawns++;r.respawnPending=true}
- r.bot.time={timeOfDay:15000}
- r.ready=false;r.bot.health=0;r.bot.isAlive=false
- r.emit('event',{type:'death'})
- await new Promise(res=>setTimeout(res,40))
- assert.equal(respawns,0,'not empty-handed into the dark')
- r.bot.time.timeOfDay=2000
- await new Promise(res=>setTimeout(res,60))
- assert.equal(respawns,1,'daylight brings it back without a single survival tick')
- c.cancel?.(true)
+ // Live on the test world the dead bot's clock also stayed frozen: no time
+ // packet reached it, not even after a /time set. So dawn is worked out from
+ // the time of death at twenty ticks a second, and an update that does arrive
+ // still counts.
+ const wait=ms=>new Promise(res=>setTimeout(res,ms))
+ const night=()=>{const [r,c]=setup(async()=>({reply:'ok',steps:[]}));let now=0;c.now=()=>now;c.dawnPollMs=5
+  c.phase='blocked';c.requestProgress={id:'d',request:'get a diamond',status:'blocked'}
+  const n={r,c,respawns:0,advance:ms=>{now+=ms}};r.respawn=()=>{n.respawns++;r.respawnPending=true}
+  r.bot.time={timeOfDay:15000};r.ready=false;r.bot.health=0;r.bot.isAlive=false;r.emit('event',{type:'death'});return n}
+ const frozen=night()
+ await wait(30);assert.equal(frozen.respawns,0,'not empty-handed into the dark')
+ frozen.advance(8.2*60000);await wait(30);assert.equal(frozen.respawns,0,'10000 ticks (8.3 minutes) to dawn have not passed')
+ frozen.advance(0.2*60000);await wait(30);assert.equal(frozen.respawns,1,'dawn by the clock brings it back with the bot clock frozen')
+ await wait(30);assert.equal(frozen.respawns,1,'once')
+ const told=night()
+ told.r.bot.time.timeOfDay=2000;await wait(30);assert.equal(told.respawns,1,'a time update that does arrive counts at once')
 })
 
 test('automatic respawn is bounded so a spawn camp cannot loop it',async()=>{

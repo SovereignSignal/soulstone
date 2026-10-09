@@ -258,14 +258,18 @@ export class Teammate extends EventEmitter {
   }
   // A dead player gets no physics ticks, so no survival tick either: the dawn
   // check rode on it and pi2's bot lay dead through a whole day (9 October).
-  // The server keeps sending the time to the dead, so daylight has its own clock.
+  // Nor does its clock move: through the bridge no time packet reached the dead
+  // bot, not even a /time set. So dawn is worked out from the time of death at
+  // twenty ticks a second, and a time update that does arrive counts at once.
   watchForDawn() {
     clearInterval(this.dawnTimer)
+    const now=()=>this.now?.()??Date.now(),diedAt=now(),tod=this.runner.bot?.time?.timeOfDay
+    const dawnAt=Number.isFinite(tod)?diedAt+((25000-tod)%24000)*50:Infinity
     this.dawnTimer=setInterval(()=>{
       const stop=()=>{clearInterval(this.dawnTimer);this.dawnTimer=null}
       if(!this.respawnAtDawn)return stop()
-      const tod=this.runner.bot?.time?.timeOfDay
-      if(!(Number.isFinite(tod)&&tod>=1000&&tod<12500))return
+      const seen=this.runner.bot?.time?.timeOfDay
+      if(!(now()>=dawnAt||Number.isFinite(seen)&&seen>=1000&&seen<12500))return
       this.respawnAtDawn=false;stop()
       if(this.snapshot().dead&&canResume(this.requestProgress)){
         this.requestProgress.autoRespawns=(this.requestProgress.autoRespawns||0)+1;this.persist()
