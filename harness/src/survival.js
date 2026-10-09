@@ -89,7 +89,12 @@ export function survivalObservation(bot) {
  // Under rock there is no daylight to calm them: two spiders killed the bot at
  // y -16 at 2986 ticks while the clock called them neutral (lab run 58).
  const tod=bot?.time?.timeOfDay,daylight=Number.isFinite(tod)&&tod>=1000&&tod<12500&&!(p&&roofed(bot))
- const nearbyThreats=p?Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&e.position&&(hostile.has(e.name)||conditional.has(e.name))).map(e=>({name:e.name,distance:Math.round(e.position.distanceTo(p)*10)/10,position:{x:e.position.x,y:e.position.y,z:e.position.z},risk:conditional.has(e.name)||e.name==='spider'&&daylight?'conditional':'potential_hostile'})).filter(e=>e.distance<=(FAR_SHOOTERS.has(e.name)?48:24)).sort((a,b)=>a.distance-b.distance).slice(0,16):[]
+ // An enderman screams while it hunts a player (its `creepy` flag): from then on it
+ // is a threat. As a calm `conditional` mob, a provoked one on pi3's fresh world
+ // (9 October) set off nothing until the bot was at half health, two seconds from dead.
+ const creepy=bot?.registry?.entitiesByName?.enderman?.metadataKeys?.indexOf('creepy')??-1
+ const screaming=e=>e.name==='enderman'&&creepy>=0&&e.metadata?.[creepy]===true
+ const nearbyThreats=p?Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&e.position&&(hostile.has(e.name)||conditional.has(e.name))).map(e=>({name:e.name,distance:Math.round(e.position.distanceTo(p)*10)/10,position:{x:e.position.x,y:e.position.y,z:e.position.z},risk:!screaming(e)&&(conditional.has(e.name)||e.name==='spider'&&daylight)?'conditional':'potential_hostile'})).filter(e=>e.distance<=(FAR_SHOOTERS.has(e.name)?48:24)).sort((a,b)=>a.distance-b.distance).slice(0,16):[]
  for(const t of nearbyThreats){t.verticalOffset=Math.round((t.position.y-p.y)*10)/10;t.sightline=observedSightline(bot,{x:p.x,y:p.y+(bot.entity.eyeHeight||1.62),z:p.z},{x:t.position.x,y:t.position.y+1,z:t.position.z})}
  // Farm animals within 32 blocks, so the planner hunts what is actually there.
  const nearbyAnimals=p?Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&e.position&&ANIMALS.has(e.name)).map(e=>({name:e.name,distance:Math.round(e.position.distanceTo(p)*10)/10})).filter(e=>e.distance<=32).sort((a,b)=>a.distance-b.distance).slice(0,12):[]

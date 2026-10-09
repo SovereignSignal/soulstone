@@ -107,3 +107,16 @@ test('falling health does not override the guard that keeps a hurt agent free to
  assert.equal(emergencyReason({...hurt,recentDamageMs:500}),null,'above the floor, damage alone does not interrupt foraging')
  assert.equal(emergencyReason({...hurt,health:8,sheltered:true,recentDamageMs:500}),null,'already sheltered, it is not an interruption')
 })
+
+// Fresh-world test on pi3, 9 October: a provoked enderman took the bot from 13
+// to 6 to dead in two seconds; as a `conditional` mob it set off nothing until
+// health fell to half. An enderman screams while it hunts a player (its
+// `creepy` flag), and that is the moment it is a threat, not the first hit.
+test('an enderman that is screaming for the bot is a potential hostile; a calm one stays conditional',async()=>{
+ const registry=(await import('minecraft-data')).default('1.21.4')
+ const creepy=registry.entitiesByName.enderman.metadataKeys.indexOf('creepy')
+ const enderman=angry=>({name:'enderman',position:new Vec3(4,64,0),metadata:Object.assign([],{[creepy]:angry})})
+ const bot=angry=>({registry,entity:{position:new Vec3(0,64,0)},entities:{1:enderman(angry)},inventory:{items:()=>[]}})
+ assert.equal(survivalObservation(bot(false)).nearbyThreats[0].risk,'conditional')
+ assert.equal(survivalObservation(bot(true)).nearbyThreats[0].risk,'potential_hostile')
+})
