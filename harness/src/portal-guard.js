@@ -43,10 +43,21 @@ export async function leavePortal(bot,task,{check,stage,progress},{pollMs=50,ste
 // Every walk avoids portal blocks, so the last step in is by direct control;
 // then it stands still until the dimension changes, and steps out of the
 // arrival portal with the same guard that steps it out of any other.
-export async function usePortal(bot,task,{check,stage,progress,netherAllowed=false},{reachMs=20000,enterMs=3000,crossMs=7000,attempts=3,pauseMs=1500,loadMs=10000,pollMs=50}={}){
+export async function usePortal(bot,task,{check,stage,progress,netherAllowed=false},{reachMs=20000,enterMs=3000,crossMs=7000,attempts=3,pauseMs=1500,hopMs=500,loadMs=10000,pollMs=50}={}){
  const xyz=p=>({x:p.x,y:p.y,z:p.z}),key=p=>`${p.x},${p.y},${p.z}`
  const until=async(predicate,ms)=>{const end=Date.now()+ms;while(Date.now()<end){check();if(predicate())return true;await delay(pollMs)}return predicate()}
  const inside=()=>portalObservation(bot).inPortal===true
+ // Runs 81 and 82, measured by console: through the bridge the server finishes
+ // a dimension change only once the bot moves up or down. Level walking for 32
+ // seconds, three portal entries included, never finished it; a jump did within
+ // half a second each time. Until it finishes, a portal only re-arms its
+ // cooldown. So the bot hops on arrival and before every step into a portal.
+ const hop=async()=>{
+  if(!bot.entity.onGround)return
+  bot.setControlState('jump',true)
+  try{await until(()=>!bot.entity.onGround,hopMs)}finally{bot.setControlState('jump',false)}
+  await until(()=>bot.entity.onGround,hopMs*2)
+ }
  check()
  const from=dimensionOf(bot)
  if(from==='overworld'&&!netherAllowed)throw new Error('Portal travel to the Nether is off for this world; only the owner can turn it on')
@@ -80,6 +91,7 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
    check()
    if(!beside())throw new Error(`I did not reach a standing cell beside the portal at ${key(portal)}; not stepping toward it from ${key(bot.entity.position.floored())}`)
   }
+  await hop()
   stage('entering');progress('Stepping into the portal')
   const below=Math.floor(bot.entity.position.y)<portal.y
   await bot.lookAt(portal.offset(.5,0,.5),true);bot.setControlState('forward',true);if(below)bot.setControlState('jump',true)
@@ -124,6 +136,7 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
  await until(()=>!!bot.blockAt(bot.entity.position.floored().offset(0,-1,0)),loadMs)
  const arrival=bot.findBlock({matching:bot.registry.blocksByName.nether_portal.id,maxDistance:4})?.position
  const out=await leavePortal(bot,task,{check,stage,progress})
+ await hop()
  // Gold boots on arrival in the Nether, iron back on in the Overworld, before anything nearby decides.
  await wearBestArmor(bot,{check,progress})
  return {item:'portal',count:1,receipt:'crossed',from:{dimension:from,portal:xyz(portal)},to:{dimension:to,portal:arrival?xyz(arrival):null,position:out.position}}

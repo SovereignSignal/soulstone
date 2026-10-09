@@ -18,7 +18,7 @@ function fixture(cells={}){
   entity:{position:new Vec3(.5,64,.5),onGround:true,metadata:{0:0},effects:[]},pathfinder:{bestHarvestTool:()=>null,setGoal(){},setMovements(){},async goto(){}},
   blockAt(p){const b=Block.fromStateId(registry.blocksByName[name(p)].defaultState,0);b.position=p.floored();return b},
   async lookAt(p){bot.lookTarget=p},clearControlStates(){},
-  setControlState(k,v){if(k==='forward'&&v&&bot.lookTarget){const t=bot.lookTarget.floored();log.push('step '+key(t));bot.entity.position=new Vec3(t.x+.5,t.y,t.z+.5)}}}
+  setControlState(k,v){if(k==='jump')bot.entity.onGround=!v;if(k==='forward'&&v&&bot.lookTarget){const t=bot.lookTarget.floored();log.push('step '+key(t));bot.entity.position=new Vec3(t.x+.5,t.y,t.z+.5)}}}
  return {bot,world,log,api:{check(){},stage(){},progress(m){log.push('say '+m)},movements:null}}
 }
 
@@ -153,6 +153,20 @@ test('the wait to cross keeps the bot in the middle of the portal',async()=>{
   if(!forward||!f.bot.lookTarget)return;const t=f.bot.lookTarget,dx=t.x-p.x,dz=t.z-p.z,d=Math.hypot(dx,dz);if(d>0.01){const st=Math.min(0.1,d);f.bot.entity.position=new Vec3(p.x+dx/d*st,p.y,p.z+dz/d*st)}},2)
  const r=await usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true},{pollMs:5,crossMs:400}).finally(()=>clearInterval(walk))
  assert.equal(r.receipt,'crossed')
+})
+// Runs 81 and 82, measured by console: the dimension change finished only
+// when the bot moved up or down (a jump, a climb, a step down). Level walking
+// for 32 seconds, three entries included, never finished it. So the bot hops
+// on arrival and before every step into a portal.
+test('the bot hops before stepping into a portal, which lets the server finish its last crossing',async()=>{
+ const f=crossing('the_nether',{carries:false})
+ const step=f.bot.setControlState
+ let entries=0,settled=false
+ f.bot.setControlState=(k,v)=>{if(k==='jump'){f.bot.entity.onGround=!v;if(v)settled=true}
+  const was=f.bot.entity.position.floored().x;step(k,v);const p=f.bot.entity.position.floored()
+  if(k==='forward'&&v&&p.x===2&&was!==2){entries++;if(settled)setTimeout(()=>{f.bot.game.dimension='minecraft:overworld'},20)}}
+ const r=await usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api},{pollMs:5,crossMs:80,pauseMs:10})
+ assert.equal(r.receipt,'crossed');assert.equal(entries,1,'crossed on the first entry')
 })
 test('a portal that never carries the bot says whether it stood in the middle',async()=>{
  const f=crossing('overworld',{carries:false})
