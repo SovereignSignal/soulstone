@@ -110,17 +110,19 @@ test('Stop holds for the situation it was given in, not for the rest of the nigh
  held.c.stop();held.r.emit('event',{type:'survival_tick'});held.r.emit('event',{type:'survival_tick'})
  assert.deepEqual(again,[]);assert.equal(held.c.safety.status,'cancelled')
 })
-test('killed at night, the bot comes back at daylight instead of empty-handed into the dark',()=>{
+test('killed at night, the bot comes back at daylight instead of empty-handed into the dark',async()=>{
  // Lab, 2 October: respawned at night onto a spawn point a zombie villager was
- // standing on, three times, with nothing in its hands.
- const {r,c,bot}=world(new Vec3(30.5,64,30.5));c.projects={};bot.entities={};bot.time.timeOfDay=18000
+ // standing on, three times, with nothing in its hands. A dead player gets no
+ // physics ticks, so this test sends none (pi2, 9 October).
+ const wait=ms=>new Promise(res=>setTimeout(res,ms))
+ const {r,c,bot}=world(new Vec3(30.5,64,30.5));c.projects={};bot.entities={};bot.time.timeOfDay=18000;c.dawnPollMs=5
  c.phase='blocked';c.requestProgress={id:'d',request:'mine iron',status:'blocked'}
  let respawns=0;r.respawn=()=>{respawns++;r.respawnPending=true}
  bot.health=0;bot.isAlive=false;r.emit('event',{type:'death'})
  assert.equal(respawns,0,'not into the night');assert.match(c.messages.at(-1).text,/daylight/)
- r.emit('event',{type:'survival_tick'});assert.equal(respawns,0)
- bot.time.timeOfDay=1200;r.emit('event',{type:'survival_tick'});assert.equal(respawns,1,'at daylight it brings itself back')
- r.emit('event',{type:'survival_tick'});assert.equal(respawns,1,'once')
+ await wait(30);assert.equal(respawns,0)
+ bot.time.timeOfDay=1200;await wait(30);assert.equal(respawns,1,'at daylight it brings itself back')
+ await wait(30);assert.equal(respawns,1,'once')
  const day=world(new Vec3(30.5,64,30.5));day.c.projects={};day.bot.time.timeOfDay=6000
  day.c.phase='blocked';day.c.requestProgress={id:'d',request:'mine iron',status:'blocked'}
  let now=0;day.r.respawn=()=>{now++;day.r.respawnPending=true};day.bot.health=0;day.bot.isAlive=false;day.r.emit('event',{type:'death'})

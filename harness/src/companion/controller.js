@@ -101,16 +101,6 @@ export class Teammate extends EventEmitter {
     if(runner.task?.goal?.project)this.projects.base=structuredClone(runner.task.goal.project)
     runner.on('operator_command', c => { if (!this.dispatching && c.action !== 'status') { this.cancel(false);if(c.action==='stop'){this.safety={status:'cancelled',reason:'Operator stop',at:Date.now()};if(canResume(this.requestProgress))this.requestProgress.status='cancelled';this.persist()} } })
     runner.on('event', e => {
-      if(e.type==='survival_tick'&&this.respawnAtDawn){
-        const tod=runner.bot?.time?.timeOfDay
-        if(Number.isFinite(tod)&&tod>=1000&&tod<12500){
-          this.respawnAtDawn=false
-          if(this.snapshot().dead&&canResume(this.requestProgress)){
-            this.requestProgress.autoRespawns=(this.requestProgress.autoRespawns||0)+1;this.persist()
-            try{this.respawn()}catch(error){this.runner.log?.('auto_respawn_failed',{error:error.message})}
-          }
-        }
-      }
       if(e.type==='survival_tick'&&runner.ready){
         const bot=runner.bot
         // Recovery can finish an inventory, hunger or health goal while the
@@ -254,7 +244,7 @@ export class Teammate extends EventEmitter {
         // is not coming back from that either: wait for daylight.
         const tod=runner.bot?.time?.timeOfDay,dark=Number.isFinite(tod)&&(tod>=12500||tod<1000)
         if(canResume(this.requestProgress)&&(this.requestProgress.autoRespawns||0)<AUTO_RESPAWN_LIMIT){
-          if(dark){this.respawnAtDawn=true;this.say('It is night. I will come back at daylight rather than empty-handed into the dark.')}
+          if(dark){this.respawnAtDawn=true;this.watchForDawn();this.say('It is night. I will come back at daylight rather than empty-handed into the dark.')}
           else{
             this.requestProgress.autoRespawns=(this.requestProgress.autoRespawns||0)+1;this.persist()
             try{this.respawn()}catch(error){this.runner.log?.('auto_respawn_failed',{error:error.message})}
@@ -265,6 +255,24 @@ export class Teammate extends EventEmitter {
       if(e.type==='spawn'&&this.restoreRequest&&runner.ready&&!this.snapshot().dead){this.restoreRequest=false;this.requestProgress.restartContinuations=(this.requestProgress.restartContinuations||0)+1;this.persist();this.say('Service restarted while a request was running. Continuing it automatically.');setTimeout(()=>{this.resume({automatic:true}).catch(error=>{this.requestProgress.blocker=error.message;this.persist()})},1500)}
       if(e.type==='spawn'&&this.respawning){this.respawning=false;this.safety=null;this.phase=canResume(this.requestProgress)?'blocked':'ready';if(canResume(this.requestProgress))this.requestProgress.blocker='Respawned. Review current inventory before resuming the saved task.';this.say('I respawned. Check my current inventory before resuming the saved request.')}
     })
+  }
+  // A dead player gets no physics ticks, so no survival tick either: the dawn
+  // check rode on it and pi2's bot lay dead through a whole day (9 October).
+  // The server keeps sending the time to the dead, so daylight has its own clock.
+  watchForDawn() {
+    clearInterval(this.dawnTimer)
+    this.dawnTimer=setInterval(()=>{
+      const stop=()=>{clearInterval(this.dawnTimer);this.dawnTimer=null}
+      if(!this.respawnAtDawn)return stop()
+      const tod=this.runner.bot?.time?.timeOfDay
+      if(!(Number.isFinite(tod)&&tod>=1000&&tod<12500))return
+      this.respawnAtDawn=false;stop()
+      if(this.snapshot().dead&&canResume(this.requestProgress)){
+        this.requestProgress.autoRespawns=(this.requestProgress.autoRespawns||0)+1;this.persist()
+        try{this.respawn()}catch(error){this.runner.log?.('auto_respawn_failed',{error:error.message})}
+      }
+    },this.dawnPollMs||5000)
+    this.dawnTimer.unref?.()
   }
   verifyGoal() {
     const request=this.requestProgress

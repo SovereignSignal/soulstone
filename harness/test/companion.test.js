@@ -562,6 +562,26 @@ test('a death during a resumable request respawns without waiting for an operato
  assert.equal(respawns,1,'the agent brings itself back')
 })
 
+// Fresh-world test on pi2, 9 October: killed at night, the bot said it would
+// come back at daylight and then lay dead through the whole day. The dawn
+// check ran on the survival tick, which comes from physics ticks, and a dead
+// player has none. Daylight is watched on a clock of its own.
+test('a bot that died at night comes back at daylight with no physics ticks while dead',async()=>{
+ const [r,c]=setup(async()=>({reply:'ok',steps:[]}))
+ c.dawnPollMs=10
+ c.phase='blocked';c.requestProgress={id:'d',request:'get a diamond',status:'blocked'}
+ let respawns=0;r.respawn=()=>{respawns++;r.respawnPending=true}
+ r.bot.time={timeOfDay:15000}
+ r.ready=false;r.bot.health=0;r.bot.isAlive=false
+ r.emit('event',{type:'death'})
+ await new Promise(res=>setTimeout(res,40))
+ assert.equal(respawns,0,'not empty-handed into the dark')
+ r.bot.time.timeOfDay=2000
+ await new Promise(res=>setTimeout(res,60))
+ assert.equal(respawns,1,'daylight brings it back without a single survival tick')
+ c.cancel?.(true)
+})
+
 test('automatic respawn is bounded so a spawn camp cannot loop it',async()=>{
  // Respawning into the thing that just killed you, forever, is worse than
  // stopping. After the budget the agent waits for a human.
