@@ -43,7 +43,7 @@ export async function leavePortal(bot,task,{check,stage,progress},{pollMs=50,ste
 // Every walk avoids portal blocks, so the last step in is by direct control;
 // then it stands still until the dimension changes, and steps out of the
 // arrival portal with the same guard that steps it out of any other.
-export async function usePortal(bot,task,{check,stage,progress,netherAllowed=false},{reachMs=20000,enterMs=3000,crossMs=15000,loadMs=10000,pollMs=50}={}){
+export async function usePortal(bot,task,{check,stage,progress,netherAllowed=false},{reachMs=20000,enterMs=3000,crossMs=7000,attempts=3,pauseMs=1500,loadMs=10000,pollMs=50}={}){
  const xyz=p=>({x:p.x,y:p.y,z:p.z}),key=p=>`${p.x},${p.y},${p.z}`
  const until=async(predicate,ms)=>{const end=Date.now()+ms;while(Date.now()<end){check();if(predicate())return true;await delay(pollMs)}return predicate()}
  const inside=()=>portalObservation(bot).inPortal===true
@@ -56,7 +56,7 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
  // The bottom portal cell, and the standing cells beside it at that level.
  let portal=block.position.clone?.()??block.position
  while(bot.blockAt(portal.offset(0,-1,0))?.name==='nether_portal')portal=portal.offset(0,-1,0)
- if(!inside()){
+ const enter=async()=>{
   // Run 69: a walk that timed out short of the portal, then a blind step from
   // there, put the bot in a water hole and it drowned. The blind step is taken
   // only from a standing cell beside the portal.
@@ -90,24 +90,34 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
  // feet reaching the cell can leave the body short of it (run 73), and only
  // time in the middle counts toward crossing. The bot walks to the middle and
  // back to it whenever it is off it, for the whole wait (run 80).
- const middle=bot.entity.position.floored().offset(.5,0,.5)
- const centred=()=>{const p=bot.entity.position;return Math.abs(p.x-middle.x)<0.2&&Math.abs(p.z-middle.z)<0.2}
  let reached=false
- const hold=()=>{
-  if(dimensionOf(bot)!==from)return true
-  if(centred()){reached=true;bot.setControlState('forward',false)}
-  else{bot.lookAt(middle.offset(0,.5,0),true)?.catch?.(()=>{});bot.setControlState('forward',true)}
-  return false
+ const wait=async()=>{
+  const middle=bot.entity.position.floored().offset(.5,0,.5)
+  const centred=()=>{const p=bot.entity.position;return Math.abs(p.x-middle.x)<0.2&&Math.abs(p.z-middle.z)<0.2}
+  const hold=()=>{
+   if(dimensionOf(bot)!==from)return true
+   if(centred()){reached=true;bot.setControlState('forward',false)}
+   else{bot.lookAt(middle.offset(0,.5,0),true)?.catch?.(()=>{});bot.setControlState('forward',true)}
+   return false
+  }
+  progress('In the portal; waiting to cross')
+  try{return await until(hold,crossMs)}finally{bot.clearControlStates()}
  }
- progress('In the portal; waiting to cross')
- let crossed
- try{crossed=await until(hold,crossMs)}finally{bot.clearControlStates()}
- if(!crossed){
+ // Run 81, measured by console: after a crossing the server finishes the
+ // dimension change late, at a moment the bot cannot see (once it moves), and
+ // until ten ticks after that, standing in a portal only re-arms the cooldown.
+ // A portal that has not taken the bot in its usual four seconds is stepped out
+ // of, and entered again after a pause, as a player would.
+ for(let attempt=1;;attempt++){
+  if(!inside())await enter()
+  if(await wait())break
   const p=bot.entity.position,at=[p.x,p.y,p.z].map(v=>v.toFixed(2)).join(',')
   await leavePortal(bot,task,{check,stage,progress})
-  throw new Error(reached
-   ?`The portal at ${key(portal)} did not carry me across in ${Math.round(crossMs/1000)} seconds (last at ${at}); I stepped back out`
-   :`I never reached the middle of the portal at ${key(portal)} in ${Math.round(crossMs/1000)} seconds (last at ${at}), so it could not carry me; I stepped back out`)
+  if(attempt>=attempts)throw new Error(reached
+   ?`The portal at ${key(portal)} did not carry me across in ${attempts} tries of ${Math.round(crossMs/1000)} seconds (last at ${at}); I stepped back out`
+   :`I never reached the middle of the portal at ${key(portal)} in ${attempts} tries (last at ${at}), so it could not carry me; I stepped back out`)
+  progress('The portal has not taken me yet; stepping out and in again')
+  await until(()=>false,pauseMs)
  }
  const to=dimensionOf(bot)
  // The far side's ground arrives after the dimension does.

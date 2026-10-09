@@ -84,7 +84,7 @@ test('use_portal from the Overworld is refused while the switch is off; from the
 })
 test('a portal that does not carry the bot across is stepped back out of, and said so',async()=>{
  const f=crossing('overworld',{carries:false})
- await assert.rejects(usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true},{pollMs:5,crossMs:60}),/did not carry/)
+ await assert.rejects(usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true},{pollMs:5,crossMs:60,pauseMs:5}),/did not carry/)
  assert.equal(survivalObservation(f.bot).inPortal,false)
 })
 
@@ -160,8 +160,24 @@ test('a portal that never carries the bot says whether it stood in the middle',a
  f.bot.pathfinder.goto=async()=>{}
  // In at the edge and held there until it gives up and steps back out.
  const step=f.bot.setControlState
- f.bot.setControlState=(k,v)=>{if(k==='forward'&&v&&f.bot.entity.position.x<2){f.bot.entity.position=new Vec3(2.03,64,0.5);return}if(f.log.some(l=>l.includes('Stepping out')))step(k,v)}
- await assert.rejects(usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true},{pollMs:5,crossMs:60}),/never reached the middle of the portal/)
+ f.bot.setControlState=(k,v)=>{if(k==='forward'&&v&&f.bot.entity.position.x<2){f.bot.entity.position=new Vec3(2.03,64,0.5);return}if(f.log.at(-1)?.includes('Stepping out'))step(k,v)}
+ await assert.rejects(usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true},{pollMs:5,crossMs:60,pauseMs:5}),/never reached the middle of the portal/)
+})
+
+// Run 81, 9 October, measured by console: after a crossing the server finishes
+// the dimension change late (once the bot moves), and until then and ten ticks
+// after, standing in a portal only re-arms its cooldown. A portal that has not
+// taken the bot in its usual time is stepped out of and entered again.
+test('a portal that does not take the bot is stepped out of and entered again',async()=>{
+ const f=crossing('overworld',{carries:false})
+ const step=f.bot.setControlState
+ let entries=0
+ f.bot.setControlState=(k,v)=>{const was=f.bot.entity.position.floored().x;step(k,v);const p=f.bot.entity.position.floored();if(k==='forward'&&v&&p.x===2&&was!==2&&++entries===2)setTimeout(()=>{f.bot.game.dimension='minecraft:the_nether'},20)}
+ const r=await usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true},{pollMs:5,crossMs:80,pauseMs:10})
+ assert.equal(r.receipt,'crossed');assert.equal(entries,2)
+ assert.ok(f.log.some(l=>/stepping out and in again/.test(l)),f.log.join(' | '))
+ const g=crossing('overworld',{carries:false})
+ await assert.rejects(usePortal(g.bot,{kind:'use_portal',goal:{}},{...g.api,netherAllowed:true},{pollMs:5,crossMs:40,pauseMs:5}),/did not carry me across in 3 tries/)
 })
 
 // Run 73: the escape fired from inside a hut and the walk could not leave it.
