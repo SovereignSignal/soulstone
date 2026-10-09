@@ -18,6 +18,8 @@ import {canopyLandings} from '../canopy.js'
 import {setTimeout as delay} from 'node:timers/promises'
 // Four expired windows is an hour of watching; past that a person should look.
 const BURROW_WATCHES=4
+// How far off the nearest hostile must be for a portal room to go up before it arrives.
+const PORTAL_ROOM_STANDOFF=6
 // A hostile inside its own interruption radius while the bot is indoors: the
 // door does not open for work onto it, and waiting on it is not a stall.
 const SAFETY_RETRIES=3
@@ -50,6 +52,7 @@ import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { dirname,join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { validatePlan } from './planner.js'
+import {hutSite} from '../hut.js'
 import {deliveredCount,satisfiedStep,currentRequestTask} from './progress.js'
 
 const designKey=design=>JSON.stringify((design||[]).map(b=>[b.x,b.y,b.z,b.block]).sort((a,b)=>a[0]-b[0]||a[1]-b[1]||a[2]-b[2]||a[3].localeCompare(b[3])))
@@ -538,7 +541,14 @@ export class Teammate extends EventEmitter {
       // the bot a block from it while retreat, burrow and hut each refused).
       // Run 73: twenty blocks from the portal the bot walled itself in, opened up and
       // walled in again among wither skeletons; the walk home is worth more.
-      if(inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})){
+      // Run 84 (9 October): beside the arrival portal, with blocks to close a portal
+      // room and the nearest hostile not yet close, wall in there instead: going home
+      // at every hoglin meant the room it was asked to build never began.
+      const portalRoom=inNether(recoveryBot)&&(()=>{const site=hutSite(recoveryBot);return site.ok&&site.portal})()
+      const nearest=Math.min(Infinity,...survivalObservation(recoveryBot).nearbyThreats.filter(t=>t.risk==='potential_hostile').map(t=>t.distance))
+      const wallInFirst=portalRoom&&nearest>=PORTAL_ROOM_STANDOFF
+      if(wallInFirst)this.say('Danger in the Nether. Walling in around the portal.')
+      if(!wallInFirst&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})){
         const attempt={name:'portal_home',status:'trying'};this.safety.attempts=[attempt];this.persist()
         this.say('Danger in the Nether. Going back through the portal.')
         try{

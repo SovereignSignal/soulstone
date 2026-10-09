@@ -115,3 +115,26 @@ test('a hostile nearby does not stop a crossing already stepping in; on the walk
  r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,20))
  assert.equal(c.safety?.reason,THREAT_INTERRUPTION)
 })
+
+// Run 84, 9 October: arriving among hoglins, every threat sent the bot straight
+// home, so the room it was asked to build at the arrival portal never began.
+// Beside the portal with blocks to close a portal room and the nearest hostile
+// not yet close, it walls in there; with one close, the portal is still first.
+test('beside the arrival portal with a hostile still eight blocks off, the bot walls in instead of leaving',async()=>{
+ const run=async distance=>{
+  const r=new PortalRunner();r.bot.game.dimension='minecraft:the_nether'
+  r.bot.inventory={items:()=>[{name:'cobblestone',count:64,type:registry.itemsByName.cobblestone.id}]}
+  // Frame in the z=-1 plane: obsidian x -1..2, y 63..67; portal x 0..1, y 64..66. Stone floor at y 63.
+  r.bot.blockAt=p=>{const frame=p.z===-1&&p.x>=-1&&p.x<=2&&p.y>=63&&p.y<=67
+   const name=frame?((p.x===-1||p.x===2||p.y===63||p.y===67)?'obsidian':'nether_portal'):p.y===63?'stone':'air'
+   return {name,position:p.clone(),boundingBox:(name==='stone'||name==='obsidian')?'block':'empty'}}
+  r.bot.findBlock=({matching})=>matching===registry.blocksByName.nether_portal.id?{name:'nether_portal',position:new Vec3(0,64,-1)}:null
+  r.bot.entities={7:{name:'hoglin',position:new Vec3(0.5,64,0.5+distance)}}
+  r.command=function(c){this.commands.push(c);this.task={id:String(this.commands.length),kind:c.action,status:'running',goal:c.goal}}
+  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-companion-')),'state.json'))
+  void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,60))
+  const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop');c.cancel?.(true);return acts
+ }
+ const far=await run(8);assert.notEqual(far[0],'use_portal','eight blocks off: wall in here, '+far.join(' '))
+ const near=await run(3);assert.equal(near[0],'use_portal','three blocks off: the portal is still the way out, '+near.join(' '))
+})

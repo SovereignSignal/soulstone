@@ -7,6 +7,7 @@ import {fullCube} from './construction.js'
 import {scaffoldItems} from './scaffold.js'
 import {assertNoHostileOccupants,inspectEmergencyShelter} from './shelter-occupants.js'
 import {centreOn} from './navigation.js'
+import {Vec3} from 'vec3'
 export const HUT_BLOCKS=10
 const REPLACEABLE=new Set(['air','cave_air','short_grass','tall_grass','fern','large_fern','dead_bush','pink_petals','snow','seagrass','vine'])
 const SIDES=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]
@@ -16,11 +17,45 @@ const key=p=>`${p.x},${p.y},${p.z}`
 // obsidian (lab run 57: the hut walled in with it and one wall's worth stayed
 // behind in the cave when it opened a side to leave).
 export const hutMaterials=scaffoldItems
+// Run 84, 9 October: arriving in the Nether among hoglins, the bot beside the
+// portal could not wall in ("Cannot wall through nether_portal") and the only
+// shelter left was going home. Beside a portal the hut becomes a portal room:
+// the portal's far side and its other columns are sealed as well as the bot's
+// own walls, so nothing reaches the bot through the portal. The cavity is the
+// bot's two cells and the portal's own, which the shelter inspection floods.
+function portalRoom(bot,feet){
+ for(const [dx,,dz] of SIDES){
+  const n=new Vec3(dx,0,dz),front=feet.plus(n)
+  if(bot.blockAt(front)?.name!=='nether_portal')continue
+  // Level with the portal's bottom row only: a frame on the ground is entered by a jump, and walled from inside it.
+  if(bot.blockAt(front.offset(0,-1,0))?.name==='nether_portal')return null
+  const lateral=new Vec3(dz,0,dx),cols=[front]
+  for(const s of [1,-1]){let c=front.plus(lateral.scaled(s));while(bot.blockAt(c)?.name==='nether_portal'){cols.push(c);c=c.plus(lateral.scaled(s))}}
+  let h=0;while(h<23&&bot.blockAt(front.offset(0,h,0))?.name==='nether_portal')h++
+  const cells=[],add=c=>{if(!cells.some(x=>x.equals(c)))cells.push(c)}
+  for(const c of cols)for(let y=0;y<h;y++)add(c.plus(n).offset(0,y,0))
+  for(const c of cols)if(!c.equals(front))for(let y=0;y<h;y++)add(c.minus(n).offset(0,y,0))
+  for(const side of [lateral,lateral.scaled(-1),n.scaled(-1)])for(const y of [0,1])add(feet.plus(side).offset(0,y,0))
+  add(feet.minus(n).offset(0,2,0));add(feet.offset(0,2,0))
+  return cells.sort((a,b)=>a.y-b.y)
+ }
+ return null
+}
 export function hutSite(bot){
  const p=bot.entity?.position
  if(!p||!bot.entity.onGround)return {ok:false,reason:'Not standing on solid ground'}
  const feet=p.floored()
  if(!solid(bot,bot.blockAt(feet.offset(0,-1,0))))return {ok:false,reason:'No solid floor under the bot'}
+ const room=portalRoom(bot,feet)
+ if(room){
+  for(const c of room){const b=bot.blockAt(c);if(!b)return {ok:false,reason:`Cell ${key(c)} is not observed`};if(!REPLACEABLE.has(b.name)&&!solid(bot,b))return {ok:false,reason:`Cannot wall through ${b.name} at ${key(c)}`}}
+  // Every wall stands on the ground at foot level; the cells above hang off the ones below, and the roof off the helper.
+  for(const c of room)if(c.y===feet.y&&!solid(bot,bot.blockAt(c))&&!solid(bot,bot.blockAt(c.offset(0,-1,0))))return {ok:false,reason:`No ground to build the wall on at ${key(c.offset(0,-1,0))}`}
+  const needed=room.filter(c=>!solid(bot,bot.blockAt(c))).length
+  const carried=hutMaterials(bot).reduce((n,i)=>n+i.count,0)
+  if(carried<needed)return {ok:false,reason:`${needed} blocks needed to close this spot and ${carried} carried`}
+  return {ok:true,feet,needed,portal:true,cells:room}
+ }
  for(const [dx,dy,dz] of SIDES){
   for(const level of [0,1]){const c=feet.offset(dx,level,dz),b=bot.blockAt(c);if(!b)return {ok:false,reason:`Cell ${key(c)} is not observed`};if(!REPLACEABLE.has(b.name)&&!solid(bot,b))return {ok:false,reason:`Cannot wall through ${b.name} at ${key(c)}`}}
   // A wall that already stands (a shaft, a cave nook) needs no ground under it.
@@ -56,12 +91,17 @@ export async function wallIn(bot,task,{check,stage,progress}){
  stage('walling');progress('Walling in with carried blocks')
  const {feet}=site
  const placements=[]
- for(const [dx,dy,dz] of SIDES){
-  placements.push({target:feet.offset(dx,0,dz),ref:feet.offset(dx,-1,dz)})
-  placements.push({target:feet.offset(dx,1,dz),ref:feet.offset(dx,0,dz)})
+ if(site.portal)for(const target of site.cells)placements.push({target,ref:null})
+ else{
+  for(const [dx,dy,dz] of SIDES){
+   placements.push({target:feet.offset(dx,0,dz),ref:feet.offset(dx,-1,dz)})
+   placements.push({target:feet.offset(dx,1,dz),ref:feet.offset(dx,0,dz)})
+  }
+  placements.push({target:feet.offset(1,2,0),ref:feet.offset(1,1,0)})
+  placements.push({target:feet.offset(0,2,0),ref:feet.offset(1,2,0)})
  }
- placements.push({target:feet.offset(1,2,0),ref:feet.offset(1,1,0)})
- placements.push({target:feet.offset(0,2,0),ref:feet.offset(1,2,0)})
+ // A portal room's cells take whichever solid neighbour stands when their turn comes, lowest first.
+ const anchor=target=>[[0,-1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0]].map(([x,y,z])=>target.offset(x,y,z)).find(c=>solid(bot,bot.blockAt(c)))
  let placed=0
  for(const {target,ref} of placements){
   check();assertNoHostileOccupants(bot,[feet,feet.offset(0,1,0)])
@@ -69,11 +109,11 @@ export async function wallIn(bot,task,{check,stage,progress}){
   const material=hutMaterials(bot)[0]
   if(!material)break
   await bot.equip(material,'hand');check()
-  const reference=bot.blockAt(ref)
+  const at=ref??anchor(target),reference=at&&bot.blockAt(at)
   if(!solid(bot,reference))continue
   // The bridge can drop a placement or its update: try each block twice.
   for(let attempt=0;attempt<2&&!solid(bot,bot.blockAt(target));attempt++){
-   try{await bot.placeBlock(reference,target.minus(ref))}catch(error){check()}
+   try{await bot.placeBlock(reference,target.minus(at))}catch(error){check()}
    await settle(()=>solid(bot,bot.blockAt(target)),{check})
   }
   if(solid(bot,bot.blockAt(target)))placed++

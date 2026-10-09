@@ -152,3 +152,30 @@ test('a hut opened toward a place opens the wall facing it',async()=>{
  const north=await unwall(v.bot,{kind:'unhut',goal:{toward:{x:9,z:-30}}},api)
  assert.deepEqual(north.side,{dx:0,dz:-1})
 })
+
+// Run 84, 9 October: arriving in the Nether among hoglins, the bot beside the
+// portal could not wall in ("Cannot wall through nether_portal"), so the only
+// shelter was going home, and the room it was asked to build never started.
+// Beside a portal the hut becomes a portal room: the portal's far side and its
+// other column are sealed too, so nothing reaches the bot through the portal.
+function besidePortal(){
+ const w=world({logs:64})
+ // Frame in the z=9 plane: obsidian x 9..12, y 63..67; portal x 10..11, y 64..66.
+ for(let x=9;x<=12;x++)for(let y=63;y<=67;y++)w.cells.set(new Vec3(x,y,9).toString(),(x===9||x===12||y===63||y===67)?'obsidian':'nether_portal')
+ w.bot.game.dimension='minecraft:the_nether'
+ return w
+}
+test('beside a portal the hut seals the portal too: its far side and its other column',()=>{
+ const w=besidePortal()
+ const site=hutSite(w.bot)
+ assert.equal(site.ok,true,site.reason);assert.equal(site.portal,true)
+ assert.equal(site.needed,15,'6 far side, 3 beside the other column, 4 walls, helper and roof')
+ const short=besidePortal();short.inventory[0].count=14;assert.match(hutSite(short.bot).reason,/15 blocks needed to close this spot and 14 carried/)
+})
+test('walling in beside a portal leaves a closed room that passes the shelter inspection',async()=>{
+ const w=besidePortal()
+ const result=await executeSkill(w.bot,{kind:'hut',goal:{}},api)
+ assert.equal(result.receipt,'walled_in');assert.equal(result.protection.verified,true)
+ for(const c of ['10,64,8','10,66,8','11,64,8','11,66,8','11,64,10','11,66,10','9,64,10','10,64,11','10,66,11','10,66,10']){const name=w.cells.get(new Vec3(...c.split(',').map(Number)).toString());assert.ok(name&&name!=='air','sealed '+c)}
+ for(let y=64;y<=66;y++)assert.equal(w.cells.get(new Vec3(10,y,9).toString()),'nether_portal','the portal itself is untouched')
+})
