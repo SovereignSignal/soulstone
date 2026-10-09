@@ -2,6 +2,7 @@ import {inProtectedSite} from './primitives.js'
 import {setTimeout as delay} from 'node:timers/promises'
 import pathfinding from 'mineflayer-pathfinder'
 import {WATER_BLOCKS,PORTAL_BLOCKS} from './survival.js'
+import {dimensionOf} from './dimension.js'
 const {Movements}=pathfinding
 // Ground a traveller is allowed to break. The agent digs itself shelters and
 // half-builds huts, then meets its own dirt wall as "no route" and stands in it:
@@ -10,9 +11,10 @@ const {Movements}=pathfinding
 // are breakable and nothing else is: never stone, never ore, never the base
 // furniture, never a door it should be opening.
 export const SOFT_GROUND=new Set(['grass_block','dirt','coarse_dirt','podzol','rooted_dirt','mud','sand','red_sand','gravel','clay','moss_block','snow_block','mycelium'])
-export function breakableWhileTravelling(block){
+// And the bot's own placed blocks (run 76: stranded on its own cobblestone pillar).
+export function breakableWhileTravelling(block,bot=null){
  const name=block?.name||''
- return SOFT_GROUND.has(name)||name.endsWith('_leaves')||name==='snow'
+ return SOFT_GROUND.has(name)||name.endsWith('_leaves')||name==='snow'||!!bot?.ownBlocks?.has(block?.position,name,dimensionOf(bot))
 }
 // Priced, not free: digTime already reflects the tool carried, and this multiplier
 // puts one dirt block at about sixteen walking steps, so any reasonable detour
@@ -24,7 +26,7 @@ export function allowGroundBreaking(bot,movement,{digCost=TRAVERSAL_DIG_COST,pro
  movement.exclusionAreasBreak.push(block=>{
   const p=block.position
   if(p&&inProtectedSite(p,protectedSites()))return 100
-  return breakableWhileTravelling(block)?0:100
+  return breakableWhileTravelling(block,bot)?0:100
  })
  return movement
 }

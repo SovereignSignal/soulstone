@@ -48,7 +48,7 @@ export function lineObstruction(bot,from,to,{reach=24}={}) {
    for(const dy of [0,1]) {
     const b=bot.blockAt(new Vec3(Math.round(from.x+ux*i),y+dy,Math.round(from.z+uz*i)))
     sampled++
-    if(!b||b.boundingBox!=='block'||!fullCube(bot.registry,b.name)||breakableWhileTravelling(b))continue
+    if(!b||b.boundingBox!=='block'||!fullCube(bot.registry,b.name)||breakableWhileTravelling(b,bot))continue
     solid++
     if(!first)first={name:b.name,away:i}
    }

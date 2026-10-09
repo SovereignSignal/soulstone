@@ -23,33 +23,40 @@ export const isNatural=name=>!!name&&(NATURAL.has(name)||/_ore$/.test(name)||/_l
 import {readFileSync,writeFileSync,mkdirSync} from 'node:fs'
 import {dirname} from 'node:path'
 import {dimensionOf} from './dimension.js'
-export const OWN_LIMIT=4096
+export const OWN_LIMIT=4096,OWN_TTL_MS=2*3600*1000
 // Keyed by dimension and cell, holding the block seen there after placing:
-// a cell counts only in its own dimension and only while it still holds
-// that block (review of 2695c14), so a player's block that later takes the
-// cell, or the same coordinates in another dimension, stay refused.
+// a cell counts only in its own dimension, only while it still holds that
+// block, and only for two hours (it is for scaffolding, hut walls and
+// pillars, cleared soon after they are placed). A cell whose block is seen
+// changing is forgotten, and only a cell that was empty when the bot placed
+// into it is recorded (reviews of 2695c14 and cb0f914).
 const cellKey=(p,dimension)=>`${dimension||'overworld'}|${p.x},${p.y},${p.z}`
 export class OwnBlocks {
  constructor(path=null){
   this.path=path;this.cells=new Map()
-  try{if(path)for(const e of JSON.parse(readFileSync(path,'utf8')))if(Array.isArray(e)&&typeof e[0]==='string'&&typeof e[1]==='string')this.cells.set(e[0],e[1])}catch{}
+  try{if(path)for(const e of JSON.parse(readFileSync(path,'utf8')))if(Array.isArray(e)&&typeof e[0]==='string'&&typeof e[1]?.name==='string'&&Number.isFinite(e[1]?.at))this.cells.set(e[0],{name:e[1].name,at:e[1].at})}catch{}
  }
- has(p,name,dimension){return !!p&&!!name&&this.cells.get(cellKey(p,dimension))===name}
+ has(p,name,dimension){const e=p&&name?this.cells.get(cellKey(p,dimension)):null;return !!e&&e.name===name&&Date.now()-e.at<OWN_TTL_MS}
+ entry(p,dimension){return p?this.cells.get(cellKey(p,dimension))||null:null}
  add(p,name,dimension){
-  const k=cellKey(p,dimension);this.cells.delete(k);this.cells.set(k,name)
+  const k=cellKey(p,dimension);this.cells.delete(k);this.cells.set(k,{name,at:Date.now()})
   while(this.cells.size>OWN_LIMIT)this.cells.delete(this.cells.keys().next().value)
-  if(this.path)try{mkdirSync(dirname(this.path),{recursive:true});writeFileSync(this.path,JSON.stringify([...this.cells]))}catch{}
+  this.save()
  }
+ forget(p,dimension){if(this.cells.delete(cellKey(p,dimension)))this.save()}
+ save(){if(this.path)try{mkdirSync(dirname(this.path),{recursive:true});writeFileSync(this.path,JSON.stringify([...this.cells]))}catch{}}
 }
 // Wraps placeBlock, which every placement goes through, the pathfinder's
-// towering included. Recorded only when a block is there afterwards: a
-// placement that failed and landed nothing records nothing.
+// towering included.
 export function trackOwnPlacements(bot,own){
  bot.ownBlocks=own
  if(bot._ownPlacementsTracked||typeof bot.placeBlock!=='function')return
  bot._ownPlacementsTracked=true
  const place=bot.placeBlock.bind(bot)
- bot.placeBlock=async(ref,face,...rest)=>{try{return await place(ref,face,...rest)}finally{
-  if(ref?.position&&face){const p=ref.position.plus(face),b=bot.blockAt?.(p);if(b&&b.boundingBox==='block')own.add(p,b.name,dimensionOf(bot))}}}
+ bot.placeBlock=async(ref,face,...rest)=>{
+  const p=ref?.position&&face?ref.position.plus(face):null,before=p?bot.blockAt?.(p):null,empty=!before||before.boundingBox!=='block'
+  try{return await place(ref,face,...rest)}finally{
+   if(p&&empty){const b=bot.blockAt?.(p);if(b&&b.boundingBox==='block')own.add(p,b.name,dimensionOf(bot))}}}
+ bot.on?.('blockUpdate',(old,now)=>{const at=now?.position||old?.position,e=own.entry(at,dimensionOf(bot));if(e&&(now?.boundingBox!=='block'||now?.name!==e.name))own.forget(at,dimensionOf(bot))})
 }
 export const breakable=(bot,block)=>isNatural(block?.name)||!!bot?.ownBlocks?.has(block?.position,block?.name,dimensionOf(bot))
