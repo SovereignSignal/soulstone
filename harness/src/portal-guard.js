@@ -103,10 +103,11 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
  let crossed
  try{crossed=await until(hold,crossMs)}finally{bot.clearControlStates()}
  if(!crossed){
+  const p=bot.entity.position,at=[p.x,p.y,p.z].map(v=>v.toFixed(2)).join(',')
   await leavePortal(bot,task,{check,stage,progress})
   throw new Error(reached
-   ?`The portal at ${key(portal)} did not carry me across in ${Math.round(crossMs/1000)} seconds; I stepped back out`
-   :`I never reached the middle of the portal at ${key(portal)} in ${Math.round(crossMs/1000)} seconds, so it could not carry me; I stepped back out`)
+   ?`The portal at ${key(portal)} did not carry me across in ${Math.round(crossMs/1000)} seconds (last at ${at}); I stepped back out`
+   :`I never reached the middle of the portal at ${key(portal)} in ${Math.round(crossMs/1000)} seconds (last at ${at}), so it could not carry me; I stepped back out`)
  }
  const to=dimensionOf(bot)
  // The far side's ground arrives after the dimension does.
