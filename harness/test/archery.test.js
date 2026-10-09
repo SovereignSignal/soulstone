@@ -129,3 +129,15 @@ test('the protected lists are one read-only check, not exported sets',()=>{
  for(const e of [{type:'player'},{name:'wolf'},{name:'villager'},{name:'armor_stand'},{name:'piglin'}])assert.equal(isProtectedBystander(e),true,JSON.stringify(e))
  for(const e of [{name:'zombie'},{name:'cow'},{name:'blaze'}])assert.equal(isProtectedBystander(e),false,JSON.stringify(e))
 })
+
+// Security review of 1993aea: the line of fire stopped twelve blocks past the
+// target, and a missed arrow flies on until it lands. The whole flight counts,
+// until the arrow falls well below the target or meets a solid block.
+test('an upward miss flies far past the target: a villager on a cliff in its path holds the shot; one behind a wall does not',()=>{
+ // Aimed at a target 10 out and 10 up, a miss climbs past y 92 at 30 blocks out, far beyond any fixed margin past the target.
+ const from=new Vec3(0.5,65.62,0.5),aimAt=new Vec3(0.5,76,10.5),target={id:2,position:new Vec3(0.5,75,10.5)}
+ const cliff=(wall)=>({entities:{1:{id:1,name:'villager',type:'passive',height:1.9,position:new Vec3(0.5,91.5,30.5)}},entity:{},
+  blockAt:p=>({name:wall&&p.z===wall?'stone':'air',boundingBox:wall&&p.z===wall?'block':'empty'})})
+ assert.notEqual(lineOfFireBlocker(cliff(),from,aimAt,target),null,'thirty blocks out, where the climbing arrow passes')
+ assert.equal(lineOfFireBlocker(cliff(20),from,aimAt,target),null,'a wall past the target stops the arrow first')
+})

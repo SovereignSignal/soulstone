@@ -43,17 +43,30 @@ aimPitch.lead=function(from,to,velocity){
 }
 
 export const SHOOT={radius:32,drawMs:1100,maxShots:12,settleMs:900}
-// Security review of 6da6e6c and ae7e4aa (9 October): an arrow flies on past a
-// miss, so the target's type is not enough. A protected bystander within a block
-// and a half of the arrow's arc, out to twelve blocks past the target, holds the
-// shot. The arc, not the straight line: a long shot passes well above the line.
-export const LINE_OF_FIRE={clearance:1.5,beyond:12}
+// Security reviews of 6da6e6c, ae7e4aa and 1993aea (9 October): an arrow flies on
+// past a miss, so the target's type is not enough. A protected bystander within a
+// block and a half of the arrow's arc holds the shot, along the whole flight: until
+// the arrow falls well below the target or meets a solid block, not a fixed
+// distance past the target. The arc, not the straight line: a long shot rises.
+export const LINE_OF_FIRE={clearance:1.5,fallBelow:8}
 export function lineOfFireBlocker(bot,from,aimAt,target){
  const flat=new Vec3(aimAt.x-from.x,0,aimAt.z-from.z),d=flat.norm()
  if(!d)return null
- const unit=flat.scaled(1/d),pitch=aimPitch(from,aimAt)
- const points=pitch===null?[from,aimAt.plus(aimAt.minus(from).normalize().scaled(LINE_OF_FIRE.beyond))]
-  :arrowPath(pitch).filter(p=>p.x<=d+LINE_OF_FIRE.beyond).map(p=>from.plus(unit.scaled(p.x)).offset(0,p.y,0))
+ const unit=flat.scaled(1/d),pitch=aimPitch(from,aimAt),floor=aimAt.y-LINE_OF_FIRE.fallBelow
+ const path=pitch===null?[from,aimAt]:arrowPath(pitch).map(p=>from.plus(unit.scaled(p.x)).offset(0,p.y,0))
+ // Past the target the flight ends where it falls well below it, or in the first
+ // solid block (anyone behind that is safe). A tick covers up to three blocks, so
+ // each step is walked in half blocks to find a wall one block thick.
+ const points=[path[0]],past=p=>Math.hypot(p.x-from.x,p.z-from.z)>d
+ flight:for(let i=1;i<path.length;i++){
+  const a=path[i-1],b=path[i],steps=Math.max(1,Math.ceil(b.minus(a).norm()/0.5))
+  for(let k=1;k<=steps;k++){
+   const p=a.plus(b.minus(a).scaled(k/steps))
+   if(!past(p))continue
+   if(p.y<floor||bot.blockAt?.(p.floored())?.boundingBox==='block'){points.push(p);break flight}
+  }
+  points.push(b)
+ }
  const near=(c,a,b)=>{const ab=b.minus(a),t=Math.max(0,Math.min(1,c.minus(a).dot(ab)/(ab.dot(ab)||1)));return c.minus(a.plus(ab.scaled(t))).norm()}
  for(const e of Object.values(bot.entities||{})){
   if(!e?.position||e===bot.entity||e.id===target.id||!isProtectedBystander(e))continue
