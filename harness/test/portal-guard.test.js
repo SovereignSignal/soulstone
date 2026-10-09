@@ -149,3 +149,18 @@ test('use_portal from inside a hut opens the wall facing the portal, then walks'
  const r=await usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true},{pollMs:5})
  assert.equal(r.receipt,'crossed');assert.ok(f.log.includes('dig -2,64,0')&&f.log.includes('dig -2,65,0'),f.log.join(' | '))
 })
+
+// Run 74: a hostile cut the wall opening short after one of its two cells; the
+// hut was no longer a closed cavity, so the next try did not open it and the
+// pathfinder, finding no way out, resolved with an empty path.
+test('a hut left half open is opened the rest of the way toward the portal',async()=>{
+ const f=crossing('overworld')
+ for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]])for(const y of [64,65])f.world.set(`${-3+dx},${y},${0+dz}`,'cobblestone')
+ f.world.set('-3,66,0','cobblestone');f.world.set('-2,64,0','air')
+ f.bot.entity.position=new Vec3(-2.5,64,0.5)
+ f.bot.dig=async b=>{f.log.push('dig '+key(b.position));f.world.set(key(b.position),'air')}
+ f.bot.equip=async()=>{};f.bot.tool={async equipForBlock(){}}
+ f.bot.pathfinder.goto=async g=>{if(f.world.get('-2,65,0')!=='air')return;f.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}
+ const r=await usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true},{pollMs:5})
+ assert.equal(r.receipt,'crossed');assert.ok(f.log.includes('dig -2,65,0'),f.log.join(' | '))
+})

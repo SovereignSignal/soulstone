@@ -4,7 +4,6 @@ import {standable} from './fire-safety.js'
 import pathfinding from 'mineflayer-pathfinder'
 import {dimensionOf} from './dimension.js'
 import {wearBestArmor} from './armor.js'
-import {inspectEmergencyShelter} from './shelter-occupants.js'
 import {unwall} from './hut.js'
 const {goals}=pathfinding
 
@@ -68,8 +67,11 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
   const beside=()=>stands.some(p=>{const f=bot.entity.position;return Math.floor(f.x)===p.x&&Math.floor(f.y)===p.y&&Math.floor(f.z)===p.z})
   // Walled in for safety (run 73), open the wall facing the portal first: the
   // walk never digs blocks the bot placed itself.
-  if(!beside()){let closed=false;try{closed=inspectEmergencyShelter(bot).verified===true}catch{}
-   if(closed){progress('Opening the wall toward the portal');await unwall(bot,{kind:'unhut',goal:{toward:{x:portal.x,z:portal.z}}},{check,stage,progress})}}
+  // A side is a way out when its feet and head cells are both open (run 74: a
+  // half-opened wall left none, and the pathfinder's empty path read as done).
+  const passable=b=>!b||b.boundingBox==='empty'
+  const feet=bot.entity.position.floored(),walled=[[1,0],[-1,0],[0,1],[0,-1]].every(([dx,dz])=>[0,1].some(y=>!passable(bot.blockAt(feet.offset(dx,y,dz)))))
+  if(!beside()&&walled){progress('Opening the wall toward the portal');await unwall(bot,{kind:'unhut',goal:{toward:{x:portal.x,z:portal.z}}},{check,stage,progress})}
   if(!beside()){
    stage('walking');progress(`Walking to the portal at ${key(portal)}`)
    const timer=setTimeout(()=>bot.pathfinder.setGoal(null),reachMs)
