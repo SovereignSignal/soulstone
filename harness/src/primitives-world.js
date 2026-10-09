@@ -35,11 +35,11 @@ export function validateCollectGoal(goal) {
 }
 
 const NOT_CREATURE = new Set(['item', 'experience_orb', 'arrow', 'spectral_arrow', 'trident', 'fishing_bobber', 'ender_dragon_part'])
-const PLACED = new Set(['item_frame', 'glow_item_frame', 'painting', 'armor_stand', 'boat', 'minecart'])
-const VILLAGE = new Set(['villager', 'wandering_trader', 'iron_golem', 'snow_golem'])
+export const PLACED = new Set(['item_frame', 'glow_item_frame', 'painting', 'armor_stand', 'boat', 'minecart'])
+export const VILLAGE = new Set(['villager', 'wandering_trader', 'iron_golem', 'snow_golem'])
 // Animals players keep or ride. A child's dog is not a hunt (3 October: the
 // family world opens to Sov's children, who will ask for anything).
-const PETS = new Set(['wolf', 'cat', 'parrot', 'horse', 'donkey', 'mule', 'llama', 'trader_llama', 'camel', 'fox', 'axolotl', 'ocelot', 'allay', 'sniffer', 'skeleton_horse', 'zombie_horse'])
+export const PETS = new Set(['wolf', 'cat', 'parrot', 'horse', 'donkey', 'mule', 'llama', 'trader_llama', 'camel', 'fox', 'axolotl', 'ocelot', 'allay', 'sniffer', 'skeleton_horse', 'zombie_horse'])
 const CREATURE_TYPES = new Set(['hostile', 'passive', 'animal', 'water_creature', 'ambient', 'mob'])
 const choose = ' Choose a mob such as zombie, cow or enderman.'
 

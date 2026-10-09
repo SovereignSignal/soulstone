@@ -1,6 +1,6 @@
 import {setTimeout as delay} from 'node:timers/promises'
 import {Vec3} from 'vec3'
-import {validateAttackGoal,nearestOfType} from './primitives-world.js'
+import {validateAttackGoal,nearestOfType,PETS,VILLAGE,PLACED} from './primitives-world.js'
 import {observedSightline} from './visibility.js'
 // Bow aim for the dragon ladder: blazes keep their distance and the dragon's end
 // crystals sit on towers. A fully drawn arrow leaves at 3 blocks a tick, falls
@@ -43,6 +43,22 @@ aimPitch.lead=function(from,to,velocity){
 }
 
 export const SHOOT={radius:32,drawMs:1100,maxShots:12,settleMs:900}
+// Security review of 6da6e6c (9 October): an arrow flies on past a miss, so the
+// target's type is not enough. Players, villagers and golems, pets, placed
+// objects and piglins near the line of fire, out past the target, hold the shot.
+const SHIELDED=e=>e?.type==='player'||PETS.has(e?.name)||VILLAGE.has(e?.name)||PLACED.has(e?.name)||['piglin','zombified_piglin','piglin_brute'].includes(e?.name)
+export const LINE_OF_FIRE={clearance:1.5,beyond:12}
+export function lineOfFireBlocker(bot,from,aimAt,target){
+ const dir=aimAt.minus(from),length=dir.norm();if(!length)return null
+ const unit=dir.scaled(1/length),reach=length+LINE_OF_FIRE.beyond
+ for(const e of Object.values(bot.entities||{})){
+  if(!e?.position||e===bot.entity||e.id===target.id||!SHIELDED(e))continue
+  const c=e.position.offset(0,(e.height??1.8)/2,0),along=c.minus(from).dot(unit)
+  if(along<0||along>reach)continue
+  if(c.minus(from.plus(unit.scaled(along))).norm()<=LINE_OF_FIRE.clearance+(e.width??0.6)/2)return e
+ }
+ return null
+}
 // Shoot the nearest creature of a type with a fully drawn bow until it dies or the
 // arrows or the shot budget run out. The same refusals as attack (players, pets,
 // villagers, piglins). Count is 1 only for a death seen by the client, never for
@@ -64,19 +80,28 @@ export async function shootTarget(bot,task,{check,stage,progress},options={}){
  const aim=()=>{
   const from=eye(),{aimAt,pitch}=aimPitch.lead(from,centre(),target.velocity??new Vec3(0,0,0))
   if(pitch===null)throw new Error(`The ${goal.type} is out of bow range`)
-  return {yaw:Math.atan2(-(aimAt.x-from.x),-(aimAt.z-from.z)),pitch}
+  return {yaw:Math.atan2(-(aimAt.x-from.x),-(aimAt.z-from.z)),pitch,aimAt}
  }
+ const holdFire=e=>new Error(`Holding fire: a ${e.type==='player'?`player (${e.username||'someone'})`:e.name} is in the line of fire`)
+ // Releasing a drawn bow always looses the arrow; changing the held slot cancels the draw.
+ const standDown=()=>{try{bot.setQuickBarSlot?.(((bot.quickBarSlot??0)+1)%9)}catch{}}
  try{
   stage('arming');await bot.equip(bow,'hand');check()
   while(!dead&&shots<o.maxShots&&arrows()>0&&bot.entities?.[target.id]){
    const sight=observedSightline(bot,eye(),centre())
    if(sight.status==='blocked')throw new Error(`No clear shot at the ${goal.type}: ${sight.block||'a block'} is in the way`)
    let a=aim()
+   const early=lineOfFireBlocker(bot,eye(),a.aimAt,target)
+   if(early)throw holdFire(early)
    stage('drawing');bot.activateItem()
    // Full draw takes a second; keep the aim on a moving target while it draws.
    const end=Date.now()+o.drawMs
    while(Date.now()<end){check();a=aim();await bot.look(a.yaw,a.pitch,true);await delay(Math.min(100,o.drawMs))}
-   a=aim();await bot.look(a.yaw,a.pitch,true);bot.deactivateItem();shots++
+   a=aim()
+   // Checked at the moment of release, against where the arrow is going.
+   const blocker=lineOfFireBlocker(bot,eye(),a.aimAt,target)
+   if(blocker){standDown();throw holdFire(blocker)}
+   await bot.look(a.yaw,a.pitch,true);bot.deactivateItem();shots++
    progress(`Shot ${shots} at the ${goal.type}`)
    const until=Date.now()+o.settleMs
    while(!dead&&Date.now()<until){check();await delay(20)}

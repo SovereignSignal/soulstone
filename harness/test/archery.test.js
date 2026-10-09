@@ -78,3 +78,28 @@ test('a planned shoot step passes the plan check, the intent guard and the task 
  assert.deepEqual(validateTaskGoal('shoot',{type:'blaze'}),{type:'blaze'})
  assert.throws(()=>validatePlan({reply:'',steps:[{action:'shoot',name:'',count:1,item:'villager',design:[],target:null}]}),/villager/)
 })
+
+// Security review of 6da6e6c, 9 October: shoot checked only the target's type,
+// but an arrow flies on past a miss. A villager, a pet, a player or an armour
+// stand in or near the line of fire holds the shot; the family world has kids.
+test('a player, a pet or a villager in or beyond the line of fire holds the shot',async()=>{
+ const withBystander=(name,type,pos)=>{const r=range();r.bot.entities[8]={id:8,name,type,height:1.8,position:pos,username:type==='player'?'Kid':undefined};return r}
+ for(const [name,type,pos] of [['villager','passive',new Vec3(0.5,64,22)],['wolf','animal',new Vec3(1.2,64,8)],['player','player',new Vec3(0.5,64,19)],['armor_stand','living',new Vec3(0.6,64,25)]]){
+  const r=withBystander(name,type,pos)
+  await assert.rejects(shootTarget(r.bot,{kind:'shoot',goal:{type:'zombie'}},api,fast),/line of fire/,name)
+  assert.ok(!r.log.includes('release'),'no arrow loosed with a '+name+' there')
+ }
+ const cow=withBystander('cow','animal',new Vec3(0.5,64,20))
+ assert.equal((await shootTarget(cow.bot,{kind:'shoot',goal:{type:'zombie'}},api,fast)).receipt,'killed','a cow behind the target is not protected')
+ const aside=withBystander('villager','passive',new Vec3(9,64,8))
+ assert.equal((await shootTarget(aside.bot,{kind:'shoot',goal:{type:'zombie'}},api,fast)).receipt,'killed','a villager well off the line is clear')
+})
+test('a bystander stepping into the line of fire while the bow is drawn cancels the draw instead of loosing it',async()=>{
+ const r=range()
+ r.bot.quickBarSlot=0;r.bot.setQuickBarSlot=n=>{r.log.push('slot '+n)}
+ const draw=r.bot.activateItem
+ r.bot.activateItem=()=>{draw();setTimeout(()=>{r.bot.entities[9]={id:9,name:'cat',type:'animal',height:0.7,position:new Vec3(0.5,64,10)}},5)}
+ await assert.rejects(shootTarget(r.bot,{kind:'shoot',goal:{type:'zombie'}},api,{...fast,drawMs:40}),/line of fire.*cat|cat.*line of fire/)
+ assert.ok(!r.log.includes('release'),'the drawn arrow was not loosed: '+r.log.join(' '))
+ assert.ok(r.log.includes('slot 1'),'the draw was cancelled by changing the held slot')
+})
