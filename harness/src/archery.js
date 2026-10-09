@@ -2,6 +2,7 @@ import {setTimeout as delay} from 'node:timers/promises'
 import {Vec3} from 'vec3'
 import {validateAttackGoal,nearestOfType,isProtectedBystander} from './primitives-world.js'
 import {observedSightline} from './visibility.js'
+import {fullCube} from './construction.js'
 // Bow aim for the dragon ladder: blazes keep their distance and the dragon's end
 // crystals sit on towers. A fully drawn arrow leaves at 3 blocks a tick, falls
 // 0.05 a tick to gravity and keeps 0.99 of its speed to drag each tick. The aim
@@ -48,10 +49,12 @@ export const SHOOT={radius:32,drawMs:1100,maxShots:12,settleMs:900}
 // block and a half of the arrow's arc holds the shot, along the whole flight: until
 // the arrow falls well below the target or meets a solid block, not a fixed
 // distance past the target. The arc, not the straight line: a long shot rises.
-export const LINE_OF_FIRE={clearance:1.5,fallBelow:8}
+export const LINE_OF_FIRE={clearance:1.5,fallBelow:8,overhead:6}
 export function lineOfFireBlocker(bot,from,aimAt,target){
  const flat=new Vec3(aimAt.x-from.x,0,aimAt.z-from.z),d=flat.norm()
- if(!d)return null
+ // Straight up or down there is no horizontal line to follow, and the arrow comes
+ // back down by the shooter: any protected bystander close by holds it.
+ if(d<1)return Object.values(bot.entities||{}).find(e=>e?.position&&e!==bot.entity&&e.id!==target.id&&isProtectedBystander(e)&&Math.hypot(e.position.x-from.x,e.position.z-from.z)<=LINE_OF_FIRE.overhead)||null
  const unit=flat.scaled(1/d),pitch=aimPitch(from,aimAt),floor=aimAt.y-LINE_OF_FIRE.fallBelow
  const path=pitch===null?[from,aimAt]:arrowPath(pitch).map(p=>from.plus(unit.scaled(p.x)).offset(0,p.y,0))
  // Past the target the flight ends where it falls well below it, or in the first
@@ -63,7 +66,9 @@ export function lineOfFireBlocker(bot,from,aimAt,target){
   for(let k=1;k<=steps;k++){
    const p=a.plus(b.minus(a).scaled(k/steps))
    if(!past(p))continue
-   if(p.y<floor||bot.blockAt?.(p.floored())?.boundingBox==='block'){points.push(p);break flight}
+   // Only a full cube stops it: an arrow passes over a slab or beside a fence post or a pane.
+   const block=bot.blockAt?.(p.floored())
+   if(p.y<floor||block&&bot.registry&&fullCube(bot.registry,block.name)){points.push(p);break flight}
   }
   points.push(b)
  }

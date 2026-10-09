@@ -136,8 +136,28 @@ test('the protected lists are one read-only check, not exported sets',()=>{
 test('an upward miss flies far past the target: a villager on a cliff in its path holds the shot; one behind a wall does not',()=>{
  // Aimed at a target 10 out and 10 up, a miss climbs past y 92 at 30 blocks out, far beyond any fixed margin past the target.
  const from=new Vec3(0.5,65.62,0.5),aimAt=new Vec3(0.5,76,10.5),target={id:2,position:new Vec3(0.5,75,10.5)}
- const cliff=(wall)=>({entities:{1:{id:1,name:'villager',type:'passive',height:1.9,position:new Vec3(0.5,91.5,30.5)}},entity:{},
+ const cliff=(wall)=>({registry,entities:{1:{id:1,name:'villager',type:'passive',height:1.9,position:new Vec3(0.5,91.5,30.5)}},entity:{},
   blockAt:p=>({name:wall&&p.z===wall?'stone':'air',boundingBox:wall&&p.z===wall?'block':'empty'})})
  assert.notEqual(lineOfFireBlocker(cliff(),from,aimAt,target),null,'thirty blocks out, where the climbing arrow passes')
  assert.equal(lineOfFireBlocker(cliff(20),from,aimAt,target),null,'a wall past the target stops the arrow first')
+})
+
+// Security review of c90b035: (1) only a full cube ends the flight; an arrow
+// passes over a slab or beside a fence post or pane, so a bystander behind one
+// still counts. (2) A target straight above or below gave no horizontal line
+// and the check returned clear without looking; such a shot comes down by the
+// shooter, so a protected bystander close by holds it.
+test('a slab or a fence past the target does not end the flight; a full cube does',()=>{
+ const from=new Vec3(0.5,65.62,0.5),aimAt=new Vec3(0.5,76,10.5),target={id:2,position:new Vec3(0.5,75,10.5)}
+ const cliff=block=>({registry,entities:{1:{id:1,name:'villager',type:'passive',height:1.9,position:new Vec3(0.5,91.5,30.5)}},entity:{},
+  blockAt:p=>{const name=p.z===20?block:'air';return {name,boundingBox:name==='air'?'empty':'block'}}})
+ for(const partial of ['oak_slab','oak_fence','glass_pane','oak_trapdoor'])assert.notEqual(lineOfFireBlocker(cliff(partial),from,aimAt,target),null,partial+' does not stop the arrow')
+ assert.equal(lineOfFireBlocker(cliff('stone'),from,aimAt,target),null,'a full cube does')
+})
+test('a target straight overhead is clear only with no protected bystander close by',()=>{
+ const from=new Vec3(0.5,65.62,0.5),aimAt=new Vec3(0.5,80,0.5),target={id:2,position:new Vec3(0.5,79,0.5)}
+ const near={registry,entity:{},entities:{1:{id:1,name:'cat',type:'animal',height:0.7,position:new Vec3(2.5,64,1.5)}}}
+ const far={registry,entity:{},entities:{1:{id:1,name:'cat',type:'animal',height:0.7,position:new Vec3(12.5,64,1.5)}}}
+ assert.notEqual(lineOfFireBlocker(near,from,aimAt,target),null,'a cat two blocks off holds a shot straight up')
+ assert.equal(lineOfFireBlocker(far,from,aimAt,target),null,'one twelve blocks off does not')
 })
