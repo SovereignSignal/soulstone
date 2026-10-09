@@ -140,3 +140,15 @@ test('the hut reports when it could not stand clear of its own wall line',async(
  }
  await assert.rejects(executeSkill(w.bot,{kind:'hut',goal:{}},api),/could not stand clear of the wall line/)
 })
+
+// Run 73, 8 October: walled in twenty blocks from the portal in the Nether,
+// the escape's walk could not leave the hut (it never digs its own blocks).
+// Opening up can be asked to face a place: the wall toward it opens first.
+test('a hut opened toward a place opens the wall facing it',async()=>{
+ const w=world();await executeSkill(w.bot,{kind:'hut',goal:{}},api)
+ const east=await unwall(w.bot,{kind:'unhut',goal:{toward:{x:40,z:11}}},api)
+ assert.deepEqual(east.side,{dx:1,dz:0})
+ const v=world();await executeSkill(v.bot,{kind:'hut',goal:{}},api)
+ const north=await unwall(v.bot,{kind:'unhut',goal:{toward:{x:9,z:-30}}},api)
+ assert.deepEqual(north.side,{dx:0,dz:-1})
+})

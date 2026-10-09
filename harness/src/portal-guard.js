@@ -4,6 +4,8 @@ import {standable} from './fire-safety.js'
 import pathfinding from 'mineflayer-pathfinder'
 import {dimensionOf} from './dimension.js'
 import {wearBestArmor} from './armor.js'
+import {inspectEmergencyShelter} from './shelter-occupants.js'
+import {unwall} from './hut.js'
 const {goals}=pathfinding
 
 // Sov's limit: never step through a portal or enter the Nether. A survival
@@ -64,6 +66,10 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
   const stands=[0,-1].flatMap(dy=>[[1,0],[-1,0],[0,1],[0,-1]].map(([dx,dz])=>portal.offset(dx,dy,dz))).filter(p=>standable(bot,p)).sort((a,b)=>(b.y-a.y)||a.distanceTo(here)-b.distanceTo(here))
   if(!stands.length)throw new Error(`No standing cell beside the portal at ${key(portal)}; it is walled or flooded`)
   const beside=()=>stands.some(p=>{const f=bot.entity.position;return Math.floor(f.x)===p.x&&Math.floor(f.y)===p.y&&Math.floor(f.z)===p.z})
+  // Walled in for safety (run 73), open the wall facing the portal first: the
+  // walk never digs blocks the bot placed itself.
+  if(!beside()){let closed=false;try{closed=inspectEmergencyShelter(bot).verified===true}catch{}
+   if(closed){progress('Opening the wall toward the portal');await unwall(bot,{kind:'unhut',goal:{toward:{x:portal.x,z:portal.z}}},{check,stage,progress})}}
   if(!beside()){
    stage('walking');progress(`Walking to the portal at ${key(portal)}`)
    const timer=setTimeout(()=>bot.pathfinder.setGoal(null),reachMs)

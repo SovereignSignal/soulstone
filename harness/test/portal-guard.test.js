@@ -135,3 +135,17 @@ test('stepping in goes on to the middle of the portal cell before waiting to cro
  clearInterval(poll);clearInterval(walk)
  assert.ok(centred,'reached the middle of the portal cell')
 })
+
+// Run 73: the escape fired from inside a hut and the walk could not leave it.
+test('use_portal from inside a hut opens the wall facing the portal, then walks',async()=>{
+ const walls={}
+ for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]])for(const y of [64,65])walls[`${-3+dx},${y},${0+dz}`]='cobblestone'
+ walls['-3,66,0']='cobblestone'
+ const f=crossing('overworld');for(const [k,v] of Object.entries(walls))f.world.set(k,v)
+ f.bot.entity.position=new Vec3(-2.5,64,0.5)
+ f.bot.dig=async b=>{f.log.push('dig '+key(b.position));f.world.set(key(b.position),'air')}
+ f.bot.equip=async()=>{};f.bot.tool={async equipForBlock(){}}
+ f.bot.pathfinder.goto=async g=>{const open=['-2,64,0','-2,65,0'].every(k=>f.world.get(k)==='air');if(!open)throw new Error('No path to the goal!');f.log.push('walk');f.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}
+ const r=await usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true},{pollMs:5})
+ assert.equal(r.receipt,'crossed');assert.ok(f.log.includes('dig -2,64,0')&&f.log.includes('dig -2,65,0'),f.log.join(' | '))
+})
