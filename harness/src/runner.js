@@ -1,4 +1,5 @@
 import './physics-margin.js'
+import {kickContext} from './kick-context.js'
 import {setTimeout as delay} from 'node:timers/promises'
 import {PREPARE_ACTIONS} from './supplies.js'
 import {OBSIDIAN_ACTIONS} from './obsidian.js'
@@ -119,7 +120,7 @@ export class Runner extends EventEmitter {
       if (distance <= 2) this.finish('completed', 'destination reached', { distance, position: this.position() })
     })
     bot.on('death', () => this.onDeath(bot))
-    bot.on('kicked', reason => { if (this.bot === bot) this.log('kicked', {reason:JSON.stringify(reason)?.slice(0,2000)}) })
+    bot.on('kicked', reason => { if (this.bot === bot) this.log('kicked', {reason:JSON.stringify(reason)?.slice(0,2000),context:kickContext(bot,this.ownBlocks)}) })
     bot.on('error', error => { if (this.bot === bot) this.log('connection_error', { reason: error.message }) })
     bot.on('end', () => {
       if (this.bot !== bot) return
