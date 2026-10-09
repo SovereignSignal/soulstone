@@ -225,7 +225,7 @@ export async function collectDrops(bot, task, { check, stage, progress, movement
 }
 
 const knownPoint = p => p && ['x', 'y', 'z'].every(k => Number.isFinite(p[k]))
-const nearestOfType = (bot, type, from, radius) => Object.values(bot.entities || {})
+export const nearestOfType = (bot, type, from, radius) => Object.values(bot.entities || {})
   .filter(e => e && e !== bot.entity && e.name === type && e.type !== 'player' && knownPoint(e.position) && e.position.distanceTo(from) <= radius)
   .sort((a, b) => a.position.distanceTo(from) - b.position.distanceTo(from))[0]
 

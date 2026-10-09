@@ -30,7 +30,7 @@ export function validateTaskGoal(kind, goal) {
   if(kind==='dig')return validateDigGoal(goal)
   if(kind==='place_at')return validatePlaceAtGoal(goal)
   if(kind==='collect')return validateCollectGoal(goal)
-  if(kind==='attack')return validateAttackGoal(goal)
+  if(kind==='attack'||kind==='shoot')return validateAttackGoal(goal)
   if(kind==='use')return validateUseGoal(goal)
   if(kind==='sleep')return goal?.project?{project:goal.project}:{}
   if(['climb','descend'].includes(kind))return {}

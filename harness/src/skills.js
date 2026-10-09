@@ -1,3 +1,4 @@
+import {shootTarget} from './archery.js'
 import {eatFood} from './survival.js'
 import {surfaceForAir} from './water-safety.js'
 import {douseFire} from './fire-safety.js'
@@ -51,6 +52,7 @@ export async function executeSkill(bot, task, context) {
   if(task.kind==='place_at')return placeAt(bot,task,context)
   if(task.kind==='collect')return collectDrops(bot,task,context)
   if(task.kind==='attack')return attackEntity(bot,task,context)
+  if(task.kind==='shoot')return shootTarget(bot,task,context)
   if(task.kind==='hunt')return huntFor(bot,task,context)
   if(task.kind==='defend')return defendAgainstMob(bot,task,context)
   if(task.kind==='eat')return eatFood(bot,task,context)
