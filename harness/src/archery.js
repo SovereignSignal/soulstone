@@ -50,7 +50,7 @@ aimPitch.lead=function(from,to,velocity){
  return {aimAt,pitch}
 }
 
-export const SHOOT={radius:32,drawMs:1100,maxShots:12,settleMs:900,reacquire:10,reposition:4,repositionMs:12000,repositions:3}
+export const SHOOT={radius:32,drawMs:1100,maxShots:12,settleMs:900,reacquire:10,reposition:4,repositionMs:12000,repositions:3,healthStop:10}
 // Security reviews of 6da6e6c, ae7e4aa and 1993aea (9 October): an arrow flies on
 // past a miss, so the target's type is not enough. A protected bystander within a
 // block and a half of the arrow's arc holds the shot, along the whole flight: until
@@ -143,6 +143,12 @@ export async function shootTarget(bot,task,{check,stage,progress},options={}){
  if(!target&&edgeRefusal)throw new Error(`Not shooting from an open edge: no spot within ${o.reposition} blocks away from the drop has a clear shot at a ${goal.type}`)
  if(!target)throw new Error(`No clear shot at any ${goal.type} within ${o.radius} blocks, nor from a spot within ${o.reposition}: ${lastBlock||'a block'} is in the way`)
  let dead=false,shots=0,drawn=false,stopped=null,lastSeen=target.position.clone?.()??target.position
+ // Lab run 101: 20 health to 5 in five seconds against a blaze at close range, still
+ // drawing. In the Nether burning raises no alarm, so the duel must end itself: once
+ // it has cost health and left half or less, break off and let the shelter decide.
+ const startHealth=bot.health
+ const hurtOut=()=>Number.isFinite(bot.health)&&Number.isFinite(startHealth)&&bot.health<startHealth&&bot.health<=o.healthStop
+ const breakOff=()=>new Error(`Breaking off at ${Math.round(bot.health)} health: the ${goal.type} survived ${shots} arrow${shots===1?'':'s'}`)
  const killed=e=>{if(e?.id===target.id)dead=true}
  bot.on('entityDead',killed)
  const eye=()=>bot.entity.position.offset(0,bot.entity.eyeHeight??1.62,0)
@@ -159,6 +165,7 @@ export async function shootTarget(bot,task,{check,stage,progress},options={}){
   stage('arming');await bot.equip(bow,'hand');check()
   for(;;){
    if(dead){stopped='killed';break}
+   if(hurtOut())throw breakOff()
    if(shots>=o.maxShots){stopped='shot_budget';break}
    if(arrows()<=0){stopped='out_of_arrows';break}
    // Lab, 10 October: a blaze dropped out of the entity list after one arrow and the
@@ -181,7 +188,7 @@ export async function shootTarget(bot,task,{check,stage,progress},options={}){
    stage('drawing');bot.activateItem();drawn=true
    // Full draw takes a second; keep the aim on a moving target while it draws.
    const end=Date.now()+o.drawMs
-   while(Date.now()<end){check();a=aim();await bot.look(a.yaw,a.pitch,true);await delay(Math.min(100,o.drawMs))}
+   while(Date.now()<end){check();if(hurtOut()){standDown();drawn=false;throw breakOff()}a=aim();await bot.look(a.yaw,a.pitch,true);await delay(Math.min(100,o.drawMs))}
    a=aim()
    // Checked at the moment of release, against where the arrow is going.
    const blocker=lineOfFireBlocker(bot,eye(),a.aimAt,target)

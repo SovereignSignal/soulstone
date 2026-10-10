@@ -354,3 +354,18 @@ test('the step to a firing position never digs or places, and restores the movem
  const walk=r.log.find(l=>l.startsWith('walk'));assert.match(walk,/dig=false towers=false scaffold=0/,walk)
  assert.equal(r.bot.pathfinder.movements,before,'the runner\'s profile is back')
 })
+
+// Lab run 101, 10 October: shooting a blaze 3 to 7 blocks off, the bot went from
+// 20 health to 5 in five seconds and kept drawing. In the Nether no fire alarm
+// stands in (burning there is not an emergency), so nothing stopped the duel;
+// it killed the blaze and was fireballed by the next one at 0.07.
+test('the bow breaks off a duel at half health once it is being hurt, and says so',async()=>{
+ const r=range({arrows:16,hitsToKill:99})
+ r.bot.health=20
+ const release=r.bot.deactivateItem
+ r.bot.deactivateItem=()=>{release();r.bot.health-=4}
+ await assert.rejects(shootTarget(r.bot,{kind:'shoot',goal:{type:'zombie'}},api,fast),/Breaking off at 8 health: the zombie survived 3 arrows/)
+ const hurt=range({arrows:16,hitsToKill:2});hurt.bot.health=10
+ const result=await shootTarget(hurt.bot,{kind:'shoot',goal:{type:'zombie'}},api,fast)
+ assert.equal(result.receipt,'killed','starting at half health untouched is no reason to stop')
+})
