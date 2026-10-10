@@ -478,3 +478,21 @@ test('self-defense walks for no drop the request does not ask for',async()=>{
   else assert.deepEqual(r.commands.find(x=>x.action==='collect')?.goal.items??['blaze_rod'],['blaze_rod'],'only rods are worth the walk')
  }
 })
+
+test('kills whose fight ended in shelter are picked up when the bot comes out, while the drops last',async()=>{
+ // Lab run 111: two rods fell mid-chain, the chain ended in the portal room, and
+ // nothing ever went back for them.
+ const bot=threatened({distance:12})
+ const r=new ShootRunner(bot)
+ r.command=function(c){this.commands.push(c);const task=this.task={id:String(this.commands.length),kind:c.action,status:'running',goal:c.goal}
+  if(c.action==='collect')queueMicrotask(()=>{task.status='completed';task.result={receipt:'collected',item:'',gained:1,items:{blaze_rod:1}};this.emit('event',{type:'task_finished',task})})}
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-sites-')),'state.json'))
+ c.requestProgress={id:'q',request:'collect 3 blaze rods',status:'interrupted',completed:[],feedback:[],goal:null}
+ c.killSites=[{at:{x:1,y:64,z:9},time:Date.now()-10000},{at:{x:5,y:64,z:9},time:Date.now()-400000}]
+ const got=await c.collectKillSites(new AbortController().signal,bot,c.requestProgress)
+ const collect=r.commands.find(x=>x.action==='collect')
+ assert.ok(collect,'collects');assert.deepEqual(collect.goal.at,[{x:1,y:64,z:9}],'only sites whose drops have not despawned');assert.deepEqual(collect.goal.items,['blaze_rod'])
+ assert.deepEqual(got.items,{blaze_rod:1});assert.deepEqual(c.killSites,[],'picked up once')
+ c.killSites=[{at:{x:1,y:64,z:9},time:Date.now()}];c.requestProgress.request='build a house'
+ assert.equal(await c.collectKillSites(new AbortController().signal,bot,c.requestProgress),null,'nothing wanted, no walk')
+})

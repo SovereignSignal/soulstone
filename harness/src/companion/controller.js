@@ -36,6 +36,19 @@ import {survivalObservation,SHOOTERS_ONLY,emergencyReason,threatRadius,CLOSE_FLO
 // Air, fire and a portal underfoot run their own recovery at once and preempt
 // any shelter attempt: each has a clock no shelter stops.
 const URGENT=new Set([WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY])
+// Dropped items despawn after five minutes; walk for them only well inside that.
+const KILL_DROP_LIFE_MS=270000
+// Walk for what the request wants where recent kills fell, once: only what it asks
+// for (lab run 103: bones at night got the bot killed), only while drops last.
+async function collectKillSites(c,signal,bot,request){
+ const sites=(c.killSites||[]).filter(k=>Date.now()-k.time<KILL_DROP_LIFE_MS)
+ c.killSites=sites
+ const wanted=[...new Set(wantedItems(request,bot?.registry).map(w=>w.item))].slice(0,8)
+ if(!sites.length||!wanted.length)return null
+ c.killSites=[]
+ try{await c.execute({action:'collect',goal:{item:'',count:64,at:sites.slice(-8).map(k=>k.at),items:wanted},timeoutMs:30000},signal);return structuredClone(c.runner.task.result)}
+ catch(error){if(signal.aborted)throw error;c.dispatch({action:'stop'});await c.runner.waitForIdle?.(signal);return {failed:error.message}}
+}
 const inventoryOf=bot=>(bot?.inventory?.items?.()||[]).reduce((m,i)=>(m[i.name]=(m[i.name]||0)+i.count,m),{})
 export const STOP_HOLD_MS=60000
 import {burrowClearance,shelterExits} from '../burrow.js'
@@ -48,7 +61,7 @@ import {projectFootprints} from '../site-survey.js'
 import {reviseArchitecture} from '../construction.js'
 import {evaluateGoal,enforceProjectIntent,validateContract,constructionLimits,vacuousContract} from './goal-contract.js'
 import {ExperienceStore,experienceEvidence} from './experience.js'
-import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,withinBuildReach,AUTO_RESPAWN_LIMIT,STALL_CONTINUATIONS,STALL_RETRY_MS,shouldContinueAfterBudget,canContinueAfterSafety,canContinueAfterCombat,continuationMark,noteAdvance,shouldRetryPlanning,noteCriterionStall} from './continuity.js'
+import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,withinBuildReach,AUTO_RESPAWN_LIMIT,STALL_CONTINUATIONS,STALL_RETRY_MS,shouldContinueAfterBudget,canContinueAfterSafety,canContinueAfterCombat,continuationMark,noteAdvance,wantedItems,shouldRetryPlanning,noteCriterionStall} from './continuity.js'
 import {PREPARE_ACTIONS} from '../supplies.js'
 import {OBSIDIAN_ACTIONS,validateObsidianGoal} from '../obsidian.js'
 import {EXPEDITION_ACTIONS,remainingDurability,expeditionObservation} from '../prospecting.js'
@@ -147,7 +160,7 @@ export class Teammate extends EventEmitter {
         const sheltered=awaitingBase||shelterAvailable&&(()=>{try{return shelteredObservation(runner.bot,base).passed}catch{return false}})()
         const observation=survivalObservation(runner.bot)
         // An item the request asks for, won by any means, is progress (lab run 101).
-        if(this.requestProgress&&noteAdvance(this.requestProgress,inventoryOf(runner.bot)))this.persist()
+        if(this.requestProgress&&noteAdvance(this.requestProgress,inventoryOf(runner.bot),runner.bot.registry))this.persist()
         // Health over time is something only this tick can see. A single
         // snapshot cannot tell "hurt and stable, go find food" from "hurt and
         // still being hit", and the difference decides whether stopping helps.
@@ -524,17 +537,14 @@ export class Teammate extends EventEmitter {
           const result={...this.safety.combat,clearance:clear},request=this.requestProgress
           // The fight collects its own loot once the area is clear (lab run 101: a
           // self-defense kill's rod stayed on the bricks while the request moved on).
-          // Only what the request asks for is worth the walk (lab run 103: at night it
-          // walked ten blocks from the portal for a skeleton's bones and a zombie caught it).
-          const fell=(this.safety.kills||[]).filter(Boolean),wanted=[...new Set((request?.goal?.criteria||[]).filter(c=>c?.kind==='inventory'&&c.item).map(c=>c.item))].slice(0,8)
-          if(fell.length&&wanted.length&&interruptedActiveRequest){
-            try{await this.execute({action:'collect',goal:{item:'',count:64,at:fell,items:wanted},timeoutMs:30000},abort.signal);result.collected=structuredClone(this.runner.task.result)}
-            catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;result.collected={failed:error.message}}
+          if(interruptedActiveRequest){
+            const collected=await collectKillSites(this,abort.signal,recoveryBot,request)
             if(epoch!==this.epoch||abort.signal.aborted)return
+            if(collected)result.collected=collected
           }
           if(request)(request.feedback??=[]).push({action,status:'completed',result,automatic:true})
           this.activity='';this.safety=null;this.phase=interruptedActiveRequest?'blocked':'ready';this.persist()
-          if(request)noteAdvance(request,inventoryOf(recoveryBot))
+          if(request)noteAdvance(request,inventoryOf(recoveryBot),recoveryBot.registry)
           if(interruptedActiveRequest&&canResume(request)&&canContinueAfterCombat(request)){
             (request.combatContinuations??=[]).push({requestId:request.id,result,...continuationMark(request)});this.persist()
             await this.resume({automatic:true})
@@ -571,7 +581,7 @@ export class Teammate extends EventEmitter {
               await this.execute({action:'shoot',goal:{type:name,collect:false},timeoutMs:60000},abort.signal)
               if(epoch!==this.epoch||abort.signal.aborted)return
               const shot=structuredClone(this.runner.task.result)
-              if(shot?.receipt==='killed'&&shot.at)(this.safety.kills??=[]).push(shot.at)
+              if(shot?.receipt==='killed'&&shot.at)(this.killSites??=[]).push({at:shot.at,time:Date.now()})
               // A follow-up target that flew out of view is the area check's to judge (run 98).
               if(kill>1&&shot?.stopped==='target_lost')break
               if(shot?.receipt!=='killed')throw new Error(`the ${name} survived ${shot?.shots??0} arrows`)
@@ -859,6 +869,7 @@ export class Teammate extends EventEmitter {
   }
   // Never stand still when every shelter is refused and a threat is near:
   // leave a pit, sprint from the nearest hostile and try the ground there.
+  async collectKillSites(signal,bot,request){return collectKillSites(this,signal,bot,request)}
   async moveOutOfDanger(epoch,signal,bot) {
     const s=survivalObservation(bot),threat=(s.nearbyThreats||[]).find(t=>t.risk==='potential_hostile')
     const attempt={name:'move',status:'trying'};this.safety.attempts.push(attempt);this.persist()
@@ -960,6 +971,9 @@ export class Teammate extends EventEmitter {
         catch(error){check();this.say('I could not get clear of them: '+error.message)
           this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check()}
       }
+      // Out with nothing near: pick up what earlier fights dropped (lab run 111: two rods
+      // fell mid-chain, the chain ended in the portal room, and nobody went back for them).
+      if(!confront&&!relocate&&canResume(request)){const got=await collectKillSites(this,signal,bot,request);check();if(got)safety.collected=got}
       const continuing=(eligible||safety.resumeRequested)&&canResume(request)&&(safety.resumeRequested||canContinueAfterSafety(request))
       this.safety=null;this.activity='';this.phase=canResume(request)?'blocked':'ready'
       if(continuing){

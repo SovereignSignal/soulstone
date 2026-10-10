@@ -1407,3 +1407,18 @@ test('a criterion item gained counts as progress for the safety and combat conti
  const six={completed:[],goal:r.goal,safetyContinuations:Array.from({length:SAFETY_CONTINUATIONS},(_,i)=>({completedAt:i,advancedAt:0})),advances:1}
  assert.equal(canContinueAfterSafety(six),true,'the six-episode cap counts from the last advance')
 })
+
+// Lab run 111, 10 October: five blazes killed before the planner's first round, so
+// the request had no interpreted goal: no criteria, no pickup, no progress counted,
+// and two rods lay on the bridge. Until the goal exists, the request's own words say.
+import {wantedItems} from '../src/companion/continuity.js'
+import minecraftDataForWanted from 'minecraft-data'
+test('before its goal is interpreted, a request wants the items its own text names',()=>{
+ const registry=minecraftDataForWanted('1.21.4')
+ const r={request:'Kill blazes here with your bow and collect 3 blaze rods, then come home through the portal.',completed:[],goal:null}
+ const names=wantedItems(r,registry).map(w=>w.item)
+ assert.ok(names.includes('blaze_rod'),names.join(' '));assert.ok(!names.includes('blaze_powder'))
+ assert.equal(noteAdvance(r,{blaze_rod:0},registry),false);assert.equal(noteAdvance(r,{blaze_rod:1},registry),true,'a rod is progress before the goal exists')
+ r.goal={criteria:[{kind:'inventory',item:'blaze_rod',count:3}]}
+ assert.deepEqual(wantedItems(r,registry),[{item:'blaze_rod',count:3}],'once interpreted, the criteria decide')
+})

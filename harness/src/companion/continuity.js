@@ -41,13 +41,23 @@ export const SHELTERED_CALLS=6
 // after two interruptions with rods being won. A criterion item gained (its
 // count in hand rising past the best so far, capped at what the criterion
 // asks) is verified progress, counted beside the completed steps.
-const criterionGain=(request,inventory)=>{
- const wanted=(request?.goal?.criteria||[]).filter(c=>c?.kind==='inventory'&&c.item)
+// The items a request is after: its goal's inventory criteria, or, before the
+// goal is interpreted, the item names its own text mentions. Lab run 111 killed
+// five blazes before the planner's first round, so there were no criteria, no
+// pickup and no progress counted while two rods lay on the bridge.
+export function wantedItems(request,registry){
+ const named=(request?.goal?.criteria||[]).filter(c=>c?.kind==='inventory'&&c.item).map(c=>({item:c.item,...(Number.isFinite(c.count)?{count:c.count}:{})}))
+ if(named.length)return named
+ const text=` ${String(request?.request||'').toLowerCase().replace(/[^a-z]+/g,' ')} `
+ return (registry?.itemsArray||[]).filter(i=>{const n=i.name.replaceAll('_',' ');return text.includes(` ${n} `)||text.includes(` ${n}s `)}).slice(0,8).map(i=>({item:i.name}))
+}
+const criterionGain=(request,inventory,registry)=>{
+ const wanted=wantedItems(request,registry)
  return {key:wanted.map(c=>c.item).sort().join(),gain:wanted.reduce((n,c)=>n+Math.min(Number(inventory?.[c.item])||0,Number.isFinite(c.count)&&c.count>0?c.count:Infinity),0)}
 }
-export function noteAdvance(request,inventory){
+export function noteAdvance(request,inventory,registry){
  if(!request)return false
- const {key,gain}=criterionGain(request,inventory)
+ const {key,gain}=criterionGain(request,inventory,registry)
  if(request.gainKey!==key){request.gainKey=key;request.gainHigh=gain;return false}
  if(!(gain>(request.gainHigh||0)))return false
  request.gainHigh=gain;request.advances=(request.advances||0)+1;return true
