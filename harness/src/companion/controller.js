@@ -60,7 +60,7 @@ import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { dirname,join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { validatePlan } from './planner.js'
-import {hutSite} from '../hut.js'
+import {hutSite,portalRoomSpot} from '../hut.js'
 import {rangedDefenseDecision} from '../archery.js'
 import {deliveredCount,satisfiedStep,currentRequestTask} from './progress.js'
 
@@ -612,9 +612,26 @@ export class Teammate extends EventEmitter {
       // at every hoglin meant the room it was asked to build never began.
       const portalRoom=inNether(recoveryBot)&&(()=>{const site=hutSite(recoveryBot);return site.ok&&site.portal})()
       const nearest=Math.min(Infinity,...survivalObservation(recoveryBot).nearbyThreats.filter(t=>t.risk==='potential_hostile').map(t=>t.distance))
-      const wallInFirst=portalRoom&&nearest>=PORTAL_ROOM_STANDOFF
+      // Run 101 (10 October): two blocks out of its opened portal room to shoot, hoglins
+      // at ten blocks sent the bot home, leaving the blaze and its rod. A portal room a
+      // few steps away is walked back to and closed, when the hostiles leave time for the steps.
+      const roomSpot=inNether(recoveryBot)&&!portalRoom?portalRoomSpot(recoveryBot):null
+      const stepsBack=roomSpot?recoveryBot.entity.position.distanceTo(roomSpot.offset(.5,0,.5)):0
+      const wallInFirst=(portalRoom||!!roomSpot)&&nearest>=PORTAL_ROOM_STANDOFF+Math.ceil(stepsBack)
       if(wallInFirst)this.say('Danger in the Nether. Walling in around the portal.')
-      if(!wallInFirst&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})){
+      if(wallInFirst&&roomSpot){
+        const attempt={name:'portal_room',status:'trying'};this.safety.attempts=[attempt];this.persist()
+        try{
+          await this.execute({action:'hut',goal:{portalRoom:true},timeoutMs:60000},abort.signal)
+          if(epoch!==this.epoch||abort.signal.aborted)return
+          this.safety.retreat=structuredClone(this.runner.task.result);attempt.status='sheltered';this.persist()
+        }catch(error){
+          if(epoch!==this.epoch||abort.signal.aborted)return
+          attempt.status='rejected';attempt.reason=error.message;this.persist()
+          this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)
+        }
+      }
+      if(!this.safety.retreat&&!(wallInFirst&&portalRoom)&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})){
         const attempt={name:'portal_home',status:'trying'};this.safety.attempts=[attempt];this.persist()
         this.say('Danger in the Nether. Going back through the portal.')
         try{
@@ -629,8 +646,8 @@ export class Teammate extends EventEmitter {
           this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)
         }
       }
-      const candidates=[...(this.projects.base?[{name:'base',goal:{project:structuredClone(this.projects.base)}}]:[]),...alternativeShelters(recoveryBot,this.projects).slice(0,3).map(shelter=>({name:shelter.name,goal:{shelter:structuredClone(shelter)}}))]
-      this.safety.attempts=[]
+      const candidates=this.safety.retreat?[]:[...(this.projects.base?[{name:'base',goal:{project:structuredClone(this.projects.base)}}]:[]),...alternativeShelters(recoveryBot,this.projects).slice(0,3).map(shelter=>({name:shelter.name,goal:{shelter:structuredClone(shelter)}}))]
+      if(!this.safety.retreat)this.safety.attempts=[]
       const recoveryDeadline=Date.now()+120000
       for(const candidate of candidates){
         if(epoch!==this.epoch||abort.signal.aborted)return

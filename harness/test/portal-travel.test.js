@@ -171,3 +171,22 @@ test('the brief makes flint and steel a thing to carry, never a precondition for
  assert.match(line,/never a precondition/)
  assert.match(line,/portal_link/)
 })
+
+test('two steps from the portal with hoglins ten blocks off, the bot steps back and walls in, not home',async()=>{
+ const run=async distance=>{
+  const r=new PortalRunner();r.bot.game.dimension='minecraft:the_nether'
+  r.bot.inventory={items:()=>[{name:'cobblestone',count:64,type:registry.itemsByName.cobblestone.id}]}
+  r.bot.blockAt=p=>{const frame=p.z===-1&&p.x>=-1&&p.x<=2&&p.y>=63&&p.y<=67
+   const name=frame?((p.x===-1||p.x===2||p.y===63||p.y===67)?'obsidian':'nether_portal'):p.y===63?'stone':'air'
+   return {name,position:p.clone(),boundingBox:(name==='stone'||name==='obsidian')?'block':'empty'}}
+  r.bot.findBlock=({matching})=>matching===registry.blocksByName.nether_portal.id?{name:'nether_portal',position:new Vec3(0,64,-1)}:null
+  r.bot.entity.position=new Vec3(0.5,64,2.5)
+  r.bot.entities={7:{name:'hoglin',position:new Vec3(0.5,64,2.5+distance)}}
+  r.command=function(c){this.commands.push(c);this.task={id:String(this.commands.length),kind:c.action,status:'running',goal:c.goal}}
+  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-companion-')),'state.json'))
+  void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,60))
+  const cmds=r.commands.filter(x=>x.action!=='stop');c.cancel?.(true);return cmds
+ }
+ const far=await run(10);assert.equal(far[0]?.action,'hut',far.map(x=>x.action).join(' '));assert.equal(far[0].goal.portalRoom,true)
+ const near=await run(4);assert.equal(near[0]?.action,'use_portal','four blocks off: no time to build, the portal is the way out')
+})

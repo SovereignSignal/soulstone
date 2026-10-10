@@ -6,7 +6,9 @@ import {setTimeout as delay} from 'node:timers/promises'
 import {fullCube} from './construction.js'
 import {scaffoldItems} from './scaffold.js'
 import {assertNoHostileOccupants,inspectEmergencyShelter} from './shelter-occupants.js'
-import {centreOn} from './navigation.js'
+import {centreOn,DoorAwareMovements} from './navigation.js'
+import pathfinding from 'mineflayer-pathfinder'
+const {goals}=pathfinding
 import {Vec3} from 'vec3'
 export const HUT_BLOCKS=10
 const REPLACEABLE=new Set(['air','cave_air','short_grass','tall_grass','fern','large_fern','dead_bush','pink_petals','snow','seagrass','vine'])
@@ -44,7 +46,9 @@ function portalRoom(bot,feet){
 export function hutSite(bot){
  const p=bot.entity?.position
  if(!p||!bot.entity.onGround)return {ok:false,reason:'Not standing on solid ground'}
- const feet=p.floored()
+ return hutSiteAt(bot,p.floored())
+}
+function hutSiteAt(bot,feet){
  if(!solid(bot,bot.blockAt(feet.offset(0,-1,0))))return {ok:false,reason:'No solid floor under the bot'}
  const room=portalRoom(bot,feet)
  if(room){
@@ -74,13 +78,47 @@ export function hutSite(bot){
  if(carried<needed)return {ok:false,reason:`${needed} blocks needed to close this spot and ${carried} carried`}
  return {ok:true,feet,needed}
 }
+// Lab run 101, 10 October: the bot had opened its portal room and stepped two
+// blocks out to shoot; hoglins came round at ten blocks and, the room a step
+// away, it went home through the portal and left the blaze and its rod. The
+// nearest standing cell within a few blocks where a portal room closes.
+export const PORTAL_ROOM_STEPS=3
+export function portalRoomSpot(bot,radius=PORTAL_ROOM_STEPS){
+ const p=bot.entity?.position;if(!p)return null
+ const here=p.floored();let best=null
+ for(let dx=-radius;dx<=radius;dx++)for(let dz=-radius;dz<=radius;dz++)for(const dy of [0,-1,1]){
+  if(Math.hypot(dx,dz)>radius)continue
+  const c=here.offset(dx,dy,dz)
+  if(!REPLACEABLE.has(bot.blockAt(c)?.name)||!REPLACEABLE.has(bot.blockAt(c.offset(0,1,0))?.name))continue
+  const site=hutSiteAt(bot,c);if(!site.ok||!site.portal)continue
+  const d=Math.hypot(dx,dz)+Math.abs(dy);if(!best||d<best.d)best={cell:c,d}
+ }
+ return best?.cell??null
+}
+// Walk to that cell as the bow steps to a firing position: no digging, towering
+// or placing on the way, and the runner's movement profile restored after.
+async function stepToPortalRoom(bot,check,progress){
+ const spot=portalRoomSpot(bot)
+ if(!spot)throw new Error(`Cannot wall in at the portal: No spot beside a portal within ${PORTAL_ROOM_STEPS} blocks where a portal room closes`)
+ progress(`Stepping back to ${key(spot)} beside the portal`)
+ const previous=bot.pathfinder.movements,movement=new DoorAwareMovements(bot)
+ Object.assign(movement,{canDig:false,allow1by1towers:false,allowParkour:false,allowSprinting:true,maxDropDown:1,scafoldingBlocks:[]})
+ bot.pathfinder.setMovements(movement)
+ const timer=setTimeout(()=>bot.pathfinder?.setGoal?.(null),8000)
+ try{await bot.pathfinder.goto(new goals.GoalBlock(spot.x,spot.y,spot.z))}catch{check()}finally{clearTimeout(timer);if(previous)bot.pathfinder.setMovements(previous)}
+ check()
+ const at=bot.entity.position.floored()
+ if(!at.equals(spot))throw new Error(`Cannot wall in at the portal: stopped at ${key(at)} short of ${key(spot)}`)
+}
 async function settle(predicate,{check,ms=1500,poll=50}){
  const end=Date.now()+ms
  while(Date.now()<end){check();if(predicate())return true;await delay(poll)}
  return predicate()
 }
 export async function wallIn(bot,task,{check,stage,progress}){
- check();const site=hutSite(bot)
+ check()
+ if(task.goal?.portalRoom&&!hutSite(bot).portal){stage('walking');await stepToPortalRoom(bot,check,progress)}
+ const site=hutSite(bot)
  if(!site.ok)throw new Error('Cannot wall in here: '+site.reason)
  bot.pathfinder?.setGoal(null);bot.clearControlStates?.()
  // A player is 0.6 blocks wide. Standing a hand's breadth off centre puts the
@@ -123,7 +161,7 @@ export async function wallIn(bot,task,{check,stage,progress}){
  const protection=inspectEmergencyShelter(bot)
  progress('Closed, unoccupied hut verified; watching protection and the surface')
  const p=bot.entity.position
- return {item:'safety',count:1,receipt:'walled_in',protection,shelterName:'hut',capped:true,placed,position:{x:p.x,y:p.y,z:p.z},surface:{x:feet.x,y:feet.y,z:feet.z}}
+ return {item:'safety',count:1,receipt:'walled_in',protection,shelterName:'hut',capped:true,placed,...(site.portal?{portalRoom:true}:{}),position:{x:p.x,y:p.y,z:p.z},surface:{x:feet.x,y:feet.y,z:feet.z}}
 }
 export async function unwall(bot,task,{check,stage,progress}){
  check();const feet=bot.entity.position.floored()

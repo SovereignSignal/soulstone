@@ -24,7 +24,9 @@ export function validateGoal(goal) {
   return { x: goal.x, y: goal.y, z: goal.z }
 }
 export function validateTaskGoal(kind, goal) {
-  if(['surface','douse','leave_portal','use_portal','burrow','hut','unhut'].includes(kind))return {}
+  // A hut may be asked to step back to a portal first (lab run 101).
+  if(kind==='hut')return goal?.portalRoom===true?{portalRoom:true}:{}
+  if(['surface','douse','leave_portal','use_portal','burrow','unhut'].includes(kind))return {}
   if(kind==='travel')return validateTravelGoal(goal)
   if(kind==='goto')return validateGotoGoal(goal)
   if(kind==='dig')return validateDigGoal(goal)

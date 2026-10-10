@@ -179,3 +179,23 @@ test('walling in beside a portal leaves a closed room that passes the shelter in
  for(const c of ['10,64,8','10,66,8','11,64,8','11,66,8','11,64,10','11,66,10','9,64,10','10,64,11','10,66,11','10,66,10']){const name=w.cells.get(new Vec3(...c.split(',').map(Number)).toString());assert.ok(name&&name!=='air','sealed '+c)}
  for(let y=64;y<=66;y++)assert.equal(w.cells.get(new Vec3(10,y,9).toString()),'nether_portal','the portal itself is untouched')
 })
+
+// Lab run 101, 10 October: the bot had opened its portal room and stepped two
+// blocks out to shoot; three hoglins came round at ten blocks, and with the
+// room a step away it went home through the portal, leaving the blaze and its
+// rod. A portal room within a few steps is walked to and closed.
+import {portalRoomSpot} from '../src/hut.js'
+test('a few steps from a portal the hut walks back beside it and closes a portal room there',async()=>{
+ const w=besidePortal()
+ w.bot.entity.position=new Vec3(10.5,64,12.5)
+ const spot=portalRoomSpot(w.bot)
+ assert.ok(spot,'a spot beside the portal');assert.equal(spot.z,10);assert.ok([10,11].includes(spot.x))
+ const walked=[]
+ w.bot.pathfinder.goto=async g=>{walked.push(g);w.bot.entity.position=new Vec3(g.x+0.5,g.y,g.z+0.5)}
+ const result=await executeSkill(w.bot,{kind:'hut',goal:{portalRoom:true}},api)
+ assert.equal(walked.length,1);assert.equal(result.receipt,'walled_in');assert.equal(result.portalRoom,true)
+ for(let y=64;y<=66;y++)assert.equal(w.cells.get(new Vec3(10,y,9).toString()),'nether_portal','the portal itself is untouched')
+ const far=besidePortal();far.bot.entity.position=new Vec3(10.5,64,16.5)
+ assert.equal(portalRoomSpot(far.bot),null,'seven blocks off is not a step back')
+ await assert.rejects(executeSkill(far.bot,{kind:'hut',goal:{portalRoom:true}},api),/No spot beside a portal within 3 blocks/)
+})

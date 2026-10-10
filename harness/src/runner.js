@@ -381,7 +381,7 @@ export class Runner extends EventEmitter {
       case 'use_portal': this.skill('use_portal',{},command.timeoutMs); break
       case 'burrow': this.skill('burrow',{},command.timeoutMs); break
       case 'unburrow': this.skill('unburrow',command.goal,command.timeoutMs); break
-      case 'hut': this.skill('hut',{},command.timeoutMs); break
+      case 'hut': this.skill('hut',command.goal||{},command.timeoutMs); break
       case 'unhut': this.skill('unhut',{},command.timeoutMs); break
       case 'flee': this.skill('flee',command.goal,command.timeoutMs); break
       case 'descend': this.skill('descend',command.goal,command.timeoutMs); break
