@@ -3,7 +3,7 @@ import {Vec3} from 'vec3'
 import pathfinding from 'mineflayer-pathfinder'
 import {DoorAwareMovements} from './navigation.js'
 import {remainingDurability} from './supplies.js'
-import {survivalObservation} from './survival.js'
+import {survivalObservation,cannotShootYet} from './survival.js'
 import {observedSightline} from './visibility.js'
 
 // Melee-defendable mobs and the health margin each demands. Skeletons shoot
@@ -106,7 +106,9 @@ export function combatClearance(bot){
   const column=bot.world?.getColumn?.(x,z)
   if(!column||typeof column.then==='function')return {clear:false,reason:'Nearby terrain is not fully observed'}
  }
- return dangerNearby(bot).length?{clear:false,reason:'Another potential threat is nearby'}:{clear:true,health:s.health,food:s.food}
+ // A shooter with no line to the bot is no threat until it has one, as for the
+ // alarms (lab run 91: a blaze behind the fortress wall sent the bot home after its kill).
+ return dangerNearby(bot).some(t=>!cannotShootYet(t))?{clear:false,reason:'Another potential threat is nearby'}:{clear:true,health:s.health,food:s.food}
 }
 
 // One identified mob per bounded action. Never chase a replacement entity or

@@ -199,6 +199,21 @@ test('a nearer blaze behind bricks does not stop a shot at one in the open',()=>
  assert.match(rangedDefenseDecision(hoglin).reason,/hoglin/,'a melee mob between the bot and the blaze still keeps the bow down')
 })
 
+import {combatClearance} from '../src/combat.js'
+test('after a kill, a blaze behind the wall does not keep the area from clearing',()=>{
+ // Lab run 91: the bow killed one blaze, the clearance counted a second one
+ // five blocks below behind nether bricks, and the bot fled home through the
+ // portal. A shooter with no line to the bot is not a threat until it has one.
+ const bot=threatened({distance:5})
+ bot.world={getColumn:()=>({}),raycast:()=>({name:'nether_bricks',position:new Vec3(0,65,3)})}
+ assert.equal(combatClearance(bot).clear,true,combatClearance(bot).reason)
+ bot.world.raycast=()=>null
+ assert.equal(combatClearance(bot).clear,false,'in plain view it still holds the area')
+ const zombie=threatened({mob:'zombie',distance:5})
+ zombie.world={getColumn:()=>({}),raycast:()=>({name:'stone',position:new Vec3(0,65,3)})}
+ assert.equal(combatClearance(zombie).clear,false,'a walker behind a wall can still come round it')
+})
+
 import {mkdtempSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
