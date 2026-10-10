@@ -294,6 +294,7 @@ export async function executeWorldSkill(bot,task,context,gather) {
  const sources={flint:['gravel'],cobblestone:['stone'],cobbled_deepslate:['deepslate'],coal:['coal_ore','deepslate_coal_ore'],raw_iron:['iron_ore','deepslate_iron_ore'],raw_copper:['copper_ore','deepslate_copper_ore'],diamond:['diamond_ore','deepslate_diamond_ore']}
  async function mine(name,total,path) {
   await leaveForWork()
+  if(name==='flint')return mineFlint(total,path)
   try{await mineExposed(name,total,path)}
   catch(error){
    check()
@@ -306,12 +307,43 @@ export async function executeWorldSkill(bot,task,context,gather) {
  }
  // Never inside a saved build, and only what `accept` allows: obsidian is
  // taken from pools and ruined portals, never from a frame somebody built.
- async function mineExposed(name,total,path,{accept=null}={}) {
+ // Gravel drops flint about one time in ten and itself otherwise, so eight flint
+ // is about eighty digs. Dig exposed gravel until some is carried, then put it
+ // down beside the bot on solid ground and dig it again, as a player does.
+ const REDIG_ROUND=30
+ function gravelSite(){
+  const p=bot.entity.position,feet=p.floored()
+  const sites=[...(task.goal?.protectedSites||[]),...(context.shelterProject?projectFootprints({base:context.shelterProject},dimensionOf(bot)):[])]
+  // A player is 0.6 wide: a cell its box overlaps cannot take a block.
+  const clearOfBot=c=>!(p.x+0.3>c.x&&p.x-0.3<c.x+1&&p.z+0.3>c.z&&p.z-0.3<c.z+1)
+  return [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]].map(([dx,dz])=>feet.offset(dx,0,dz))
+   .find(c=>bot.blockAt(c)?.name==='air'&&bot.blockAt(c.offset(0,-1,0))?.boundingBox==='block'&&clearOfBot(c)&&!inProtectedSite(c,sites))||null
+ }
+ async function mineFlint(total,path){
+  while(count('flint')<total){
+   budget()
+   if(!count('gravel')){await mineExposed('flint',total,path,{until:()=>count('flint')>=total||count('gravel')>0});continue}
+   const site=gravelSite()
+   if(!site){progress('No solid ground beside me for the carried gravel; digging gravel where it lies');await mineExposed('flint',total,path);return}
+   for(let round=0;round<REDIG_ROUND&&count('flint')<total&&count('gravel');round++){
+    check();stage('placing');progress(`Flint from carried gravel: ${count('flint')}/${total} (${count('gravel')} gravel left)`)
+    await bot.equip(bot.inventory.items().find(i=>i.name==='gravel'),'hand');check()
+    await bot.placeBlock(bot.blockAt(site.offset(0,-1,0)),new Vec3(0,1,0));check()
+    await settle(()=>bot.blockAt(site)?.name==='gravel',`Server did not confirm gravel at ${key(site)}`)
+    const held=count('flint')+count('gravel'),block=bot.blockAt(site)
+    await bot.tool.equipForBlock(block,{requireHarvest:true,getFromChest:false});check();stage('gathering');await bot.dig(block);check()
+    const back=()=>count('flint')+count('gravel')>held
+    try{await settle(back,'drop not picked up')}
+    catch{check();await walk(new goals.GoalNear(site.x,site.y,site.z,0.5),false).catch(()=>{});await settle(back,`Dug the gravel at ${key(site)} but its drop was not picked up`)}
+   }
+  }
+ }
+ async function mineExposed(name,total,path,{accept=null,until=null}={}) {
   const names=sources[name]||[name],ids=names.map(n=>bot.registry.blocksByName[n]?.id).filter(Number.isInteger)
   const sites=[...(task.goal?.protectedSites||[]),...(context.shelterProject?projectFootprints({base:context.shelterProject},dimensionOf(bot)):[])]
   if(!ids.length)throw new Error(`No mining source for ${name}`)
   const skipped=new Set()
-  while(count(name)<total){
+  while(until?!until():count(name)<total){
    budget()
    const exposed=b=>{
     const adjacent=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].map(([x,y,z])=>bot.blockAt(b.position.offset(x,y,z)))

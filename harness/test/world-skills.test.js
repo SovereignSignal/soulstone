@@ -258,12 +258,13 @@ test('flint is mined from gravel, keeping every gravel drop until the flint arri
   findBlocks({matching,useExtraInfo}){return [...world].filter(([,n])=>[matching].flat().includes(registry.blocksByName[n].id)).map(([k])=>new Vec3(...k.split(',').map(Number))).filter(p=>!useExtraInfo||useExtraInfo(bot.blockAt(p)))},
   findBlock:()=>null,world:{raycast:()=>target&&{position:target}},clearControlStates(){},entities:{},
   pathfinder:{setMovements(){},setGoal(){},async goto(goal){const near=(goal.goals||[goal]).find(g=>g.rangeSq!==undefined);if(near){target=new Vec3(near.x,near.y,near.z);bot.entity.position=new Vec3(near.x+1.5,64,near.z+0.5)}}},
-  tool:{async equipForBlock(){}},
+  tool:{async equipForBlock(){}},async equip(){},
+  async placeBlock(ref,face){const at=ref.position.plus(face);inventory.set('gravel',count('gravel')-1);world.set(`${at.x},${at.y},${at.z}`,'gravel')},
   async dig(block){digs++;world.delete(`${block.position.x},${block.position.y},${block.position.z}`);const drop=digs%3===0?'flint':'gravel';inventory.set(drop,count(drop)+1)},
   recipesAll:()=>[],recipesFor:()=>[]}
  Object.setPrototypeOf(bot,new EventEmitter())
  const result=await executeWorldSkill(bot,{kind:'acquire',goal:{item:'flint',count:1}},{check(){},stage(){},persist(){},progress(){},movements:{}},()=>{throw new Error('must not gather logs')})
- assert.equal(result.item,'flint');assert.equal(count('flint'),1);assert.equal(count('gravel'),2,'the gravel it dug on the way is kept')
+ assert.equal(result.item,'flint');assert.equal(count('flint'),1);assert.equal(count('gravel'),0,'the gravel it dug was put down and dug again until the flint came')
  assert.ok(world.has('0,66,0'),'gravel straight above its own column is never dug: it would fall on its head')
 })
 
@@ -354,4 +355,34 @@ test('acquire for string hunts a calm spider, and at night says when and how str
  const none=arrowFixture({carried:[['flint',1],['stick',1]]})
  await assert.rejects(executeWorldSkill(none.bot,{kind:'acquire',goal:{item:'arrow',count:4}},ctx,noLogs),e=>{
   assert.doesNotMatch(e.message,/mining source/);assert.match(e.message,/feather/);return true})
+})
+
+// Thirty-two arrows are eight flint, and gravel gives flint about one time in
+// ten: about eighty digs. Walking to eighty exposed gravel blocks is most of a
+// riverbank; a player puts a carried gravel down and digs it again instead, so
+// only one gravel block is used up per flint.
+test('flint comes from carried gravel put down beside the bot and dug again, not from walking to new gravel each time',async()=>{
+ const registry=minecraftData('1.21.4'),{default:blockLoader}=await import('prismarine-block'),Block=blockLoader(registry)
+ const world=new Map([['3,64,0','gravel'],['-6,64,4','gravel'],['9,64,-5','gravel']])
+ const name=p=>world.get(`${p.x},${p.y},${p.z}`)??(p.y<64?'stone':'air')
+ const inventory=new Map(),count=n=>inventory.get(n)||0
+ let digs=0,placed=0,walks=0,target=null
+ const bot={registry,_client:new EventEmitter(),entity:{position:new Vec3(0.5,64,0.5),onGround:true},
+  inventory:{items:()=>[...inventory].filter(([,c])=>c>0).map(([n,c])=>({name:n,count:c,type:registry.itemsByName[n].id}))},
+  blockAt(p){const f=p.floored(),b=Block.fromStateId(registry.blocksByName[name(f)].defaultState,0);b.position=f;return b},
+  findBlocks({matching,useExtraInfo}){return [...world].filter(([,n])=>[matching].flat().includes(registry.blocksByName[n].id)).map(([k])=>new Vec3(...k.split(',').map(Number))).filter(p=>!useExtraInfo||useExtraInfo(bot.blockAt(p)))},
+  findBlock:()=>null,world:{raycast:()=>target&&{position:target}},clearControlStates(){},entities:{},
+  pathfinder:{setMovements(){},setGoal(){},async goto(goal){walks++;const near=(goal.goals||[goal]).find(g=>g.rangeSq!==undefined);if(near){target=new Vec3(near.x,near.y,near.z);bot.entity.position=new Vec3(near.x+1.5,64,near.z+0.5)}}},
+  tool:{async equipForBlock(){}},async equip(item){assert.equal(item.name,'gravel')},
+  async placeBlock(ref,face){
+   const at=ref.position.plus(face);assert.equal(name(at),'air');assert.equal(name(ref.position),'stone','placed on solid ground, so it cannot fall')
+   const p=bot.entity.position;assert.ok(!(p.x+0.3>at.x&&p.x-0.3<at.x+1&&p.z+0.3>at.z&&p.z-0.3<at.z+1),'never inside the bot')
+   assert.ok(count('gravel')>0);inventory.set('gravel',count('gravel')-1);world.set(`${at.x},${at.y},${at.z}`,'gravel');placed++},
+  async dig(block){digs++;world.delete(`${block.position.x},${block.position.y},${block.position.z}`);const drop=digs%3===0?'flint':'gravel';inventory.set(drop,count(drop)+1)},
+  recipesAll:()=>[],recipesFor:()=>[]}
+ Object.setPrototypeOf(bot,new EventEmitter())
+ const result=await executeWorldSkill(bot,{kind:'acquire',goal:{item:'flint',count:3}},{check(){},stage(){},persist(){},progress(){},movements:{}},()=>{throw new Error('must not gather logs')})
+ assert.equal(result.item,'flint');assert.equal(count('flint'),3)
+ assert.equal(digs,9);assert.equal(placed,6,'every dig after an exposed one was a block it put down');assert.equal(world.size,0,'one exposed gravel used per flint')
+ assert.ok(walks<=6,`walked only to the three exposed gravel blocks (${walks} walks)`)
 })
