@@ -101,3 +101,15 @@ test('a shelter still watching for clearance is not a stall; one whose watch has
  c.safety.continuation={status:'paused',code:'clearance_timeout'}
  c.blockedSince=1;assert.equal(await c.stallRetry(),true);assert.equal(resumes,1,'a watch that gave up leaves the retry in charge')
 })
+test('a shelter whose watch has cleared is leaving, not stalled',async()=>{
+ // Lab run 93, 10 October: walled in at the Nether portal, the watch cleared
+ // to move away from two wither skeletons and opened the wall; the stall retry
+ // resumed the request in the same second, the alarm fired at the same
+ // skeletons, and the bot walled in again, every four and a half minutes.
+ const r=new FakeRunner(deep().bot),c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-leave-')),'state.json'))
+ let resumes=0;c.resume=async()=>{resumes++};c.phase='blocked'
+ c.requestProgress={id:'e',request:'blaze rods',status:'interrupted',blocker:'Safety interruption: A potential hostile is within ten blocks'}
+ c.safety={status:'burrowed',reason:'A potential hostile is within ten blocks',continuation:{status:'cleared',watch:1}}
+ c.blockedSince=1;assert.equal(await c.stallRetry(),false);assert.equal(resumes,0,'the exit resumes the request itself when it is done')
+ c.safety.status='failed';c.blockedSince=1;assert.equal(await c.stallRetry(),true);assert.equal(resumes,1,'an exit that failed leaves the retry in charge')
+})

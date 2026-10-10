@@ -849,7 +849,7 @@ export class Teammate extends EventEmitter {
       if(result.status!=='cleared'){this.say('I am staying dug in. Resume is required because daylight and a clear area were not established in time.');return}
       const confront=result.observation?.confront,relocate=result.observation?.relocate
       this.say(confront?`Daylight, and a lone ${confront.name} has lingered ${confront.distance} blocks away. Opening up to confront it.`
-        :relocate?`Daylight, and ${relocate.threats.length===1?`a ${relocate.threats[0].name}`:`${relocate.threats.length} hostiles`} will not move on. I cannot take that unarmed and waiting is not working, so I am surfacing and leaving the area.`
+        :relocate?`${inNether(bot)?'':'Daylight, and '}${relocate.threats.length===1?`a ${relocate.threats[0].name.replaceAll('_',' ')}`:`${relocate.threats.length} hostiles`} will not move on. I cannot fight that from here and waiting is not working, so I am leaving the area.`.replace(/^a /,'A ')
         :'Daylight with no hostile nearby. Opening up.')
       // Confronting from a hut, open the wall that faces it: the bow needs the sightline (run 86).
       const facing=confront?.position?{toward:{x:Math.floor(confront.position.x),z:Math.floor(confront.position.z)}}:{}
@@ -955,7 +955,9 @@ export class Teammate extends EventEmitter {
     // Sheltered and watching for clearance is not a stall: the watch resumes the
     // request itself when it clears. Retrying over it walked the bot out of a lit
     // base at night three times. A watch that has given up leaves this in charge.
-    if(this.safety?.continuation?.status==='watching')return false
+    // A watch that has cleared is leaving the shelter, and resumes the request itself
+    // once out (lab run 93: retrying over the exit walled the bot back in at the same mobs).
+    if(this.safety?.continuation?.status==='watching'||this.safety?.continuation?.status==='cleared'&&this.safety.status!=='failed')return false
     // Inside the base at night with the work unfinished is a wait, not a stall.
     // Asking the planner again every ninety seconds gets the same answer three
     // times and leaves the request dead before dawn. Hold, say so once, and let
