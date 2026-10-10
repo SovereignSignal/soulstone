@@ -540,13 +540,15 @@ export class Teammate extends EventEmitter {
               await this.execute({action:'shoot',goal:{type:name},timeoutMs:60000},abort.signal)
               if(epoch!==this.epoch||abort.signal.aborted)return
               const shot=structuredClone(this.runner.task.result)
+              // A follow-up target that flew out of view is the area check's to judge (run 98).
+              if(kill>1&&shot?.stopped==='target_lost')break
               if(shot?.receipt!=='killed')throw new Error(`the ${name} survived ${shot?.shots??0} arrows`)
               this.safety.combat=shot
               const next=kill<RANGED_CHAIN?rangedDefenseDecision(recoveryBot):null
               if(next?.engage){name=next.target.targetName;this.say(`The ${shot.item||'target'} fell to my arrows. Another ${name}; shooting it too.`);continue}
               break
             }
-            this.say('The '+name+' fell to my arrows. Checking the area before continuing.')
+            this.say(this.runner.task.result?.receipt==='killed'?'The '+name+' fell to my arrows. Checking the area before continuing.':`The ${name} flew out of sight. Checking the area before continuing.`)
             await finishDefense('shoot');return
           }catch(error){
             if(epoch!==this.epoch||abort.signal.aborted)return
@@ -858,7 +860,7 @@ export class Teammate extends EventEmitter {
       }
       if(result.status!=='cleared'){this.say('I am staying dug in. Resume is required because daylight and a clear area were not established in time.');return}
       const confront=result.observation?.confront,relocate=result.observation?.relocate
-      this.say(confront?`Daylight, and a lone ${confront.name} has lingered ${confront.distance} blocks away. Opening up to confront it.`
+      this.say(confront?`${inNether(bot)?'A':'Daylight, and a'} lone ${confront.name} has lingered ${confront.distance} blocks away. Opening up to confront it.`
         :relocate?`${inNether(bot)?'':'Daylight, and '}${relocate.threats.length===1?`a ${relocate.threats[0].name.replaceAll('_',' ')}`:`${relocate.threats.length} hostiles`} will not move on. I cannot fight that from here and waiting is not working, so I am leaving the area.`.replace(/^a /,'A ')
         :'Daylight with no hostile nearby. Opening up.')
       // Confronting from a hut, open the wall that faces it: the bow needs the sightline (run 86).
@@ -967,7 +969,9 @@ export class Teammate extends EventEmitter {
     // base at night three times. A watch that has given up leaves this in charge.
     // A watch that has cleared is leaving the shelter, and resumes the request itself
     // once out (lab run 93: retrying over the exit walled the bot back in at the same mobs).
-    if(this.safety?.continuation?.status==='watching'||this.safety?.continuation?.status==='cleared'&&this.safety.status!=='failed')return false
+    // A watch that failed, whatever its last record said, leaves the retry in charge
+    // (lab run 98: failed mid-watch, still marked watching, idle for 34 minutes).
+    if(this.safety?.status!=='failed'&&['watching','cleared'].includes(this.safety?.continuation?.status))return false
     // Inside the base at night with the work unfinished is a wait, not a stall.
     // Asking the planner again every ninety seconds gets the same answer three
     // times and leaves the request dead before dawn. Hold, say so once, and let

@@ -112,4 +112,8 @@ test('a shelter whose watch has cleared is leaving, not stalled',async()=>{
  c.safety={status:'burrowed',reason:'A potential hostile is within ten blocks',continuation:{status:'cleared',watch:1}}
  c.blockedSince=1;assert.equal(await c.stallRetry(),false);assert.equal(resumes,0,'the exit resumes the request itself when it is done')
  c.safety.status='failed';c.blockedSince=1;assert.equal(await c.stallRetry(),true);assert.equal(resumes,1,'an exit that failed leaves the retry in charge')
+ // Lab run 98: the hut's watch failed mid-watch ("Health fell inside the emergency
+ // shelter"), the record still said watching, and the bot stood for 34 minutes.
+ c.safety={status:'failed',error:'Health fell inside the emergency shelter',continuation:{status:'watching'}}
+ c.blockedSince=1;assert.equal(await c.stallRetry(),true);assert.equal(resumes,2,'a watch that failed while watching leaves the retry in charge')
 })

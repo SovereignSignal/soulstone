@@ -253,6 +253,27 @@ test('a second blaze the bow can answer is shot too, not taken as too many to fi
  assert.ok(!acts.some(a=>['retreat','burrow','hut','use_portal'].includes(a)),'no shelter once both are down: '+acts.join(' '))
 })
 
+test('a second blaze that flies out of view ends the chain at the area check, not in shelter',async()=>{
+ // Lab run 98: after a kill, the follow-up shot lost its blaze behind the bridge
+ // after one arrow, and the bot walled in as if the fight had been lost.
+ const bot=threatened({distance:12,extra:{8:{id:8,name:'blaze',type:'hostile',height:1.8,position:new Vec3(0.5,64,16.5),velocity:new Vec3(0,0,0)}}})
+ bot.world={...bot.world,getColumn:()=>({}),raycast:()=>null}
+ class LosingRunner extends ShootRunner{
+  command(c){super.command(c);if(c.action!=='shoot')return
+   const shots=this.commands.filter(x=>x.action==='shoot').length,task=this.task
+   queueMicrotask(()=>{
+    if(shots===1){delete bot.entities[7];task.result={item:'blaze',count:1,receipt:'killed',shots:2}}
+    else{delete bot.entities[8];task.result={item:'blaze',count:0,receipt:'target_survived',shots:1,stopped:'target_lost'}}
+    task.status='completed';this.emit('event',{type:'task_finished',task})})}
+ }
+ const r=new LosingRunner(bot)
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-lost-')),'state.json'))
+ void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,2500))
+ const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop');c.cancel?.(true)
+ assert.equal(acts.filter(a=>a==='shoot').length,2,acts.join(' '))
+ assert.ok(!acts.some(a=>['retreat','burrow','hut','use_portal'].includes(a)),'the area is clear once it is gone: '+acts.join(' '))
+})
+
 // Lab, 10 October: shoot fired once at a blaze and finished "target_survived"
 // with 47 arrows and 11 shots left: the blaze had dropped out of the entity
 // list. Like attack, it re-acquires the same type nearby, and says why it stopped.
