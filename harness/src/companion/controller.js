@@ -516,9 +516,11 @@ export class Teammate extends EventEmitter {
           const result={...this.safety.combat,clearance:clear},request=this.requestProgress
           // The fight collects its own loot once the area is clear (lab run 101: a
           // self-defense kill's rod stayed on the bricks while the request moved on).
-          const fell=(this.safety.kills||[]).filter(Boolean)
-          if(fell.length){
-            try{await this.execute({action:'collect',goal:{item:'',count:64,at:fell},timeoutMs:30000},abort.signal);result.collected=structuredClone(this.runner.task.result)}
+          // Only what the request asks for is worth the walk (lab run 103: at night it
+          // walked ten blocks from the portal for a skeleton's bones and a zombie caught it).
+          const fell=(this.safety.kills||[]).filter(Boolean),wanted=[...new Set((request?.goal?.criteria||[]).filter(c=>c?.kind==='inventory'&&c.item).map(c=>c.item))].slice(0,8)
+          if(fell.length&&wanted.length&&interruptedActiveRequest){
+            try{await this.execute({action:'collect',goal:{item:'',count:64,at:fell,items:wanted},timeoutMs:30000},abort.signal);result.collected=structuredClone(this.runner.task.result)}
             catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;result.collected={failed:error.message}}
             if(epoch!==this.epoch||abort.signal.aborted)return
           }

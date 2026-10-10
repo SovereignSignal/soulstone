@@ -37,7 +37,12 @@ export function validateCollectGoal(goal) {
     if (!Array.isArray(goal.at) || !goal.at.length || goal.at.length > 8 || !goal.at.every(p => p && ['x', 'y', 'z'].every(k => Number.isFinite(p[k])))) throw new Error('Collect kill positions must be 1–8 points with finite x, y and z')
     at = goal.at.map(p => ({ x: p.x, y: p.y, z: p.z }))
   }
-  return { item, count: goal.count, ...(goal.protectedSites?.length ? { protectedSites: goal.protectedSites } : {}), ...(at ? { at } : {}) }
+  let items = null
+  if (goal.items !== undefined) {
+    if (!at || !Array.isArray(goal.items) || !goal.items.length || goal.items.length > 8 || !goal.items.every(i => ITEM_ID.test(i || ''))) throw new Error('Collect items must be 1–8 item IDs, with kill positions')
+    items = [...goal.items]
+  }
+  return { item, count: goal.count, ...(goal.protectedSites?.length ? { protectedSites: goal.protectedSites } : {}), ...(at ? { at } : {}), ...(items ? { items } : {}) }
 }
 
 const NOT_CREATURE = new Set(['item', 'experience_orb', 'arrow', 'spectral_arrow', 'trident', 'fishing_bobber', 'ender_dragon_part'])
@@ -195,7 +200,7 @@ export function killDrops(bot, at, o = KILL_DROPS) {
   if (!at || !['x', 'y', 'z'].every(k => Number.isFinite(at[k]))) return []
   return Object.values(bot.entities || {})
     .map(e => ({ entity: e, stack: e?.getDroppedItem?.() }))
-    .filter(({ entity, stack }) => stack && entity.position && Math.hypot(entity.position.x - at.x, entity.position.z - at.z) <= o.radius && entity.position.y <= at.y + o.above && entity.position.y >= at.y - o.below)
+    .filter(({ entity, stack }) => stack && (!o.items || o.items.includes(stack.name)) && entity.position && Math.hypot(entity.position.x - at.x, entity.position.z - at.z) <= o.radius && entity.position.y <= at.y + o.above && entity.position.y >= at.y - o.below)
     .map(({ entity, stack }) => ({ id: entity.id, name: stack.name, count: stack.count || 1, position: entity.position }))
 }
 export async function collectKillDrops(bot, points, { check, stage, progress, movements }, options = {}) {
@@ -243,7 +248,7 @@ const gainedOf = (before, after, item) => {
 export async function collectDrops(bot, task, { check, stage, progress, movements }) {
   const goal = validateCollectGoal(task.goal)
   if (goal.at) {
-    const r = await collectKillDrops(bot, goal.at, { check, stage, progress, movements })
+    const r = await collectKillDrops(bot, goal.at, { check, stage, progress, movements }, goal.items ? { items: goal.items } : {})
     const gained = Object.values(r.gained).reduce((n, v) => n + v, 0)
     if (!gained) throw new Error(`Collected nothing where the kill fell: ${r.missed?.length ? r.missed.join('; ') : 'no drop lay there'}`)
     return { receipt: 'collected', item: '', gained, items: r.gained, ...(r.missed ? { missed: r.missed } : {}) }

@@ -423,13 +423,13 @@ test('self-defense shoots without stopping to pick up, then collects where its k
  }
  const r=new KillingRunner(bot)
  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-loot-')),'state.json'))
- c.requestProgress={id:'q',request:'blaze rods',status:'running',completed:[],feedback:[]}
+ c.requestProgress={id:'q',request:'blaze rods',status:'running',completed:[],feedback:[],goal:{criteria:[{kind:'inventory',item:'blaze_rod',count:3}]}}
  void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,2800))
  const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop');c.cancel?.(true)
  assert.equal(r.commands.find(x=>x.action==='shoot').goal.collect,false,'no pickup between shots')
  const collect=r.commands.find(x=>x.action==='collect')
  assert.ok(collect,'collects after the area check: '+acts.join(' '))
- assert.deepEqual(collect.goal.at,[{x:0.5,y:64,z:12.5}])
+ assert.deepEqual(collect.goal.at,[{x:0.5,y:64,z:12.5}]);assert.deepEqual(collect.goal.items,['blaze_rod'],'only what the request asks for')
  assert.ok(acts.indexOf('collect')>acts.indexOf('shoot'))
  const fed=c.requestProgress.feedback.find(f=>f.action==='shoot')
  assert.deepEqual(fed?.result?.collected?.items,{blaze_rod:1},JSON.stringify(c.requestProgress.feedback))
@@ -454,4 +454,27 @@ test('a fight that wins a rod the request asks for continues the request even af
  c.cancel?.(true)
  assert.equal(c.requestProgress.advances,1,'the rod is an advance')
  assert.equal(resumed,1,'and the request continues: '+c.messages.map(m=>m.text).join(' | '))
+})
+
+test('self-defense walks for no drop the request does not ask for',async()=>{
+ // Lab run 103: home from the Nether at night, the bot shot a skeleton and walked
+ // ten blocks from the portal for its bones; a zombie caught it digging in there.
+ const bot=threatened({mob:'skeleton',distance:12})
+ bot.world={...bot.world,getColumn:()=>({}),raycast:()=>null}
+ class KillingRunner extends ShootRunner{
+  command(c){super.command(c);const task=this.task
+   if(c.action==='shoot')queueMicrotask(()=>{delete bot.entities[7];task.status='completed';task.result={item:'skeleton',count:1,receipt:'killed',shots:2,at:{x:0.5,y:64,z:12.5}};this.emit('event',{type:'task_finished',task})})
+  }
+ }
+ for(const request of [null,{id:'q',request:'blaze rods',status:'running',completed:[],feedback:[],goal:{criteria:[{kind:'inventory',item:'blaze_rod',count:3},{kind:'at_base',target:'base'}]}}]){
+  const r=new KillingRunner(bot);bot.entities[7]={id:7,name:'skeleton',type:'hostile',height:1.99,position:new Vec3(0.5,64,12.5),velocity:new Vec3(0,0,0)}
+  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-bones-')),'state.json'))
+  if(request)c.requestProgress=structuredClone(request)
+  c.resume=async()=>{}
+  void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,2600))
+  const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop');c.cancel?.(true)
+  assert.ok(acts.includes('shoot'),acts.join(' '))
+  if(!request)assert.ok(!acts.includes('collect'),'no request, no pickup: '+acts.join(' '))
+  else assert.deepEqual(r.commands.find(x=>x.action==='collect')?.goal.items??['blaze_rod'],['blaze_rod'],'only rods are worth the walk')
+ }
 })

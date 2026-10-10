@@ -398,3 +398,12 @@ test('collect with kill positions picks up only what fell there, and gaining not
   assert.deepEqual(validateTaskGoal('collect', { item: '', count: 64, at: [{ x: 1, y: 2, z: 3 }] }).at, [{ x: 1, y: 2, z: 3 }])
   assert.throws(() => validateCollectGoal({ item: '', count: 1, at: [{ x: 'a' }] }), /kill positions/)
 })
+
+test('collect at kill positions with a list of items leaves everything else where it lies', async () => {
+  const items = []
+  const bot = fakeBot({ items, entities: { 7: dropEntity(7, 'bone', 2, 5.5, 64, 0.5) } })
+  const goal = validateCollectGoal({ item: '', count: 64, at: [{ x: 5.5, y: 65, z: 0.5 }], items: ['blaze_rod'] })
+  await assert.rejects(() => collectDrops(bot, { kind: 'collect', goal }, deps()), /Collected nothing where the kill fell: no drop lay there/)
+  assert.equal(bot._walked, undefined, 'never walked for the bones')
+  assert.deepEqual(validateTaskGoal('collect', { item: '', count: 1, at: [{ x: 1, y: 2, z: 3 }], items: ['blaze_rod'] }).items, ['blaze_rod'])
+})
