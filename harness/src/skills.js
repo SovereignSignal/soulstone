@@ -20,8 +20,7 @@ import {OBSIDIAN_ACTIONS} from './obsidian.js'
 import {STATION_ACTIONS} from './stations.js'
 import {executeWorldSkill} from './world-skills.js'
 import {deliverItem} from './delivery.js'
-import {roofed} from './observations.js'
-import {insideBase,inBackExit} from './retreat.js'
+import {awayFromSky} from './retreat.js'
 import {tunnelOut} from './back-exit.js'
 import {craftWithWindowState} from './crafting.js'
 import { resourceNames, resourceLabel, gatherCandidates } from './resources.js'
@@ -104,9 +103,7 @@ export async function executeSkill(bot, task, context) {
       // Under rock, or anywhere the sky's light does not reach the bot's head
       // (the foot of an open shaft has one roof block far overhead and is not
       // "roofed"; lab run 34). The hut's own interior is dark too, and is not underground.
-      const head = bot.blockAt?.(bot.entity.position.floored().offset(0, 1, 0))
-      const dark = head?.skyLight === 0 && !(insideBase(bot, context.shelterProject) && !inBackExit(bot, context.shelterProject))
-      if (roofed(bot) || dark) throw new Error(`no ${resourceLabel(item)} underground: I am under solid rock and trees grow on the surface; get wood by daylight from the surface`)
+      if (awayFromSky(bot, context.shelterProject)) throw new Error(`no ${resourceLabel(item)} underground: I am under solid rock and trees grow on the surface; get wood by daylight from the surface`)
       const origin = bot.entity.position.clone()
       // A leg that moves the bot nowhere was not spent searching, it was spent
       // standing still. Eight of those burn in seconds and then blame the world

@@ -2,6 +2,7 @@ import {SAFE_FOODS} from '../survival.js'
 import {SMELTING} from '../stations.js'
 import {MEAT_DROPS} from '../hunt.js'
 import {columnAbove} from '../observations.js'
+import {awayFromSky} from '../retreat.js'
 import {dimensionOf} from '../dimension.js'
 import {daytimeWork} from './day-routine.js'
 import {interruptedEffect} from './continuity.js'
@@ -80,7 +81,7 @@ export function foodState(c,bot){
  const inventory=inventoryOf(bot),p=bot.entity?.position,here=dimensionOf(bot)
  const ground=c.places?.hunting_ground,animals=Object.keys(MEAT_DROPS)
  const animalsInSight=p?Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&animals.includes(e.name)&&e.position&&e.position.distanceTo(p)<=32).length:0
- return {inventory,position:p?{x:p.x,y:p.y,z:p.z}:null,animalsInSight,huntingGround:ground&&(ground.dimension||'overworld')===here?ground:null,food:bot.food,health:bot.health,timeOfDay:bot.time?.timeOfDay,dimension:dimensionOf(bot),underRock:!!bot.entity?.position&&(dimensionOf(bot)!=='overworld'||columnAbove(bot).solidCells>SURFACE_COVER),
+ return {inventory,position:p?{x:p.x,y:p.y,z:p.z}:null,animalsInSight,huntingGround:ground&&(ground.dimension||'overworld')===here?ground:null,food:bot.food,health:bot.health,timeOfDay:bot.time?.timeOfDay,dimension:dimensionOf(bot),underRock:!!bot.entity?.position&&(dimensionOf(bot)!=='overworld'||columnAbove(bot).solidCells>SURFACE_COVER||awayFromSky(bot,c.projects?.base)),
   canCook:canCook(bot,c.projects?.base,inventory),points:name=>bot.registry?.foodsByName?.[name]?.foodPoints||0,now:Date.now(),last:c.requestProgress?.foodFloor||null}
 }
 const summary=(bot,s=foodState({},bot))=>({points:foodPoints(s.inventory,s.points),food:bot.food,health:bot.health,carried:Object.fromEntries(Object.entries(s.inventory).filter(([n])=>SAFE_FOODS.has(n)||COOKS[n]))})

@@ -176,3 +176,12 @@ test('more than two solid blocks overhead is underground for the food errand; a 
  const a=teammate(pocket);await a.c.submit('mine 10 iron',work(),{automatic:true});assert.deepEqual(a.commands,[],'four blocks of rock overhead')
  const b=teammate(hut);await b.c.submit('mine 10 iron',work(),{automatic:true});assert.equal(b.commands[0]?.[0],'hunt','one roof block overhead')
 })
+// pi2, 22:33Z: in its own shaft one block under the surface, where the sky's light
+// did not reach its head, gather had just refused ("no logs underground") and the
+// errand's hunt then walked nowhere ("the legs got at most 0 blocks"). The errand
+// uses gather's own test of being away from the sky.
+test('where the sky\'s light does not reach the bot\'s head the errand waits, as gather does',async()=>{
+ const shaft=world()
+ shaft.bot.blockAt=p=>{const solid=p.y<64||p.y===66;return {name:solid?'dirt':'air',boundingBox:solid?'block':'empty',position:p,skyLight:p.y<=65?0:15,getProperties:()=>({})}}
+ const a=teammate(shaft);await a.c.submit('mine 10 iron',work(),{automatic:true});assert.deepEqual(a.commands,[])
+})

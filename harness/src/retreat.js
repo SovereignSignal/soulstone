@@ -12,6 +12,7 @@ import {inProtectedSite} from './primitives.js'
 import {projectFootprints} from './site-survey.js'
 import {climbOut} from './burrow.js'
 import {projectDimension,sameDimension} from './dimension.js'
+import {roofed} from './observations.js'
 const {goals}=pathfinding
 export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
  const project=task.goal.project,build=project.build,o=new Vec3(build.origin.x,build.origin.y,build.origin.z),layout=shelterLayout(build.design)
@@ -194,4 +195,14 @@ export const departureRefusal=(bot,project=null)=>{
  const pressing=pressingOutside(bot,project)
  if(pressing)return new Error(`A ${pressing.name} is ${pressing.distance} blocks from the base, inside its interruption radius; staying in until it moves on. Work underground can go on through the back exit (tunnel_out)`)
  return null
+}
+
+// Away from the sky: under rock, or where the sky's light does not reach the bot's
+// head (the foot of an open shaft has one roof block far overhead and is not
+// "roofed"; lab run 34). The base's own interior is dark too, and is not underground.
+// Gather and the food floor share this test (pi2, 10 October 22:33Z).
+export function awayFromSky(bot,project){
+ const head=bot.blockAt?.(bot.entity.position.floored().offset(0,1,0))
+ const dark=head?.skyLight===0&&!(insideBase(bot,project)&&!inBackExit(bot,project))
+ return roofed(bot)||dark
 }
