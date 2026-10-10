@@ -89,6 +89,12 @@ export function portalObservation(bot){
  if(!p?.offset||!bot.blockAt)return {inPortal:null}
  return {inPortal:[p.floored(),p.offset(0,1.6,0).floored()].some(c=>PORTAL_BLOCKS.includes(bot.blockAt(c)?.name))}
 }
+// Daylight on the open surface: the only time a spider is calm. Shared by the
+// threat list and the spider hunt, so the two can never disagree.
+export function calmDaylight(bot){
+ const tod=bot?.time?.timeOfDay,p=bot?.entity?.position
+ return Number.isFinite(tod)&&tod>=1000&&tod<12500&&!(p&&roofed(bot))
+}
 export function survivalObservation(bot) {
  const p=bot?.entity?.position
  const head=p?.offset&&bot.blockAt?bot.blockAt(p.offset(0,1.6,0).floored()):null
@@ -96,7 +102,7 @@ export function survivalObservation(bot) {
  // Surface spiders are neutral in daylight; treating them as hostile sends the bot underground for nothing.
  // Under rock there is no daylight to calm them: two spiders killed the bot at
  // y -16 at 2986 ticks while the clock called them neutral (lab run 58).
- const tod=bot?.time?.timeOfDay,daylight=Number.isFinite(tod)&&tod>=1000&&tod<12500&&!(p&&roofed(bot))
+ const daylight=calmDaylight(bot)
  // An enderman screams while it hunts a player (its `creepy` flag): from then on it
  // is a threat. As a calm `conditional` mob, a provoked one on pi3's fresh world
  // (9 October) set off nothing until the bot was at half health, two seconds from dead.

@@ -139,3 +139,42 @@ test('search legs the pathfinder cannot walk are reported as such, not as ground
  await assert.rejects(huntFor(bot,{kind:'hunt',goal:{item:'meat',count:2}},{check(){},stage(){},progress(){},persist(){}}),
   e=>{assert.match(e.message,/at most 0 blocks/,e.message);assert.match(e.message,/No path to the goal/,e.message);return true})
 })
+
+// A bow is three string, and string comes from spiders. Hunting one is safe only
+// while it is calm: on the open surface in daylight a spider is neutral and the
+// bot picks the fight; at night or under rock it is a hostile that self-defense
+// answers. So hunt takes spiders for string in daylight on the surface, with a
+// weapon, and refuses otherwise with the way it can still come.
+function spiderFixture({time=3000,weapon='stone_sword',health=20}={}){
+ const {bot,inventory}=fixture()
+ inventory.length=0;if(weapon)inventory.push({name:weapon,count:1,maxDurability:131,durabilityUsed:0})
+ const spider={id:21,uuid:'s',type:'hostile',name:'spider',height:0.9,position:new Vec3(5,64,0),health:16}
+ bot.entities={21:spider};bot.time={timeOfDay:time};bot.health=health
+ bot.attack=e=>{bot.attacks++;e.health-=7;if(e.health<=0){delete bot.entities[e.id];bot.emit('entityDead',e);inventory.push({name:'string',count:2})}}
+ return {bot,inventory,spider}
+}
+test('a daylight hunt for string takes the nearest spider with a weapon and collects its string',async()=>{
+ assert.deepEqual(HUNTABLE.string,['spider'],'cave spiders poison: never hunted')
+ assert.deepEqual(validateHuntGoal({item:'string',count:3}),{item:'string',count:3})
+ assert.equal(validatePlan({reply:'String.',steps:[{action:'hunt',name:'',count:3,item:'string',design:[]}]}).steps[0].item,'string')
+ const {bot}=spiderFixture()
+ const result=await huntFor(bot,{kind:'hunt',goal:{item:'string',count:2}},{check(){},stage(){},progress(){},persist(){}})
+ assert.equal(result.receipt,'hunt_target_reached');assert.equal(result.count,2);assert.equal(result.kills,1)
+})
+test('a hunt for string refuses at night, under rock, unarmed or hurt, and says how string can still come',async()=>{
+ const ctx={check(){},stage(){},progress(){},persist(){}}
+ const night=spiderFixture({time:14000}).bot,walked=[];night.pathfinder.setGoal=g=>{if(g)walked.push(g)}
+ await assert.rejects(huntFor(night,{kind:'hunt',goal:{item:'string',count:3}},ctx),e=>{
+  assert.match(e.message,/daylight/,e.message);assert.match(e.message,/self-defen[cs]e/,e.message);return true})
+ assert.equal(walked.length,0,'no step toward a hostile spider')
+ const under=spiderFixture().bot;under.blockAt=p=>({name:p.y>=65?'stone':'air',boundingBox:p.y>=65?'block':'empty'})
+ await assert.rejects(huntFor(under,{kind:'hunt',goal:{item:'string',count:3}},ctx),/daylight on the open surface/)
+ await assert.rejects(huntFor(spiderFixture({weapon:null}).bot,{kind:'hunt',goal:{item:'string',count:3}},ctx),/sword or an axe/)
+ await assert.rejects(huntFor(spiderFixture({health:9}).bot,{kind:'hunt',goal:{item:'string',count:3}},ctx),/Health 9/)
+})
+test('a spider hunt breaks off when the fight has taken health to half',async()=>{
+ const {bot,spider}=spiderFixture()
+ spider.health=1000
+ bot.attack=e=>{bot.attacks++;bot.health-=4}
+ await assert.rejects(huntFor(bot,{kind:'hunt',goal:{item:'string',count:2}},{check(){},stage(){},progress(){},persist(){}}),/Health \d+: broke off the spider hunt/)
+})

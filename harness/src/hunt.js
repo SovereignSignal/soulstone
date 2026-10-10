@@ -7,11 +7,13 @@ import pathfinding from 'mineflayer-pathfinder'
 import {Vec3} from 'vec3'
 import {DoorAwareMovements} from './navigation.js'
 import {clearStrike,meleeWeapon} from './combat.js'
-import {survivalObservation} from './survival.js'
+import {survivalObservation,calmDaylight,HEALTH_EMERGENCY_LINE} from './survival.js'
+import {roofed} from './observations.js'
+import {DEFENSE_HEALTH} from './combat.js'
 const {goals}=pathfinding
 // Minecraft's raw meats carry no raw_ prefix; those item ids do not exist, so a
 // goal naming one could never be counted or eaten. Guarded by a registry test.
-export const HUNTABLE={beef:['cow'],porkchop:['pig'],mutton:['sheep'],chicken:['chicken'],rabbit:['rabbit'],leather:['cow'],feather:['chicken'],white_wool:['sheep']}
+export const HUNTABLE={beef:['cow'],porkchop:['pig'],mutton:['sheep'],chicken:['chicken'],rabbit:['rabbit'],leather:['cow'],feather:['chicken'],white_wool:['sheep'],string:['spider']}
 // Food rather than one species: 'meat' takes whichever farm animal is nearest and
 // counts every raw meat (pi2, 10 October: two dawn hunts for beef walked past a pig
 // and a chicken toward cows more than a hundred blocks off).
@@ -21,19 +23,29 @@ const EDIBLE=Object.keys(MEAT_DROPS)
 const point=p=>new Vec3(p.x,p.y,p.z)
 const distance=(a,b)=>point(a).distanceTo(point(b))
 export function validateHuntGoal(goal){
- if(!(HUNTABLE[goal?.item]||goal?.item==='meat')||!Number.isInteger(goal.count)||goal.count<1||goal.count>8)throw new Error('Hunt needs a farm-animal drop (beef, porkchop, mutton, chicken, rabbit, leather, feather, white_wool, or meat for any of them) and a total of 1–8')
+ if(!(HUNTABLE[goal?.item]||goal?.item==='meat')||!Number.isInteger(goal.count)||goal.count<1||goal.count>8)throw new Error('Hunt needs a farm-animal drop (beef, porkchop, mutton, chicken, rabbit, leather, feather, white_wool, string from spiders in daylight, or meat for any of them) and a total of 1–8')
  return {item:goal.item,count:goal.count}
 }
 export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},movements,contactMs=12000}){
  const {item,count:total}=validateHuntGoal(task.goal),animals=item==='meat'?EDIBLE:HUNTABLE[item]
  const counted=item==='meat'?Object.values(MEAT_DROPS):[item]
  const count=()=>bot.inventory.items().filter(i=>counted.includes(i.name)).reduce((n,i)=>n+i.count,0)
+ // String comes from spiders. A spider is calm only in daylight on the open
+ // surface, so that is the only time the bot picks the fight; at night or under
+ // rock it is a hostile, and self-defense answers the one that closes in.
+ const spiders=animals.includes('spider')
+ if(spiders){
+  const tod=bot.time?.timeOfDay
+  if(!calmDaylight(bot))throw new Error(`String comes from spiders, and the bot hunts them only in daylight on the open surface, where they are calm (time ${Number.isFinite(tod)?tod:'unknown'}${roofed(bot)?', under rock':''}). Hunt string after sunrise in the open; at night a spider that closes in is fought by self-defense, and its string is picked up while the request wants it.`)
+  if(!meleeWeapon(bot))throw new Error('Hunting spiders needs a sword or an axe: a spider has 16 health and bites back. Acquire stone_sword first.')
+  if(!(bot.health>=DEFENSE_HEALTH.spider))throw new Error(`Health ${Math.round(bot.health)} is below ${DEFENSE_HEALTH.spider}; a spider bites back. Eat and heal before hunting spiders.`)
+ }
  const start=bot.entity.position.clone(),startedAt=Date.now()
  let legs=0,farthest=0,walkError=null
  const record=task.hunt={item,kills:0,attacks:0,legs:0}
  // Animals the walk could not get to: passed over, not the end of the hunt.
  const unreachable=new Map()
- const hostile=()=>survivalObservation(bot).nearbyThreats.find(t=>t.risk==='potential_hostile'&&t.distance<=10)
+ const hostile=()=>survivalObservation(bot).nearbyThreats.find(t=>t.risk==='potential_hostile'&&t.distance<=10&&!(spiders&&t.name==='spider'))
  // The boundary grows with each completed leg so the walk out is not itself a violation.
  const boundary=()=>32+Math.ceil(legs/4)*HUNT_LEG
  // A chase is leashed to where it began, not to where the hunt began: a target
@@ -44,6 +56,10 @@ export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},move
   check()
   if(Date.now()-startedAt>180000)throw new Error('Hunting time limit reached')
   const threat=hostile();if(threat)throw new Error(`Hostile ${threat.name} nearby; hunting paused`)
+  if(spiders){
+   if(!(bot.health>HEALTH_EMERGENCY_LINE))throw new Error(`Health ${Math.round(bot.health)}: broke off the spider hunt with ${count()}/${total} string; heal before the next one`)
+   if(!calmDaylight(bot))throw new Error(`The spiders are no longer calm (dusk or under rock); hunting paused with ${count()}/${total} string`)
+  }
   if(chaseAnchor){if(distance(bot.entity.position,chaseAnchor)>32)throw new Error('Chase left its boundary')}
   else if(distance(bot.entity.position,start)>boundary())throw new Error('Hunting left its boundary')
  }
