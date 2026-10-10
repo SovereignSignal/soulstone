@@ -295,6 +295,8 @@ test('goto dig:true enables canDig and scaffold; dig:false matches travel soft-b
 async function gotoProfile(goal) {
   const profiles = []
   const bot = fakeBot({
+    // Ground under the scaffold: a placement over a bottomless drop is refused on its own.
+    defaultBlock: p => (p.y <= 63 ? stone(p) : air(p)),
     items: [
       { name: 'wooden_pickaxe', count: 1, type: registry.itemsByName.wooden_pickaxe.id },
       { name: 'cobblestone', count: 8, type: registry.itemsByName.cobblestone.id },

@@ -79,6 +79,20 @@ export function lavaBeside(bot,p){
  }
  return null
 }
+// A player takes no damage from a fall of three blocks.
+export const BRIDGE_FALL_LIMIT=3
+// What a fall beside a new scaffold block would land in. The pathfinder's place
+// hook gets the feet cell for a forward bridge and the placed cell for a climb,
+// and the column under either stands in for the drop beside the block, which is
+// where a knocked walker goes. Cells it cannot read are not ground.
+export function bridgeFall(bot,cell,limit=BRIDGE_FALL_LIMIT){
+ for(let drop=0;drop<=limit;drop++){
+  const b=bot.blockAt(cell.offset(0,-1-drop,0))
+  if(!b||b.name==='lava')return 'unsafe'
+  if(b.name==='water'||b.boundingBox==='block')return 'safe'
+ }
+ return 'unsafe'
+}
 export class DoorAwareMovements extends Movements {
  // shallowWaterOnly: wade water with air above and solid ground below, never a
  // deep pool's surface, where the bot sinks (trial 24 spent an hour that way).
@@ -90,6 +104,9 @@ export class DoorAwareMovements extends Movements {
   // Its placement hook receives the feet cell for forward bridges, but the
   // support cell for jump-up scaffolds. Reject both before walking to an edge.
   this.exclusionAreasPlace.push(block=>!block?.position||[block.position,block.position.offset(0,-1,0)].some(p=>bot.blockAt(p)?.name==='lava')?100:0)
+  // Never a one-wide bridge over a drop that hurts, or over lava: run 88 bridged
+  // out from a Nether fortress over the lava sea, was set alight, and fell in.
+  this.exclusionAreasPlace.push(block=>block?.position&&bridgeFall(bot,block.position)==='unsafe'?100:0)
   // Sov's limit: never step through a portal. A lit nether portal is open air to
   // the pathfinder, so any route through a frame would end in the Nether.
   for(const name of PORTAL_BLOCKS){const id=bot.registry.blocksByName[name]?.id;if(Number.isInteger(id))this.blocksToAvoid.add(id)}

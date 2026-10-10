@@ -78,6 +78,34 @@ test('a cell beside lava costs extra to walk through, so routes keep off lava ed
  assert.equal(clear.find(n=>n.x===1&&n.z===0&&n.y===64).cost,at(-1,0).cost,'no lava, no surcharge')
 })
 
+// The digging walk carries scaffold, and the pathfinder bridges a gap by placing
+// the floor in front of it. Run 88 bridged out from a Nether fortress over the
+// lava sea, thirty blocks up, was set alight and fell in.
+function bridger(nameAt){
+ const {bot,m}=walker(nameAt)
+ m.scafoldingBlocks=[registry.itemsByName.cobblestone.id]
+ return {bot,m,moves:m.getNeighbors({x:0,y:61,z:0,remainingBlocks:8})}
+}
+const ahead=(moves,y)=>moves.find(n=>n.x===1&&n.z===0&&n.y===y)
+test('no bridge out over the lava sea, flat or climbing',()=>{
+ const {moves}=bridger(p=>p.y<=31?'lava':(p.x<=0&&p.y===60?'nether_bricks':'air'))
+ assert.ok(moves.some(n=>n.x===-1&&n.y===61),'the fortress floor behind is still walkable')
+ assert.equal(ahead(moves,61),undefined,'a forward bridge over the lava sea')
+ assert.equal(ahead(moves,62),undefined,'a climbing bridge over the lava sea')
+})
+test('no bridge over a drop that a fall from it would hurt',()=>{
+ // A player takes no damage from a fall of three blocks. Four air cells under
+ // the bridge block is a fall of four from the walker's feet.
+ const {moves}=bridger(p=>p.y<=55?'stone':(p.x<=0&&p.y===60?'stone':'air'))
+ assert.equal(ahead(moves,61),undefined)
+})
+test('a bridge over a short drop or onto water stays allowed',()=>{
+ const shallow=bridger(p=>p.y<=57?'stone':(p.x<=0&&p.y===60?'stone':'air'))
+ assert.ok(ahead(shallow.moves,61)?.toPlace?.length,'three cells of air to stone: a harmless fall')
+ const river=bridger(p=>p.y<=50?'stone':(p.x<=0&&p.y===60?'stone':(p.y<=59?'water':'air')))
+ assert.ok(ahead(river.moves,61)?.toPlace?.length,'water breaks the fall: bridging a river is fine')
+})
+
 test('wading is shallow water over solid ground, never the surface of a deep pool',()=>{
  // Trial 24: the fill waded into a cave pool, the surface layer of a deep pool
  // counted as wadeable, the bot sank, and the air recovery found no shore:
