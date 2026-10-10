@@ -66,7 +66,7 @@ export async function adaptiveRecovery(c,epoch,signal,bot,{rounds=4,budgetMs=900
      const defense=defenseDecision(bot)
      if(!defense.engage)throw new Error(defense.reason)
      await c.execute({action:'defend',goal:{...defense.target,connectionId:connection},timeoutMs:Math.min(35000,deadline-Date.now())},signal)
-     check()
+     check();c.noteKill?.(c.runner?.task?.result)
      const clearance=await awaitClearance({check,observe:()=>combatClearance(bot),quietMs,limitMs:Math.min(clearanceMs,Math.max(1,deadline-Date.now())),pollMs})
      trace('recovery_verification',{round,action:decision.action,clearance})
      if(clearance.status==='cleared')return 'cleared'

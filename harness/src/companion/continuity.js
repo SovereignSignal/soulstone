@@ -51,6 +51,15 @@ export function wantedItems(request,registry){
  const text=` ${String(request?.request||'').toLowerCase().replace(/[^a-z]+/g,' ')} `
  return (registry?.itemsArray||[]).filter(i=>{const n=i.name.replaceAll('_',' ');return text.includes(` ${n} `)||text.includes(` ${n}s `)}).slice(0,8).map(i=>({item:i.name}))
 }
+// What a kill can bring toward the request: the wanted items and what their
+// recipes are made of (string for a bow; flint, sticks and feathers for arrows).
+// Never anything else (lab run 103: walking for bones at night got the bot killed).
+export function wantedDrops(request,registry){
+ const wanted=wantedItems(request,registry).map(w=>w.item),out=new Set(wanted)
+ for(const item of wanted)for(const r of registry?.recipes?.[registry?.itemsByName?.[item]?.id]||[])
+  for(const i of [...(r.ingredients||[]),...(r.inShape||[]).flat()]){const name=registry.items?.[i&&typeof i==='object'?i.id:i]?.name;if(name)out.add(name)}
+ return [...out]
+}
 const criterionGain=(request,inventory,registry)=>{
  const wanted=wantedItems(request,registry)
  return {key:wanted.map(c=>c.item).sort().join(),gain:wanted.reduce((n,c)=>n+Math.min(Number(inventory?.[c.item])||0,Number.isFinite(c.count)&&c.count>0?c.count:Infinity),0)}

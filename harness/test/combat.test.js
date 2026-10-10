@@ -169,3 +169,24 @@ test('in full iron the bot fights up to three zombies, husks or spiders, nearest
  assert.equal(defenseDecision(f.bot).engage,false,'a skeleton in the group: shelter')
  slots[6]=null;assert.equal(armorPoints(f.bot),9);assert.equal(groupFightable(f.bot,[{name:'husk'},{name:'husk'}]),false,'without the chestplate, no group fight')
 })
+
+// At night the bow's string comes from the spiders that come for the bot. The
+// melee fight recorded no place for its kill, so nothing went back for the drop,
+// and the pickup took only the items the request named: a bow, never string.
+test('a melee self-defense kill reports where the mob died',async()=>{
+ const f=fixture();f.bot.attack=e=>{f.bot.emit('entityHurt',e);f.bot.emit('entityDead',e)}
+ const r=await defendAgainstMob(f.bot,f.task,f.context)
+ assert.deepEqual(r.at,{x:2,y:64,z:0})
+})
+test('after a melee kill the bot picks up what the request is made from: string and feathers for a bow and arrows',async()=>{
+ const f=controllerFixture(),at={x:2,y:64,z:0}
+ f.c.requestProgress={id:'bow',request:'Make a bow and 32 arrows',status:'running',feedback:[],completed:[],goal:{criteria:[{kind:'inventory',item:'bow',count:1},{kind:'inventory',item:'arrow',count:32}]}}
+ f.c.resume=async()=>{}
+ f.c.execute=async cmd=>{f.runner.commands.push(cmd);if(cmd.action==='defend'){delete f.bot.entities[7];f.runner.task={result:{receipt:'target_death_observed',attacks:2,at}}}else f.runner.task={result:{receipt:'collected',item:'',gained:1,items:{string:1}}}}
+ await f.c.seekSafety(THREAT_INTERRUPTION)
+ const collect=f.runner.commands.find(c=>c.action==='collect')
+ assert.ok(collect,f.runner.commands.map(c=>c.action).join(' '))
+ assert.deepEqual(collect.goal.at,[at])
+ for(const item of ['bow','arrow','string','stick','flint','feather'])assert.ok(collect.goal.items.includes(item),`${item} in ${collect.goal.items}`)
+ assert.equal(collect.goal.items.includes('bone'),false,'nothing the request is not made from')
+})

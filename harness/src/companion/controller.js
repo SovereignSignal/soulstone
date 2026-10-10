@@ -43,7 +43,7 @@ const KILL_DROP_LIFE_MS=270000
 async function collectKillSites(c,signal,bot,request){
  const sites=(c.killSites||[]).filter(k=>Date.now()-k.time<KILL_DROP_LIFE_MS)
  c.killSites=sites
- const wanted=[...new Set(wantedItems(request,bot?.registry).map(w=>w.item))].slice(0,8)
+ const wanted=wantedDrops(request,bot?.registry).slice(0,8)
  if(!sites.length||!wanted.length)return null
  c.killSites=[]
  try{await c.execute({action:'collect',goal:{item:'',count:64,at:sites.slice(-8).map(k=>k.at),items:wanted},timeoutMs:30000},signal);return structuredClone(c.runner.task.result)}
@@ -61,7 +61,7 @@ import {projectFootprints} from '../site-survey.js'
 import {reviseArchitecture} from '../construction.js'
 import {evaluateGoal,enforceProjectIntent,validateContract,constructionLimits,vacuousContract} from './goal-contract.js'
 import {ExperienceStore,experienceEvidence} from './experience.js'
-import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,withinBuildReach,AUTO_RESPAWN_LIMIT,STALL_CONTINUATIONS,STALL_RETRY_MS,shouldContinueAfterBudget,canContinueAfterSafety,canContinueAfterCombat,continuationMark,noteAdvance,wantedItems,shouldRetryPlanning,noteCriterionStall} from './continuity.js'
+import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,withinBuildReach,AUTO_RESPAWN_LIMIT,STALL_CONTINUATIONS,STALL_RETRY_MS,shouldContinueAfterBudget,canContinueAfterSafety,canContinueAfterCombat,continuationMark,noteAdvance,wantedItems,wantedDrops,shouldRetryPlanning,noteCriterionStall} from './continuity.js'
 import {PREPARE_ACTIONS} from '../supplies.js'
 import {OBSIDIAN_ACTIONS,validateObsidianGoal} from '../obsidian.js'
 import {EXPEDITION_ACTIONS,remainingDurability,expeditionObservation} from '../prospecting.js'
@@ -564,6 +564,7 @@ export class Teammate extends EventEmitter {
             await this.execute({action:'defend',goal:{...decision.target,connectionId:this.runner.connectionId},timeoutMs:35000},abort.signal)
             if(epoch!==this.epoch||abort.signal.aborted)return
             this.safety.combat=structuredClone(this.runner.task.result)
+            this.noteKill(this.safety.combat)
             this.say('The '+decision.target.targetName+' died after my attacks. Checking the area before continuing.')
             await finishDefense('defend');return
           }catch(error){
@@ -721,7 +722,7 @@ export class Teammate extends EventEmitter {
         const cornered=corneredDecision(recoveryBot);if(!cornered.engage)break
         const attempt={name:'cornered',status:'trying',target:cornered.target.targetName};this.safety.attempts.push(attempt);this.persist()
         this.say(`Cornered by a ${cornered.target.targetName} with nowhere to shelter. Fighting with my ${cornered.weapon.replaceAll('_',' ')}.`)
-        try{await this.execute({action:'defend',goal:{...cornered.target,connectionId:this.runner.connectionId,cornered:true},timeoutMs:35000},abort.signal);attempt.status='fought'}
+        try{await this.execute({action:'defend',goal:{...cornered.target,connectionId:this.runner.connectionId,cornered:true},timeoutMs:35000},abort.signal);attempt.status='fought';this.noteKill(this.runner.task?.result)}
         catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;attempt.status='failed';attempt.reason=error.message;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)}
         if(epoch!==this.epoch||abort.signal.aborted)return
         this.persist()
@@ -876,6 +877,8 @@ export class Teammate extends EventEmitter {
   // Never stand still when every shelter is refused and a threat is near:
   // leave a pit, sprint from the nearest hostile and try the ground there.
   async collectKillSites(signal,bot,request){return collectKillSites(this,signal,bot,request)}
+  // A melee kill's place, for the after-fight pickup (string from a night spider).
+  noteKill(result){if(result?.at&&['x','y','z'].every(k=>Number.isFinite(result.at[k])))(this.killSites??=[]).push({at:result.at,time:Date.now()})}
   async moveOutOfDanger(epoch,signal,bot) {
     const s=survivalObservation(bot),threat=(s.nearbyThreats||[]).find(t=>t.risk==='potential_hostile')
     const attempt={name:'move',status:'trying'};this.safety.attempts.push(attempt);this.persist()

@@ -123,7 +123,8 @@ export async function defendAgainstMob(bot,task,{check,stage,progress,persist,mo
  if(!weapon)throw new Error('No serviceable melee weapon')
  const cooldown=weapon.name.endsWith('_axe')?1300:700
  const record=task.combat={target:goal.targetName,uuid:goal.targetUuid,weapon:weapon.name,attacks:0,hurtEvents:0,deathObserved:false,startedAt:Date.now(),minimumHealth:bot.health}
- const killed=e=>{if(e===target&&same(e,goal)){record.deathObserved=true;persist()}}
+ // Where it died is where its drops lie: the after-fight pickup walks there.
+ const killed=e=>{if(e===target&&same(e,goal)){record.deathObserved=true;if(knownPoint(e.position))record.at={x:e.position.x,y:e.position.y,z:e.position.z};persist()}}
  const hurt=e=>{if(e===target){record.hurtEvents++;persist()}}
  bot.on('entityDead',killed);bot.on('entityHurt',hurt)
  let blocking=false,following=false,nextAttack=Date.now()+cooldown,lastContact=Date.now()
