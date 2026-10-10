@@ -29,7 +29,7 @@ export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},move
  const counted=item==='meat'?Object.values(MEAT_DROPS):[item]
  const count=()=>bot.inventory.items().filter(i=>counted.includes(i.name)).reduce((n,i)=>n+i.count,0)
  const start=bot.entity.position.clone(),startedAt=Date.now()
- let legs=0
+ let legs=0,farthest=0,walkError=null
  const record=task.hunt={item,kills:0,attacks:0,legs:0}
  // Animals the walk could not get to: passed over, not the end of the hunt.
  const unreachable=new Map()
@@ -70,7 +70,9 @@ export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},move
     stage('walking');progress(`No ${animals.join(' or ')} in sight; walking to look, leg ${legs} of ${HUNT_LEGS}`)
     bot.pathfinder.setMovements(searching);bot.setControlState?.('sprint',false)
     const timer=setTimeout(()=>bot.pathfinder.setGoal(null),20000)
-    try{await bot.pathfinder.goto(new goals.GoalXZ(to.x,to.z))}catch{}finally{clearTimeout(timer);bot.pathfinder.setGoal(null);bot.pathfinder.setMovements(movement)}
+    // A leg the pathfinder refuses is not ground searched: keep its reason for the receipt.
+    try{await bot.pathfinder.goto(new goals.GoalXZ(to.x,to.z))}catch(error){walkError??=String(error?.message||error).slice(0,100)}finally{clearTimeout(timer);bot.pathfinder.setGoal(null);bot.pathfinder.setMovements(movement)}
+    farthest=Math.max(farthest,Math.round(distance(bot.entity.position,start)))
     await delay(400);continue
    }
    const weapon=meleeWeapon(bot)
@@ -115,7 +117,8 @@ export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},move
  // otherwise starved the agent: twelve hunts in a row reported completed
  // carrying {count:0,kills:0,acquired:false} while hunger sat at 0/20, so the
  // planner never tried berries, a different area, or the surface.
- if(count()===0)throw new Error(`Found no ${String(item).replaceAll('_',' ')} after ${legs} search ${legs===1?'leg':'legs'}`+
+ const walked=legs&&farthest<HUNT_LEG/2?` (the legs got at most ${farthest} blocks from the start${walkError?`; pathfinding: ${walkError}`:''})`:''
+ if(count()===0)throw new Error(`Found no ${String(item).replaceAll('_',' ')} after ${legs} search ${legs===1?'leg':'legs'}${walked}`+
   (seen.length?`; animals seen nearby: ${[...new Set(seen.map(a=>a.name||a))].join(', ')}`:' and no animals in range')+
   (unreachable.size?`; out of reach: ${[...unreachable.values()].join(', ')}`:'')+
   '. Try a different area, the surface, or another food source.')

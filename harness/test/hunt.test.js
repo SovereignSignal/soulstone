@@ -130,3 +130,12 @@ test('an animal the hunt cannot reach is passed over for the next one',async()=>
  const result=await huntFor(bot,{kind:'hunt',goal:{item:'meat',count:2}},{check(){},stage(){},progress(){},persist(){},contactMs:60})
  assert.equal(result.acquired,true);assert.equal(result.kills,1);assert.deepEqual(result.unreachable,['chicken'])
 })
+// pi2, 20:49Z: six search legs in 22 seconds, the bot 6 blocks from where it began,
+// and the refusal said "after 6 search legs". The pathfinder's refusals were
+// swallowed; the receipt now says how far the legs got and why they stopped.
+test('search legs the pathfinder cannot walk are reported as such, not as ground searched',async()=>{
+ const {bot}=fixture();bot.entities={}
+ bot.pathfinder.goto=async g=>{if(g.y===undefined)throw new Error('No path to the goal!')}
+ await assert.rejects(huntFor(bot,{kind:'hunt',goal:{item:'meat',count:2}},{check(){},stage(){},progress(){},persist(){}}),
+  e=>{assert.match(e.message,/at most 0 blocks/,e.message);assert.match(e.message,/No path to the goal/,e.message);return true})
+})
