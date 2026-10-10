@@ -1385,3 +1385,25 @@ test('every command timeout the controller writes is one the runner accepts',asy
  assert.ok(literals.length>20,'the scan found the command table')
  assert.deepEqual(literals.filter(ms=>ms<1000||ms>TASK_TIMEOUT_MAX_MS),[])
 })
+
+// Lab runs 99 to 101, 10 October: a blaze-rod request continues after a safety
+// interruption only twice without a new completed step, and fights are not
+// steps. A rod picked up is verified progress all the same.
+import {noteAdvance,canContinueAfterCombat,continuationMark} from '../src/companion/continuity.js'
+test('a criterion item gained counts as progress for the safety and combat continuation budgets',()=>{
+ const r={completed:[],safetyContinuations:[],combatContinuations:[],goal:{criteria:[{kind:'inventory',item:'blaze_rod',count:3},{kind:'at_base',target:'base'}]}}
+ assert.equal(noteAdvance(r,{blaze_rod:0}),false,'the first look sets the baseline')
+ r.safetyContinuations.push({...continuationMark(r)},{...continuationMark(r)})
+ assert.equal(canContinueAfterSafety(r),false,'two idle continuations and nothing gained')
+ assert.equal(noteAdvance(r,{blaze_rod:1,cobblestone:9}),true,'a rod picked up')
+ assert.equal(canContinueAfterSafety(r),true,'continues after the rod')
+ assert.equal(noteAdvance(r,{blaze_rod:1}),false,'the same rod is not progress twice')
+ assert.equal(noteAdvance(r,{blaze_rod:0}),false);assert.equal(noteAdvance(r,{blaze_rod:1}),false,'dropping and regaining is not progress')
+ assert.equal(noteAdvance(r,{blaze_rod:9}),true);assert.equal(noteAdvance(r,{blaze_rod:12}),false,'nothing past the criterion counts')
+ for(let i=0;i<3;i++){assert.equal(canContinueAfterCombat(r),true,'fight '+i);r.combatContinuations.push({...continuationMark(r)})}
+ assert.equal(canContinueAfterCombat(r),false,'three fights with nothing gained')
+ r.goal.criteria[0].count=4;assert.equal(noteAdvance(r,{blaze_rod:4}),true);assert.equal(canContinueAfterCombat(r),true,'a fight that gained resets the fight budget')
+ const old={completed:[],combatContinuations:[{},{},{}]};assert.equal(canContinueAfterCombat(old),false,'entries with no mark still count')
+ const six={completed:[],goal:r.goal,safetyContinuations:Array.from({length:SAFETY_CONTINUATIONS},(_,i)=>({completedAt:i,advancedAt:0})),advances:1}
+ assert.equal(canContinueAfterSafety(six),true,'the six-episode cap counts from the last advance')
+})

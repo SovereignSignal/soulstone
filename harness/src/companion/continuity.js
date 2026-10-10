@@ -36,9 +36,35 @@ export const PLAN_RETRIES=2
 export const STALL_CONTINUATIONS=3, STALL_RETRY_MS=90000
 export const SAFETY_CONTINUATIONS=6,IDLE_CONTINUATIONS=2
 export const SHELTERED_CALLS=6
+// Lab runs 99 to 101, 10 October: in a blaze-rod request the fights are the
+// work, and a fight is not a planned step, so the request stopped continuing
+// after two interruptions with rods being won. A criterion item gained (its
+// count in hand rising past the best so far, capped at what the criterion
+// asks) is verified progress, counted beside the completed steps.
+const criterionGain=(request,inventory)=>{
+ const wanted=(request?.goal?.criteria||[]).filter(c=>c?.kind==='inventory'&&c.item)
+ return {key:wanted.map(c=>c.item).sort().join(),gain:wanted.reduce((n,c)=>n+Math.min(Number(inventory?.[c.item])||0,Number.isFinite(c.count)&&c.count>0?c.count:Infinity),0)}
+}
+export function noteAdvance(request,inventory){
+ if(!request)return false
+ const {key,gain}=criterionGain(request,inventory)
+ if(request.gainKey!==key){request.gainKey=key;request.gainHigh=gain;return false}
+ if(!(gain>(request.gainHigh||0)))return false
+ request.gainHigh=gain;request.advances=(request.advances||0)+1;return true
+}
+export const progressCount=request=>(request?.completed?.length||0)+(request?.advances||0)
+export const continuationMark=request=>({completedAt:progressCount(request),advancedAt:request?.advances||0})
+// Fights continue the request on their own three times with nothing gained;
+// a step completed or an item won starts the count again.
+export const COMBAT_CONTINUATIONS=3
+export function canContinueAfterCombat(request){
+ const done=progressCount(request)
+ return (request?.combatContinuations||[]).filter(c=>(c.completedAt??done)===done).length<COMBAT_CONTINUATIONS
+}
 export function canContinueAfterSafety(request,limit=SAFETY_CONTINUATIONS,{protectedPlanning=false}={}){
  // Both caps count the run since the last explicit Resume: the user re-engaged.
- const serial=request?.resumeSerial||0,run=(request?.safetyContinuations||[]).filter(c=>(c.resumeSerial||0)===serial)
+ // And since the last item won: winning one is the request moving.
+ const serial=request?.resumeSerial||0,advances=request?.advances||0,run=(request?.safetyContinuations||[]).filter(c=>(c.resumeSerial||0)===serial&&(c.advancedAt||0)===advances)
  if(run.length>=limit)return false
  // A fresh protected decision can reconsider failed work without waiting for a
  // completed step. It shares the episode cap and consumes its finite call cap.
@@ -46,7 +72,7 @@ export function canContinueAfterSafety(request,limit=SAFETY_CONTINUATIONS,{prote
  // An entry without a recorded step count predates this rule: stay one-shot for it.
  const last=run.at(-1);if(!last)return true
  if(!Number.isInteger(last.completedAt))return false
- const done=request.completed?.length||0
+ const done=progressCount(request)
  if(done>last.completedAt)return true
  // Threats can repeat before any step completes; allow a short run of idle
  // continuations at the same step count before requiring an explicit Resume.

@@ -434,3 +434,24 @@ test('self-defense shoots without stopping to pick up, then collects where its k
  const fed=c.requestProgress.feedback.find(f=>f.action==='shoot')
  assert.deepEqual(fed?.result?.collected?.items,{blaze_rod:1},JSON.stringify(c.requestProgress.feedback))
 })
+
+test('a fight that wins a rod the request asks for continues the request even after three fights',async()=>{
+ const bot=threatened({distance:12})
+ bot.world={...bot.world,getColumn:()=>({}),raycast:()=>null}
+ const items=bot.inventory.items()
+ class KillingRunner extends ShootRunner{
+  command(c){super.command(c);const task=this.task
+   if(c.action==='shoot')queueMicrotask(()=>{delete bot.entities[7];task.status='completed';task.result={item:'blaze',count:1,receipt:'killed',shots:2,at:{x:0.5,y:64,z:12.5}};this.emit('event',{type:'task_finished',task})})
+   if(c.action==='collect')queueMicrotask(()=>{items.push({name:'blaze_rod',count:1});task.status='completed';task.result={receipt:'collected',item:'',gained:1,items:{blaze_rod:1}};this.emit('event',{type:'task_finished',task})})
+  }
+ }
+ const r=new KillingRunner(bot)
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-gain-')),'state.json'))
+ c.requestProgress={id:'q',request:'blaze rods',status:'running',completed:[],feedback:[],goal:{criteria:[{kind:'inventory',item:'blaze_rod',count:3}]},gainKey:'blaze_rod',gainHigh:0,
+  combatContinuations:[{completedAt:0,advancedAt:0},{completedAt:0,advancedAt:0},{completedAt:0,advancedAt:0}]}
+ let resumed=0;c.resume=async()=>{resumed++}
+ void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,2800))
+ c.cancel?.(true)
+ assert.equal(c.requestProgress.advances,1,'the rod is an advance')
+ assert.equal(resumed,1,'and the request continues: '+c.messages.map(m=>m.text).join(' | '))
+})

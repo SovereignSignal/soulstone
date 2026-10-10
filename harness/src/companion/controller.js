@@ -35,6 +35,7 @@ import {survivalObservation,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMER
 // Air, fire and a portal underfoot run their own recovery at once and preempt
 // any shelter attempt: each has a clock no shelter stops.
 const URGENT=new Set([WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY])
+const inventoryOf=bot=>(bot?.inventory?.items?.()||[]).reduce((m,i)=>(m[i.name]=(m[i.name]||0)+i.count,m),{})
 export const STOP_HOLD_MS=60000
 import {burrowClearance,shelterExits} from '../burrow.js'
 import {roofed} from '../observations.js'
@@ -46,7 +47,7 @@ import {projectFootprints} from '../site-survey.js'
 import {reviseArchitecture} from '../construction.js'
 import {evaluateGoal,enforceProjectIntent,validateContract,constructionLimits,vacuousContract} from './goal-contract.js'
 import {ExperienceStore,experienceEvidence} from './experience.js'
-import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,withinBuildReach,AUTO_RESPAWN_LIMIT,STALL_CONTINUATIONS,STALL_RETRY_MS,shouldContinueAfterBudget,canContinueAfterSafety,shouldRetryPlanning,noteCriterionStall} from './continuity.js'
+import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,withinBuildReach,AUTO_RESPAWN_LIMIT,STALL_CONTINUATIONS,STALL_RETRY_MS,shouldContinueAfterBudget,canContinueAfterSafety,canContinueAfterCombat,continuationMark,noteAdvance,shouldRetryPlanning,noteCriterionStall} from './continuity.js'
 import {PREPARE_ACTIONS} from '../supplies.js'
 import {OBSIDIAN_ACTIONS,validateObsidianGoal} from '../obsidian.js'
 import {EXPEDITION_ACTIONS,remainingDurability,expeditionObservation} from '../prospecting.js'
@@ -144,6 +145,8 @@ export class Teammate extends EventEmitter {
         }}
         const sheltered=awaitingBase||shelterAvailable&&(()=>{try{return shelteredObservation(runner.bot,base).passed}catch{return false}})()
         const observation=survivalObservation(runner.bot)
+        // An item the request asks for, won by any means, is progress (lab run 101).
+        if(this.requestProgress&&noteAdvance(this.requestProgress,inventoryOf(runner.bot)))this.persist()
         // Health over time is something only this tick can see. A single
         // snapshot cannot tell "hurt and stable, go find food" from "hurt and
         // still being hit", and the difference decides whether stopping helps.
@@ -431,7 +434,7 @@ export class Teammate extends EventEmitter {
         if(request)(request.feedback??=[]).push({action:'leave_portal',status:'completed',result,automatic:true})
         this.safety=null;this.activity='';this.phase=canResume(request)?'blocked':'ready';this.persist()
         if(interruptedActiveRequest&&canResume(request)&&canContinueAfterSafety(request)){
-          ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:this.runner.connectionId,shelter:'left_portal',resumeSerial:request.resumeSerial||0,completedAt:request.completed?.length||0});this.persist()
+          ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:this.runner.connectionId,shelter:'left_portal',resumeSerial:request.resumeSerial||0,...continuationMark(request)});this.persist()
           this.say('I am out of the portal and will not walk through it. Continuing your saved request.')
           await this.resume({automatic:true})
         }else this.say('I am out of the portal and will not walk through it. '+(canResume(request)?'Resume is available if the saved request can safely continue.':'Ready for your next instruction.'))
@@ -447,7 +450,7 @@ export class Teammate extends EventEmitter {
         this.lastDamageAt=null
         this.safety=null;this.activity='';this.phase=canResume(request)?'blocked':'ready';this.persist()
         if(interruptedActiveRequest&&canResume(request)&&canContinueAfterSafety(request)){
-          ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:this.runner.connectionId,shelter:'doused',resumeSerial:request.resumeSerial||0,completedAt:request.completed?.length||0});this.persist()
+          ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:this.runner.connectionId,shelter:'doused',resumeSerial:request.resumeSerial||0,...continuationMark(request)});this.persist()
           this.say(`The fire is out (${how}). Continuing your saved request.`)
           await this.resume({automatic:true})
         }else this.say(`The fire is out (${how}). `+(canResume(request)?'Resume is available if the saved request can safely continue.':'Ready for your next instruction.'))
@@ -474,7 +477,7 @@ export class Teammate extends EventEmitter {
           this.runner.log?.('recovery_complete',result)
           const continuing=canResume(request)&&canContinueAfterSafety(request)
           ;(request.feedback??=[]).push({action:'recovery',status:'completed',result,automatic:true})
-          ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:this.runner.connectionId,completedAt:request.completed?.length||0})
+          ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:this.runner.connectionId,...continuationMark(request)})
           this.safety=null;this.activity='';this.phase='blocked';this.persist()
           if(continuing){this.say('Recovery verified. Continuing the saved objective.');await this.resume({automatic:true})}
           else this.say('Recovery verified. The continuation budget is exhausted; the saved objective remains paused.')
@@ -521,8 +524,9 @@ export class Teammate extends EventEmitter {
           }
           if(request)(request.feedback??=[]).push({action,status:'completed',result,automatic:true})
           this.activity='';this.safety=null;this.phase=interruptedActiveRequest?'blocked':'ready';this.persist()
-          if(interruptedActiveRequest&&canResume(request)&&(request.combatContinuations||[]).length<3){
-            (request.combatContinuations??=[]).push({requestId:request.id,result});this.persist()
+          if(request)noteAdvance(request,inventoryOf(recoveryBot))
+          if(interruptedActiveRequest&&canResume(request)&&canContinueAfterCombat(request)){
+            (request.combatContinuations??=[]).push({requestId:request.id,result,...continuationMark(request)});this.persist()
             await this.resume({automatic:true})
           }else if(previousFollow){this.dispatch({action:'follow',player:previousFollow});this.say('I am following you again.')}
           else this.say(interruptedActiveRequest?'Self-defense finished. Resume is available if the saved request can safely continue.':'Self-defense finished. Ready for your next instruction.')
@@ -758,7 +762,7 @@ export class Teammate extends EventEmitter {
     const continuing=interruptedActiveRequest&&canResume(request)&&canContinueAfterSafety(request)
     this.safety=null;this.activity='';this.phase=canResume(request)?'blocked':'ready'
     if(continuing){
-      ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,shelter:'open_ground',resumeSerial:request.resumeSerial||0,completedAt:request.completed?.length||0})
+      ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,shelter:'open_ground',resumeSerial:request.resumeSerial||0,...continuationMark(request)})
       ;(request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations.at(-1)});this.persist()
       this.say('The threat stayed behind in daylight. I am continuing your saved request.')
       await this.resume({automatic:true})
@@ -858,7 +862,7 @@ export class Teammate extends EventEmitter {
           this.safety=null;await this.seekSafety(THREAT_INTERRUPTION,{resumeInterrupted:true});return
         }
         if(planned.status==='departed'){
-          ;(request.safetyContinuations??=[]).push({...planned.clearance,requestId:request.id,connectionId:connection,shelter:'planned_departure',resumeSerial:request.resumeSerial||0,completedAt:request.completed?.length||0})
+          ;(request.safetyContinuations??=[]).push({...planned.clearance,requestId:request.id,connectionId:connection,shelter:'planned_departure',resumeSerial:request.resumeSerial||0,...continuationMark(request)})
           ;(request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations.at(-1)})
           this.safety=null;this.phase='blocked';this.persist()
           this.say('Departure verified. Continuing with the work plan prepared while sheltered.')
@@ -905,7 +909,7 @@ export class Teammate extends EventEmitter {
       const continuing=(eligible||safety.resumeRequested)&&canResume(request)&&(safety.resumeRequested||canContinueAfterSafety(request))
       this.safety=null;this.activity='';this.phase=canResume(request)?'blocked':'ready'
       if(continuing){
-        ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,shelter:safety.retreat.shelterName,resumeRequested:!!safety.resumeRequested,resumeSerial:request.resumeSerial||0,completedAt:request.completed?.length||0})
+        ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,shelter:safety.retreat.shelterName,resumeRequested:!!safety.resumeRequested,resumeSerial:request.resumeSerial||0,...continuationMark(request)})
         ;(request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations.at(-1)});this.persist()
         this.say('Back on the surface. I am continuing your saved request.')
         await this.resume({automatic:true})
@@ -939,7 +943,7 @@ export class Teammate extends EventEmitter {
       if(result.status!=='cleared'){this.say('I am staying sheltered. Resume is required because a clear area was not established in time.');return}
       // Record before dispatch so restart, Stop or a second threat cannot create
       // an unbounded continuation loop. submit() re-observes the saved request.
-      ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,resumeSerial:request.resumeSerial||0,completedAt:request.completed?.length||0});
+      ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,resumeSerial:request.resumeSerial||0,...continuationMark(request)});
       (request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations.at(-1)});this.persist()
       this.say('The observed area has stayed clear for 20 seconds. I am continuing your saved request.')
       await this.resume({automatic:true})

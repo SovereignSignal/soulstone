@@ -1,6 +1,6 @@
 import {survivalObservation} from '../survival.js'
 import {openGroundClearance} from './hazard-clearance.js'
-import {canResume,canContinueAfterSafety,interruptedEffect} from './continuity.js'
+import {canResume,canContinueAfterSafety,interruptedEffect,continuationMark} from './continuity.js'
 
 // Feeding on clear daylight ground does not require building a new shelter.
 // Observe throughout consumption; renewed danger falls back to normal recovery.
@@ -40,7 +40,7 @@ export async function eatOnClearGround(c,epoch,signal,bot,eligible){
  if(!current()||unsafe||!clear()){c.persist();return false}
  const continuing=eligible&&canResume(request)&&canContinueAfterSafety(request)
  if(continuing){
-  const receipt={requestId:request.id,connectionId:connection,shelter:'fed_on_clear_ground',resumeSerial:request.resumeSerial||0,completedAt:request.completed?.length||0,health:bot.health,hunger:bot.food}
+  const receipt={requestId:request.id,connectionId:connection,shelter:'fed_on_clear_ground',resumeSerial:request.resumeSerial||0,...continuationMark(request),health:bot.health,hunger:bot.food}
   ;(request.safetyContinuations??=[]).push(receipt)
   ;(request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:receipt})
  }
