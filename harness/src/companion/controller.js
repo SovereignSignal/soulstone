@@ -503,6 +503,10 @@ export class Teammate extends EventEmitter {
         const ranged=!decision.engage&&(!this.threatJudge?.control||chosen!=='shelter')?rangedDefenseDecision(recoveryBot):null
         // After a kill by either weapon: confirm the area is clear, then resume or report.
         const finishDefense=async action=>{
+          // Lab run 101: on 5 health after the kill, the check stood five seconds for a
+          // quiet it could never declare and the next blaze's fireball landed. Hurt, go
+          // straight to shelter.
+          const hurt=combatClearance(recoveryBot);if(hurt.hurt)throw new Error(hurt.reason)
           const clear=await awaitClearance({check:()=>{if(epoch!==this.epoch||abort.signal.aborted||this.runner.bot!==recoveryBot||!this.runner.ready)throw new Error('Defense continuation cancelled')},observe:()=>combatClearance(recoveryBot),quietMs:2000,limitMs:5000,pollMs:100})
           if(epoch!==this.epoch||abort.signal.aborted)return
           if(clear.status!=='cleared')throw new Error(clear.reason)

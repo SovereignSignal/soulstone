@@ -369,3 +369,22 @@ test('the bow breaks off a duel at half health once it is being hurt, and says s
  const result=await shootTarget(hurt.bot,{kind:'shoot',goal:{type:'zombie'}},api,fast)
  assert.equal(result.receipt,'killed','starting at half health untouched is no reason to stop')
 })
+
+test('after a kill that left the bot at half health or less, it does not stand still for the area check',async()=>{
+ // Lab run 101: the blaze fell with the bot on 5 health; the after-kill check then
+ // stood five seconds waiting for a quiet it could never declare (health too low),
+ // and the next blaze's fireball killed it two seconds in.
+ const bot=threatened({distance:12})
+ bot.world={...bot.world,getColumn:()=>({}),raycast:()=>null}
+ let finishedAt=null
+ class HurtRunner extends ShootRunner{
+  command(c){super.command(c);if(c.action!=='shoot')return
+   const task=this.task;queueMicrotask(()=>{delete bot.entities[7];bot.health=6;task.status='completed';task.result={item:'blaze',count:1,receipt:'killed',shots:3};finishedAt=Date.now();this.emit('event',{type:'task_finished',task})})}
+ }
+ const r=new HurtRunner(bot)
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-hurt-')),'state.json'))
+ void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,1200))
+ const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop');c.cancel?.(true)
+ assert.ok(finishedAt,'the shot ran')
+ assert.ok(acts.length>1,'something follows the kill within a second, not a five-second wait: '+acts.join(' ')+' | '+c.messages.map(m=>m.text).join(' | '))
+})

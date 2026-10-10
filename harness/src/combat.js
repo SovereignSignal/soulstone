@@ -101,6 +101,9 @@ export function validateDefenseGoal(g){
 }
 export function combatClearance(bot){
  const s=survivalObservation(bot),p=bot?.entity?.position
+ // Hurt is its own answer: waiting out a quiet that cannot come at this health only
+ // stands still under whatever is still shooting (lab run 101).
+ if(knownPoint(p)&&Number.isFinite(s.health)&&s.health<=10)return {clear:false,hurt:true,reason:`Health ${Math.round(s.health)} is half or less`}
  if(!knownPoint(p)||s.gameMode!=='survival'||!['easy','normal','hard'].includes(s.difficulty)||!(s.health>10)||!(s.food>6)||!bot.entity.onGround)return {clear:false,reason:'Health, food or stable ground needs attention'}
  for(let x=Math.floor((p.x-8)/16);x<=Math.floor((p.x+8)/16);x++)for(let z=Math.floor((p.z-8)/16);z<=Math.floor((p.z+8)/16);z++){
   const column=bot.world?.getColumn?.(x,z)
