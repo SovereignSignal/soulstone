@@ -268,3 +268,11 @@ test('in the Nether a failed crossing falls back to the portal room, then the po
  assert.ok(!acts.some(a=>['flee','descend','climb'].includes(a)),'no run into the fortress: '+acts.join(' '))
  assert.ok(acts.filter(a=>a==='use_portal').length>=2,'the portal is tried again: '+acts.join(' '))
 })
+
+test('the brief keeps a blaze hunt beside the arrival portal',()=>{
+ // Lab run 107: the planner dug and walked after blazes 25 to 50 blocks into the
+ // fortress, and the bot died out there with two rods in its pack.
+ const brief=readBrief(new URL('../src/companion/survival-capabilities.txt',import.meta.url),'utf8')
+ const line=brief.split('\n').find(l=>l.startsWith('THE NETHER'))
+ assert.match(line,/within 16 blocks of the arrival portal/)
+})
