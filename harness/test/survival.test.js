@@ -136,7 +136,26 @@ test('a blaze hitting the bot from across the fortress raises the threat alarm',
  assert.equal(emergencyReason({...base,recentDamageMs:600,nearbyThreats:[blaze(28,'blocked')]}),null,'behind bricks it cannot be what is hitting the bot')
  assert.equal(emergencyReason({...base,recentDamageMs:600,sheltered:true}),null,'walled in, the answer is already in place')
  assert.equal(emergencyReason({...base,recentDamageMs:600,onFire:true,inLava:true}),FIRE_EMERGENCY,'lava comes first')
- assert.equal(emergencyReason({...base,recentDamageMs:600,onFire:true,health:8}),FIRE_EMERGENCY,'at half health, putting the fire out still comes first')
+ assert.equal(emergencyReason({...base,recentDamageMs:600,onFire:true,health:8}),HEALTH_EMERGENCY,'at half health in the Nether, getting out comes first: no water can put it out (run 96)')
+ assert.equal(emergencyReason({...base,dimension:'overworld',recentDamageMs:600,onFire:true,health:8}),FIRE_EMERGENCY,'in the Overworld, putting the fire out still comes first')
  assert.equal(emergencyReason({...base,recentDamageMs:600,health:8}),HEALTH_EMERGENCY,'and the health alarm counts the blaze as a hostile near')
  assert.equal(emergencyReason({...base,recentDamageMs:600,nearbyThreats:[{...blaze(28),name:'skeleton'}]}),null,'a skeleton does not shoot from 28 blocks: something else is hurting the bot')
+})
+
+test('in the Nether, burning out of lava and fire is no emergency of its own',async()=>{
+ const {emergencyReason,FIRE_EMERGENCY,HEALTH_EMERGENCY,THREAT_INTERRUPTION}=await import('../src/survival.js')
+ // Lab run 96 (10 October): at half health a blaze's fireball cut the bot's
+ // second shot short, the fire recovery stood still to burn out (water boils
+ // away in the Nether), and the next fireball killed it five seconds later.
+ // Burning there goes out the same whatever the bot does; what it can still
+ // change is where it is, so the health and threat alarms decide.
+ const blaze={name:'blaze',distance:12,risk:'potential_hostile',sightline:{status:'clear'}}
+ const base={gameMode:'survival',health:8,food:20,difficulty:'normal',dimension:'the_nether',timeOfDay:6000,sheltered:false,
+  shelterAvailable:false,headSubmerged:false,oxygen:20,carriedFood:[],nearbyThreats:[blaze],onFire:true,recentDamageMs:500}
+ assert.equal(emergencyReason(base),HEALTH_EMERGENCY,'hurt and under fire: get out, not stand and burn')
+ assert.equal(emergencyReason({...base,health:16}),THREAT_INTERRUPTION)
+ assert.equal(emergencyReason({...base,nearbyThreats:[],recentDamageMs:null,health:16}),null,'merely burning, there is nothing to do')
+ assert.equal(emergencyReason({...base,inLava:true}),FIRE_EMERGENCY,'lava still comes first')
+ assert.equal(emergencyReason({...base,inFire:true}),FIRE_EMERGENCY,'and so does standing in fire')
+ assert.equal(emergencyReason({...base,dimension:'overworld'}),FIRE_EMERGENCY,'in the Overworld water can still put it out')
 })

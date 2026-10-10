@@ -157,7 +157,11 @@ export function emergencyReason(observation){
  // Burning under blaze fire, standing still to burn out only waits for the next
  // fireball. Fight or take cover while health allows; lava always comes first.
  if(observation.inLava===true||observation.inFire===true)return FIRE_EMERGENCY
- if(observation.onFire===true)return shotAt&&observation.health>HEALTH_EMERGENCY_LINE?THREAT_INTERRUPTION:FIRE_EMERGENCY
+ // In the Nether no water survives, so burning goes out the same whatever the bot
+ // does; standing still to wait for it only waits for the next fireball (lab run
+ // 96 died that way at half health). There the other alarms decide.
+ const unquenchable=observation.dimension==='the_nether'
+ if(observation.onFire===true&&!unquenchable)return shotAt&&observation.health>HEALTH_EMERGENCY_LINE?THREAT_INTERRUPTION:FIRE_EMERGENCY
  if(observation.headSubmerged===true||observation.headSubmerged!==false&&Number.isFinite(observation.oxygen)&&observation.oxygen<=15)return WATER_EMERGENCY
  // An emergency is something safety can act on. Low health matters when a
  // hostile is near or a base exists to retreat to; low food matters when there
