@@ -54,6 +54,11 @@ export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},move
  // locked near the exploration edge used to abort the whole hunt on its first
  // step away, reported as leaving a boundary the bot never crossed.
  let chaseAnchor=null
+ // Past a leash is not a failure in itself: an animal chased past its 32 blocks is
+ // passed over, and outside a chase the hunt stops where it is with what it has
+ // (pi2, 22:48Z: "Chase left its boundary" ended a hunt with a pig in range). A
+ // chase may end a leg's length outside the search boundary, so that is the stop.
+ class Leash extends Error{}
  const guard=()=>{
   check()
   if(Date.now()-startedAt>180000)throw new Error('Hunting time limit reached')
@@ -62,9 +67,10 @@ export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},move
    if(!(bot.health>HEALTH_EMERGENCY_LINE))throw new Error(`Health ${Math.round(bot.health)}: broke off the spider hunt with ${count()}/${total} string; heal before the next one`)
    if(!calmDaylight(bot))throw new Error(`The spiders are no longer calm (dusk or under rock); hunting paused with ${count()}/${total} string`)
   }
-  if(chaseAnchor){if(distance(bot.entity.position,chaseAnchor)>32)throw new Error('Chase left its boundary')}
-  else if(distance(bot.entity.position,start)>boundary())throw new Error('Hunting left its boundary')
+  if(chaseAnchor){if(distance(bot.entity.position,chaseAnchor)>32)throw new Leash('Chase left its boundary')}
+  else if(distance(bot.entity.position,start)>boundary()+HUNT_LEG)throw new Leash('Hunting left its boundary')
  }
+ let stopped=null
  const movement=new DoorAwareMovements(bot)
  Object.assign(movement,{canDig:false,allow1by1towers:false,allowParkour:false,allowSprinting:true,scafoldingBlocks:[],maxDropDown:2})
  // Sprinting is for closing on an animal, never for the search: it burns the
@@ -74,7 +80,7 @@ export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},move
  bot.pathfinder.setMovements(movement)
  try{
   while(count()<total){
-   guard()
+   try{guard()}catch(error){if(!(error instanceof Leash))throw error;stopped=error.message;progress(`${error.message}; stopping with ${count()}/${total} ${item}`);break}
    const target=Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&animals.includes(e.name)&&!unreachable.has(e.id)&&e.position&&distance(e.position,bot.entity.position)<=32).sort((a,b)=>distance(a.position,bot.entity.position)-distance(b.position,bot.entity.position))[0]
    if(!target){
     const others=[...new Set(Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&e.position&&EDIBLE.includes(e.name)&&distance(e.position,bot.entity.position)<=32).map(e=>e.name))]
@@ -103,7 +109,7 @@ export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},move
    bot.on('entityDead',onDead)
    try{
     while(!dead){
-     guard()
+     try{guard()}catch(error){if(!(error instanceof Leash))throw error;break}
      if(!bot.entities[target.id]){dead=true;break}
      lastPosition=point(target.position)
      const range=distance(bot.entity.position,target.position)
@@ -138,7 +144,7 @@ export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},move
  const walked=legs&&farthest<HUNT_LEG/2?` (the legs got at most ${farthest} blocks from the start${walkError?`; pathfinding: ${walkError}`:''})`:''
  if(count()===0)throw new Error(`Found no ${String(item).replaceAll('_',' ')} after ${legs} search ${legs===1?'leg':'legs'}${walked}`+
   (seen.length?`; animals seen nearby: ${[...new Set(seen.map(a=>a.name||a))].join(', ')}`:' and no animals in range')+
-  (unreachable.size?`; out of reach: ${[...unreachable.values()].join(', ')}`:'')+
+  (unreachable.size?`; out of reach: ${[...unreachable.values()].join(', ')}`:'')+(stopped?`; ${stopped.toLowerCase()}`:'')+
   '. Try a different area, the surface, or another food source.')
  return {item,count:count(),target:total,kills:record.kills,legs,nearbyAnimals:seen,...(unreachable.size?{unreachable:[...unreachable.values()]}:{}),position:point(bot.entity.position),acquired:count()>=total,partial:count()<total,receipt:count()>=total?'hunt_target_reached':'hunt_partial'}
 }

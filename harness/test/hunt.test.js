@@ -178,3 +178,16 @@ test('a spider hunt breaks off when the fight has taken health to half',async()=
  bot.attack=e=>{bot.attacks++;bot.health-=4}
  await assert.rejects(huntFor(bot,{kind:'hunt',goal:{item:'string',count:2}},{check(){},stage(){},progress(){},persist(){}}),/Health \d+: broke off the spider hunt/)
 })
+// pi2, 22:48Z: just respawned at the world spawn with a sheep and a pig in range,
+// the food errand's hunt ended in eleven seconds at "Chase left its boundary": one
+// animal that ran is not the hunt over. It is passed over like one out of reach.
+test('an animal chased past the leash is passed over, and the hunt takes the next one',async()=>{
+ const {bot,inventory,cow}=fixture()
+ const pig={id:12,uuid:'p',type:'animal',name:'pig',height:0.9,position:new Vec3(20,64,6),health:10}
+ cow.position=new Vec3(4,64,3);bot.entities={9:cow,12:pig}
+ // Following the cow runs the bot 34 blocks east, past the chase's 32-block leash.
+ bot.pathfinder.setGoal=g=>{if(g?.entity?.name==='cow')bot.entity.position=new Vec3(34.5,64,0.5);else if(g?.entity)bot.entity.position=new Vec3(g.entity.position.x-1,64,g.entity.position.z)}
+ bot.attack=e=>{bot.attacks++;e.health-=7;if(e.health<=0){delete bot.entities[e.id];bot.emit('entityDead',e);inventory.push({name:'porkchop',count:2})}}
+ const result=await huntFor(bot,{kind:'hunt',goal:{item:'meat',count:2}},{check(){},stage(){},progress(){},persist(){}})
+ assert.equal(result.count,2);assert.equal(result.kills,1);assert.deepEqual(result.unreachable,['cow'])
+})
