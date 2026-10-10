@@ -851,7 +851,9 @@ export class Teammate extends EventEmitter {
       this.say(confront?`Daylight, and a lone ${confront.name} has lingered ${confront.distance} blocks away. Opening up to confront it.`
         :relocate?`Daylight, and ${relocate.threats.length===1?`a ${relocate.threats[0].name}`:`${relocate.threats.length} hostiles`} will not move on. I cannot take that unarmed and waiting is not working, so I am surfacing and leaving the area.`
         :'Daylight with no hostile nearby. Opening up.')
-      await this.execute(safety.retreat.shelterName==='hut'?{action:'unhut',goal:{},timeoutMs:60000}:{action:'unburrow',goal:{surface:safety.retreat.surface},timeoutMs:90000},signal);check()
+      // Confronting from a hut, open the wall that faces it: the bow needs the sightline (run 86).
+      const facing=confront?.position?{toward:{x:Math.floor(confront.position.x),z:Math.floor(confront.position.z)}}:{}
+      await this.execute(safety.retreat.shelterName==='hut'?{action:'unhut',goal:facing,timeoutMs:60000}:{action:'unburrow',goal:{surface:safety.retreat.surface},timeoutMs:90000},signal);check()
       safety.exit=structuredClone(this.runner.task.result);this.persist()
       // Surfacing beside a threat that outguns us only helps if we then leave.
       // Opening one wall is not leaving: a shelter four blocks down still needs

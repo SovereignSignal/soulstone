@@ -622,3 +622,17 @@ test('a cancelled step to a sound burrow column reports our own stopwatch, not t
   })
  }finally{global.setTimeout=original}
 })
+
+// Run 86, 10 October: walled in at the fortress portal with a blaze lingering
+// outside, the bot had a bow and 160 arrows but no confront exit (the sword could
+// not answer a blaze), so it waited for a clear area that never came. A lone
+// ranged hostile the bow can answer is confronted like a melee one.
+test('a lone blaze lingering past the patience window is confronted when the bow can answer it',()=>{
+ const w=world();w.bot.time.timeOfDay=6000;w.bot.health=20;w.bot.food=20;w.bot.game.dimension='minecraft:the_nether'
+ w.bot.entities={1:{id:1,uuid:'00000000-0000-0000-0000-000000000001',type:'hostile',name:'blaze',height:1.8,position:new Vec3(20.5,66,10.5)}}
+ assert.equal(burrowClearance(w.bot,{lingeredMs:61000}).clear,false,'no bow: keep waiting')
+ w.inventory.push({name:'bow',count:1},{name:'arrow',count:64})
+ const r=burrowClearance(w.bot,{lingeredMs:61000})
+ assert.equal(r.clear,true,r.reason);assert.equal(r.confront.name,'blaze')
+ w.inventory[w.inventory.length-1].count=2;assert.equal(burrowClearance(w.bot,{lingeredMs:61000}).clear,false,'two arrows: keep waiting')
+})

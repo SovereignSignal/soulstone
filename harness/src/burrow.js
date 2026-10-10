@@ -1,3 +1,4 @@
+import {bowCanAnswer} from './bow-readiness.js'
 import {scaffoldItems} from './scaffold.js'
 // Emergency burrow: the shelter of last resort for a spawn with no base and no
 // weapon. Seal the verified shaft as soon as three cells give headroom,
@@ -259,7 +260,9 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  const lone=near.length===1?near[0]:null
  // Leaving cover to confront requires the executor's current capability
  // checks, including a serviceable weapon and an identified target.
- const ready=!!lone&&defenseDecision(bot).engage
+ // Run 86 (10 October): a blaze outside the fortress portal room, a bow and 160 arrows
+ // inside, and no exit because the sword could not answer it.
+ const ready=!!lone&&(defenseDecision(bot).engage||bowCanAnswer(bot,lone.name))
  if(!ready){
   // Neither fight nor hide. Unarmed against numbers or a crossbow, healthy, in
   // daylight, with nothing in melee reach and the threat sat still past the

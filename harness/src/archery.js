@@ -4,6 +4,8 @@ import {validateAttackGoal,nearestOfType,isProtectedBystander} from './primitive
 import {observedSightline} from './visibility.js'
 import {fullCube} from './construction.js'
 import {survivalObservation} from './survival.js'
+import {RANGED_DEFENSE,bowCanAnswer} from './bow-readiness.js'
+export {RANGED_DEFENSE,bowCanAnswer}
 // Bow aim for the dragon ladder: blazes keep their distance and the dragon's end
 // crystals sit on towers. A fully drawn arrow leaves at 3 blocks a tick, falls
 // 0.05 a tick to gravity and keeps 0.99 of its speed to drag each tick. The aim
@@ -147,7 +149,6 @@ export async function shootTarget(bot,task,{check,stage,progress},options={}){
 // failed on open ground, and the bot burned to death with a bow and 55 arrows in
 // hand. Melee declines what keeps its distance; a player shoots back. Asked only
 // after the melee decision declines, so a zombie at arm's length is still a sword.
-export const RANGED_DEFENSE=new Set(['blaze','ghast','skeleton','stray','bogged','pillager','witch'])
 export function rangedDefenseDecision(bot,{healthFloor=10,foodFloor=6,minArrows=4,meleeClose=8}={}){
  const reject=reason=>({engage:false,reason})
  const s=survivalObservation(bot)
@@ -173,3 +174,4 @@ export function rangedDefenseDecision(bot,{healthFloor=10,foodFloor=6,minArrows=
  if(blocker)return reject(`A ${blocker.type==='player'?'player':blocker.name} is in the line of fire`)
  return {engage:true,ranged:true,target:{targetId:target.id,targetName:target.name}}
 }
+
