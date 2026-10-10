@@ -197,5 +197,8 @@ test('a few steps from a portal the hut walks back beside it and closes a portal
  for(let y=64;y<=66;y++)assert.equal(w.cells.get(new Vec3(10,y,9).toString()),'nether_portal','the portal itself is untouched')
  const far=besidePortal();far.bot.entity.position=new Vec3(10.5,64,16.5)
  assert.equal(portalRoomSpot(far.bot),null,'seven blocks off is not a step back')
- await assert.rejects(executeSkill(far.bot,{kind:'hut',goal:{portalRoom:true}},api),/No spot beside a portal within 3 blocks/)
+ await assert.rejects(executeSkill(far.bot,{kind:'hut',goal:{portalRoom:true}},api),/No spot beside a portal within 5 blocks/)
+ // Lab run 108: five blocks east along the bridge, 4.1 from the room's cell, it went home.
+ const along=besidePortal();along.bot.entity.position=new Vec3(10.5,64,14.5)
+ assert.ok(portalRoomSpot(along.bot),'four blocks off is still a step back')
 })

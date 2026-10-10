@@ -82,7 +82,7 @@ function hutSiteAt(bot,feet){
 // blocks out to shoot; hoglins came round at ten blocks and, the room a step
 // away, it went home through the portal and left the blaze and its rod. The
 // nearest standing cell within a few blocks where a portal room closes.
-export const PORTAL_ROOM_STEPS=3
+export const PORTAL_ROOM_STEPS=5
 export function portalRoomSpot(bot,radius=PORTAL_ROOM_STEPS){
  const p=bot.entity?.position;if(!p)return null
  const here=p.floored();let best=null
