@@ -6,7 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import pathfinding from 'mineflayer-pathfinder'
 import { Vec3 } from 'vec3'
 import { fullCube } from './construction.js'
-import { DoorAwareMovements } from './navigation.js'
+import { DoorAwareMovements, centreOn } from './navigation.js'
 import { weaponFor, clearStrike } from './combat.js'
 import { walkNear, inProtectedSite, validateProtectedSites, inventoryCounts, inventoryDelta, LIQUID, AIR, DIG_REACH, key, point } from './primitives.js'
 
@@ -214,6 +214,13 @@ export async function collectDrops(bot, task, { check, stage, progress, movement
     }
     // Pickup is server-side and lands a few ticks after arrival.
     for (let i = 0; i < 12 && gainedOf(before, inventoryCounts(bot), goal.item) === gained; i++) { check(); await delay(100) }
+    // The walk may stop a block short of the drop's cell, and a player picks up
+    // within about 1.3 blocks of its body (lab, 10 October: porkchops at x 1970.99,
+    // the bot at 1969.5, three walks, nothing). Step onto the drop's own cell.
+    if (gainedOf(before, inventoryCounts(bot), goal.item) === gained && bot.entities?.[next.id]) {
+      await centreOn(bot, bot.entities[next.id].position.floored(), check)
+      for (let i = 0; i < 12 && gainedOf(before, inventoryCounts(bot), goal.item) === gained; i++) { check(); await delay(100) }
+    }
   }
   gained = gainedOf(before, inventoryCounts(bot), goal.item)
   const remaining = dropsNear(bot, goal.item).length

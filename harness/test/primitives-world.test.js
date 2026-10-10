@@ -366,3 +366,19 @@ test('attack refuses at low health, throws when none of the type is loaded, and 
   gone._hit = () => { delete gone.entities[5] }
   await assert.rejects(() => attackEntity(gone, attackTask('zombie'), deps()), /Lost the zombie.*none within 8 blocks.*1 swings landed, no kill confirmed/)
 })
+
+// Lab, 10 October: the bow killed a pig and collect walked to the porkchops
+// three times without picking them up. The drop lay at x 1970.99, the walk
+// ("within one block of its cell") stopped at 1969.5, and a player picks up
+// within about 1.3 blocks of its body. Short of the drop, it steps onto its cell.
+test('collect steps onto the drop\'s own cell when the walk stops one block short', async () => {
+  const items = []
+  const bot = fakeBot({ items, entities: { 7: dropEntity(7, 'porkchop', 2, 4.99, 64, 0.5) } })
+  const pickup = () => { for (const [id, e] of Object.entries(bot.entities)) if (Math.hypot(e.position.x - bot.entity.position.x, e.position.z - bot.entity.position.z) <= 1.3) { const s = e.getDroppedItem(); items.push({ name: s.name, count: s.count, type: 2 }); delete bot.entities[id] } }
+  bot.pathfinder.goto = async goal => { bot.entity.position = new Vec3(goal.x - 1 + 0.5, 64, goal.z + 0.5); bot._walked = (bot._walked || 0) + 1; pickup() }
+  let looking = null
+  bot.lookAt = async p => { looking = p }
+  bot.setControlState = (k, v) => { if (k === 'forward' && v && looking) { const p = bot.entity.position, dx = looking.x - p.x, dz = looking.z - p.z, d = Math.hypot(dx, dz); if (d > 0.01) { const s = Math.min(0.4, d); bot.entity.position = new Vec3(p.x + dx / d * s, p.y, p.z + dz / d * s) } pickup() } }
+  const r = await collectDrops(bot, collectTask({ item: 'porkchop', count: 1 }), deps())
+  assert.equal(r.receipt, 'collected'); assert.equal(r.gained, 2)
+})
