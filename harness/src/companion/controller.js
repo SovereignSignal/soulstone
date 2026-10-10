@@ -618,7 +618,7 @@ export class Teammate extends EventEmitter {
       // Run 84 (9 October): beside the arrival portal, with blocks to close a portal
       // room and the nearest hostile not yet close, wall in there instead: going home
       // at every hoglin meant the room it was asked to build never began.
-      const portalRoom=inNether(recoveryBot)&&(()=>{const site=hutSite(recoveryBot);return site.ok&&site.portal})()
+      const roomSite=inNether(recoveryBot)?hutSite(recoveryBot):null,portalRoom=!!(roomSite?.ok&&roomSite.portal)
       // Against a shooter the room is cover; only a mob that closes to melee needs the
       // standoff (run 105: a skeleton three blocks off sent the bot home at half health
       // into an Overworld night with another skeleton at arm's length).
@@ -629,6 +629,8 @@ export class Teammate extends EventEmitter {
       const roomSpot=inNether(recoveryBot)&&!portalRoom?portalRoomSpot(recoveryBot):null
       const stepsBack=roomSpot?recoveryBot.entity.position.distanceTo(roomSpot.offset(.5,0,.5)):0
       const wallInFirst=(portalRoom||!!roomSpot)&&nearest>=PORTAL_ROOM_STANDOFF+Math.ceil(stepsBack)
+      // Why the room was or was not chosen (run 106: hurt beside the portal, it went home and the journal could not say why).
+      if(inNether(recoveryBot))this.runner.log?.('nether_shelter',{reason,wallInFirst,portalRoom,site:roomSite?.ok?(roomSite.portal?'portal_room':'plain_hut'):roomSite?.reason,roomSpot:roomSpot?`${roomSpot.x},${roomSpot.y},${roomSpot.z}`:null,stepsBack:Math.round(stepsBack*10)/10,nearestMelee:Number.isFinite(nearest)?nearest:null,position:(p=>p&&{x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,z:Math.round(p.z*10)/10})(recoveryBot.entity?.position)})
       if(wallInFirst)this.say('Danger in the Nether. Walling in around the portal.')
       // The room first and nothing before it: from the Nether the walk to the Overworld
       // base always refuses and nether bricks never burrow, and those 1.6 seconds under a
