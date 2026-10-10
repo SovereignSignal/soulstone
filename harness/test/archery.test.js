@@ -185,6 +185,20 @@ test('a ranged hostile in bow range with a bow, arrows and health is answered wi
   ['out of range',threatened({distance:40}),/range/]])assert.match(rangedDefenseDecision(bot).reason||'',re,why)
 })
 
+test('a nearer blaze behind bricks does not stop a shot at one in the open',()=>{
+ // Lab run 90: a blaze five blocks off behind the fortress wall and another ten
+ // blocks off in clear view. The decision judged only the nearest, declined,
+ // and the bot left the fortress through the portal.
+ const bot=threatened({distance:10,extra:{8:{id:8,name:'blaze',type:'hostile',height:1.8,position:new Vec3(-4.5,64,0.5),velocity:new Vec3(0,0,0)}}})
+ bot.world={raycast:(from,dir)=>dir.x<-0.5?{name:'nether_bricks',position:new Vec3(-2,65,0)}:null}
+ const yes=rangedDefenseDecision(bot)
+ assert.equal(yes.engage,true,yes.reason);assert.equal(yes.target.targetId,7,'the one in the open')
+ bot.world={raycast:()=>({name:'nether_bricks',position:new Vec3(0,65,2)})}
+ assert.match(rangedDefenseDecision(bot).reason,/nether_bricks/,'with both behind bricks, the nearest one\'s reason is given')
+ const hoglin=threatened({distance:20,extra:{9:{id:9,name:'hoglin',type:'hostile',height:1.4,position:new Vec3(0.5,64,12.5)}}})
+ assert.match(rangedDefenseDecision(hoglin).reason,/hoglin/,'a melee mob between the bot and the blaze still keeps the bow down')
+})
+
 import {mkdtempSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'

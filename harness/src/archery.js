@@ -204,17 +204,29 @@ export function rangedDefenseDecision(bot,{healthFloor=10,foodFloor=6,minArrows=
  const threats=s.nearbyThreats.filter(t=>t.risk==='potential_hostile').sort((a,b)=>a.distance-b.distance)
  if(!threats.length)return reject('No hostile in sight to shoot')
  if(threats.some(t=>t.distance<=meleeClose&&!RANGED_DEFENSE.has(t.name)))return reject('A melee hostile is close; the bow waits')
- const nearest=threats[0]
- if(!RANGED_DEFENSE.has(nearest.name))return reject(`The nearest hostile, a ${nearest.name}, is not a ranged one`)
- if(nearest.distance>SHOOT.radius)return reject(`The ${nearest.name} is out of bow range`)
- const target=nearestOfType(bot,nearest.name,bot.entity.position,SHOOT.radius)
- if(!target)return reject('Target identity is unavailable')
- const eye=bot.entity.position.offset(0,bot.entity.eyeHeight??1.62,0),centre=target.position.offset(0,(target.height??1.8)/2,0)
- const sight=observedSightline(bot,eye,centre)
- if(sight.status==='blocked')return reject(`No clear shot at the ${nearest.name}: ${sight.block||'a block'} is in the way`)
- if(aimPitch(eye,centre)===null)return reject(`The ${nearest.name} is out of bow range`)
- const blocker=lineOfFireBlocker(bot,eye,centre,target)
- if(blocker)return reject(`A ${blocker.type==='player'?'player':blocker.name} is in the line of fire`)
- return {engage:true,ranged:true,target:{targetId:target.id,targetName:target.name}}
+ const eye=bot.entity.position.offset(0,bot.entity.eyeHeight??1.62,0)
+ const judge=t=>{
+  if(t.distance>SHOOT.radius)return `The ${t.name} is out of bow range`
+  const target=nearestOfType(bot,t.name,t.position,1)
+  if(!target)return 'Target identity is unavailable'
+  const centre=target.position.offset(0,(target.height??1.8)/2,0)
+  const sight=observedSightline(bot,eye,centre)
+  if(sight.status==='blocked')return `No clear shot at the ${t.name}: ${sight.block||'a block'} is in the way`
+  if(aimPitch(eye,centre)===null)return `The ${t.name} is out of bow range`
+  const blocker=lineOfFireBlocker(bot,eye,centre,target)
+  if(blocker)return `A ${blocker.type==='player'?'player':blocker.name} is in the line of fire`
+  return target
+ }
+ // Nearest first, passing over shooters the bot cannot hit (lab run 90: a blaze
+ // behind the fortress wall at five blocks, another in the open at ten). A melee
+ // hostile ends the search: it would arrive while the bot stands drawing.
+ let first=null
+ for(const t of threats){
+  if(!RANGED_DEFENSE.has(t.name))return reject(first??`The nearest hostile, a ${t.name}, is not a ranged one`)
+  const answer=judge(t)
+  if(typeof answer!=='string')return {engage:true,ranged:true,target:{targetId:answer.id,targetName:answer.name}}
+  first??=answer
+ }
+ return reject(first)
 }
 
