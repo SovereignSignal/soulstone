@@ -24,7 +24,7 @@ const PORTAL_ROOM_STANDOFF=6
 // door does not open for work onto it, and waiting on it is not a stall.
 const SAFETY_RETRIES=3
 const NIGHT_HOLD_MS=14*60*1000
-import {survivalObservation,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS} from '../survival.js'
+import {survivalObservation,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS,HEALTH_EMERGENCY_LINE} from '../survival.js'
 // Air, fire and a portal underfoot run their own recovery at once and preempt
 // any shelter attempt: each has a clock no shelter stops.
 const URGENT=new Set([WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY])
@@ -156,7 +156,12 @@ export class Teammate extends EventEmitter {
         // use_portal stands in a portal on purpose; every other way into one is still an emergency.
         const crossing=runner.task?.kind==='use_portal'&&runner.task.status==='running'
         // Once it is stepping in, a hostile does not stop it either: the far side is the escape (run 72).
-        const raw=emergencyReason({...observation,shelterAvailable,sheltered,recentDamageMs,roofed:underRock}),reason=crossing&&(raw===PORTAL_EMERGENCY||raw===THREAT_INTERRUPTION&&runner.work?.stage==='entering')?null:raw
+        // A bow duel under way is not stopped by a fireball's flames (lab, 10 October: the
+        // blaze was left on 4 health twice); lava, or health at or under half, still is.
+        const shooting=runner.task?.kind==='shoot'&&runner.task.status==='running'
+        const raw=emergencyReason({...observation,shelterAvailable,sheltered,recentDamageMs,roofed:underRock})
+        const reason=crossing&&(raw===PORTAL_EMERGENCY||raw===THREAT_INTERRUPTION&&runner.work?.stage==='entering')?null
+         :shooting&&raw===FIRE_EMERGENCY&&observation.inLava!==true&&observation.health>HEALTH_EMERGENCY_LINE?null:raw
         // The journal should show the times rock was the reason work carried on.
         // The flood's answer is the evidence for an interruption through rock; without it the log says only that a hostile was "within ten blocks".
         if(reason===THREAT_INTERRUPTION&&pressing.some(t=>t.reach)&&Date.now()-(this.routeLogAt||0)>=5000){this.routeLogAt=Date.now();runner.log?.('threat_route',{threats:pressing.slice(0,4).map(t=>`${t.name}@${t.distance}/${t.verticalOffset}:${t.reach||'-'}${Number.isFinite(t.routeSteps)?'~'+t.routeSteps:''}:${t.sightline?.status||'-'}`)})}

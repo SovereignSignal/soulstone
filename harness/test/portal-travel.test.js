@@ -138,3 +138,22 @@ test('beside the arrival portal with a hostile still eight blocks off, the bot w
  const far=await run(8);assert.notEqual(far[0],'use_portal','eight blocks off: wall in here, '+far.join(' '))
  const near=await run(3);assert.equal(near[0],'use_portal','three blocks off: the portal is still the way out, '+near.join(' '))
 })
+
+// Lab, 10 October: shooting a blaze, the bot was set alight by its fireball and
+// the fire emergency cancelled the shot twice; the blaze was left on 4 health.
+// Flames from a fireball burn out in seconds and cost a heart; stopping the duel
+// lets the blaze keep firing. While shooting, fire alone does not interrupt it;
+// lava, or health at or under half, still does.
+import {FIRE_EMERGENCY} from '../src/survival.js'
+test('being on fire does not stop a bow duel under way; lava or low health still does',async()=>{
+ const tick=async({health=18,shooting=true}={})=>{
+  const [r,c]=companion(async()=>({reply:'',steps:[]}))
+  r.bot.health=health;r.bot.entity.metadata[0]=1
+  if(shooting){r.task={id:'s',kind:'shoot',status:'running',goal:{type:'blaze'}};r.work={stage:'drawing'}}
+  r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,20))
+  const reason=c.safety?.reason;c.cancel?.(true);return reason
+ }
+ assert.equal(await tick(),undefined,'alight but shooting at 18 health: keep shooting')
+ assert.equal(await tick({health:8}),FIRE_EMERGENCY,'at 8 health the fire comes first')
+ assert.equal(await tick({shooting:false}),FIRE_EMERGENCY,'not shooting: the fire comes first')
+})
