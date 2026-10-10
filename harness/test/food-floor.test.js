@@ -164,3 +164,15 @@ test('a hunt that kills is remembered as the hunting ground',()=>{
  r.emit('event',{type:'task_finished',task:{id:'i',kind:'hunt',status:'completed',goal:{item:'meat',count:2},result:{item:'meat',count:2,kills:0,position:{x:0,y:64,z:0}}}})
  assert.equal(c.places.hunting_ground.x,50.4,'a hunt that killed nothing moves nothing')
 })
+
+// pi2, 21:53Z: the errand started at y 54 in the bot's own tunnel, four blocks of
+// rock overhead (under the eight that count as roofed), and the hunt's legs got one
+// block: "No path to the goal". The errand is for the open surface: in the base the
+// roof is one block; more than two overhead is underground.
+test('more than two solid blocks overhead is underground for the food errand; a base roof is not',async()=>{
+ const pocket=world(),hut=world()
+ pocket.bot.blockAt=p=>{const solid=p.y<64||p.y>=66&&p.y<=69;return {name:solid?'stone':'air',boundingBox:solid?'block':'empty',position:p,getProperties:()=>({})}}
+ hut.bot.blockAt=p=>{const solid=p.y<64||p.y===66;return {name:solid?'oak_planks':'air',boundingBox:solid?'block':'empty',position:p,getProperties:()=>({})}}
+ const a=teammate(pocket);await a.c.submit('mine 10 iron',work(),{automatic:true});assert.deepEqual(a.commands,[],'four blocks of rock overhead')
+ const b=teammate(hut);await b.c.submit('mine 10 iron',work(),{automatic:true});assert.equal(b.commands[0]?.[0],'hunt','one roof block overhead')
+})
