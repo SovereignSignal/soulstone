@@ -141,10 +141,23 @@ export async function eatFood(bot,task,{check,stage,progress,persist}) {
  return {item,count:receipts.length,food:bot.food,receipt:receipts.length?'food_consumption_verified':'hunger_already_full',consumed:receipts}
 }
 
+// Blazes and ghasts open fire from across a fortress, far past the alarm's
+// radius. One in clear sight while the bot is actually being hurt is what is
+// hurting it (lab run 89: the idle bot burned out fire after fire from blazes
+// 20 to 30 blocks off, and the alarm only woke at half health).
+export function underFire(observation){
+ return Number.isFinite(observation.recentDamageMs)&&observation.recentDamageMs<=DAMAGE_WINDOW_MS&&
+  (observation.nearbyThreats||[]).some(t=>t.risk==='potential_hostile'&&FAR_SHOOTERS.has(t.name)&&t.sightline?.status==='clear')
+}
 export function emergencyReason(observation){
  if(observation.gameMode!=='survival'||!Number.isFinite(observation.health)||observation.health<=0)return null
  if(observation.inPortal===true)return PORTAL_EMERGENCY
- if(observation.onFire===true||observation.inLava===true||observation.inFire===true)return FIRE_EMERGENCY
+ const peaceful=!observation.difficulty||observation.difficulty==='peaceful'
+ const shotAt=!peaceful&&observation.sheltered!==true&&underFire(observation)
+ // Burning under blaze fire, standing still to burn out only waits for the next
+ // fireball. Fight or take cover while health allows; lava always comes first.
+ if(observation.inLava===true||observation.inFire===true)return FIRE_EMERGENCY
+ if(observation.onFire===true)return shotAt&&observation.health>HEALTH_EMERGENCY_LINE?THREAT_INTERRUPTION:FIRE_EMERGENCY
  if(observation.headSubmerged===true||observation.headSubmerged!==false&&Number.isFinite(observation.oxygen)&&observation.oxygen<=15)return WATER_EMERGENCY
  // An emergency is something safety can act on. Low health matters when a
  // hostile is near or a base exists to retreat to; low food matters when there
@@ -152,7 +165,7 @@ export function emergencyReason(observation){
  // Judged by reach like the threat alarm and the shelter's clearance: a hostile
  // sealed behind rock or snow kept a hurt bot walling in and opening up every
  // 22 seconds on pi1's fresh world (9 October), never planning.
- const hostileNear=!!observation.difficulty&&observation.difficulty!=='peaceful'&&(observation.nearbyThreats||[]).some(t=>t.risk==='potential_hostile'&&t.distance<=HEALTH_THREAT_RADIUS&&!outOfReach(t)&&!cannotShootYet(t))
+ const hostileNear=!!observation.difficulty&&observation.difficulty!=='peaceful'&&((observation.nearbyThreats||[]).some(t=>t.risk==='potential_hostile'&&t.distance<=HEALTH_THREAT_RADIUS&&!outOfReach(t)&&!cannotShootYet(t))||underFire(observation))
  // Low health is an emergency only when something can be done about it: a threat
  // to escape, or nightfall with a lit base to reach that the bot is not already
  // sitting in. Hunger under eighteen stops natural regeneration, so a hurt bot
@@ -170,7 +183,7 @@ export function emergencyReason(observation){
  if(Number.isFinite(observation.food)&&observation.food<=6&&(observation.carriedFood||[]).length)return FOOD_EMERGENCY
  // Inside a verified closed lit shelter the answer to a nearby hostile is already
  // in place; interrupting there only retreats into the room the bot is standing in.
- if(observation.sheltered!==true&&observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name)&&!outOfReach(t)&&!cannotShootYet(t)))return THREAT_INTERRUPTION
+ if(observation.sheltered!==true&&observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name)&&!outOfReach(t)&&!cannotShootYet(t))||shotAt)return THREAT_INTERRUPTION
  // Out in the open after dusk with no built base: dig in before the crowd arrives.
  // Under rock there is no crowd arriving: trial 42 spent fifteen minutes of a
  // thirty-minute run waiting for a sunrise thirty-six blocks above it.

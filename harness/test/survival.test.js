@@ -120,3 +120,23 @@ test('an enderman that is screaming for the bot is a potential hostile; a calm o
  assert.equal(survivalObservation(bot(false)).nearbyThreats[0].risk,'conditional')
  assert.equal(survivalObservation(bot(true)).nearbyThreats[0].risk,'potential_hostile')
 })
+
+test('a blaze hitting the bot from across the fortress raises the threat alarm',async()=>{
+ const {emergencyReason,THREAT_INTERRUPTION,FIRE_EMERGENCY,HEALTH_EMERGENCY}=await import('../src/survival.js')
+ // Lab run 89 (10 October): two blazes 20 to 30 blocks off set the idle bot
+ // alight again and again. The alarm looked 16 blocks out, so the only answer
+ // was to stand and burn out (water boils away in the Nether) until health
+ // reached half; it then walked to the portal under fire and died on the way.
+ const blaze=(distance,status='clear')=>({name:'blaze',distance,risk:'potential_hostile',sightline:{status}})
+ const base={gameMode:'survival',health:16,food:20,difficulty:'normal',dimension:'the_nether',timeOfDay:6000,sheltered:false,
+  shelterAvailable:false,headSubmerged:false,oxygen:20,carriedFood:[],nearbyThreats:[blaze(28)]}
+ assert.equal(emergencyReason(base),null,'a blaze in view that is not shooting does not stop work')
+ assert.equal(emergencyReason({...base,recentDamageMs:600}),THREAT_INTERRUPTION,'one hitting the bot does')
+ assert.equal(emergencyReason({...base,recentDamageMs:600,onFire:true}),THREAT_INTERRUPTION,'its fire is answered by fighting or cover, not by standing to burn out')
+ assert.equal(emergencyReason({...base,recentDamageMs:600,nearbyThreats:[blaze(28,'blocked')]}),null,'behind bricks it cannot be what is hitting the bot')
+ assert.equal(emergencyReason({...base,recentDamageMs:600,sheltered:true}),null,'walled in, the answer is already in place')
+ assert.equal(emergencyReason({...base,recentDamageMs:600,onFire:true,inLava:true}),FIRE_EMERGENCY,'lava comes first')
+ assert.equal(emergencyReason({...base,recentDamageMs:600,onFire:true,health:8}),FIRE_EMERGENCY,'at half health, putting the fire out still comes first')
+ assert.equal(emergencyReason({...base,recentDamageMs:600,health:8}),HEALTH_EMERGENCY,'and the health alarm counts the blaze as a hostile near')
+ assert.equal(emergencyReason({...base,recentDamageMs:600,nearbyThreats:[{...blaze(28),name:'skeleton'}]}),null,'a skeleton does not shoot from 28 blocks: something else is hurting the bot')
+})
