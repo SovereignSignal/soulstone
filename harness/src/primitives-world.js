@@ -31,7 +31,13 @@ export function validateCollectGoal(goal) {
   const item = goal.item || ''
   if (item !== '' && !ITEM_ID.test(item)) throw new Error('Collect item must be an item ID or empty for anything')
   validateProtectedSites(goal.protectedSites)
-  return { item, count: goal.count, ...(goal.protectedSites?.length ? { protectedSites: goal.protectedSites } : {}) }
+  // Self-defense's pickup after its area check: where its kills fell.
+  let at = null
+  if (goal.at !== undefined) {
+    if (!Array.isArray(goal.at) || !goal.at.length || goal.at.length > 8 || !goal.at.every(p => p && ['x', 'y', 'z'].every(k => Number.isFinite(p[k])))) throw new Error('Collect kill positions must be 1–8 points with finite x, y and z')
+    at = goal.at.map(p => ({ x: p.x, y: p.y, z: p.z }))
+  }
+  return { item, count: goal.count, ...(goal.protectedSites?.length ? { protectedSites: goal.protectedSites } : {}), ...(at ? { at } : {}) }
 }
 
 const NOT_CREATURE = new Set(['item', 'experience_orb', 'arrow', 'spectral_arrow', 'trident', 'fishing_bobber', 'ender_dragon_part'])
@@ -236,6 +242,12 @@ const gainedOf = (before, after, item) => {
 
 export async function collectDrops(bot, task, { check, stage, progress, movements }) {
   const goal = validateCollectGoal(task.goal)
+  if (goal.at) {
+    const r = await collectKillDrops(bot, goal.at, { check, stage, progress, movements })
+    const gained = Object.values(r.gained).reduce((n, v) => n + v, 0)
+    if (!gained) throw new Error(`Collected nothing where the kill fell: ${r.missed?.length ? r.missed.join('; ') : 'no drop lay there'}`)
+    return { receipt: 'collected', item: '', gained, items: r.gained, ...(r.missed ? { missed: r.missed } : {}) }
+  }
   const label = goal.item || 'any item'
   const before = inventoryCounts(bot)
   const seen = dropsNear(bot, goal.item)

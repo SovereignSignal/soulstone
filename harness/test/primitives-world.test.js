@@ -382,3 +382,19 @@ test('collect steps onto the drop\'s own cell when the walk stops one block shor
   const r = await collectDrops(bot, collectTask({ item: 'porkchop', count: 1 }), deps())
   assert.equal(r.receipt, 'collected'); assert.equal(r.gained, 2)
 })
+
+test('collect with kill positions picks up only what fell there, and gaining nothing is a failure that says what it saw', async () => {
+  const items = []
+  const bot = fakeBot({ items, entities: { 7: dropEntity(7, 'blaze_rod', 1, 6.5, 64, 0.5), 8: dropEntity(8, 'cobblestone', 3, 2.5, 64, 4.5) } })
+  const pickup = () => { for (const [id, e] of Object.entries(bot.entities)) if (Math.hypot(e.position.x - bot.entity.position.x, e.position.z - bot.entity.position.z) <= 1.3) { const s = e.getDroppedItem(); items.push({ name: s.name, count: s.count, type: 2 }); delete bot.entities[id] } }
+  const goto = bot.pathfinder.goto
+  bot.pathfinder.goto = async g => { await goto(g); pickup() }
+  const goal = validateCollectGoal({ item: '', count: 64, at: [{ x: 6.4, y: 66, z: 0.5 }] })
+  const r = await collectDrops(bot, { kind: 'collect', goal }, deps())
+  assert.equal(r.receipt, 'collected'); assert.deepEqual(r.items, { blaze_rod: 1 }); assert.equal(r.gained, 1)
+  assert.ok(bot.entities[8], 'the cobblestone elsewhere stays')
+  const empty = fakeBot({ entities: {} })
+  await assert.rejects(() => collectDrops(empty, { kind: 'collect', goal }, deps()), /Collected nothing where the kill fell/)
+  assert.deepEqual(validateTaskGoal('collect', { item: '', count: 64, at: [{ x: 1, y: 2, z: 3 }] }).at, [{ x: 1, y: 2, z: 3 }])
+  assert.throws(() => validateCollectGoal({ item: '', count: 1, at: [{ x: 'a' }] }), /kill positions/)
+})

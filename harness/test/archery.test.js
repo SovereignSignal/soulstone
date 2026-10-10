@@ -409,3 +409,28 @@ test('a planned shot picks up what its kill dropped and reports it; one told not
  const left=await shootTarget(told.bot,{kind:'shoot',goal:{type:'zombie',collect:false}},api,fast)
  assert.equal(left.collected,undefined);assert.ok(!told.bot.inventory.items().some(i=>i.name==='blaze_rod'))
 })
+
+test('self-defense shoots without stopping to pick up, then collects where its kills fell once the area is clear',async()=>{
+ // Lab run 101: a self-defense kill left the rod on the bricks; the request
+ // resumed, more fights came, and the rod was never picked up.
+ const bot=threatened({distance:12})
+ bot.world={...bot.world,getColumn:()=>({}),raycast:()=>null}
+ class KillingRunner extends ShootRunner{
+  command(c){super.command(c);const task=this.task
+   if(c.action==='shoot')queueMicrotask(()=>{delete bot.entities[7];task.status='completed';task.result={item:'blaze',count:1,receipt:'killed',shots:2,at:{x:0.5,y:64,z:12.5}};this.emit('event',{type:'task_finished',task})})
+   if(c.action==='collect')queueMicrotask(()=>{task.status='completed';task.result={receipt:'collected',item:'',gained:1,items:{blaze_rod:1}};this.emit('event',{type:'task_finished',task})})
+  }
+ }
+ const r=new KillingRunner(bot)
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-loot-')),'state.json'))
+ c.requestProgress={id:'q',request:'blaze rods',status:'running',completed:[],feedback:[]}
+ void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,2800))
+ const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop');c.cancel?.(true)
+ assert.equal(r.commands.find(x=>x.action==='shoot').goal.collect,false,'no pickup between shots')
+ const collect=r.commands.find(x=>x.action==='collect')
+ assert.ok(collect,'collects after the area check: '+acts.join(' '))
+ assert.deepEqual(collect.goal.at,[{x:0.5,y:64,z:12.5}])
+ assert.ok(acts.indexOf('collect')>acts.indexOf('shoot'))
+ const fed=c.requestProgress.feedback.find(f=>f.action==='shoot')
+ assert.deepEqual(fed?.result?.collected?.items,{blaze_rod:1},JSON.stringify(c.requestProgress.feedback))
+})

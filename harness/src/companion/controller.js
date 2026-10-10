@@ -511,6 +511,14 @@ export class Teammate extends EventEmitter {
           if(epoch!==this.epoch||abort.signal.aborted)return
           if(clear.status!=='cleared')throw new Error(clear.reason)
           const result={...this.safety.combat,clearance:clear},request=this.requestProgress
+          // The fight collects its own loot once the area is clear (lab run 101: a
+          // self-defense kill's rod stayed on the bricks while the request moved on).
+          const fell=(this.safety.kills||[]).filter(Boolean)
+          if(fell.length){
+            try{await this.execute({action:'collect',goal:{item:'',count:64,at:fell},timeoutMs:30000},abort.signal);result.collected=structuredClone(this.runner.task.result)}
+            catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;result.collected={failed:error.message}}
+            if(epoch!==this.epoch||abort.signal.aborted)return
+          }
           if(request)(request.feedback??=[]).push({action,status:'completed',result,automatic:true})
           this.activity='';this.safety=null;this.phase=interruptedActiveRequest?'blocked':'ready';this.persist()
           if(interruptedActiveRequest&&canResume(request)&&(request.combatContinuations||[]).length<3){
@@ -546,9 +554,10 @@ export class Teammate extends EventEmitter {
             // bot fled with two kills' rods on the ground. Another shooter the bow
             // can answer is shot too, a bounded number, before the area is judged.
             for(let kill=1;;kill++){
-              await this.execute({action:'shoot',goal:{type:name},timeoutMs:60000},abort.signal)
+              await this.execute({action:'shoot',goal:{type:name,collect:false},timeoutMs:60000},abort.signal)
               if(epoch!==this.epoch||abort.signal.aborted)return
               const shot=structuredClone(this.runner.task.result)
+              if(shot?.receipt==='killed'&&shot.at)(this.safety.kills??=[]).push(shot.at)
               // A follow-up target that flew out of view is the area check's to judge (run 98).
               if(kill>1&&shot?.stopped==='target_lost')break
               if(shot?.receipt!=='killed')throw new Error(`the ${name} survived ${shot?.shots??0} arrows`)
