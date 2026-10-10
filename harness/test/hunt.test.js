@@ -100,3 +100,20 @@ test('a hunt that kills nothing fails; it does not report a partial success',asy
    return true
   })
 })
+
+// pi2, 10 October 09:15 PDT: two dawn hunts asked for beef, and only cows count
+// for beef. With a pig and a chicken within 64 blocks and the nearest cow past
+// 100, a hunt for food has to take whichever farm animal it finds.
+test('a hunt for meat takes the nearest farm animal of any kind and counts every raw meat',async()=>{
+ const {bot,inventory}=fixture()
+ const pig={id:12,uuid:'p',type:'animal',name:'pig',height:0.9,position:new Vec3(4,64,0),health:10}
+ bot.entities={12:pig}
+ bot.attack=e=>{bot.attacks++;e.health-=7;if(e.health<=0){delete bot.entities[e.id];bot.emit('entityDead',e);inventory.push({name:'porkchop',count:2})}}
+ inventory.push({name:'beef',count:1})
+ const result=await huntFor(bot,{kind:'hunt',goal:{item:'meat',count:3}},{check(){},stage(){},progress(){},persist(){}})
+ assert.equal(result.item,'meat');assert.equal(result.count,3,'one beef carried plus two porkchops');assert.equal(result.receipt,'hunt_target_reached');assert.equal(result.kills,1)
+ assert.deepEqual(validateHuntGoal({item:'meat',count:4}),{item:'meat',count:4})
+ assert.equal(validatePlan({reply:'Food.',steps:[{action:'hunt',name:'',count:4,item:'meat',design:[]}]}).steps[0].item,'meat')
+ const {bot:empty}=fixture();empty.entities={}
+ await assert.rejects(huntFor(empty,{kind:'hunt',goal:{item:'meat',count:2}},{check(){},stage(){},progress(){},persist(){}}),/Found no meat/)
+})

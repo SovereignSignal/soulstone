@@ -12,17 +12,22 @@ const {goals}=pathfinding
 // Minecraft's raw meats carry no raw_ prefix; those item ids do not exist, so a
 // goal naming one could never be counted or eaten. Guarded by a registry test.
 export const HUNTABLE={beef:['cow'],porkchop:['pig'],mutton:['sheep'],chicken:['chicken'],rabbit:['rabbit'],leather:['cow'],feather:['chicken'],white_wool:['sheep']}
+// Food rather than one species: 'meat' takes whichever farm animal is nearest and
+// counts every raw meat (pi2, 10 October: two dawn hunts for beef walked past a pig
+// and a chicken toward cows more than a hundred blocks off).
+export const MEAT_DROPS={cow:'beef',pig:'porkchop',sheep:'mutton',chicken:'chicken',rabbit:'rabbit'}
 export const HUNT_LEGS=6,HUNT_LEG=32
-const EDIBLE=['cow','pig','sheep','chicken','rabbit']
+const EDIBLE=Object.keys(MEAT_DROPS)
 const point=p=>new Vec3(p.x,p.y,p.z)
 const distance=(a,b)=>point(a).distanceTo(point(b))
 export function validateHuntGoal(goal){
- if(!HUNTABLE[goal?.item]||!Number.isInteger(goal.count)||goal.count<1||goal.count>8)throw new Error('Hunt needs a farm-animal drop (beef, porkchop, mutton, chicken, rabbit, leather, feather, white_wool) and a total of 1–8')
+ if(!(HUNTABLE[goal?.item]||goal?.item==='meat')||!Number.isInteger(goal.count)||goal.count<1||goal.count>8)throw new Error('Hunt needs a farm-animal drop (beef, porkchop, mutton, chicken, rabbit, leather, feather, white_wool, or meat for any of them) and a total of 1–8')
  return {item:goal.item,count:goal.count}
 }
 export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},movements}){
- const {item,count:total}=validateHuntGoal(task.goal),animals=HUNTABLE[item]
- const count=()=>bot.inventory.items().filter(i=>i.name===item).reduce((n,i)=>n+i.count,0)
+ const {item,count:total}=validateHuntGoal(task.goal),animals=item==='meat'?EDIBLE:HUNTABLE[item]
+ const counted=item==='meat'?Object.values(MEAT_DROPS):[item]
+ const count=()=>bot.inventory.items().filter(i=>counted.includes(i.name)).reduce((n,i)=>n+i.count,0)
  const start=bot.entity.position.clone(),startedAt=Date.now()
  let legs=0
  const record=task.hunt={item,kills:0,attacks:0,legs:0}
