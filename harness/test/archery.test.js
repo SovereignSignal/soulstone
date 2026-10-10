@@ -388,3 +388,24 @@ test('after a kill that left the bot at half health or less, it does not stand s
  assert.ok(finishedAt,'the shot ran')
  assert.ok(acts.length>1,'something follows the kill within a second, not a five-second wait: '+acts.join(' ')+' | '+c.messages.map(m=>m.text).join(' | '))
 })
+
+// Lab runs 99 to 101: a blaze shot over the fortress bridge leaves its rod on the
+// bricks; the planner's collect came a round later or, when a safety interruption
+// sent the bot home first, never. The shot picks up its own kill's drops.
+test('a planned shot picks up what its kill dropped and reports it; one told not to leaves it',async()=>{
+ const setup=()=>{
+  const r=range({distance:6,hitsToKill:1}),items=r.bot.inventory.items()
+  r.bot.on('entityDead',e=>{setTimeout(()=>{r.bot.entities[50]={id:50,name:'item',type:'object',position:new Vec3(e.position.x+0.3,64,e.position.z),getDroppedItem:()=>({name:'blaze_rod',count:1})}},2)})
+  const pickup=()=>{for(const [id,x] of Object.entries(r.bot.entities))if(x.getDroppedItem&&Math.hypot(x.position.x-r.bot.entity.position.x,x.position.z-r.bot.entity.position.z)<=1.3){items.push({name:'blaze_rod',count:1});delete r.bot.entities[id]}}
+  r.bot.pathfinder={setMovements(){},setGoal(){},async goto(g){r.bot.entity.position=new Vec3(g.x+0.5,64,g.z+0.5);pickup()}}
+  r.bot.entity.onGround=true;r.bot.lookAt=async()=>{};r.bot.setControlState=()=>{};r.bot.clearControlStates=()=>{}
+  return r
+ }
+ const r=setup()
+ const result=await shootTarget(r.bot,{kind:'shoot',goal:{type:'zombie'}},api,fast)
+ assert.equal(result.receipt,'killed');assert.deepEqual(result.collected.gained,{blaze_rod:1},JSON.stringify(result.collected))
+ assert.ok(result.at&&Math.abs(result.at.z-6.5)<0.01,'where it died')
+ const told=setup()
+ const left=await shootTarget(told.bot,{kind:'shoot',goal:{type:'zombie',collect:false}},api,fast)
+ assert.equal(left.collected,undefined);assert.ok(!told.bot.inventory.items().some(i=>i.name==='blaze_rod'))
+})

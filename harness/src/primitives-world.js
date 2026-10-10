@@ -179,6 +179,56 @@ function dropsNear(bot, item, radius = COLLECT_RADIUS) {
     .sort((a, b) => a.d - b.d)
 }
 
+// Lab runs 99 to 101: a blaze shot dead over the fortress bridge leaves its rod on
+// the bricks, and the planner's collect a round later never came when a safety
+// interruption sent the bot home first. A fight picks up its own kill's drops:
+// those lying within a few blocks of where it died, on a level the bot can walk
+// to without digging, for a bounded time. What it cannot reach it names.
+export const KILL_DROPS = { radius: 3, below: 24, above: 2, reach: 16, level: 4, settleMs: 1500, timeoutMs: 25000 }
+export function killDrops(bot, at, o = KILL_DROPS) {
+  if (!at || !['x', 'y', 'z'].every(k => Number.isFinite(at[k]))) return []
+  return Object.values(bot.entities || {})
+    .map(e => ({ entity: e, stack: e?.getDroppedItem?.() }))
+    .filter(({ entity, stack }) => stack && entity.position && Math.hypot(entity.position.x - at.x, entity.position.z - at.z) <= o.radius && entity.position.y <= at.y + o.above && entity.position.y >= at.y - o.below)
+    .map(({ entity, stack }) => ({ id: entity.id, name: stack.name, count: stack.count || 1, position: entity.position }))
+}
+export async function collectKillDrops(bot, points, { check, stage, progress, movements }, options = {}) {
+  const o = { ...KILL_DROPS, ...options }, started = Date.now(), before = inventoryCounts(bot)
+  const near = () => { const seen = new Map(); for (const at of points) for (const d of killDrops(bot, at, o)) seen.set(d.id, d); return [...seen.values()] }
+  // A drop appears a tick after the death and falls: wait until it lies still.
+  let last = null
+  for (const end = Date.now() + o.settleMs; Date.now() < end;) {
+    check()
+    const now = near().map(d => `${d.id}:${d.position.y.toFixed(2)}`).join()
+    if (now && now === last) break
+    last = now; await delay(150)
+  }
+  const tried = new Set(), missed = []
+  const where = d => `${d.count} ${d.name} at ${key(d.position.floored())}`
+  for (;;) {
+    check()
+    const left = o.timeoutMs - (Date.now() - started)
+    const here = bot.entity.position
+    const next = near().filter(d => !tried.has(d.id)).sort((a, b) => a.position.distanceTo(here) - b.position.distanceTo(here))[0]
+    if (!next) break
+    tried.add(next.id)
+    if (left < 1000) { missed.push(`${where(next)} (out of time)`); continue }
+    if (next.position.distanceTo(here) > o.reach || Math.abs(next.position.y - here.y) > o.level) { missed.push(`${where(next)} (out of reach)`); continue }
+    const had = inventoryCounts(bot)[next.name] || 0, got = () => (inventoryCounts(bot)[next.name] || 0) > had
+    stage('collecting'); progress(`Picking up ${where(next)}`)
+    try { await walkNear(bot, next.position.floored(), { dig: false, check, stage, progress, movements, timeoutMs: left, range: 1 }) }
+    catch (error) { check(); missed.push(`${where(next)} (${error.message})`); continue }
+    for (let i = 0; i < 12 && !got(); i++) { check(); await delay(100) }
+    // A player picks up within about 1.3 blocks of its body: step onto the drop's cell.
+    if (!got() && bot.entities?.[next.id]) {
+      await centreOn(bot, bot.entities[next.id].position.floored(), check)
+      for (let i = 0; i < 12 && !got(); i++) { check(); await delay(100) }
+    }
+    if (!got()) missed.push(`${where(next)} (not picked up)`)
+  }
+  return { gained: { ...inventoryDelta(before, inventoryCounts(bot)) }, ...(missed.length ? { missed } : {}) }
+}
+
 const gainedOf = (before, after, item) => {
   const delta = inventoryDelta(before, after)
   return item ? delta[item] || 0 : Object.values(delta).reduce((n, v) => n + v, 0)

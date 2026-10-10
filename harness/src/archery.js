@@ -1,6 +1,6 @@
 import {setTimeout as delay} from 'node:timers/promises'
 import {Vec3} from 'vec3'
-import {validateAttackGoal,nearestOfType,isProtectedBystander} from './primitives-world.js'
+import {validateAttackGoal,nearestOfType,isProtectedBystander,collectKillDrops} from './primitives-world.js'
 import {observedSightline} from './visibility.js'
 import {fullCube} from './construction.js'
 import {survivalObservation} from './survival.js'
@@ -93,7 +93,7 @@ const AROUND=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]
 export function edgeExposed(bot,cell){
  return AROUND.some(([dx,dz])=>{const n=cell.offset(dx,0,dz);return !fullCube(bot.registry,bot.blockAt(n)?.name)&&bridgeFall(bot,n)==='unsafe'})
 }
-export async function shootTarget(bot,task,{check,stage,progress},options={}){
+export async function shootTarget(bot,task,{check,stage,progress,movements},options={}){
  const o={...SHOOT,...options}
  const goal=validateAttackGoal(task.goal,bot.registry)
  const bow=bot.inventory.items().find(i=>i.name==='bow')
@@ -203,7 +203,11 @@ export async function shootTarget(bot,task,{check,stage,progress},options={}){
   if(drawn)standDown()
   bot.removeListener('entityDead',killed)
  }
- return {item:goal.type,count:dead?1:0,receipt:dead?'killed':'target_survived',shots,arrowsLeft:arrows(),stopped:dead?'killed':stopped}
+ const at=dead?{x:target.position.x,y:target.position.y,z:target.position.z}:null
+ // The kill's drops are part of the fight (lab runs 99 to 101: rods left on the
+ // bridge when a later round never came). Self-defense picks up after its area check.
+ const collected=dead&&task.goal?.collect!==false?await collectKillDrops(bot,[at],{check,stage,progress,movements}):null
+ return {item:goal.type,count:dead?1:0,receipt:dead?'killed':'target_survived',shots,arrowsLeft:arrows(),stopped:dead?'killed':stopped,...(at?{at}:{}),...(collected?{collected}:{})}
 }
 
 // Lab, 10 October: a blaze 18 blocks off set off the safety ladder, every shelter
