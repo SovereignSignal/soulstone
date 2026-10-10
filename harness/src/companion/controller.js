@@ -624,7 +624,10 @@ export class Teammate extends EventEmitter {
       const stepsBack=roomSpot?recoveryBot.entity.position.distanceTo(roomSpot.offset(.5,0,.5)):0
       const wallInFirst=(portalRoom||!!roomSpot)&&nearest>=PORTAL_ROOM_STANDOFF+Math.ceil(stepsBack)
       if(wallInFirst)this.say('Danger in the Nether. Walling in around the portal.')
-      if(wallInFirst&&roomSpot){
+      // The room first and nothing before it: from the Nether the walk to the Overworld
+      // base always refuses and nether bricks never burrow, and those 1.6 seconds under a
+      // skeleton's arrows were the bot's last (run 106 staging). If it fails, the portal.
+      if(wallInFirst){
         const attempt={name:'portal_room',status:'trying'};this.safety.attempts=[attempt];this.persist()
         try{
           await this.execute({action:'hut',goal:{portalRoom:true},timeoutMs:60000},abort.signal)
@@ -636,7 +639,7 @@ export class Teammate extends EventEmitter {
           this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)
         }
       }
-      if(!this.safety.retreat&&!(wallInFirst&&portalRoom)&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})){
+      if(!this.safety.retreat&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})){
         const attempt={name:'portal_home',status:'trying'};this.safety.attempts=[attempt];this.persist()
         this.say('Danger in the Nether. Going back through the portal.')
         try{

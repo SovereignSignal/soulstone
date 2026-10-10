@@ -136,6 +136,10 @@ test('beside the arrival portal with a hostile still eight blocks off, the bot w
   const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop');c.cancel?.(true);return acts
  }
  const far=await run(8);assert.notEqual(far[0],'use_portal','eight blocks off: wall in here, '+far.join(' '))
+ // Lab run 106 staging, 10 October: at 9 health under a skeleton's arrows the walk to an
+ // Overworld base (always refused from the Nether) and a burrow check on nether bricks
+ // came first, and the bot was shot dead two seconds into building the room.
+ assert.equal(far[0],'hut','the room is built first, nothing tried before it: '+far.join(' '))
  const near=await run(3);assert.equal(near[0],'use_portal','three blocks off: the portal is still the way out, '+near.join(' '))
 })
 
