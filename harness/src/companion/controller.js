@@ -159,6 +159,12 @@ export class Teammate extends EventEmitter {
         }}
         const sheltered=awaitingBase||shelterAvailable&&(()=>{try{return shelteredObservation(runner.bot,base).passed}catch{return false}})()
         const observation=survivalObservation(runner.bot)
+        // Two farm animals within 24 blocks on the surface mark the hunting ground the
+        // food floor walks back to (food-floor.js); it moves only 16 or more blocks.
+        if(Date.now()-(this.groundAt||0)>=10000&&dimensionOf(runner.bot)==='overworld'&&(observation.nearbyAnimals||[]).filter(a=>a.distance<=24).length>=2){
+          this.groundAt=Date.now();const p=runner.bot.entity.position,g=this.places.hunting_ground
+          if(!g||g.dimension!=='overworld'||Math.hypot(g.x-p.x,g.z-p.z)>=16){this.places.hunting_ground={x:p.x,y:p.y,z:p.z,dimension:'overworld'};this.persist()}
+        }
         // An item the request asks for, won by any means, is progress (lab run 101).
         if(this.requestProgress&&noteAdvance(this.requestProgress,inventoryOf(runner.bot),runner.bot.registry))this.persist()
         // Health over time is something only this tick can see. A single

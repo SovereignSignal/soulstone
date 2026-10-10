@@ -185,3 +185,17 @@ test('where the sky\'s light does not reach the bot\'s head the errand waits, as
  shaft.bot.blockAt=p=>{const solid=p.y<64||p.y===66;return {name:solid?'dirt':'air',boundingBox:solid?'block':'empty',position:p,skyLight:p.y<=65?0:15,getProperties:()=>({})}}
  const a=teammate(shaft);await a.c.submit('mine 10 iron',work(),{automatic:true});assert.deepEqual(a.commands,[])
 })
+// pi2, 22:35Z: gathering logs 50 blocks west of the base the bot walked past the
+// chickens and pigs it would need the next morning, and no hunt had killed since
+// the hunting ground was first remembered. Two farm animals within 24 blocks on the
+// surface mark the hunting ground too; it moves only when 16 or more blocks off.
+test('two farm animals seen within 24 blocks mark the hunting ground',()=>{
+ const w=world(),{c,r}=teammate(w)
+ w.bot.entities={2:{id:2,name:'cow',position:new Vec3(10,64,0)},3:{id:3,name:'pig',position:new Vec3(0,64,12)}}
+ r.emit('event',{type:'survival_tick'})
+ assert.deepEqual(c.places.hunting_ground,{x:0.5,y:64,z:0.5,dimension:'overworld'})
+ w.bot.entity.position=new Vec3(8.5,64,0.5);c.groundAt=0;r.emit('event',{type:'survival_tick'})
+ assert.equal(c.places.hunting_ground.x,0.5,'eight blocks on is the same ground')
+ const lone=world(),t=teammate(lone);lone.bot.entities={2:{id:2,name:'cow',position:new Vec3(10,64,0)}}
+ t.r.emit('event',{type:'survival_tick'});assert.equal(t.c.places.hunting_ground,undefined,'one animal is not a herd')
+})
