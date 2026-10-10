@@ -136,3 +136,10 @@ test('a request where a person is waiting, or one with no task contract, is not 
   assert.deepEqual(commands,[]);assert.ok(plans.length>=1)
  }
 })
+test('a hunt paused by a hostile is an interruption, tried again after two minutes, not ten',async()=>{
+ const w=world(),{c,commands}=teammate(w)
+ c.execute=async cmd=>{commands.push([cmd.action]);throw new Error('Hostile zombie nearby; hunting paused')}
+ await c.submit('mine 10 iron',work(),{automatic:true})
+ assert.deepEqual(commands,[['hunt']]);assert.equal(c.requestProgress.foodFloor.outcome,'interrupted')
+ assert.equal(foodFloorDue(day({last:{at:1e9-3*60000,outcome:'interrupted'}})).due,true)
+})

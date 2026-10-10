@@ -89,7 +89,7 @@ async function foodErrand(c,epoch,signal,bot,request){
  const before=summary(bot),done=[],steps=[],feedback=request.feedback??=[]
  c.say(`Below my food floor: carrying ${before.points} hunger points of food, under ${FOOD_FLOOR}. Getting food before the next step.`)
  c.runner.log?.('food_floor',{phase:'started',...before})
- let interrupted=false
+ let interrupted=false,paused=false
  for(let i=0;i<6;i++){
   const step=nextFoodStep(foodState(c,bot),done);if(!step)break
   done.push(step.action==='smelt'?'smelt:'+step.goal.item:step.action)
@@ -107,16 +107,19 @@ async function foodErrand(c,epoch,signal,bot,request){
    feedback.push({...record,status:'failed',reason:error.message,...(review?{reviewRequired:review}:{})})
    steps.push({action:step.action,item:step.goal.item,count:step.goal.count,status:'failed',reason:String(error.message).slice(0,200)})
    if(review){request.reviewRequired=review;request.blocker=review;break}
+   // A hostile turning up is not an empty area: the hunt pauses and is tried sooner.
+   if(/hunting paused/.test(error.message))paused=true
   }
   c.persist()
  }
  const after=summary(bot)
- const outcome=interrupted?'interrupted':after.points>before.points||after.food>before.food?'gained':'nothing'
+ const outcome=after.points>before.points||after.food>before.food?'gained':interrupted||paused?'interrupted':'nothing'
  request.foodFloor={at:Date.now(),outcome,before,after}
  c.runner.log?.('food_floor',{phase:'finished',outcome,before,after,steps})
  if(!current())return true
  c.persist()
  c.say(outcome==='gained'?`Food floor: now carrying ${after.points} hunger points of food; hunger ${after.food}, health ${Math.round(after.health)}.`
+  :outcome==='interrupted'?`Food floor: the errand was cut short (${steps.map(s=>s.reason||`${s.action} ${s.status}`).join('; ')}). Carrying on with the request; I will try again in two minutes.`
   :`Food floor: the errand brought back no food (${steps.map(s=>s.reason||`${s.action} ${s.status}`).join('; ')||'nothing to try'}). Carrying on with the request; I will look again in ten minutes.`)
  return true
 }
