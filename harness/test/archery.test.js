@@ -234,6 +234,25 @@ test('the safety controller answers a blaze in bow range with the bow, not a she
  assert.ok(c.messages.some(m=>/drawing my bow/.test(m.text)),c.messages.map(m=>m.text).join(' | '))
 })
 
+test('a second blaze the bow can answer is shot too, not taken as too many to fight',async()=>{
+ // Lab run 97, 10 October: two blazes shot in eighteen seconds at full health;
+ // a third arrived during the after-kill check, the area did not clear, and
+ // the bot fled home through the portal with its rods left on the bridge.
+ const bot=threatened({distance:12,extra:{8:{id:8,name:'blaze',type:'hostile',height:1.8,position:new Vec3(0.5,64,16.5),velocity:new Vec3(0,0,0)}}})
+ bot.world={...bot.world,getColumn:()=>({}),raycast:()=>null}
+ class KillingRunner extends ShootRunner{
+  command(c){super.command(c);if(c.action!=='shoot')return
+   const target=Object.values(bot.entities).filter(e=>e.name==='blaze').sort((a,b)=>a.position.distanceTo(bot.entity.position)-b.position.distanceTo(bot.entity.position))[0]
+   const task=this.task;queueMicrotask(()=>{delete bot.entities[target.id];task.status='completed';task.result={item:'blaze',count:1,receipt:'killed',shots:2};this.emit('event',{type:'task_finished',task})})}
+ }
+ const r=new KillingRunner(bot)
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-chain-')),'state.json'))
+ void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,2500))
+ const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop');c.cancel?.(true)
+ assert.deepEqual(acts.filter(a=>a==='shoot').length,2,acts.join(' '))
+ assert.ok(!acts.some(a=>['retreat','burrow','hut','use_portal'].includes(a)),'no shelter once both are down: '+acts.join(' '))
+})
+
 // Lab, 10 October: shoot fired once at a blaze and finished "target_survived"
 // with 47 arrows and 11 shots left: the blaze had dropped out of the entity
 // list. Like attack, it re-acquires the same type nearby, and says why it stopped.

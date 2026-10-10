@@ -20,6 +20,8 @@ import {setTimeout as delay} from 'node:timers/promises'
 const BURROW_WATCHES=4
 // How far off the nearest hostile must be for a portal room to go up before it arrives.
 const PORTAL_ROOM_STANDOFF=6
+// Shooters the bow takes in one defense before the area is judged.
+const RANGED_CHAIN=4
 // A hostile inside its own interruption radius while the bot is indoors: the
 // door does not open for work onto it, and waiting on it is not a stall.
 const SAFETY_RETRIES=3
@@ -527,15 +529,23 @@ export class Teammate extends EventEmitter {
         }else if(ranged?.engage){
           // Lab, 10 October: a blaze 18 blocks off, every shelter failed on open
           // ground, and the bot burned to death with a bow in hand. Shoot back.
-          const name=ranged.target.targetName
+          let name=ranged.target.targetName
           this.safety.status='defending';this.phase='defending'
           this.say('This '+name+' keeps its distance. I am drawing my bow.')
           try{
-            await this.execute({action:'shoot',goal:{type:name},timeoutMs:60000},abort.signal)
-            if(epoch!==this.epoch||abort.signal.aborted)return
-            const shot=structuredClone(this.runner.task.result)
-            if(shot?.receipt!=='killed')throw new Error(`the ${name} survived ${shot?.shots??0} arrows`)
-            this.safety.combat=shot
+            // Lab run 97: a third blaze arrived during the after-kill check and the
+            // bot fled with two kills' rods on the ground. Another shooter the bow
+            // can answer is shot too, a bounded number, before the area is judged.
+            for(let kill=1;;kill++){
+              await this.execute({action:'shoot',goal:{type:name},timeoutMs:60000},abort.signal)
+              if(epoch!==this.epoch||abort.signal.aborted)return
+              const shot=structuredClone(this.runner.task.result)
+              if(shot?.receipt!=='killed')throw new Error(`the ${name} survived ${shot?.shots??0} arrows`)
+              this.safety.combat=shot
+              const next=kill<RANGED_CHAIN?rangedDefenseDecision(recoveryBot):null
+              if(next?.engage){name=next.target.targetName;this.say(`The ${shot.item||'target'} fell to my arrows. Another ${name}; shooting it too.`);continue}
+              break
+            }
             this.say('The '+name+' fell to my arrows. Checking the area before continuing.')
             await finishDefense('shoot');return
           }catch(error){
