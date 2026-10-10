@@ -44,7 +44,7 @@ aimPitch.lead=function(from,to,velocity){
  return {aimAt,pitch}
 }
 
-export const SHOOT={radius:32,drawMs:1100,maxShots:12,settleMs:900}
+export const SHOOT={radius:32,drawMs:1100,maxShots:12,settleMs:900,reacquire:10}
 // Security reviews of 6da6e6c, ae7e4aa and 1993aea (9 October): an arrow flies on
 // past a miss, so the target's type is not enough. A protected bystander within a
 // block and a half of the arrow's arc holds the shot, along the whole flight: until
@@ -88,9 +88,9 @@ export async function shootTarget(bot,task,{check,stage,progress},options={}){
  if(!bow)throw new Error('Shooting needs a bow (3 sticks and 3 string)')
  const arrows=()=>bot.inventory.items().filter(i=>i.name==='arrow').reduce((n,i)=>n+i.count,0)
  if(!arrows())throw new Error('Shooting needs arrows (flint, a stick and a feather make four)')
- const target=nearestOfType(bot,goal.type,bot.entity.position,o.radius)
+ let target=nearestOfType(bot,goal.type,bot.entity.position,o.radius)
  if(!target)throw new Error(`No ${goal.type} within ${o.radius} blocks`)
- let dead=false,shots=0,drawn=false
+ let dead=false,shots=0,drawn=false,stopped=null,lastSeen=target.position.clone?.()??target.position
  const killed=e=>{if(e?.id===target.id)dead=true}
  bot.on('entityDead',killed)
  const eye=()=>bot.entity.position.offset(0,bot.entity.eyeHeight??1.62,0)
@@ -105,7 +105,18 @@ export async function shootTarget(bot,task,{check,stage,progress},options={}){
  const standDown=()=>{try{bot.setQuickBarSlot?.(((bot.quickBarSlot??0)+1)%9)}catch{}}
  try{
   stage('arming');await bot.equip(bow,'hand');check()
-  while(!dead&&shots<o.maxShots&&arrows()>0&&bot.entities?.[target.id]){
+  for(;;){
+   if(dead){stopped='killed';break}
+   if(shots>=o.maxShots){stopped='shot_budget';break}
+   if(arrows()<=0){stopped='out_of_arrows';break}
+   // Lab, 10 October: a blaze dropped out of the entity list after one arrow and the
+   // shot ended with 47 left. Like attack, look for the same type where it was.
+   if(!bot.entities?.[target.id]){
+    const again=nearestOfType(bot,goal.type,lastSeen,o.reacquire)
+    if(!again){stopped='target_lost';break}
+    target=again
+   }
+   lastSeen=target.position.clone?.()??target.position
    const sight=observedSightline(bot,eye(),centre())
    if(sight.status==='blocked')throw new Error(`No clear shot at the ${goal.type}: ${sight.block||'a block'} is in the way`)
    let a=aim()
@@ -129,7 +140,7 @@ export async function shootTarget(bot,task,{check,stage,progress},options={}){
   if(drawn)standDown()
   bot.removeListener('entityDead',killed)
  }
- return {item:goal.type,count:dead?1:0,receipt:dead?'killed':'target_survived',shots,arrowsLeft:arrows()}
+ return {item:goal.type,count:dead?1:0,receipt:dead?'killed':'target_survived',shots,arrowsLeft:arrows(),stopped:dead?'killed':stopped}
 }
 
 // Lab, 10 October: a blaze 18 blocks off set off the safety ladder, every shelter

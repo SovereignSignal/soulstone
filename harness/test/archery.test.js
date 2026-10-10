@@ -204,3 +204,21 @@ test('the safety controller answers a blaze in bow range with the bow, not a she
  assert.equal(acts[0],'shoot',acts.join(' '));assert.equal(r.commands.find(x=>x.action==='shoot').goal.type,'blaze')
  assert.ok(c.messages.some(m=>/drawing my bow/.test(m.text)),c.messages.map(m=>m.text).join(' | '))
 })
+
+// Lab, 10 October: shoot fired once at a blaze and finished "target_survived"
+// with 47 arrows and 11 shots left: the blaze had dropped out of the entity
+// list. Like attack, it re-acquires the same type nearby, and says why it stopped.
+test('shoot re-acquires a target that drops out of the entity list, and says why it stopped',async()=>{
+ const r=range({hitsToKill:3})
+ let swapped=false
+ const release=r.bot.deactivateItem
+ r.bot.deactivateItem=()=>{release();if(!swapped){swapped=true;const z=r.bot.entities[7];delete r.bot.entities[7];r.bot.entities[11]={...z,id:11,position:z.position.offset(1,0,0)}}}
+ r.bot.on=r.bot.on.bind(r.bot)
+ const out=await shootTarget(r.bot,{kind:'shoot',goal:{type:'zombie'}},api,fast)
+ assert.ok(out.shots>=2,'kept shooting at the re-acquired zombie: '+JSON.stringify(out))
+ const gone=range({hitsToKill:99,arrows:5})
+ gone.bot.deactivateItem=(()=>{const f=gone.bot.deactivateItem;return()=>{f();delete gone.bot.entities[7]}})()
+ const lost=await shootTarget(gone.bot,{kind:'shoot',goal:{type:'zombie'}},api,fast)
+ assert.equal(lost.receipt,'target_survived');assert.equal(lost.stopped,'target_lost')
+ assert.equal((await shootTarget(range({arrows:2,hitsToKill:99}).bot,{kind:'shoot',goal:{type:'zombie'}},api,fast)).stopped,'out_of_arrows')
+})
