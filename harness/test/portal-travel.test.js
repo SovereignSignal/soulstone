@@ -157,3 +157,17 @@ test('being on fire does not stop a bow duel under way; lava or low health still
  assert.equal(await tick({health:8}),FIRE_EMERGENCY,'at 8 health the fire comes first')
  assert.equal(await tick({shooting:false}),FIRE_EMERGENCY,'not shooting: the fire comes first')
 })
+
+// Lab run 101, 10 October: home from the fortress for a moment, the planner put
+// "acquire flint_and_steel" before use_portal with the portal lit, spent its
+// rounds on a gravel search that failed, and only then went back for the rods.
+// The brief's "before crossing carry flint_and_steel" read as a precondition.
+import {readFileSync as readBrief} from 'node:fs'
+test('the brief makes flint and steel a thing to carry, never a precondition for crossing a lit portal',()=>{
+ const brief=readBrief(new URL('../src/companion/teammate-prompt.txt',import.meta.url),'utf8')
+ const line=brief.split('\n').find(l=>l.startsWith('Action use_portal'))
+ assert.ok(line)
+ assert.doesNotMatch(line,/Before crossing from the Overworld carry flint_and_steel/)
+ assert.match(line,/never a precondition/)
+ assert.match(line,/portal_link/)
+})
