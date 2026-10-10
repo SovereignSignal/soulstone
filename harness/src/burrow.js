@@ -1,4 +1,5 @@
 import {bowCanAnswer} from './bow-readiness.js'
+import {observedSightline} from './visibility.js'
 import {scaffoldItems} from './scaffold.js'
 // Emergency burrow: the shelter of last resort for a spawn with no base and no
 // weapon. Seal the verified shaft as soon as three cells give headroom,
@@ -9,7 +10,7 @@ import {Vec3} from 'vec3'
 import {DoorAwareMovements,SOFT_GROUND as SOFT,centreOn} from './navigation.js'
 import {fullCube} from './construction.js'
 import {assertNoHostileOccupants,inspectEmergencyShelter} from './shelter-occupants.js'
-import {survivalObservation,RANGED,HEALTH_EMERGENCY_LINE,breachesRock,outOfReach} from './survival.js'
+import {survivalObservation,RANGED,HEALTH_EMERGENCY_LINE,breachesRock,outOfReach,SHOOTERS_ONLY} from './survival.js'
 import {threatReach,threatRoutes} from './threat-reach.js'
 import {roofed} from './observations.js'
 import {defenseDecision} from './combat.js'
@@ -254,6 +255,11 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
   // so a hostile it ignores is never the one that sends the bot back in.
   const routes=threatRoutes(bot,near,{origins:exits})
   near=near.filter((t,i)=>!outOfReach({...t,reach:routes[i].reach,routeSteps:routes[i].steps,sightline:t.sightline?.status?t.sightline:{status:'blocked'}}))
+  // Run 86 (10 October): from inside, the shelter's own walls block every sightline,
+  // so a shooter is judged at the exits: one that could not see the bot at any exit
+  // is not waiting outside (a blaze behind the fortress's nether bricks).
+  const eyeAt=c=>({x:c.x+.5,y:c.y+(bot.entity?.eyeHeight??1.62),z:c.z+.5})
+  near=near.filter(t=>!(SHOOTERS_ONLY.has(t.name)&&t.distance>4&&t.position&&exits.every(c=>observedSightline(bot,eyeAt(c),{x:t.position.x,y:t.position.y+1,z:t.position.z}).status==='blocked')))
  }
  const scope='Loaded entities within 16 blocks and the world clock; not proof of a safe surface'
  if(!near.length)return {clear:true,health:s.health,timeOfDay:s.timeOfDay,scope}

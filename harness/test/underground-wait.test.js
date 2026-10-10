@@ -20,7 +20,10 @@ const block=(n,p)=>n===null?null:{name:n,position:p,boundingBox:registry.blocksB
 const base=(position,name,{timeOfDay=6000,mobs=[]}={})=>({registry,game:{gameMode:'survival',difficulty:'easy',dimension:'overworld'},time:{timeOfDay},health:20,food:17,oxygenLevel:20,players:{},
  entity:{position,onGround:true,eyeHeight:1.62,isInWater:false,metadata:[0]},inventory:{items:()=>[]},
  entities:Object.fromEntries(mobs.map(([n,x,y,z],i)=>[i+1,{id:i+1,name:n,position:new Vec3(x,y,z)}])),
- blockAt:p=>block(name(p),p),world:{raycast:()=>({name:'deepslate'})}})
+ blockAt:p=>block(name(p),p),
+ // A real walk along the ray (it used to answer "deepslate" for every query, even
+ // down an open corridor): the first full block on the line, or nothing.
+ world:{raycast:(from,dir,range)=>{for(let d=0.1;d<=range;d+=0.1){const c=from.plus(dir.scaled(d)).floored(),n=name(c);if(n&&registry.blocksByName[n]?.boundingBox==='block')return {name:n,position:c}}return null}}})
 function deep(options){
  const cells=new Map([HUT,HUT.offset(0,1,0)].map(c=>[c.toString(),'air']))
  return {cells,bot:base(new Vec3(-594.58,-36,-332.5),p=>cells.has(p.toString())?cells.get(p.toString()):p.y>=-50&&p.y<=-48&&p.x<=-598?'air':'deepslate',options)}

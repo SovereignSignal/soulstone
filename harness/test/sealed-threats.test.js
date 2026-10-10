@@ -149,3 +149,20 @@ test('out of reach: sealed, or out of sight with a route longer than one and a h
  assert.equal(outOfReach(t('zombie',8,'unknown',null)),false,'an inconclusive flood proves nothing')
  assert.equal(outOfReach(t('zombie',8,'sealed',null)),true);assert.equal(farRoute(t('zombie',8,'sealed',null)),false)
 })
+
+// Run 86, 10 October: at the fortress portal a blaze four blocks below behind
+// nether bricks kept the bot walling in and opening up: the alarm counted it,
+// the bow had no shot. A mob that only shoots cannot hurt the bot without a
+// line of sight; until it has one (or is within four blocks) it is no alarm,
+// and the moment it has one the bow has one too. Melee mobs are unchanged.
+test('a shooter with no line of sight is no alarm until it has one; melee mobs still count',async()=>{
+ const {emergencyReason,THREAT_INTERRUPTION,HEALTH_EMERGENCY,cannotShootYet}=await import('../src/survival.js')
+ const o={gameMode:'survival',health:20,difficulty:'normal',timeOfDay:6000,sheltered:false,shelterAvailable:false,food:20,carriedFood:[],nearbyThreats:[]}
+ const t=(name,distance,sight,reach='open')=>({risk:'potential_hostile',name,distance,reach,sightline:{status:sight}})
+ assert.equal(emergencyReason({...o,nearbyThreats:[t('blaze',13,'blocked')]}),null,'the run 86 blaze')
+ assert.equal(emergencyReason({...o,nearbyThreats:[t('blaze',13,'clear')]}),THREAT_INTERRUPTION,'in sight it counts')
+ assert.equal(emergencyReason({...o,nearbyThreats:[t('skeleton',3.5,'blocked')]}),THREAT_INTERRUPTION,'within four blocks it counts')
+ assert.equal(emergencyReason({...o,nearbyThreats:[t('wither_skeleton',8,'blocked')]}),THREAT_INTERRUPTION,'a melee mob behind a wall still counts')
+ assert.equal(emergencyReason({...o,health:8,nearbyThreats:[t('blaze',13,'blocked')]}),null,'nor is it a health alarm')
+ assert.equal(cannotShootYet(t('ghast',30,'blocked')),true);assert.equal(cannotShootYet(t('drowned',10,'blocked')),false)
+})

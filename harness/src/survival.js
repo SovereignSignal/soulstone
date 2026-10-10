@@ -44,6 +44,14 @@ export const farRoute=t=>t.reach==='open'&&t.sightline?.status==='blocked'&&Numb
 // The one test of "this hostile cannot get at the bot yet", for the alarm, the
 // shelter's clearance and the door guard alike.
 export const outOfReach=t=>sealedOff(t)||farRoute(t)
+// Run 86 (10 October): a blaze four blocks below behind nether bricks kept the bot
+// walling in and opening up at the fortress portal: the alarm counted it, the bow
+// had no shot. A mob that only shoots cannot hurt the bot without a line of sight,
+// so until it has one, or is within four blocks, it raises no alarm; the moment it
+// can see the bot, the bow can see it. Melee mobs (wither skeletons, drowned) count
+// through walls as before. One test for the alarms and the shelter's clearance alike.
+export const SHOOTERS_ONLY=new Set([...RANGED].filter(n=>!['wither_skeleton','drowned'].includes(n)))
+export const cannotShootYet=t=>SHOOTERS_ONLY.has(t?.name)&&t.sightline?.status==='blocked'&&t.distance>4
 export const THREAT_INTERRUPTION='A potential hostile is within ten blocks'
 export const NIGHT_EXPOSURE='Night with no shelter'
 export const HEALTH_EMERGENCY='Health is at or below half'
@@ -144,7 +152,7 @@ export function emergencyReason(observation){
  // Judged by reach like the threat alarm and the shelter's clearance: a hostile
  // sealed behind rock or snow kept a hurt bot walling in and opening up every
  // 22 seconds on pi1's fresh world (9 October), never planning.
- const hostileNear=!!observation.difficulty&&observation.difficulty!=='peaceful'&&(observation.nearbyThreats||[]).some(t=>t.risk==='potential_hostile'&&t.distance<=HEALTH_THREAT_RADIUS&&!outOfReach(t))
+ const hostileNear=!!observation.difficulty&&observation.difficulty!=='peaceful'&&(observation.nearbyThreats||[]).some(t=>t.risk==='potential_hostile'&&t.distance<=HEALTH_THREAT_RADIUS&&!outOfReach(t)&&!cannotShootYet(t))
  // Low health is an emergency only when something can be done about it: a threat
  // to escape, or nightfall with a lit base to reach that the bot is not already
  // sitting in. Hunger under eighteen stops natural regeneration, so a hurt bot
@@ -162,7 +170,7 @@ export function emergencyReason(observation){
  if(Number.isFinite(observation.food)&&observation.food<=6&&(observation.carriedFood||[]).length)return FOOD_EMERGENCY
  // Inside a verified closed lit shelter the answer to a nearby hostile is already
  // in place; interrupting there only retreats into the room the bot is standing in.
- if(observation.sheltered!==true&&observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name)&&!outOfReach(t)))return THREAT_INTERRUPTION
+ if(observation.sheltered!==true&&observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name)&&!outOfReach(t)&&!cannotShootYet(t)))return THREAT_INTERRUPTION
  // Out in the open after dusk with no built base: dig in before the crowd arrives.
  // Under rock there is no crowd arriving: trial 42 spent fifteen minutes of a
  // thirty-minute run waiting for a sunrise thirty-six blocks above it.

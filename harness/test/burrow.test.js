@@ -636,3 +636,16 @@ test('a lone blaze lingering past the patience window is confronted when the bow
  assert.equal(r.clear,true,r.reason);assert.equal(r.confront.name,'blaze')
  w.inventory[w.inventory.length-1].count=2;assert.equal(burrowClearance(w.bot,{lingeredMs:61000}).clear,false,'two arrows: keep waiting')
 })
+
+// Run 86, 10 October: the shelter's clearance held the bot in for a blaze behind
+// the fortress's nether bricks. From inside the shelter every sightline is blocked
+// by its own walls, so the question is asked at the exits: a shooter that could
+// not see the bot at any exit is not waiting outside; one that could, still is.
+test('the clearance asks whether a shooter could see the bot at the shelter\'s exits',()=>{
+ const at=sight=>{const w=world();w.bot.time.timeOfDay=6000;w.bot.health=20;w.bot.food=20
+  w.bot.entities={1:{id:1,uuid:'00000000-0000-0000-0000-000000000001',type:'hostile',name:'blaze',height:1.8,position:new Vec3(20.5,60,10.5)}}
+  w.bot.world={raycast:()=>sight==='blocked'?{name:'nether_bricks'}:null}
+  return burrowClearance(w.bot,{exits:[new Vec3(11,64,10)]})}
+ const hidden=at('blocked');assert.equal(hidden.clear,true,hidden.reason)
+ const seen=at('clear');assert.equal(seen.clear,false,'a blaze that could see the exit still holds the bot in')
+})
