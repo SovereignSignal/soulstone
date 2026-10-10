@@ -190,3 +190,26 @@ test('two steps from the portal with hoglins ten blocks off, the bot steps back 
  const far=await run(10);assert.equal(far[0]?.action,'hut',far.map(x=>x.action).join(' '));assert.equal(far[0].goal.portalRoom,true)
  const near=await run(4);assert.equal(near[0]?.action,'use_portal','four blocks off: no time to build, the portal is the way out')
 })
+
+// Lab run 105, 10 October: beside the portal with a skeleton shooting from three
+// blocks behind obsidian, the bow had no line and the bot went home, arriving at
+// night at half health with another skeleton at arm's length. Against a shooter
+// the portal room is cover; only a mob that closes to melee makes home the way out.
+test('with only a shooter near, the bot walls in at the portal instead of going home',async()=>{
+ const run=async(mob,distance)=>{
+  const r=new PortalRunner();r.bot.game.dimension='minecraft:the_nether'
+  r.bot.inventory={items:()=>[{name:'cobblestone',count:64,type:registry.itemsByName.cobblestone.id}]}
+  r.bot.blockAt=p=>{const frame=p.z===-1&&p.x>=-1&&p.x<=2&&p.y>=63&&p.y<=67
+   const name=frame?((p.x===-1||p.x===2||p.y===63||p.y===67)?'obsidian':'nether_portal'):p.y===63?'stone':'air'
+   return {name,position:p.clone(),boundingBox:(name==='stone'||name==='obsidian')?'block':'empty'}}
+  r.bot.findBlock=({matching})=>matching===registry.blocksByName.nether_portal.id?{name:'nether_portal',position:new Vec3(0,64,-1)}:null
+  r.bot.entities={7:{name:mob,position:new Vec3(0.5,64,0.5+distance)}}
+  r.command=function(c){this.commands.push(c);this.task={id:String(this.commands.length),kind:c.action,status:'running',goal:c.goal}}
+  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-companion-')),'state.json'))
+  void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,60))
+  const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop');c.cancel?.(true);return acts
+ }
+ const skeleton=await run('skeleton',3);assert.notEqual(skeleton[0],'use_portal','a skeleton three blocks off: cover here, '+skeleton.join(' '))
+ const blaze=await run('blaze',4);assert.notEqual(blaze[0],'use_portal','a blaze four blocks off: cover here, '+blaze.join(' '))
+ const wither=await run('wither_skeleton',3);assert.equal(wither[0],'use_portal','a wither skeleton walks up and swings: home')
+})

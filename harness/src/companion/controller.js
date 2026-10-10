@@ -31,7 +31,7 @@ const RANGED_CHAIN=4
 // door does not open for work onto it, and waiting on it is not a stall.
 const SAFETY_RETRIES=3
 const NIGHT_HOLD_MS=14*60*1000
-import {survivalObservation,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS,HEALTH_EMERGENCY_LINE} from '../survival.js'
+import {survivalObservation,SHOOTERS_ONLY,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS,HEALTH_EMERGENCY_LINE} from '../survival.js'
 // Air, fire and a portal underfoot run their own recovery at once and preempt
 // any shelter attempt: each has a clock no shelter stops.
 const URGENT=new Set([WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY])
@@ -613,7 +613,10 @@ export class Teammate extends EventEmitter {
       // room and the nearest hostile not yet close, wall in there instead: going home
       // at every hoglin meant the room it was asked to build never began.
       const portalRoom=inNether(recoveryBot)&&(()=>{const site=hutSite(recoveryBot);return site.ok&&site.portal})()
-      const nearest=Math.min(Infinity,...survivalObservation(recoveryBot).nearbyThreats.filter(t=>t.risk==='potential_hostile').map(t=>t.distance))
+      // Against a shooter the room is cover; only a mob that closes to melee needs the
+      // standoff (run 105: a skeleton three blocks off sent the bot home at half health
+      // into an Overworld night with another skeleton at arm's length).
+      const nearest=Math.min(Infinity,...survivalObservation(recoveryBot).nearbyThreats.filter(t=>t.risk==='potential_hostile'&&!SHOOTERS_ONLY.has(t.name)).map(t=>t.distance))
       // Run 101 (10 October): two blocks out of its opened portal room to shoot, hoglins
       // at ten blocks sent the bot home, leaving the blaze and its rod. A portal room a
       // few steps away is walked back to and closed, when the hostiles leave time for the steps.
