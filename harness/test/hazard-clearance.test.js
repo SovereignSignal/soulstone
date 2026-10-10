@@ -87,3 +87,17 @@ test('time in which nothing could change does not spend the observation window',
  assert.equal(timedOut.status,'paused');assert.equal(timedOut.code,'clearance_timeout')
  assert.ok(timedOut.heldMs>0,'it reports how long it held')
 })
+// pi2, 10 October: at 1 health, hunger 10 and nothing to eat, the base's clearance
+// asked for full health before letting the bot out. Inside, nothing raises health or
+// hunger without food, so the watch could never clear: every dawn hunt ended in a
+// ninety-second wait that timed out. Readiness is asked for only where waiting
+// heals (carried food, or hunger 18 and up); otherwise leaving for food is the
+// remedy, and that waits for working daylight instead.
+test('a hurt, hungry bot with nothing to eat may leave the base for food in daylight, never at night',()=>{
+ const hurt=(over={})=>{const b=bot();Object.assign(b,{health:1,food:10,time:{timeOfDay:3000}},over);return b}
+ assert.match(clearanceObservation(hurt(),{},'base').reason,/shelter/,'past readiness, on to the remaining checks')
+ assert.match(clearanceObservation(hurt({time:{timeOfDay:14000}}),{},'base').reason,/daylight/)
+ assert.match(clearanceObservation(hurt({inventory:{items:()=>[{name:'bread',count:2}]}}),{},'base').reason,/Health/,'with food in the bag it eats and heals first')
+ assert.match(clearanceObservation(hurt({food:18}),{},'base').reason,/Health/,'at hunger 18 it heals by waiting')
+ assert.match(clearanceObservation(hurt({health:20,food:12}),{},'base').reason,/shelter/,'hungry at full health with no food: go and get some')
+})

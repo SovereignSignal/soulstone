@@ -9,7 +9,15 @@ export {departureThreatObservation} from '../shelter-departure.js'
 export function clearanceObservation(bot,projects,shelterName){
  const s=survivalObservation(bot),p=bot?.entity?.position
  if(!p||s.gameMode!=='survival'||!['easy','normal','hard'].includes(s.difficulty))return {clear:false,reason:'Survival difficulty is unavailable or changed'}
- if(s.health!==20||s.food===null||s.food<14)return {clear:false,reason:'Health or food is not ready'}
+ // Readiness is worth waiting for only where waiting brings it: food in the bag, or
+ // hunger high enough to regenerate (as burrowClearance). Hurt and hungry with
+ // nothing to eat, nothing inside raises either (pi2, 10 October: 1 health, hunger
+ // 10, every dawn watch timed out), so the way out is food, and that waits for
+ // working daylight (day-routine's 1000 to 10000) rather than for full health.
+ const canHeal=(s.carriedFood||[]).length>0||Number.isFinite(s.food)&&s.food>=18
+ const ready=s.health===20&&Number.isFinite(s.food)&&s.food>=14
+ if(!ready&&(s.food===null||canHeal))return {clear:false,reason:'Health or food is not ready'}
+ if(!ready&&!(Number.isFinite(s.timeOfDay)&&s.timeOfDay>=1000&&s.timeOfDay<10000))return {clear:false,reason:'Hurt or hungry with no food: going out for food waits for working daylight'}
  for(let x=Math.floor((p.x-24)/16);x<=Math.floor((p.x+24)/16);x++)for(let z=Math.floor((p.z-24)/16);z<=Math.floor((p.z+24)/16);z++){
   const column=bot.world?.getColumn?.(x,z)
   if(!column||typeof column.then==='function')return {clear:false,reason:'Nearby chunks are not fully observed'}
