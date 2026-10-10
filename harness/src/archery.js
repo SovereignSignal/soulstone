@@ -5,6 +5,7 @@ import {observedSightline} from './visibility.js'
 import {fullCube} from './construction.js'
 import {survivalObservation} from './survival.js'
 import {standable} from './fire-safety.js'
+import {DoorAwareMovements} from './navigation.js'
 import pathfinding from 'mineflayer-pathfinder'
 const {goals}=pathfinding
 import {RANGED_DEFENSE,bowCanAnswer} from './bow-readiness.js'
@@ -116,8 +117,13 @@ export async function shootTarget(bot,task,{check,stage,progress},options={}){
   for(const c of spots){
    const e=candidates().find(t=>visibleFrom(eyeAt(c),t));if(!e)continue
    moves++;stage('repositioning');progress(`Stepping to ${c.x},${c.y},${c.z} for a clear shot at the ${goal.type}`)
+   // Security review of 35a7589: walk as attack chases, never digging, towering or
+   // placing on the way, and give the runner its own movement profile back.
+   const previous=bot.pathfinder.movements,movement=new DoorAwareMovements(bot)
+   Object.assign(movement,{canDig:false,allow1by1towers:false,allowParkour:false,allowSprinting:false,maxDropDown:2,scafoldingBlocks:[]})
+   bot.pathfinder.setMovements(movement)
    const timer=setTimeout(()=>bot.pathfinder?.setGoal?.(null),o.repositionMs)
-   try{await bot.pathfinder.goto(new goals.GoalBlock(c.x,c.y,c.z))}catch{check()}finally{clearTimeout(timer)}
+   try{await bot.pathfinder.goto(new goals.GoalBlock(c.x,c.y,c.z))}catch{check()}finally{clearTimeout(timer);if(previous)bot.pathfinder.setMovements(previous)}
    check()
    return inSight()||null
   }

@@ -247,3 +247,16 @@ test('with no target in sight, shoot steps to a firing position within four bloc
  walled.bot.pathfinder={setGoal(){},setMovements(){},async goto(){},isMoving:()=>false}
  await assert.rejects(shootTarget(walled.bot,{kind:'shoot',goal:{type:'zombie'}},api,fast),/No clear shot at any zombie.*nether_bricks/)
 })
+
+// Security review of 35a7589: the step to a firing position walked with whatever
+// movements were set, which may dig and place. Like attack's chase it now walks
+// with no digging, no towering and no scaffolding, and restores the old profile.
+test('the step to a firing position never digs or places, and restores the movement profile',async()=>{
+ const r=range({hitsToKill:1}),set=[]
+ const before={canDig:true,tag:'runner'}
+ r.bot.pathfinder={movements:before,setGoal(){},setMovements(m){set.push(m);this.movements=m},async goto(g){r.log.push('walk '+[g.x,g.y,g.z]+' dig='+this.movements.canDig+' towers='+this.movements.allow1by1towers+' scaffold='+this.movements.scafoldingBlocks.length);r.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)},isMoving:()=>false}
+ r.bot.world={raycast:from=>from.x<2?{name:'nether_bricks'}:null}
+ await shootTarget(r.bot,{kind:'shoot',goal:{type:'zombie'}},api,fast)
+ const walk=r.log.find(l=>l.startsWith('walk'));assert.match(walk,/dig=false towers=false scaffold=0/,walk)
+ assert.equal(r.bot.pathfinder.movements,before,'the runner\'s profile is back')
+})
