@@ -4,6 +4,9 @@ import {validateAttackGoal,nearestOfType,isProtectedBystander} from './primitive
 import {observedSightline} from './visibility.js'
 import {fullCube} from './construction.js'
 import {survivalObservation} from './survival.js'
+import {standable} from './fire-safety.js'
+import pathfinding from 'mineflayer-pathfinder'
+const {goals}=pathfinding
 import {RANGED_DEFENSE,bowCanAnswer} from './bow-readiness.js'
 export {RANGED_DEFENSE,bowCanAnswer}
 // Bow aim for the dragon ladder: blazes keep their distance and the dragon's end
@@ -46,7 +49,7 @@ aimPitch.lead=function(from,to,velocity){
  return {aimAt,pitch}
 }
 
-export const SHOOT={radius:32,drawMs:1100,maxShots:12,settleMs:900,reacquire:10}
+export const SHOOT={radius:32,drawMs:1100,maxShots:12,settleMs:900,reacquire:10,reposition:4,repositionMs:12000,repositions:3}
 // Security reviews of 6da6e6c, ae7e4aa and 1993aea (9 October): an arrow flies on
 // past a miss, so the target's type is not enough. A protected bystander within a
 // block and a half of the arrow's arc holds the shot, along the whole flight: until
@@ -90,8 +93,38 @@ export async function shootTarget(bot,task,{check,stage,progress},options={}){
  if(!bow)throw new Error('Shooting needs a bow (3 sticks and 3 string)')
  const arrows=()=>bot.inventory.items().filter(i=>i.name==='arrow').reduce((n,i)=>n+i.count,0)
  if(!arrows())throw new Error('Shooting needs arrows (flint, a stick and a feather make four)')
- let target=nearestOfType(bot,goal.type,bot.entity.position,o.radius)
- if(!target)throw new Error(`No ${goal.type} within ${o.radius} blocks`)
+ if(!nearestOfType(bot,goal.type,bot.entity.position,o.radius))throw new Error(`No ${goal.type} within ${o.radius} blocks`)
+ // Run 87 (10 October): the nearest blaze sat behind the fortress's nether bricks
+ // three times over. Take the nearest one in sight; with none in sight, step to a
+ // standing spot within four blocks that has a clear line, as a player strafes.
+ const centreOf=e=>e.position.offset(0,(e.height??1.8)/2,0)
+ const eyeAt=c=>c.offset(.5,bot.entity.eyeHeight??1.62,.5)
+ const candidates=()=>Object.values(bot.entities||{}).filter(e=>e?.name===goal.type&&e.position&&e.position.distanceTo(bot.entity.position)<=o.radius).sort((a,b)=>a.position.distanceTo(bot.entity.position)-b.position.distanceTo(bot.entity.position))
+ let lastBlock=null
+ const visibleFrom=(from,e)=>{const sight=observedSightline(bot,from,centreOf(e));if(sight.status==='blocked'){lastBlock=sight.block;return false}return aimPitch(from,centreOf(e))!==null}
+ const inSight=()=>candidates().find(e=>visibleFrom(bot.entity.position.offset(0,bot.entity.eyeHeight??1.62,0),e))
+ let moves=0
+ const takeAim=async()=>{
+  const seen=inSight();if(seen)return seen
+  if(moves>=o.repositions)return null
+  const feet=bot.entity.position.floored(),spots=[]
+  for(let dx=-o.reposition;dx<=o.reposition;dx++)for(let dz=-o.reposition;dz<=o.reposition;dz++)for(const dy of [0,1,-1]){
+   if(!dx&&!dz)continue
+   const c=feet.offset(dx,dy,dz);if(Math.hypot(dx,dz)<=o.reposition&&standable(bot,c))spots.push(c)
+  }
+  spots.sort((a,b)=>Math.hypot(a.x-feet.x,a.z-feet.z)-Math.hypot(b.x-feet.x,b.z-feet.z)||Math.abs(a.y-feet.y)-Math.abs(b.y-feet.y))
+  for(const c of spots){
+   const e=candidates().find(t=>visibleFrom(eyeAt(c),t));if(!e)continue
+   moves++;stage('repositioning');progress(`Stepping to ${c.x},${c.y},${c.z} for a clear shot at the ${goal.type}`)
+   const timer=setTimeout(()=>bot.pathfinder?.setGoal?.(null),o.repositionMs)
+   try{await bot.pathfinder.goto(new goals.GoalBlock(c.x,c.y,c.z))}catch{check()}finally{clearTimeout(timer)}
+   check()
+   return inSight()||null
+  }
+  return null
+ }
+ let target=await takeAim()
+ if(!target)throw new Error(`No clear shot at any ${goal.type} within ${o.radius} blocks, nor from a spot within ${o.reposition}: ${lastBlock||'a block'} is in the way`)
  let dead=false,shots=0,drawn=false,stopped=null,lastSeen=target.position.clone?.()??target.position
  const killed=e=>{if(e?.id===target.id)dead=true}
  bot.on('entityDead',killed)
@@ -120,7 +153,11 @@ export async function shootTarget(bot,task,{check,stage,progress},options={}){
    }
    lastSeen=target.position.clone?.()??target.position
    const sight=observedSightline(bot,eye(),centre())
-   if(sight.status==='blocked')throw new Error(`No clear shot at the ${goal.type}: ${sight.block||'a block'} is in the way`)
+   if(sight.status==='blocked'){
+    const next=await takeAim()
+    if(!next)throw new Error(`No clear shot at the ${goal.type}: ${sight.block||'a block'} is in the way`)
+    target=next;lastSeen=target.position.clone?.()??target.position;continue
+   }
    let a=aim()
    const early=lineOfFireBlocker(bot,eye(),a.aimAt,target)
    if(early)throw holdFire(early)

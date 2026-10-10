@@ -222,3 +222,28 @@ test('shoot re-acquires a target that drops out of the entity list, and says why
  assert.equal(lost.receipt,'target_survived');assert.equal(lost.stopped,'target_lost')
  assert.equal((await shootTarget(range({arrows:2,hitsToKill:99}).bot,{kind:'shoot',goal:{type:'zombie'}},api,fast)).stopped,'out_of_arrows')
 })
+
+// Run 87, 10 October: at the fortress, shoot took the nearest blaze, walled in
+// behind nether bricks, three times over, while the planner shuffled about. It
+// now takes the nearest blaze it can see, and with none in sight steps to a spot
+// within four blocks that has a clear line before giving up.
+test('shoot takes the nearest target it can see, not the nearest behind a wall',async()=>{
+ const r=range({hitsToKill:1})
+ r.bot.entities[8]={id:8,name:'zombie',type:'hostile',height:1.95,position:new Vec3(0.5,64,5.5),velocity:new Vec3(0,0,0)}
+ // The near zombie is behind a wall; the far one at z 15.5 is in plain view.
+ r.bot.world={raycast:(from,dir,range)=>range<8?{name:'nether_bricks'}:null}
+ let hit=null;r.bot.on('entityDead',e=>{hit=e.id})
+ const out=await shootTarget(r.bot,{kind:'shoot',goal:{type:'zombie'}},api,fast)
+ assert.equal(out.receipt,'killed');assert.equal(hit,7,'the visible one')
+})
+test('with no target in sight, shoot steps to a firing position within four blocks, or says none exists',async()=>{
+ const r=range({hitsToKill:1})
+ r.bot.pathfinder={setGoal(){},setMovements(){},async goto(g){r.log.push('walk '+[g.x,g.y,g.z]);r.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)},isMoving:()=>false}
+ // From x < 2 the bricks hide the zombie; two blocks east the line is clear.
+ r.bot.world={raycast:from=>from.x<2?{name:'nether_bricks'}:null}
+ const out=await shootTarget(r.bot,{kind:'shoot',goal:{type:'zombie'}},api,fast)
+ assert.equal(out.receipt,'killed',JSON.stringify(out));assert.ok(r.log.some(l=>/^walk 2,64,/.test(l)),r.log.join(' | '))
+ const walled=range();walled.bot.world={raycast:()=>({name:'nether_bricks'})}
+ walled.bot.pathfinder={setGoal(){},setMovements(){},async goto(){},isMoving:()=>false}
+ await assert.rejects(shootTarget(walled.bot,{kind:'shoot',goal:{type:'zombie'}},api,fast),/No clear shot at any zombie.*nether_bricks/)
+})
