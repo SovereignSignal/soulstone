@@ -143,3 +143,24 @@ test('a hunt paused by a hostile is an interruption, tried again after two minut
  assert.deepEqual(commands,[['hunt']]);assert.equal(c.requestProgress.foodFloor.outcome,'interrupted')
  assert.equal(foodFloorDue(day({last:{at:1e9-3*60000,outcome:'interrupted'}})).due,true)
 })
+
+// pi2, 10 October 21:08Z: the second morning's errand hunted from the base, where
+// six search legs found nothing, while every kill so far had been 40 to 60 blocks
+// west. The last place a hunt killed is remembered as the hunting ground, and an
+// errand with no animal in sight walks there before hunting.
+test('with no animal in sight the errand walks to the remembered hunting ground before it hunts',()=>{
+ const ground={x:50,y:70,z:699}
+ const far=day({position:{x:108,y:64,z:680},huntingGround:ground,animalsInSight:0})
+ assert.deepEqual(nextFoodStep(far,[]),{action:'go',goal:ground})
+ assert.deepEqual(nextFoodStep(far,['go']),{action:'hunt',goal:{item:'meat',count:4}},'once per errand')
+ assert.deepEqual(nextFoodStep({...far,animalsInSight:2},[]),{action:'hunt',goal:{item:'meat',count:4}},'animals in sight: hunt here')
+ assert.deepEqual(nextFoodStep({...far,position:{x:60,y:70,z:690}},[]),{action:'hunt',goal:{item:'meat',count:4}},'already on the hunting ground')
+ assert.deepEqual(nextFoodStep({...far,huntingGround:null},[]),{action:'hunt',goal:{item:'meat',count:4}})
+})
+test('a hunt that kills is remembered as the hunting ground',()=>{
+ const w=world(),{c,r}=teammate(w)
+ r.emit('event',{type:'task_finished',task:{id:'h',kind:'hunt',status:'completed',goal:{item:'meat',count:2},result:{item:'meat',count:2,kills:1,position:{x:50.4,y:70,z:699.6}}}})
+ assert.deepEqual(c.places.hunting_ground,{x:50.4,y:70,z:699.6,dimension:'overworld'})
+ r.emit('event',{type:'task_finished',task:{id:'i',kind:'hunt',status:'completed',goal:{item:'meat',count:2},result:{item:'meat',count:2,kills:0,position:{x:0,y:64,z:0}}}})
+ assert.equal(c.places.hunting_ground.x,50.4,'a hunt that killed nothing moves nothing')
+})

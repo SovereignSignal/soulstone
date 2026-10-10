@@ -21,6 +21,8 @@ export const FOOD_HUNT_COUNT=4
 // so an area with no animals costs one hunt, not one per planning round.
 export const FOOD_RETRY_MS={gained:120000,interrupted:120000,nothing:600000}
 const MEATS=Object.values(MEAT_DROPS)
+// Within this of the hunting ground the hunt's own search covers it.
+export const HUNT_GROUND_REACH=24
 // Raw -> cooked, from the furnace recipes the smelt action knows.
 const COOKS=Object.fromEntries(Object.entries(SMELTING).filter(([out])=>/^(cooked_|baked_)/.test(out)).map(([out,raw])=>[raw,out]))
 
@@ -52,6 +54,11 @@ export function nextFoodStep(s,done=[]){
   if(best)return {action:'eat',goal:{item:best,count:Math.min(8,have(best))}}
  }
  if(!done.includes('hunt')&&foodPoints(s.inventory,s.points)<FOOD_FLOOR){
+  // Nothing in sight here, and a hunting ground remembered from an earlier kill:
+  // walk there first (pi2, 21:08Z: the search legs from the base found nothing
+  // while every kill had been 40 to 60 blocks west).
+  const g=s.huntingGround,p=s.position
+  if(!done.includes('go')&&g&&p&&!(s.animalsInSight>0)&&Math.hypot(g.x-p.x,g.z-p.z)>HUNT_GROUND_REACH)return {action:'go',goal:{x:g.x,y:g.y,z:g.z}}
   const raw=MEATS.reduce((n,m)=>n+have(m),0)
   return {action:'hunt',goal:{item:'meat',count:Math.min(8,raw+FOOD_HUNT_COUNT)}}
  }
@@ -66,8 +73,10 @@ export function canCook(bot,base,inventory){
  return fuel&&furnace
 }
 export function foodState(c,bot){
- const inventory=inventoryOf(bot)
- return {inventory,food:bot.food,health:bot.health,timeOfDay:bot.time?.timeOfDay,dimension:dimensionOf(bot),underRock:!!bot.entity?.position&&roofed(bot),
+ const inventory=inventoryOf(bot),p=bot.entity?.position,here=dimensionOf(bot)
+ const ground=c.places?.hunting_ground,animals=Object.keys(MEAT_DROPS)
+ const animalsInSight=p?Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&animals.includes(e.name)&&e.position&&e.position.distanceTo(p)<=32).length:0
+ return {inventory,position:p?{x:p.x,y:p.y,z:p.z}:null,animalsInSight,huntingGround:ground&&(ground.dimension||'overworld')===here?ground:null,food:bot.food,health:bot.health,timeOfDay:bot.time?.timeOfDay,dimension:dimensionOf(bot),underRock:!!bot.entity?.position&&roofed(bot),
   canCook:canCook(bot,c.projects?.base,inventory),points:name=>bot.registry?.foodsByName?.[name]?.foodPoints||0,now:Date.now(),last:c.requestProgress?.foodFloor||null}
 }
 const summary=(bot,s=foodState({},bot))=>({points:foodPoints(s.inventory,s.points),food:bot.food,health:bot.health,carried:Object.fromEntries(Object.entries(s.inventory).filter(([n])=>SAFE_FOODS.has(n)||COOKS[n]))})
@@ -94,9 +103,13 @@ async function foodErrand(c,epoch,signal,bot,request){
   const step=nextFoodStep(foodState(c,bot),done);if(!step)break
   done.push(step.action==='smelt'?'smelt:'+step.goal.item:step.action)
   const goal=step.action==='smelt'?{...step.goal,project:c.projects?.base?structuredClone(c.projects.base):null}:step.goal
-  const record={action:step.action,step:{action:step.action,item:step.goal.item,count:step.goal.count},automatic:true,foodFloor:true}
+  const record={action:step.action,step:{action:step.action,item:step.goal.item,count:step.goal.count,...(step.action==='go'?{name:'hunting_ground'}:{})},automatic:true,foodFloor:true}
+  // Walking to the hunting ground is the same walk as to any saved place.
+  const here=bot.entity?.position,far=step.action==='go'&&here&&Math.hypot(goal.x-here.x,goal.z-here.z)>64
+  const command=step.action==='go'?{action:far?'travel':'navigate',goal:{x:goal.x,y:goal.y,z:goal.z},timeoutMs:far?600000:120000}
+   :{action:step.action,goal,timeoutMs:step.action==='eat'?30000:600000}
   try{
-   await c.execute({action:step.action,goal,timeoutMs:step.action==='eat'?30000:600000},signal)
+   await c.execute(command,signal)
    if(!current()){interrupted=true;break}
    const result=structuredClone(c.runner.task?.result??null)
    feedback.push({...record,status:'completed',result})
