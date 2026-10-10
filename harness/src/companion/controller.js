@@ -170,7 +170,9 @@ export class Teammate extends EventEmitter {
         // A bow duel under way is not stopped by a fireball's flames (lab, 10 October: the
         // blaze was left on 4 health twice); lava, or health at or under half, still is.
         const shooting=runner.task?.kind==='shoot'&&runner.task.status==='running'
-        const raw=emergencyReason({...observation,shelterAvailable,sheltered,recentDamageMs,roofed:underRock})
+        // Open sky decides whether a hurt, empty-handed bot can go and find food (survival.js).
+        const openSky=!!runner.bot?.entity?.position&&!roofed(runner.bot)
+        const raw=emergencyReason({...observation,shelterAvailable,sheltered,recentDamageMs,roofed:underRock,openSky})
         const reason=crossing&&(raw===PORTAL_EMERGENCY||raw===THREAT_INTERRUPTION&&runner.work?.stage==='entering')?null
          :shooting&&raw===FIRE_EMERGENCY&&observation.inLava!==true&&observation.health>HEALTH_EMERGENCY_LINE?null:raw
         // The journal should show the times rock was the reason work carried on.

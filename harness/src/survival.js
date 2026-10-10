@@ -183,7 +183,15 @@ export function emergencyReason(observation){
  // is genuinely not a threat and the agent would flee every one it sees. This
  // also covers fire, lava and a mob the version added after this was written.
  const underAttack=Number.isFinite(observation.recentDamageMs)&&observation.recentDamageMs<=DAMAGE_WINDOW_MS
- if(observation.health<=HEALTH_EMERGENCY_LINE&&observation.sheltered!==true&&(hostileNear||underAttack||observation.shelterAvailable===true&&darkness))return HEALTH_EMERGENCY
+ // Hurt with no way to heal in place (nothing carried, hunger under the 18 that
+ // regenerates), going in only waits for hostiles to leave, and a mob in a cave
+ // beside a player never does: pi2 (10 October) was called back from every food
+ // errand at 1 health by a zombie nine blocks below its base. Out under open sky in
+ // Overworld daylight, food is the remedy, so a hostile alone is the threat alarm's
+ // to answer, within its own radius; damage, night and the Nether keep this alarm.
+ const foraging=observation.openSky===true&&observation.dimension==='overworld'&&!(observation.carriedFood||[]).length&&
+  Number.isFinite(observation.food)&&observation.food<18&&Number.isFinite(observation.timeOfDay)&&observation.timeOfDay>=1000&&observation.timeOfDay<12000
+ if(observation.health<=HEALTH_EMERGENCY_LINE&&observation.sheltered!==true&&(hostileNear&&!foraging||underAttack||observation.shelterAvailable===true&&darkness))return HEALTH_EMERGENCY
  if(Number.isFinite(observation.food)&&observation.food<=6&&(observation.carriedFood||[]).length)return FOOD_EMERGENCY
  // Inside a verified closed lit shelter the answer to a nearby hostile is already
  // in place; interrupting there only retreats into the room the bot is standing in.

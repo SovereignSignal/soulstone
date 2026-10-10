@@ -159,3 +159,26 @@ test('in the Nether, burning out of lava and fire is no emergency of its own',as
  assert.equal(emergencyReason({...base,inFire:true}),FIRE_EMERGENCY,'and so does standing in fire')
  assert.equal(emergencyReason({...base,dimension:'overworld'}),FIRE_EMERGENCY,'in the Overworld water can still put it out')
 })
+
+// pi2, 10 October 20:33Z, on the food floor's first errand: at 1 health, hunger 10
+// and nothing carried, the health alarm called the bot back inside for a zombie in
+// the cave nine blocks below the base (10.5 away, out of sight, reach unknown). In
+// the base nothing raises health or hunger without food, so going in only waits for
+// mobs that never leave a cave beside a player: a deadlock, the dawn hunts' too.
+// Hurt with no way to heal in place, under open sky in Overworld daylight, the
+// health alarm leaves hostiles to the threat alarm, which still answers any one
+// inside its own radius; damage taken, night and the Nether keep the health alarm.
+test('hurt with no way to heal in place, out in Overworld daylight, the health alarm leaves hostiles to the threat alarm',async()=>{
+ const {emergencyReason,HEALTH_EMERGENCY,THREAT_INTERRUPTION}=await import('../src/survival.js')
+ const zombie={name:'zombie',distance:10.5,verticalOffset:-9,risk:'potential_hostile',reach:'unknown',sightline:{status:'blocked'}}
+ const base={gameMode:'survival',health:1,food:10,difficulty:'normal',dimension:'overworld',timeOfDay:6750,sheltered:false,shelterAvailable:true,
+  headSubmerged:false,oxygen:20,carriedFood:[],openSky:true,nearbyThreats:[zombie]}
+ assert.equal(emergencyReason(base),null,'the zombie below is outside the threat alarm\'s ten blocks')
+ assert.equal(emergencyReason({...base,nearbyThreats:[{...zombie,distance:8}]}),THREAT_INTERRUPTION,'closer, the threat alarm answers it')
+ assert.equal(emergencyReason({...base,recentDamageMs:500}),HEALTH_EMERGENCY,'being hurt still sends it in')
+ assert.equal(emergencyReason({...base,carriedFood:[{name:'bread',count:2}]}),HEALTH_EMERGENCY,'with food in the bag it can heal in shelter')
+ assert.equal(emergencyReason({...base,food:18}),HEALTH_EMERGENCY,'at hunger 18 it heals by waiting')
+ assert.equal(emergencyReason({...base,timeOfDay:12100}),HEALTH_EMERGENCY,'daylight is ending')
+ assert.equal(emergencyReason({...base,dimension:'the_nether'}),HEALTH_EMERGENCY,'no food to find in the Nether')
+ assert.equal(emergencyReason({...base,openSky:false}),HEALTH_EMERGENCY,'under rock the food is not here')
+})
