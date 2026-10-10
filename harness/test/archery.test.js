@@ -41,7 +41,7 @@ function range({bow=true,arrows=16,distance=15,hitsToKill=2,blocked=null}={}){
  const bot=new EventEmitter(),log=[],items=[...(bow?[{name:'bow',count:1}]:[]),...(arrows?[{name:'arrow',count:arrows}]:[])]
  const zombie={id:7,name:'zombie',type:'hostile',height:1.95,position:new Vec3(0.5,64,0.5+distance),velocity:new Vec3(0,0,0)}
  Object.assign(bot,{registry,entity:{position:new Vec3(0.5,64,0.5),eyeHeight:1.62},entities:{7:zombie},health:20,food:20,inventory:{items:()=>items},
-  blockAt:p=>({name:p.y<64?'stone':'air',position:p}),world:{raycast:()=>blocked?{name:blocked}:null},
+  blockAt:p=>({name:p.y<64?'stone':'air',boundingBox:p.y<64?'block':'empty',position:p}),world:{raycast:()=>blocked?{name:blocked}:null},
   async equip(item){log.push('equip '+item.name)},async look(yaw,pitch){bot.aim={yaw,pitch}},
   activateItem(){log.push('draw')},deactivateItem(){if(log.at(-1)!=='draw')return;log.push('release');const a=items.find(i=>i.name==='arrow');a.count--;if(log.filter(l=>l==='release').length>=hitsToKill)setTimeout(()=>{delete bot.entities[7];bot.emit('entityDead',zombie)},5)}})
  return {bot,log,zombie}
@@ -165,7 +165,7 @@ test('a target straight overhead is clear only with no protected bystander close
 // Lab, 10 October: a blaze 18 blocks off set off the safety ladder; flee,
 // retreat, burrow and hut all failed on open ground and the bot burned to
 // death with a bow and 55 arrows in hand, never shooting. A player shoots back.
-import {rangedDefenseDecision} from '../src/archery.js'
+import {rangedDefenseDecision,edgeExposed} from '../src/archery.js'
 function threatened({mob='blaze',distance=15,bow=true,arrows=20,health=20,food=20,extra={}}={}){
  const r=range({bow,arrows})
  Object.assign(r.bot,{health,food,game:{gameMode:'survival',difficulty:'normal'},time:{timeOfDay:6000}})
@@ -272,6 +272,31 @@ test('a second blaze that flies out of view ends the chain at the area check, no
  const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop');c.cancel?.(true)
  assert.equal(acts.filter(a=>a==='shoot').length,2,acts.join(' '))
  assert.ok(!acts.some(a=>['retreat','burrow','hut','use_portal'].includes(a)),'the area is clear once it is gone: '+acts.join(' '))
+})
+
+// Lab run 99, 10 October: shooting a blaze from the open end of the fortress
+// bridge, the bot was knocked over the edge by a fireball between shots and
+// died in the lava sea thirty blocks down, its first blaze rod with it.
+function ledge(groundAt){
+ const r=range({hitsToKill:1})
+ r.bot.blockAt=p=>{const solid=p.y<64&&groundAt(Math.floor(p.x),Math.floor(p.z));return {name:solid?'stone':'air',boundingBox:solid?'block':'empty',position:p}}
+ const walked=[]
+ r.bot.pathfinder={movements:null,setMovements(m){this.movements=m},setGoal(){},async goto(g){walked.push([g.x,g.y,g.z]);r.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}}
+ return {...r,walked}
+}
+test('the bow steps back from an open edge before it draws',async()=>{
+ const r=ledge(x=>x<=1)
+ r.bot.entity.position=new Vec3(1.5,64,0.5)
+ const out=await shootTarget(r.bot,{kind:'shoot',goal:{type:'zombie'}},api,fast)
+ assert.equal(out.receipt,'killed')
+ assert.equal(r.walked.length,1,'one step back');assert.ok(r.walked[0][0]<=0,'to a cell with ground all round: '+JSON.stringify(r.walked))
+ assert.ok(r.log.indexOf('draw')>=0)
+ assert.ok(edgeExposed(r.bot,new Vec3(1,64,0))&&!edgeExposed(r.bot,new Vec3(0,64,0)))
+})
+test('with every firing spot at an open edge, the bow refuses and says so',async()=>{
+ const r=ledge((x,z)=>x===0&&z===0)
+ await assert.rejects(shootTarget(r.bot,{kind:'shoot',goal:{type:'zombie'}},api,fast),/open edge/)
+ assert.deepEqual(r.log.filter(l=>l==='draw'),[],'never drew at the edge')
 })
 
 // Lab, 10 October: shoot fired once at a blaze and finished "target_survived"

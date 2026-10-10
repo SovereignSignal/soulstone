@@ -5,7 +5,7 @@ import {observedSightline} from './visibility.js'
 import {fullCube} from './construction.js'
 import {survivalObservation} from './survival.js'
 import {standable} from './fire-safety.js'
-import {DoorAwareMovements} from './navigation.js'
+import {DoorAwareMovements,bridgeFall} from './navigation.js'
 import pathfinding from 'mineflayer-pathfinder'
 const {goals}=pathfinding
 import {RANGED_DEFENSE,bowCanAnswer} from './bow-readiness.js'
@@ -87,6 +87,12 @@ export function lineOfFireBlocker(bot,from,aimAt,target){
  }
  return null
 }
+// A stance at an open edge: a neighbouring cell the bot could be knocked into
+// with no ground within a harmless fall below it. A blaze's fireball knocks back.
+const AROUND=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]
+export function edgeExposed(bot,cell){
+ return AROUND.some(([dx,dz])=>{const n=cell.offset(dx,0,dz);return !fullCube(bot.registry,bot.blockAt(n)?.name)&&bridgeFall(bot,n)==='unsafe'})
+}
 export async function shootTarget(bot,task,{check,stage,progress},options={}){
  const o={...SHOOT,...options}
  const goal=validateAttackGoal(task.goal,bot.registry)
@@ -104,18 +110,22 @@ export async function shootTarget(bot,task,{check,stage,progress},options={}){
  let lastBlock=null
  const visibleFrom=(from,e)=>{const sight=observedSightline(bot,from,centreOf(e));if(sight.status==='blocked'){lastBlock=sight.block;return false}return aimPitch(from,centreOf(e))!==null}
  const inSight=()=>candidates().find(e=>visibleFrom(bot.entity.position.offset(0,bot.entity.eyeHeight??1.62,0),e))
- let moves=0
+ let moves=0,edgeRefusal=false
  const takeAim=async()=>{
-  const seen=inSight();if(seen)return seen
+  // Lab run 99: knocked off the open end of the fortress bridge between shots.
+  // Never draw at an open edge; step back from one first.
+  const feet=bot.entity.position.floored(),atEdge=edgeExposed(bot,feet)
+  const seen=atEdge?null:inSight();if(seen)return seen
   if(moves>=o.repositions)return null
-  const feet=bot.entity.position.floored(),spots=[]
+  const spots=[]
   for(let dx=-o.reposition;dx<=o.reposition;dx++)for(let dz=-o.reposition;dz<=o.reposition;dz++)for(const dy of [0,1,-1]){
    if(!dx&&!dz)continue
-   const c=feet.offset(dx,dy,dz);if(Math.hypot(dx,dz)<=o.reposition&&standable(bot,c))spots.push(c)
+   const c=feet.offset(dx,dy,dz);if(Math.hypot(dx,dz)<=o.reposition&&standable(bot,c)&&!edgeExposed(bot,c))spots.push(c)
   }
+  if(atEdge&&!spots.length)edgeRefusal=true
   spots.sort((a,b)=>Math.hypot(a.x-feet.x,a.z-feet.z)-Math.hypot(b.x-feet.x,b.z-feet.z)||Math.abs(a.y-feet.y)-Math.abs(b.y-feet.y))
   for(const c of spots){
-   const e=candidates().find(t=>visibleFrom(eyeAt(c),t));if(!e)continue
+   const e=candidates().find(t=>visibleFrom(eyeAt(c),t));if(!e){if(atEdge)edgeRefusal=true;continue}
    moves++;stage('repositioning');progress(`Stepping to ${c.x},${c.y},${c.z} for a clear shot at the ${goal.type}`)
    // Security review of 35a7589: walk as attack chases, never digging, towering or
    // placing on the way, and give the runner its own movement profile back.
@@ -130,6 +140,7 @@ export async function shootTarget(bot,task,{check,stage,progress},options={}){
   return null
  }
  let target=await takeAim()
+ if(!target&&edgeRefusal)throw new Error(`Not shooting from an open edge: no spot within ${o.reposition} blocks away from the drop has a clear shot at a ${goal.type}`)
  if(!target)throw new Error(`No clear shot at any ${goal.type} within ${o.radius} blocks, nor from a spot within ${o.reposition}: ${lastBlock||'a block'} is in the way`)
  let dead=false,shots=0,drawn=false,stopped=null,lastSeen=target.position.clone?.()??target.position
  const killed=e=>{if(e?.id===target.id)dead=true}
