@@ -291,3 +291,21 @@ test('mining never takes a block inside the saved base',async()=>{
  await assert.rejects(executeWorldSkill(bot,{kind:'acquire',goal:{item:'obsidian',count:1}},{check(){},stage(){},persist(){},progress(){},movements:{},shelterProject:base},()=>{throw new Error('must not gather')}),/No reachable obsidian/)
  assert.deepEqual(seen,[false],'the block inside the footprint was offered and refused')
 })
+
+test('an item that only a furnace makes is refused with the smelt step, not a recipe cycle',async()=>{
+ // Lab run 94, 10 October: acquire flint_and_steel with no iron failed with
+ // "Recipe dependency cycle for iron_ingot". Its only crafting recipes need
+ // ingots (from nuggets, from a block); ingots come from the furnace.
+ const names=['iron_ingot','iron_nugget','iron_block','flint','flint_and_steel']
+ const items=names.map((name,id)=>({id,name})),itemsByName=Object.fromEntries(items.map(i=>[i.name,i]))
+ const recipe=(id,count,ingredients)=>({result:{id,count},requiresTable:false,delta:[...ingredients.map(([id,count])=>({id,count:-count})),{id,count}]})
+ const recipes={0:[recipe(0,1,[[1,9]]),recipe(0,9,[[2,1]])],1:[recipe(1,9,[[0,1]])],2:[recipe(2,1,[[0,9]])],4:[recipe(4,1,[[0,1],[3,1]])]}
+ const inventory=new Map([[3,1]])
+ const bot={registry:{items,itemsByName,blocksByName:{}},_client:new EventEmitter(),
+  inventory:{items:()=>[...inventory].filter(([,count])=>count>0).map(([id,count])=>({type:id,name:names[id],count}))},
+  findBlocks:()=>[],findBlock:()=>null,entity:{position:new Vec3(0.5,64,0.5)},world:{raycast:()=>null},
+  pathfinder:{setMovements(){},setGoal(){},async goto(){}},recipesAll:id=>recipes[id]||[],recipesFor:()=>[],async craft(){assert.fail('nothing to craft')}}
+ Object.setPrototypeOf(bot,new EventEmitter())
+ await assert.rejects(executeWorldSkill(bot,{kind:'acquire',goal:{item:'flint_and_steel',count:1}},{check(){},stage(){},persist(){},progress(){},movements:{}},()=>{throw new Error('must not gather')}),
+  /iron_ingot comes from a furnace: smelt raw_iron/)
+})

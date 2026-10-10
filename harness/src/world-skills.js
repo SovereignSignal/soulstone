@@ -16,7 +16,7 @@ import {placeBuildingBlock} from './building-blocks.js'
 import {executeConstruction,fullCube} from './construction.js'
 import {prepareTools,stockTunnelPickaxes} from './supplies.js'
 import {executeExpedition,EXPEDITION_ACTIONS} from './prospecting.js'
-import {executeStationSkill,STATION_ACTIONS} from './stations.js'
+import {executeStationSkill,STATION_ACTIONS,SMELTING} from './stations.js'
 import {nearbyResources} from './observations.js'
 import {Vec3} from 'vec3'
 import pathfinding from 'mineflayer-pathfinder'
@@ -385,6 +385,10 @@ export async function executeWorldSkill(bot,task,context,gather) {
   recipes.sort((a,b)=>scores.get(a)-scores.get(b))
   function score(r){return r.delta.filter(d=>d.count<0).reduce((n,d)=>n+supplyCost(bot.registry.items[d.id]?.name,-d.count,[name],memo),0)}
   const recipe=recipes[0]
+  // Crafting alone loops for a furnace product (iron ingots from nuggets or a block,
+  // both made of ingots): name the furnace step instead (lab run 94).
+  if(Object.hasOwn(SMELTING,name)&&(!recipe||scores.get(recipe)>=100000))
+   throw new Error(`${name} comes from a furnace: smelt ${SMELTING[name]} into ${name} first, then ask again`)
   if(!recipe){await mine(name,total,next);return}
   let table=recipe.requiresTable?await tableFor(next):null
   while(count(name)<total){
