@@ -166,3 +166,18 @@ test('a shooter with no line of sight is no alarm until it has one; melee mobs s
  assert.equal(emergencyReason({...o,health:8,nearbyThreats:[t('blaze',13,'blocked')]}),null,'nor is it a health alarm')
  assert.equal(cannotShootYet(t('ghast',30,'blocked')),true);assert.equal(cannotShootYet(t('drowned',10,'blocked')),false)
 })
+// pi2, 10 October: two dawn hunts at 1 health were cancelled by the health alarm
+// within six seconds, and the journal could not say which hostile raised it: the
+// recovery record, taken a moment later, showed only a witch thirteen blocks down
+// behind grass. The alarm now logs what it counted when it fires.
+test('the health alarm logs the hostiles it counted, with reach and sightline',()=>{
+ const {bot,cells}=trial42(),r=new FakeRunner(bot);bot.health=5
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-health-log-')),'state.json'))
+ const calls=[],logs=[];c.seekSafety=async why=>{calls.push(why);c.safety={status:'retreating',reason:why}};r.log=(type,data)=>logs.push([type,data])
+ breach(cells);const creeper=Object.values(bot.entities).find(e=>e.name==='creeper');creeper.position=new Vec3(-598.5,-48,-332.5)
+ r.emit('event',{type:'survival_tick'})
+ assert.deepEqual(calls,['Health is at or below half'])
+ const entry=logs.find(([type])=>type==='health_alarm')
+ assert.ok(entry,JSON.stringify(logs));assert.equal(entry[1].health,5)
+ assert.ok(entry[1].counted.some(t=>/^creeper@[\d.]+\/-?[\d.]+:open(~\d+)?:blocked$/.test(t)),JSON.stringify(entry[1]))
+})
