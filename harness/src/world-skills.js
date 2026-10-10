@@ -29,6 +29,9 @@ import {supportsPlayer} from './navigation.js'
 import {WATER_BLOCKS} from './survival.js'
 import {walkWithTerrainRecovery} from './route-recovery.js'
 import {travelTo} from './travel.js'
+import {huntFor,HUNTABLE} from './hunt.js'
+import {meleeWeapon} from './combat.js'
+import {calmDaylight} from './survival.js'
 const {goals}=pathfinding
 const key=p=>`${p.x},${p.y},${p.z}`
 const FALLING=/^(gravel|sand|red_sand|suspicious_sand|suspicious_gravel)$|_concrete_powder$/
@@ -368,6 +371,27 @@ export async function executeWorldSkill(bot,task,context,gather) {
   const cost=recipes.length?1+Math.min(...recipes.map(r=>r.delta.filter(d=>d.count<0).reduce((sum,d)=>sum+supplyCost(bot.registry.items[d.id].name,-d.count*Math.ceil(missing/r.result.count),[...trail,name],memo),0))):100000
   memo.set(cacheKey,cost);return cost
  }
+ // An animal drop is hunted, a few hunts at most, each one bounded by the hunt's
+ // own time, search legs and safety guards. A hunt that gains nothing ends it.
+ async function hunted(name,total,path){
+  await leaveForWork()
+  const animals=HUNTABLE[name]
+  // A spider bites back: arm first, but only when the hunt could start at all.
+  if(animals.includes('spider')&&calmDaylight(bot)&&!meleeWeapon(bot))await acquire('stone_sword',1,path)
+  for(let hunt=1;count(name)<total;hunt++){
+   budget()
+   const before=count(name)
+   try{await huntFor(bot,{kind:'hunt',goal:{item:name,count:total}},{check,stage,progress,persist:context.persist||(()=>{}),movements,max:128})}
+   catch(error){
+    check()
+    const why=String(error.message)
+    if(count(name)<=before)throw new Error(/comes from/.test(why)?why:`${name} comes from ${animals.join(' or ')} (no recipe or block gives it), and the hunt failed: ${why}`)
+    progress(`Hunt ${hunt} ended with ${count(name)}/${total} ${name}: ${String(error.message).slice(0,80)}`)
+   }
+   if(count(name)<=before)throw new Error(`A hunt for ${name} gained nothing; carrying ${count(name)}/${total}`)
+   if(hunt>=4&&count(name)<total)throw new Error(`Four hunts brought ${count(name)}/${total} ${name}; ${animals.join(' or ')} are scarce here`)
+  }
+ }
  async function acquire(name,total,path=[]) {
   budget()
   if(count(name)>=total)return
@@ -387,6 +411,8 @@ export async function executeWorldSkill(bot,task,context,gather) {
   const recipe=recipes[0]
   // Crafting alone loops for a furnace product (iron ingots from nuggets or a block,
   // both made of ingots): name the furnace step instead (lab run 94).
+  // Feathers and string have no recipe and no block: an animal drops them.
+  if(Object.hasOwn(HUNTABLE,name)&&(!recipe||scores.get(recipe)>=100000)){await hunted(name,total,next);return}
   if(Object.hasOwn(SMELTING,name)&&(!recipe||scores.get(recipe)>=100000))
    throw new Error(`${name} comes from a furnace: smelt ${SMELTING[name]} into ${name} first, then ask again`)
   if(!recipe){await mine(name,total,next);return}

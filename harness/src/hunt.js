@@ -22,12 +22,14 @@ export const HUNT_LEGS=6,HUNT_LEG=32
 const EDIBLE=Object.keys(MEAT_DROPS)
 const point=p=>new Vec3(p.x,p.y,p.z)
 const distance=(a,b)=>point(a).distanceTo(point(b))
-export function validateHuntGoal(goal){
- if(!(HUNTABLE[goal?.item]||goal?.item==='meat')||!Number.isInteger(goal.count)||goal.count<1||goal.count>8)throw new Error('Hunt needs a farm-animal drop (beef, porkchop, mutton, chicken, rabbit, leather, feather, white_wool, string from spiders in daylight, or meat for any of them) and a total of 1–8')
+// Planned hunts carry at most 8; acquire, which needs 8 feathers for 32 arrows
+// and more for a stack, passes its own bound.
+export function validateHuntGoal(goal,max=8){
+ if(!(HUNTABLE[goal?.item]||goal?.item==='meat')||!Number.isInteger(goal.count)||goal.count<1||goal.count>max)throw new Error('Hunt needs a farm-animal drop (beef, porkchop, mutton, chicken, rabbit, leather, feather, white_wool, string from spiders in daylight, or meat for any of them) and a total of 1–'+max)
  return {item:goal.item,count:goal.count}
 }
-export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},movements,contactMs=12000}){
- const {item,count:total}=validateHuntGoal(task.goal),animals=item==='meat'?EDIBLE:HUNTABLE[item]
+export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},movements,contactMs=12000,max=8}){
+ const {item,count:total}=validateHuntGoal(task.goal,max),animals=item==='meat'?EDIBLE:HUNTABLE[item]
  const counted=item==='meat'?Object.values(MEAT_DROPS):[item]
  const count=()=>bot.inventory.items().filter(i=>counted.includes(i.name)).reduce((n,i)=>n+i.count,0)
  // String comes from spiders. A spider is calm only in daylight on the open

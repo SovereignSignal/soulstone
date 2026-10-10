@@ -309,3 +309,49 @@ test('an item that only a furnace makes is refused with the smelt step, not a re
  await assert.rejects(executeWorldSkill(bot,{kind:'acquire',goal:{item:'flint_and_steel',count:1}},{check(){},stage(){},persist(){},progress(){},movements:{}},()=>{throw new Error('must not gather')}),
   /iron_ingot comes from a furnace: smelt raw_iron/)
 })
+
+// A bow and arrows from scratch: feathers come from chickens and string from
+// spiders, and neither has a recipe or a block to mine. acquire said "No mining
+// source for feather" and stopped; it now hunts a drop that only an animal gives.
+function arrowFixture({entities={},time=3000,carried=[['flint',1],['stick',1]]}={}){
+ const registry=minecraftData('1.21.4'),id=n=>registry.itemsByName[n].id,name=i=>registry.items[i].name
+ const recipe=(result,count,ingredients)=>({result:{id:id(result),count},requiresTable:true,delta:[...ingredients.map(([n,c])=>({id:id(n),count:-c})),{id:id(result),count}]})
+ const recipes={[id('arrow')]:[recipe('arrow',4,[['flint',1],['stick',1],['feather',1]])],[id('bow')]:[recipe('bow',1,[['stick',3],['string',3]])]}
+ const inventory=new Map(carried),client=new EventEmitter(),table={name:'crafting_table',position:new Vec3(0,64,0)}
+ const bot={registry,_client:client,health:20,food:20,
+  game:{gameMode:'survival',difficulty:'normal'},time:{timeOfDay:time},
+  inventory:{items:()=>[...inventory].filter(([,count])=>count>0).map(([n,count])=>({type:id(n),name:n,count,...(n.endsWith('_sword')?{maxDurability:131,durabilityUsed:0}:{})}))},
+  findBlocks:()=>[],findBlock:()=>table,blockAt:p=>({name:'air',position:p}),entities,
+  entity:{id:1,type:'player',position:new Vec3(1.5,64,0.5),onGround:true,eyeHeight:1.62},clearControlStates(){},setControlState(){},
+  // Only the table stops a ray: the walk to it can see it, and the animals are in the open.
+  world:{raycast(s,d,len){const v=table.position.offset(.5,.5,.5).minus(s),along=v.dot(d);return along>=0&&along<=len&&v.minus(d.scaled(along)).norm()<.9?{position:table.position,name:'crafting_table'}:null}},
+  pathfinder:{setMovements(){},setGoal(g){if(g&&g.entity)bot.entity.position=new Vec3(g.entity.position.x-1,64,g.entity.position.z)},async goto(g){if(g?.pos)bot.entity.position=new Vec3(g.pos.x+1.5,64,g.pos.z+.5)}},
+  async equip(){},async lookAt(){},
+  attack(e){e.health-=7;if(e.health<=0){delete bot.entities[e.id];bot.emit('entityDead',e);const drop=e.name==='chicken'?'feather':'string';inventory.set(drop,(inventory.get(drop)||0)+(e.name==='chicken'?1:2))}},
+  recipesAll:i=>recipes[i]||[],
+  recipesFor:i=>(recipes[i]||[]).filter(r=>r.delta.filter(d=>d.count<0).every(d=>(inventory.get(name(d.id))||0)>=-d.count)),
+  async craft(r){for(const d of r.delta)inventory.set(name(d.id),(inventory.get(name(d.id))||0)+d.count);client.emit('packet',{},{name:'set_slot'})}
+ }
+ Object.setPrototypeOf(bot,new EventEmitter())
+ return {bot,inventory}
+}
+test('acquire hunts a chicken for the feather an arrow needs, then crafts the arrows',async()=>{
+ const {bot,inventory}=arrowFixture({entities:{8:{id:8,uuid:'c',type:'animal',name:'chicken',height:0.7,position:new Vec3(5,64,0),health:4}}})
+ const result=await executeWorldSkill(bot,{kind:'acquire',goal:{item:'arrow',count:4}},{check(){},stage(){},persist(){},progress(){},movements:{}},()=>{throw new Error('no logs needed')})
+ assert.equal(result.item,'arrow');assert.equal(inventory.get('arrow'),4)
+})
+test('acquire for string hunts a calm spider, and at night says when and how string comes instead of "no mining source"',async()=>{
+ const spider=()=>({8:{id:8,uuid:'s',type:'hostile',name:'spider',height:0.9,position:new Vec3(5,64,0),health:16}})
+ const ctx={check(){},stage(){},persist(){},progress(){},movements:{}},noLogs=()=>{throw new Error('no logs needed')}
+ const day=arrowFixture({entities:spider(),carried:[['stick',3],['stone_sword',1],['string',1]]})
+ await executeWorldSkill(day.bot,{kind:'acquire',goal:{item:'bow',count:1}},ctx,noLogs)
+ assert.equal(day.inventory.get('bow'),1,'bow crafted from hunted string')
+ const night=arrowFixture({entities:spider(),time:15000,carried:[['stick',3],['stone_sword',1]]})
+ await assert.rejects(executeWorldSkill(night.bot,{kind:'acquire',goal:{item:'bow',count:1}},ctx,noLogs),e=>{
+  assert.doesNotMatch(e.message,/mining source/);assert.match(e.message,/spiders/);assert.match(e.message,/daylight/);return true})
+ const unarmed=arrowFixture({entities:spider(),carried:[['stick',3]]})
+ await assert.rejects(executeWorldSkill(unarmed.bot,{kind:'acquire',goal:{item:'bow',count:1}},ctx,noLogs),/stone_sword/,'arms itself before a spider hunt')
+ const none=arrowFixture({carried:[['flint',1],['stick',1]]})
+ await assert.rejects(executeWorldSkill(none.bot,{kind:'acquire',goal:{item:'arrow',count:4}},ctx,noLogs),e=>{
+  assert.doesNotMatch(e.message,/mining source/);assert.match(e.message,/feather/);return true})
+})
