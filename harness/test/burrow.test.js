@@ -649,3 +649,14 @@ test('the clearance asks whether a shooter could see the bot at the shelter\'s e
  const hidden=at('blocked');assert.equal(hidden.clear,true,hidden.reason)
  const seen=at('clear');assert.equal(seen.clear,false,'a blaze that could see the exit still holds the bot in')
 })
+
+test('in the Nether a shelter that will not clear leaves through the portal, not deeper in',async()=>{
+ // Lab run 100: walled in among hoglins in the fortress, the relocate fled 32
+ // blocks away from them, deeper into the fortress, and a wither skeleton killed it.
+ const {relocateWay}=await import('../src/companion/controller.js')
+ const portalId=registry.blocksByName.nether_portal.id
+ const bot=(dimension,portal)=>({registry,game:{dimension:`minecraft:${dimension}`},findBlock:({matching})=>portal&&matching===portalId?{position:new Vec3(0,64,0)}:null})
+ assert.equal(relocateWay(bot('the_nether',true)),'portal')
+ assert.equal(relocateWay(bot('the_nether',false)),'flee','no portal in reach: run')
+ assert.equal(relocateWay(bot('overworld',true)),'flee','in the Overworld a portal is not the way away')
+})

@@ -20,6 +20,11 @@ import {setTimeout as delay} from 'node:timers/promises'
 const BURROW_WATCHES=4
 // How far off the nearest hostile must be for a portal room to go up before it arrives.
 const PORTAL_ROOM_STANDOFF=6
+// How a shelter that will not clear moves away: through the portal when in the
+// Nether with one in reach, otherwise by running from the threats.
+export function relocateWay(bot){
+ return inNether(bot)&&bot?.findBlock?.({matching:bot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})?'portal':'flee'
+}
 // Shooters the bow takes in one defense before the area is judged.
 const RANGED_CHAIN=4
 // A hostile inside its own interruption radius while the bot is indoors: the
@@ -871,7 +876,12 @@ export class Teammate extends EventEmitter {
       // Opening one wall is not leaving: a shelter four blocks down still needs
       // the pit exit before a sprint has anywhere to go, which is why moving away
       // from danger climbs first everywhere else the harness does it.
-      if(relocate){
+      if(relocate&&relocateWay(bot)==='portal'){
+        // Lab run 100: in the Nether "leaving the area" fled 32 blocks deeper into a
+        // fortress and met a wither skeleton. With the portal in reach, home is away.
+        try{await this.execute({action:'use_portal',goal:{},timeoutMs:45000},signal);check();safety.relocated=structuredClone(this.runner.task.result);this.persist()}
+        catch(error){check();this.say('I could not get back through the portal: '+error.message);this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check()}
+      }else if(relocate){
         try{await this.execute({action:'climb',goal:{},timeoutMs:45000},signal);check()}
         catch(error){check();this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check()}
         try{await this.execute({action:'flee',goal:{from:relocate.from,distance:32},timeoutMs:60000},signal);check()

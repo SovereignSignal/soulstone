@@ -222,3 +222,24 @@ test('a hut left half open is opened the rest of the way toward the portal',asyn
  const r=await usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true},{pollMs:5})
  assert.equal(r.receipt,'crossed');assert.ok(f.log.includes('dig -2,65,0'),f.log.join(' | '))
 })
+
+// Lab run 100, 10 October: the bot walled in beside the arrival portal, dug out
+// one side to work, and later, fleeing hoglins, found every cell beside the
+// portal filled by its own cobblestone: "walled or flooded", and it fled deeper
+// into the fortress instead and died. Its own blocks are its to take back.
+function walledPortal({own}){
+ const f=crossing('the_nether')
+ for(const c of ['1,64,0','1,65,0','3,64,0','3,65,0','2,64,1','2,65,1','2,64,-1','2,65,-1'])f.world.set(c,'cobblestone')
+ f.bot.ownBlocks={has:(p,name)=>own&&name==='cobblestone'}
+ f.bot.dig=async b=>{f.log.push('dig '+key(b.position));f.world.set(key(b.position),'air')}
+ return f
+}
+test('use_portal opens its own wall beside the portal, and only its own',async()=>{
+ const f=walledPortal({own:true})
+ const r=await usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api},{pollMs:5})
+ assert.equal(r.receipt,'crossed',f.log.join(' | '))
+ assert.deepEqual(f.log.filter(l=>l.startsWith('dig')),['dig 1,65,0','dig 1,64,0'],'the nearest side, head then feet')
+ const g=walledPortal({own:false})
+ await assert.rejects(usePortal(g.bot,{kind:'use_portal',goal:{}},{...g.api},{pollMs:5}),/walled or flooded/)
+ assert.ok(!g.log.some(l=>l.startsWith('dig')),'never digs what someone else placed')
+})

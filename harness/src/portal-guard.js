@@ -73,8 +73,28 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
   // only from a standing cell beside the portal.
   const here=bot.entity.position
   // Level with the bottom cell, or one lower for a frame built on the ground, jumped in from.
-  const stands=[0,-1].flatMap(dy=>[[1,0],[-1,0],[0,1],[0,-1]].map(([dx,dz])=>portal.offset(dx,dy,dz))).filter(p=>standable(bot,p)).sort((a,b)=>(b.y-a.y)||a.distanceTo(here)-b.distanceTo(here))
-  if(!stands.length)throw new Error(`No standing cell beside the portal at ${key(portal)}; it is walled or flooded`)
+  const sides=[0,-1].flatMap(dy=>[[1,0],[-1,0],[0,1],[0,-1]].map(([dx,dz])=>portal.offset(dx,dy,dz)))
+  const order=(a,b)=>(b.y-a.y)||a.distanceTo(here)-b.distanceTo(here)
+  let stands=sides.filter(p=>standable(bot,p)).sort(order)
+  // Lab run 100: every cell beside the portal held the bot's own portal-room
+  // cobblestone, and it fled into the fortress instead. What it placed it may
+  // take back; anything else still walls the portal off.
+  if(!stands.length){
+   const own=p=>{const b=bot.blockAt(p);return !!b&&b.boundingBox==='block'&&!!bot.ownBlocks?.has?.(p,b.name,dimensionOf(bot))}
+   const open=p=>{const b=bot.blockAt(p);return !!b&&b.boundingBox==='empty'&&b.name!=='nether_portal'&&!/lava|water/.test(b.name)}
+   const floor=p=>bot.blockAt(p.offset(0,-1,0))?.boundingBox==='block'
+   const reclaim=sides.filter(p=>floor(p)&&[0,1].every(y=>open(p.offset(0,y,0))||own(p.offset(0,y,0)))).sort(order)
+   if(!reclaim.length)throw new Error(`No standing cell beside the portal at ${key(portal)}; it is walled or flooded`)
+   const cell=reclaim[0]
+   stage('opening');progress(`Opening my own wall beside the portal at ${key(cell)}`)
+   if(bot.entity.position.distanceTo(cell.offset(.5,.5,.5))>3.5){
+    const timer=setTimeout(()=>bot.pathfinder.setGoal(null),reachMs)
+    try{await bot.pathfinder.goto(new goals.GoalNear(cell.x,cell.y,cell.z,2))}catch{check()}finally{clearTimeout(timer)}
+   }
+   for(const y of [1,0]){const c=cell.offset(0,y,0);if(!own(c))continue;check();const b=bot.blockAt(c);await bot.tool?.equipForBlock?.(b,{requireHarvest:false});await bot.dig(b);check()}
+   if(!standable(bot,cell))throw new Error(`Could not open my own wall beside the portal at ${key(cell)}`)
+   stands=[cell]
+  }
   const beside=()=>stands.some(p=>{const f=bot.entity.position;return Math.floor(f.x)===p.x&&Math.floor(f.y)===p.y&&Math.floor(f.z)===p.z})
   // Walled in for safety (run 73), open the wall facing the portal first: the
   // walk never digs blocks the bot placed itself.
