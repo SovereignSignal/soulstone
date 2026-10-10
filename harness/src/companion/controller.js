@@ -3,6 +3,7 @@ import {projectDimension,sameDimension,inNether} from '../dimension.js'
 import {updateMission,syncMissionStatus,missionFocus} from './milestones.js'
 import {SkillControl,selectSkill} from './skill-control.js'
 import {eatOnClearGround} from './food-recovery.js'
+import {keepFoodFloor} from './food-floor.js'
 import {validateObservedTravelGoal} from '../travel.js'
 import {validateGotoGoal,validateDigGoal} from '../primitives.js'
 import {validatePlaceAtGoal,validateCollectGoal,validateAttackGoal} from '../primitives-world.js'
@@ -1188,6 +1189,9 @@ export class Teammate extends EventEmitter {
           episode?.write('criterion_stall_halt',{rounds:stall.rounds,since:stall.since,missing})
           this.say(message);episode?.end('blocked',{reason:'criterion_stall',rounds:stall.rounds,missing});this.emit('change');return
         }
+        // The food floor (food-floor.js): under a full bar of carried food in Overworld
+        // daylight, the bot gets food before the request's next step, on its own.
+        const errand=keepFoodFloor(this,epoch,abort.signal);if(errand){await errand;if(epoch!==this.epoch)return}
         const observation=observe(),milestoneId=observation.activeMilestone?.id
         this.phase='thinking';this.emit('change')
         episode?.write('observation', { round, observation: structuredClone(observation) })
