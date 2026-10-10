@@ -709,7 +709,24 @@ export class Teammate extends EventEmitter {
         this.persist()
         if(!corneredDecision(recoveryBot).engage){await this.lastResortShelter(epoch,abort.signal);if(epoch!==this.epoch||abort.signal.aborted)return}
       }
-      if(!this.safety.retreat&&await this.moveOutOfDanger(epoch,abort.signal,recoveryBot)){
+      // In the Nether "moving away" runs into the fortress (runs 100 and 107 died that
+      // way, 107 with two blaze rods). With a portal in reach, try it again instead.
+      if(!this.safety.retreat&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})){
+        const attempt={name:'portal_home',status:'trying'};this.safety.attempts.push(attempt);this.persist()
+        this.say('Nowhere to wall in here. Trying the portal again.')
+        try{
+          await this.execute({action:'use_portal',goal:{},timeoutMs:45000},abort.signal)
+          if(epoch!==this.epoch||abort.signal.aborted)return
+          attempt.status='crossed';this.safety=null;this.phase=canResume(this.requestProgress)?'blocked':'ready';this.persist()
+          this.say('I am back in the Overworld, away from the danger.')
+          return
+        }catch(error){
+          if(epoch!==this.epoch||abort.signal.aborted)return
+          attempt.status='rejected';attempt.reason=error.message;this.persist()
+          this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)
+        }
+      }
+      else if(!this.safety.retreat&&await this.moveOutOfDanger(epoch,abort.signal,recoveryBot)){
         if(epoch!==this.epoch||abort.signal.aborted)return
         await this.lastResortShelter(epoch,abort.signal)
         if(epoch!==this.epoch||abort.signal.aborted)return
@@ -824,8 +841,10 @@ export class Teammate extends EventEmitter {
     if(!this.safety.retreat){
       const attempt={name:'hut',status:'trying'};this.safety.attempts.push(attempt);this.persist()
       this.say('The ground here cannot be dug. I am walling myself in with carried blocks.')
+      // In the Nether a portal room a step away beats a plain hut on a bridge (run 107).
+      const bot=this.runner.bot,roomGoal=inNether(bot)&&((()=>{const site=hutSite(bot);return site.ok&&site.portal})()||portalRoomSpot(bot))?{portalRoom:true}:{}
       try{
-        await this.execute({action:'hut',goal:{},timeoutMs:60000},signal)
+        await this.execute({action:'hut',goal:roomGoal,timeoutMs:60000},signal)
         if(epoch!==this.epoch||signal.aborted)return false
         this.safety.retreat=structuredClone(this.runner.task.result);attempt.status='sheltered';this.persist()
       }catch(error){

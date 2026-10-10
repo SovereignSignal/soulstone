@@ -233,3 +233,38 @@ test('the Nether shelter choice is logged with what decided it',async()=>{
  const entry=logged.find(e=>e.type==='nether_shelter')
  assert.ok(entry,'logged');assert.equal(entry.wallInFirst,false);assert.equal(entry.portalRoom,true);assert.equal(entry.nearestMelee,3)
 })
+
+// Lab run 107, 10 October: carrying two blaze rods, fifteen blocks from the portal
+// with a blaze close, use_portal stopped four blocks short; the fallback hut was a
+// plain one on the bridge and came up two blocks short; then "moving away" descended
+// and sprinted twenty-four blocks into the fortress, where a wither skeleton killed it.
+function strandedNearPortal(fail){
+ const r=new PortalRunner();r.bot.game.dimension='minecraft:the_nether'
+ r.bot.inventory={items:()=>[{name:'cobblestone',count:64,type:registry.itemsByName.cobblestone.id}]}
+ r.bot.blockAt=p=>{const frame=p.z===-1&&p.x>=-1&&p.x<=2&&p.y>=63&&p.y<=67
+  const name=frame?((p.x===-1||p.x===2||p.y===63||p.y===67)?'obsidian':'nether_portal'):p.y===63?'nether_bricks':'air'
+  return {name,position:p.clone(),boundingBox:(name==='nether_bricks'||name==='obsidian')?'block':'empty'}}
+ r.bot.findBlock=({matching})=>matching===registry.blocksByName.nether_portal.id?{name:'nether_portal',position:new Vec3(0,64,-1)}:null
+ r.bot.entity.position=new Vec3(3.5,64,1.5)
+ r.bot.entities={7:{name:'hoglin',position:new Vec3(3.5,64,8.5)}}
+ r.command=function(c){this.commands.push(c);const task=this.task={id:String(this.commands.length),kind:c.action,status:'running',goal:c.goal}
+  if(c.action==='stop')return
+  setTimeout(()=>{if(this.task!==task)return
+   if(fail.includes(c.action)){task.status='failed';task.reason=c.action+' refused'}else{task.status='completed';task.result=c.action==='hut'?{item:'safety',count:1,receipt:'walled_in',shelterName:'hut',capped:true}:{receipt:'done'}}
+   this.emit('event',{type:'task_finished',task})},2)}
+ return r
+}
+test('in the Nether a failed crossing falls back to the portal room, then the portal again, never a run into the fortress',async()=>{
+ const run=async fail=>{
+  const r=strandedNearPortal(fail)
+  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-companion-')),'state.json'))
+  void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,400));c.cancel?.(true)
+  return r.commands.filter(x=>x.action!=='stop')
+ }
+ const roomed=await run(['use_portal','burrow'])
+ const hut=roomed.find(x=>x.action==='hut');assert.ok(hut,roomed.map(x=>x.action).join(' '));assert.equal(hut.goal.portalRoom,true,'the fallback hut is the portal room a step away')
+ const stuck=await run(['use_portal','burrow','hut'])
+ const acts=stuck.map(x=>x.action)
+ assert.ok(!acts.some(a=>['flee','descend','climb'].includes(a)),'no run into the fortress: '+acts.join(' '))
+ assert.ok(acts.filter(a=>a==='use_portal').length>=2,'the portal is tried again: '+acts.join(' '))
+})
