@@ -3,6 +3,7 @@ import {Vec3} from 'vec3'
 import {validateAttackGoal,nearestOfType,isProtectedBystander} from './primitives-world.js'
 import {observedSightline} from './visibility.js'
 import {fullCube} from './construction.js'
+import {survivalObservation} from './survival.js'
 // Bow aim for the dragon ladder: blazes keep their distance and the dragon's end
 // crystals sit on towers. A fully drawn arrow leaves at 3 blocks a tick, falls
 // 0.05 a tick to gravity and keeps 0.99 of its speed to drag each tick. The aim
@@ -129,4 +130,34 @@ export async function shootTarget(bot,task,{check,stage,progress},options={}){
   bot.removeListener('entityDead',killed)
  }
  return {item:goal.type,count:dead?1:0,receipt:dead?'killed':'target_survived',shots,arrowsLeft:arrows()}
+}
+
+// Lab, 10 October: a blaze 18 blocks off set off the safety ladder, every shelter
+// failed on open ground, and the bot burned to death with a bow and 55 arrows in
+// hand. Melee declines what keeps its distance; a player shoots back. Asked only
+// after the melee decision declines, so a zombie at arm's length is still a sword.
+export const RANGED_DEFENSE=new Set(['blaze','ghast','skeleton','stray','bogged','pillager','witch'])
+export function rangedDefenseDecision(bot,{healthFloor=10,foodFloor=6,minArrows=4,meleeClose=8}={}){
+ const reject=reason=>({engage:false,reason})
+ const s=survivalObservation(bot)
+ if(s.gameMode!=='survival'||!['easy','normal','hard'].includes(s.difficulty))return reject('Combat requires observed hostile Survival difficulty')
+ if(!Number.isFinite(s.health)||s.health<healthFloor||!Number.isFinite(s.food)||s.food<foodFloor)return reject('Health or food is too low to stand and shoot')
+ if(!bot.inventory.items().some(i=>i.name==='bow'))return reject('No bow to answer a ranged threat')
+ const arrows=bot.inventory.items().filter(i=>i.name==='arrow').reduce((n,i)=>n+i.count,0)
+ if(arrows<minArrows)return reject(`Only ${arrows} arrows; ${minArrows} or more to stand and shoot`)
+ if(!bot.entity?.onGround||bot.entity.isInWater||bot.entity.isInLava||bot.currentWindow)return reject('Not ready on stable ground with inventory closed')
+ const threats=s.nearbyThreats.filter(t=>t.risk==='potential_hostile').sort((a,b)=>a.distance-b.distance)
+ if(!threats.length)return reject('No hostile in sight to shoot')
+ if(threats.some(t=>t.distance<=meleeClose&&!RANGED_DEFENSE.has(t.name)))return reject('A melee hostile is close; the bow waits')
+ const nearest=threats[0]
+ if(!RANGED_DEFENSE.has(nearest.name))return reject(`The nearest hostile, a ${nearest.name}, is not a ranged one`)
+ if(nearest.distance>SHOOT.radius)return reject(`The ${nearest.name} is out of bow range`)
+ const target=nearestOfType(bot,nearest.name,bot.entity.position,SHOOT.radius)
+ if(!target)return reject('Target identity is unavailable')
+ const eye=bot.entity.position.offset(0,bot.entity.eyeHeight??1.62,0),centre=target.position.offset(0,(target.height??1.8)/2,0)
+ if(observedSightline(bot,eye,centre).status==='blocked')return reject(`No clear shot at the ${nearest.name}`)
+ if(aimPitch(eye,centre)===null)return reject(`The ${nearest.name} is out of bow range`)
+ const blocker=lineOfFireBlocker(bot,eye,centre,target)
+ if(blocker)return reject(`A ${blocker.type==='player'?'player':blocker.name} is in the line of fire`)
+ return {engage:true,ranged:true,target:{targetId:target.id,targetName:target.name}}
 }

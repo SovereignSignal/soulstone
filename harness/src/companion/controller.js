@@ -53,6 +53,7 @@ import { dirname,join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { validatePlan } from './planner.js'
 import {hutSite} from '../hut.js'
+import {rangedDefenseDecision} from '../archery.js'
 import {deliveredCount,satisfiedStep,currentRequestTask} from './progress.js'
 
 const designKey=design=>JSON.stringify((design||[]).map(b=>[b.x,b.y,b.z,b.block]).sort((a,b)=>a[0]-b[0]||a[1]-b[1]||a[2]-b[2]||a[3].localeCompare(b[3])))
@@ -486,6 +487,22 @@ export class Teammate extends EventEmitter {
           else this.say(`Judgement: ${chosen} (${pick.source}${j?`; Jev ${j.response} at ${Math.round(j.confidence*100)}%, rule ${verdict.verdict}`:''}).`)
           this.runner.log?.('threat_control',{chosen,source:pick.source,rule:verdict.verdict,jev:j?.response??null,confidence:j?.confidence??null,winnable:j?.winnable??null,danger:j?.danger??null})
         }else void this.threatJudge?.judge('interruption',observed,{...this.judgementContext(recoveryBot),harness:verdict.verdict,harnessReason:verdict.reason})?.then(record)
+        // The bow answers what melee declines, unless a judge has chosen shelter.
+        const ranged=!decision.engage&&(!this.threatJudge?.control||chosen!=='shelter')?rangedDefenseDecision(recoveryBot):null
+        // After a kill by either weapon: confirm the area is clear, then resume or report.
+        const finishDefense=async action=>{
+          const clear=await awaitClearance({check:()=>{if(epoch!==this.epoch||abort.signal.aborted||this.runner.bot!==recoveryBot||!this.runner.ready)throw new Error('Defense continuation cancelled')},observe:()=>combatClearance(recoveryBot),quietMs:2000,limitMs:5000,pollMs:100})
+          if(epoch!==this.epoch||abort.signal.aborted)return
+          if(clear.status!=='cleared')throw new Error(clear.reason)
+          const result={...this.safety.combat,clearance:clear},request=this.requestProgress
+          if(request)(request.feedback??=[]).push({action,status:'completed',result,automatic:true})
+          this.activity='';this.safety=null;this.phase=interruptedActiveRequest?'blocked':'ready';this.persist()
+          if(interruptedActiveRequest&&canResume(request)&&(request.combatContinuations||[]).length<3){
+            (request.combatContinuations??=[]).push({requestId:request.id,result});this.persist()
+            await this.resume({automatic:true})
+          }else if(previousFollow){this.dispatch({action:'follow',player:previousFollow});this.say('I am following you again.')}
+          else this.say(interruptedActiveRequest?'Self-defense finished. Resume is available if the saved request can safely continue.':'Self-defense finished. Ready for your next instruction.')
+        }
         if(decision.engage&&(!this.threatJudge?.control||chosen==='fight')){
           this.safety.status='defending';this.phase='defending'
           this.say('I can defend against this '+decision.target.targetName+'. I am equipping '+decision.weapon.replaceAll('_',' ')+'.')
@@ -494,18 +511,7 @@ export class Teammate extends EventEmitter {
             if(epoch!==this.epoch||abort.signal.aborted)return
             this.safety.combat=structuredClone(this.runner.task.result)
             this.say('The '+decision.target.targetName+' died after my attacks. Checking the area before continuing.')
-            const clear=await awaitClearance({check:()=>{if(epoch!==this.epoch||abort.signal.aborted||this.runner.bot!==recoveryBot||!this.runner.ready)throw new Error('Defense continuation cancelled')},observe:()=>combatClearance(recoveryBot),quietMs:2000,limitMs:5000,pollMs:100})
-            if(epoch!==this.epoch||abort.signal.aborted)return
-            if(clear.status!=='cleared')throw new Error(clear.reason)
-            const result={...this.safety.combat,clearance:clear},request=this.requestProgress
-            if(request)(request.feedback??=[]).push({action:'defend',status:'completed',result,automatic:true})
-            this.activity='';this.safety=null;this.phase=interruptedActiveRequest?'blocked':'ready';this.persist()
-            if(interruptedActiveRequest&&canResume(request)&&(request.combatContinuations||[]).length<3){
-              (request.combatContinuations??=[]).push({requestId:request.id,result});this.persist()
-              await this.resume({automatic:true})
-            }else if(previousFollow){this.dispatch({action:'follow',player:previousFollow});this.say('I am following you again.')}
-            else this.say(interruptedActiveRequest?'Self-defense finished. Resume is available if the saved request can safely continue.':'Self-defense finished. Ready for your next instruction.')
-            return
+            await finishDefense('defend');return
           }catch(error){
             if(epoch!==this.epoch||abort.signal.aborted)return
             this.safety.combatFailure=error.message
@@ -513,7 +519,28 @@ export class Teammate extends EventEmitter {
             this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)
             if(epoch!==this.epoch||abort.signal.aborted)return
           }
-        }else this.say('I am choosing shelter: '+decision.reason)
+        }else if(ranged?.engage){
+          // Lab, 10 October: a blaze 18 blocks off, every shelter failed on open
+          // ground, and the bot burned to death with a bow in hand. Shoot back.
+          const name=ranged.target.targetName
+          this.safety.status='defending';this.phase='defending'
+          this.say('This '+name+' keeps its distance. I am drawing my bow.')
+          try{
+            await this.execute({action:'shoot',goal:{type:name},timeoutMs:60000},abort.signal)
+            if(epoch!==this.epoch||abort.signal.aborted)return
+            const shot=structuredClone(this.runner.task.result)
+            if(shot?.receipt!=='killed')throw new Error(`the ${name} survived ${shot?.shots??0} arrows`)
+            this.safety.combat=shot
+            this.say('The '+name+' fell to my arrows. Checking the area before continuing.')
+            await finishDefense('shoot');return
+          }catch(error){
+            if(epoch!==this.epoch||abort.signal.aborted)return
+            this.safety.combatFailure=error.message
+            this.say('I need shelter now: '+error.message)
+            this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)
+            if(epoch!==this.epoch||abort.signal.aborted)return
+          }
+        }else this.say('I am choosing shelter: '+decision.reason+(ranged?'; the bow: '+ranged.reason:''))
         // A creeper cannot be fought unarmed or waited out at close range: it
         // starts swelling within three blocks. Sprint out of its reach first.
         // Behind its own walls the answer to anything outside is to stay behind

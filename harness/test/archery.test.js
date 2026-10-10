@@ -161,3 +161,46 @@ test('a target straight overhead is clear only with no protected bystander close
  assert.notEqual(lineOfFireBlocker(near,from,aimAt,target),null,'a cat two blocks off holds a shot straight up')
  assert.equal(lineOfFireBlocker(far,from,aimAt,target),null,'one twelve blocks off does not')
 })
+
+// Lab, 10 October: a blaze 18 blocks off set off the safety ladder; flee,
+// retreat, burrow and hut all failed on open ground and the bot burned to
+// death with a bow and 55 arrows in hand, never shooting. A player shoots back.
+import {rangedDefenseDecision} from '../src/archery.js'
+function threatened({mob='blaze',distance=15,bow=true,arrows=20,health=20,food=20,extra={}}={}){
+ const r=range({bow,arrows})
+ Object.assign(r.bot,{health,food,game:{gameMode:'survival',difficulty:'normal'},time:{timeOfDay:6000}})
+ r.bot.entity.onGround=true
+ r.bot.entities={7:{id:7,name:mob,type:'hostile',height:1.8,position:new Vec3(0.5,64,0.5+distance),velocity:new Vec3(0,0,0)},...extra}
+ return r.bot
+}
+test('a ranged hostile in bow range with a bow, arrows and health is answered with the bow',()=>{
+ const yes=rangedDefenseDecision(threatened());assert.equal(yes.engage,true,yes.reason);assert.equal(yes.target.targetName,'blaze')
+ assert.equal(rangedDefenseDecision(threatened({mob:'skeleton',distance:20})).engage,true)
+ for(const [why,bot,re] of [
+  ['no bow',threatened({bow:false}),/bow/],
+  ['few arrows',threatened({arrows:2}),/arrows/],
+  ['hurt',threatened({health:6}),/Health/],
+  ['a zombie',threatened({mob:'zombie'}),/not a ranged/],
+  ['a zombie close as well',threatened({extra:{9:{id:9,name:'zombie',type:'hostile',height:1.95,position:new Vec3(2.5,64,2.5)}}}),/close/],
+  ['out of range',threatened({distance:40}),/range/]])assert.match(rangedDefenseDecision(bot).reason||'',re,why)
+})
+
+import {mkdtempSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+import {Teammate} from '../src/companion/controller.js'
+import {THREAT_INTERRUPTION} from '../src/survival.js'
+class ShootRunner extends EventEmitter{
+ constructor(bot){super();this.profile='lab';this.owner='Sov';this.ready=true;this.commands=[];this.bot=bot;this.connectionId='3f2504e0-4f89-11d3-9a0c-0305e82c3301'}
+ position(){return {x:0,y:64,z:0}}
+ command(c){this.commands.push(c);this.task={id:String(this.commands.length),kind:c.action,status:'running',goal:c.goal}}
+}
+test('the safety controller answers a blaze in bow range with the bow, not a shelter',async()=>{
+ const bot=threatened()
+ const r=new ShootRunner(bot)
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-companion-')),'state.json'))
+ void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,80))
+ const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop');c.cancel?.(true)
+ assert.equal(acts[0],'shoot',acts.join(' '));assert.equal(r.commands.find(x=>x.action==='shoot').goal.type,'blaze')
+ assert.ok(c.messages.some(m=>/drawing my bow/.test(m.text)),c.messages.map(m=>m.text).join(' | '))
+})
