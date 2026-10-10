@@ -67,12 +67,14 @@ export async function resolveFurnace(bot,project,api) {
  const near=bot.findBlock({matching:bot.registry.blocksByName.furnace.id,maxDistance:FURNACE_NEARBY})
  if(near)return {position:plain(near.position),source:'nearby'}
  if(!bot.inventory.items().some(i=>i.name==='furnace')){await api.acquire('furnace',1);api.check()}
- const feet=bot.entity.position.floored(),open=p=>['air','cave_air'].includes(bot.blockAt(p)?.name)
+ // Lazy: primitives-world reaches this module back through construction.js and building-blocks.js.
+ const {placeAt,validatePlaceAtGoal,occupantAt}=await import('./primitives-world.js')
+ // A cell a mob stands in is not open: pi2's hunt left a chicken in the first one,
+ // and the smelt failed on it twice (10 October).
+ const feet=bot.entity.position.floored(),open=p=>['air','cave_air'].includes(bot.blockAt(p)?.name)&&!occupantAt(bot,p)
  const cell=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]].map(([x,z])=>feet.offset(x,0,z))
   .find(p=>open(p)&&open(p.offset(0,1,0))&&bot.blockAt(p.offset(0,-1,0))?.boundingBox==='block')
  if(!cell)throw new Error('No open cell beside me to place a furnace on; dig or move to level ground first')
- // Lazy: primitives-world reaches this module back through construction.js and building-blocks.js.
- const {placeAt,validatePlaceAtGoal}=await import('./primitives-world.js')
  await placeAt(bot,{kind:'place_at',goal:validatePlaceAtGoal({item:'furnace',x:cell.x,y:cell.y,z:cell.z})},api)
  return {position:plain(cell),source:'placed'}
 }

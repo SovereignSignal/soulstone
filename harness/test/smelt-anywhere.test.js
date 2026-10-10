@@ -139,3 +139,13 @@ test('the teammate issues smelt with no saved base, and other station actions st
  const s=new FakeRunner(),d=new Teammate(s,{model:'fake',plan:async()=>({reply:'Storing.',steps:[{action:'deposit',name:'base',item:'dirt',count:3,design:[]}]})},join(mkdtempSync(join(tmpdir(),'mc-smelt-')),'state.json'))
  await d.submit('store three dirt');assert.equal(s.commands.some(x=>x.action==='deposit'),false);assert.match(d.messages.at(-1).text,/No saved base/)
 })
+
+// pi2, 10 October 20:57Z: twice in a row the smelt for cooked meat failed with
+// "chicken is standing in 50,70,699": the furnace went to the first open cell,
+// and a chicken from the hunt stood in it. A cell a mob stands in is not open.
+test('a furnace is never placed into a cell an animal is standing in; the next open cell is used',async()=>{
+ const f=world({bag:{raw_iron:6,coal:4,cobblestone:66}})
+ f.bot.entities={5:{id:5,name:'chicken',type:'animal',position:new Vec3(1.5,64,0.5)}}
+ const r=await executeStationSkill(f.bot,smelt(null),f.api)
+ assert.equal(r.furnaceSource,'placed');assert.notDeepEqual(r.furnace,{x:1,y:64,z:0},'not on the chicken')
+})
