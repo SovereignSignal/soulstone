@@ -24,13 +24,15 @@ export function validateHuntGoal(goal){
  if(!(HUNTABLE[goal?.item]||goal?.item==='meat')||!Number.isInteger(goal.count)||goal.count<1||goal.count>8)throw new Error('Hunt needs a farm-animal drop (beef, porkchop, mutton, chicken, rabbit, leather, feather, white_wool, or meat for any of them) and a total of 1–8')
  return {item:goal.item,count:goal.count}
 }
-export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},movements}){
+export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},movements,contactMs=12000}){
  const {item,count:total}=validateHuntGoal(task.goal),animals=item==='meat'?EDIBLE:HUNTABLE[item]
  const counted=item==='meat'?Object.values(MEAT_DROPS):[item]
  const count=()=>bot.inventory.items().filter(i=>counted.includes(i.name)).reduce((n,i)=>n+i.count,0)
  const start=bot.entity.position.clone(),startedAt=Date.now()
  let legs=0
  const record=task.hunt={item,kills:0,attacks:0,legs:0}
+ // Animals the walk could not get to: passed over, not the end of the hunt.
+ const unreachable=new Map()
  const hostile=()=>survivalObservation(bot).nearbyThreats.find(t=>t.risk==='potential_hostile'&&t.distance<=10)
  // The boundary grows with each completed leg so the walk out is not itself a violation.
  const boundary=()=>32+Math.ceil(legs/4)*HUNT_LEG
@@ -55,7 +57,7 @@ export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},move
  try{
   while(count()<total){
    guard()
-   const target=Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&animals.includes(e.name)&&e.position&&distance(e.position,bot.entity.position)<=32).sort((a,b)=>distance(a.position,bot.entity.position)-distance(b.position,bot.entity.position))[0]
+   const target=Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&animals.includes(e.name)&&!unreachable.has(e.id)&&e.position&&distance(e.position,bot.entity.position)<=32).sort((a,b)=>distance(a.position,bot.entity.position)-distance(b.position,bot.entity.position))[0]
    if(!target){
     const others=[...new Set(Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&e.position&&EDIBLE.includes(e.name)&&distance(e.position,bot.entity.position)<=32).map(e=>e.name))]
     if(legs>=HUNT_LEGS||Date.now()-startedAt>150000){
@@ -91,10 +93,15 @@ export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},move
       await bot.lookAt(point(target.position).offset(0,(target.height||1)/2,0),true);check()
       if(Date.now()>=nextAttack){bot.attack(target);record.attacks++;nextAttack=Date.now()+cooldown;persist()}
      }else if(!following){bot.pathfinder.setGoal(new goals.GoalFollow(target,2),true);following=true}
-     if(Date.now()-contact>12000)throw new Error(`Cannot reach the ${target.name}`)
+     if(Date.now()-contact>contactMs)break
      await delay(50)
     }
    }finally{chaseAnchor=null;bot.removeListener('entityDead',onDead);bot.pathfinder.setGoal(null)}
+   if(!dead){
+    unreachable.set(target.id,target.name);record.unreachable=[...unreachable.values()];persist()
+    if(unreachable.size>=3)throw new Error(`Cannot reach the ${[...unreachable.values()].join(', ')}; carrying ${count()}/${total} ${item}`)
+    progress(`Cannot reach the ${target.name}; trying another`);continue
+   }
    record.kills++;persist();progress(`${target.name} down; collecting drops`)
    const before=count()
    const timer=setTimeout(()=>bot.pathfinder.setGoal(null),6000)
@@ -110,6 +117,7 @@ export async function huntFor(bot,task,{check,stage,progress,persist=()=>{},move
  // planner never tried berries, a different area, or the surface.
  if(count()===0)throw new Error(`Found no ${String(item).replaceAll('_',' ')} after ${legs} search ${legs===1?'leg':'legs'}`+
   (seen.length?`; animals seen nearby: ${[...new Set(seen.map(a=>a.name||a))].join(', ')}`:' and no animals in range')+
+  (unreachable.size?`; out of reach: ${[...unreachable.values()].join(', ')}`:'')+
   '. Try a different area, the surface, or another food source.')
- return {item,count:count(),target:total,kills:record.kills,legs,nearbyAnimals:seen,position:point(bot.entity.position),acquired:count()>=total,partial:count()<total,receipt:count()>=total?'hunt_target_reached':'hunt_partial'}
+ return {item,count:count(),target:total,kills:record.kills,legs,nearbyAnimals:seen,...(unreachable.size?{unreachable:[...unreachable.values()]}:{}),position:point(bot.entity.position),acquired:count()>=total,partial:count()<total,receipt:count()>=total?'hunt_target_reached':'hunt_partial'}
 }

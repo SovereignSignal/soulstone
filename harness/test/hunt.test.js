@@ -117,3 +117,16 @@ test('a hunt for meat takes the nearest farm animal of any kind and counts every
  const {bot:empty}=fixture();empty.entities={}
  await assert.rejects(huntFor(empty,{kind:'hunt',goal:{item:'meat',count:2}},{check(){},stage(){},progress(){},persist(){}}),/Found no meat/)
 })
+
+// pi2, 10 October 20:50Z: a hunt for meat west of the base gave up the moment one
+// chicken could not be reached ("Cannot reach the chicken") with a cow and two
+// more chickens in range. One animal out of reach is not the hunt out of reach.
+test('an animal the hunt cannot reach is passed over for the next one',async()=>{
+ const {bot,cow}=fixture()
+ const chicken={id:7,uuid:'h',type:'animal',name:'chicken',height:0.7,position:new Vec3(4,64,2),health:4}
+ bot.entities={7:chicken,9:cow}
+ // The chicken sits on a ledge the walk never reaches; the cow is on open ground.
+ bot.pathfinder.setGoal=g=>{if(g&&g.entity?.name==='cow')bot.entity.position=new Vec3(g.entity.position.x-1,64,g.entity.position.z)}
+ const result=await huntFor(bot,{kind:'hunt',goal:{item:'meat',count:2}},{check(){},stage(){},progress(){},persist(){},contactMs:60})
+ assert.equal(result.acquired,true);assert.equal(result.kills,1);assert.deepEqual(result.unreachable,['chicken'])
+})
