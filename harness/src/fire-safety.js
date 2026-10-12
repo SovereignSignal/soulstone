@@ -1,6 +1,6 @@
 import {setTimeout as delay} from 'node:timers/promises'
 import pathfinding from 'mineflayer-pathfinder'
-import {fireObservation} from './survival.js'
+import {fireObservation,FIRE_BLOCKS} from './survival.js'
 import {DoorAwareMovements} from './navigation.js'
 import {fullCube} from './construction.js'
 import {inNether} from './dimension.js'
@@ -121,6 +121,13 @@ export async function douseFire(bot,task,{check,stage,progress,movements},{limit
   if(!burning(bot)){const p=bot.entity.position.floored();return {item:'safety',count:0,receipt:'not_burning',position:at(p),health:bot.health,clearOfLava:!lavaWithin(bot,p,1),waterBucket:!!carried(bot,'water_bucket')}}
   stage('dousing');progress('I am on fire. Putting it out')
   bot.pathfinder.setGoal(null);bot.clearControlStates()
+  // 0. Standing in a fire block keeps the bot burning whatever else it does, and
+  // a punch puts it out (lab run 116: a blaze lit the bridge under it in the
+  // Nether, no water to use, and it waited in the flames until it died).
+  for(const cell of [bot.entity.position.floored(),bot.entity.position.offset(0,1.6,0).floored()]){
+   const b=bot.blockAt(cell);if(!FIRE_BLOCKS.has(b?.name))continue
+   progress('Putting out the fire I am standing in');try{await bot.dig(b);check()}catch{check()}
+  }
   // 1. Water at the feet, or into the lava being stood in.
   if(await pourHere())method='poured_water'
   // 2. Still in lava: climb out, and walk only if the climb did not make it.

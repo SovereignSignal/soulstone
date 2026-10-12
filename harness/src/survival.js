@@ -71,7 +71,7 @@ export const WATER_BLOCKS=new Set(['water','kelp','kelp_plant','seagrass','tall_
 // health a second, and only water ends it early. Shelters answer mobs and do
 // nothing for fire: trial 21 burned to death walling in beside a lava pool.
 export const FIRE_EMERGENCY='Burning or standing in lava'
-const FIRE_BLOCKS=new Set(['fire','soul_fire'])
+export const FIRE_BLOCKS=new Set(['fire','soul_fire'])
 // Bit 0 of the entity's shared flags is "on fire". Null until the server has
 // sent flags: no metadata is not evidence of not burning.
 export function fireObservation(bot){

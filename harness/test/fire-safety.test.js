@@ -164,3 +164,15 @@ test('in the Nether a burning bot keeps its water bucket and does not pour',asyn
  await douseFire(f.bot,{kind:'douse',goal:{}},f.api,{limitMs:300,walkMs:50,climbMs:50}).catch(()=>{})
  assert.ok(!f.log.some(l=>/^use water_bucket/.test(l)),f.log.join(' | '))
 })
+
+// Lab run 116, 12 October: a blaze's fireball lit the bridge under the bot, and
+// douse waited fifteen seconds for the burning to stop while it stood in the
+// flames ("went up in flames"). In the Nether no bucket helps; a punch puts the
+// fire block out, and nothing else keeps a bot in it from burning.
+test('standing in a fire block with no water to use, it punches the fire out instead of waiting in it',async()=>{
+ const f=fixture({items:[],cells:{'0,64,0':'fire'}});f.bot.game.dimension='minecraft:the_nether'
+ const dig=f.bot.dig;f.bot.dig=async b=>{await dig(b);if(b.name==='fire')setTimeout(()=>{f.bot.entity.metadata[0]=0},3)}
+ const r=await douseFire(f.bot,{kind:'douse',goal:{}},f.api,{pollMs:1,limitMs:200,walkMs:50,climbMs:50})
+ assert.ok(f.log.includes('dig fire'),f.log.join(' | '))
+ assert.equal(f.world.get('0,64,0'),'air');assert.equal(r.receipt,'extinguished')
+})
