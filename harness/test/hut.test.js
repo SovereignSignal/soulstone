@@ -202,3 +202,16 @@ test('a few steps from a portal the hut walks back beside it and closes a portal
  const along=besidePortal();along.bot.entity.position=new Vec3(10.5,64,14.5)
  assert.ok(portalRoomSpot(along.bot),'four blocks off is still a step back')
 })
+
+// Lab run 114, 12 October: at 9 health the bot stepped back beside the portal,
+// arrived mid-step with its feet off the bricks, and the footing was judged
+// that same instant: "Not standing on solid ground". It went home through the
+// portal instead of closing the room. The walk's landing is waited for.
+test('a step back to the portal room that arrives in the air waits to land before walling in',async()=>{
+ const w=besidePortal()
+ w.bot.entity.position=new Vec3(10.5,64,12.5)
+ w.bot.pathfinder.goto=async g=>{w.bot.entity.position=new Vec3(g.x+0.5,g.y+0.2,g.z+0.5);w.bot.entity.onGround=false
+  setTimeout(()=>{w.bot.entity.position=new Vec3(g.x+0.5,g.y,g.z+0.5);w.bot.entity.onGround=true},300)}
+ const result=await executeSkill(w.bot,{kind:'hut',goal:{portalRoom:true}},api)
+ assert.equal(result.receipt,'walled_in');assert.equal(result.portalRoom,true)
+})

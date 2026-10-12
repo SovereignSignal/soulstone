@@ -118,6 +118,8 @@ async function settle(predicate,{check,ms=1500,poll=50}){
 export async function wallIn(bot,task,{check,stage,progress}){
  check()
  if(task.goal?.portalRoom&&!hutSite(bot).portal){stage('walking');await stepToPortalRoom(bot,check,progress)}
+ // A walk or a knockback can leave the bot a moment off the ground; judge the site once it lands.
+ if(!bot.entity.onGround)await settle(()=>bot.entity.onGround,{check})
  const site=hutSite(bot)
  if(!site.ok)throw new Error('Cannot wall in here: '+site.reason)
  bot.pathfinder?.setGoal(null);bot.clearControlStates?.()
