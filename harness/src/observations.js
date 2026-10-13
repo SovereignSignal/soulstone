@@ -1,4 +1,5 @@
 import {Vec3} from 'vec3'
+import prismarineWorld from 'prismarine-world'
 import {surveyGround,candidateSites,projectFootprints} from './site-survey.js'
 import {dimensionOf,inNether} from './dimension.js'
 const AIR=new Set(['air','cave_air','void_air'])
@@ -36,12 +37,50 @@ export function nearbyResources(bot,names,{maxDistance=32,countPerKind=2}={}) {
   const id=bot?.registry?.blocksByName[name]?.id
   if(!Number.isInteger(id)||seen.has(id))continue
   seen.add(id)
-  for(const p of bot.findBlocks({matching:id,maxDistance,count:countPerKind})){
+  for(const p of findBlockCells(bot,id,{maxDistance,count:countPerKind})){
    const b=bot.blockAt(p)
    if(b?.name===name)result.push({name,x:p.x,y:p.y,z:p.z})
   }
  }
  return result
+}
+
+// mineflayer's findBlocks, cell for cell, without building a block per cell. It
+// scans every cell of any section with no palette list, and a one-block section (sky,
+// a lava sea) has none, so each name searched built tens of thousands of blocks: 5 to
+// 15 s of a frozen bot on a Raspberry Pi (lab runs 123 and 124). Here a one-block
+// section is decided by its value and other cells by state id. Same sections, order,
+// stopping rule and distance arithmetic, so the same answer.
+const {OctahedronIterator}=prismarineWorld.iterators
+export function findBlockCells(bot,id,{maxDistance=16,count=1,point}={}){
+ const block=bot?.registry?.blocks?.[id],world=bot?.world,minY=bot?.game?.minY,height=bot?.game?.height
+ if(!block||typeof world?.getColumn!=='function'||!Number.isFinite(minY)||!Number.isFinite(height))return bot.findBlocks({matching:id,maxDistance,count,...(point?{point}:{})})
+ const lo=block.minStateId,hi=block.maxStateId,matches=s=>s>=lo&&s<=hi
+ const from=(point||bot.entity.position).floored()
+ const start=new Vec3(Math.floor(from.x/16),Math.floor(from.y/16),Math.floor(from.z/16))
+ const it=new OctahedronIterator(start,Math.ceil((maxDistance+8)/16)),visited=new Set(),cell=new Vec3(0,0,0),total=height>>4,below=Math.abs(minY>>4)
+ const found=[];let startedLayer=0,next=start
+ while(next){
+  const column=world.getColumn(next.x,next.z),sectionY=next.y+below
+  if(sectionY>=0&&sectionY<total&&column&&!visited.has(next.toString())){
+   const section=column.sections[sectionY]
+   const single=section&&!section.palette&&Number.isInteger(section.data?.value)?section.data.value:null
+   const scan=!section?false:section.palette?section.palette.some(matches):single===null||matches(single)
+   if(scan){
+    const bx=next.x*16,by=sectionY*16+minY,bz=next.z*16
+    for(let x=bx;x<bx+16;x++)for(let y=by;y<by+16;y++)for(let z=bz;z<bz+16;z++){
+     if(single===null&&!matches(column.getBlockStateId(cell.set(x&15,y,z&15))))continue
+     const dx=from.x-x,dy=from.y-y,dz=from.z-z
+     if(Math.sqrt(dx*dx+dy*dy+dz*dz)<=maxDistance)found.push(new Vec3(x,y,z))
+    }
+   }
+   visited.add(next.toString())
+  }
+  if(startedLayer!==it.apothem&&found.length>=count)break
+  startedLayer=it.apothem;next=it.next()
+ }
+ found.sort((a,b)=>a.distanceTo(from)-b.distanceTo(from))
+ return found.length>count?found.slice(0,count):found
 }
 
 // Planner-supplied cube scan. Unloaded cells are never reported as air.
