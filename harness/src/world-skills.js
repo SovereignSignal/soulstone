@@ -391,8 +391,13 @@ export async function executeWorldSkill(bot,task,context,gather) {
    await settle(collected,`Mined ${name} but pickup was not confirmed`)
   }
  }
- const visibleSources=new Set(nearbyResources(bot,[...LOG_ITEMS,...Object.values(sources).flat()],{maxDistance:48,countPerKind:1}).map(b=>b.name))
- const findSource=name=>(sources[name]||[name]).some(n=>visibleSources.has(n))
+ // Scanned on the first lookup, not at every skill's start: a retreat never looks, and
+ // on a Raspberry Pi this scan froze the bot 12 to 15 s with a zombie beside it (lab run 124).
+ let visibleSources=null
+ const findSource=name=>{
+  visibleSources??=new Set(nearbyResources(bot,[...LOG_ITEMS,...Object.values(sources).flat()],{maxDistance:48,countPerKind:1}).map(b=>b.name))
+  return (sources[name]||[name]).some(n=>visibleSources.has(n))
+ }
  function supplyCost(name,needed,trail,memo) {
   const missing=Math.max(0,needed-count(name));if(!missing)return 0
   if(trail.includes(name)||trail.length>3)return 100000

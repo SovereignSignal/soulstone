@@ -386,3 +386,18 @@ test('flint comes from carried gravel put down beside the bot and dug again, not
  assert.equal(digs,9);assert.equal(placed,6,'every dig after an exposed one was a block it put down');assert.equal(world.size,0,'one exposed gravel used per flint')
  assert.ok(walks<=6,`walked only to the three exposed gravel blocks (${walks} walks)`)
 })
+
+// Lab run 124 (pi1, 13 October): every world skill began with a 48-block scan for
+// every log and ore. Only acquiring needs it, yet a retreat with a zombie at arm's
+// length paid for it: the bot's process stood frozen 12 to 15 s on a Pi, twice, and it died.
+test('a world skill that acquires nothing never scans the terrain for resources',async()=>{
+ const registry=minecraftData('1.21.4');let scans=0
+ const dirt=registry.itemsByName.dirt
+ const bot={registry,players:{},entities:{},entity:{position:new Vec3(0.5,64,0.5),onGround:true},game:{gameMode:'survival',dimension:'overworld'},
+  inventory:{items:()=>[{type:dirt.id,name:'dirt',count:5}],slots:[]},blockAt:p=>({position:p,name:p.y<64?'stone':'air',boundingBox:p.y<64?'block':'empty'}),
+  findBlocks:()=>{scans++;return []},findBlock:()=>null,recipesAll:()=>[],recipesFor:()=>[]}
+ Object.setPrototypeOf(bot,new EventEmitter())
+ const result=await executeWorldSkill(bot,{kind:'acquire',goal:{item:'dirt',count:3}},{check(){},stage(){},persist(){},progress(){},movements:{}},()=>{throw new Error('must not gather')})
+ assert.equal(result.item,'dirt')
+ assert.equal(scans,0,'already carried: nothing to look for')
+})
