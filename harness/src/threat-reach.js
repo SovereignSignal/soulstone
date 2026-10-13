@@ -34,25 +34,51 @@ export function threatRoutes(bot,threats,{radius=REACH_RADIUS,limit=REACH_CELLS,
  // read as reachable, through the closed door above).
  const hard=bot.game?.difficulty==='hard'
  const barrier=b=>!hard&&/_door$|_trapdoor$|_fence_gate$/.test(b.name)&&b.getProperties?.().open===false
+ const closed=cellLookup(bot,b=>solid(b.name)||barrier(b))
+ // Cells are numbers, not strings or vectors: on a Raspberry Pi the flood took a
+ // quarter of the bot's time in a fortress fight (lab run 123, 13 October).
+ // Every cell the search can touch lies within H of the origin on each axis.
+ const seeds=(origins?origins.map(c=>new Vec3(c.x,c.y,c.z).floored()):[origin,origin.offset(0,1,0)])
+ const H=reach+2+Math.max(0,...seeds.map(c=>Math.max(Math.abs(c.x-origin.x),Math.abs(c.y-origin.y),Math.abs(c.z-origin.z)))),S=2*H+1
+ const keyOf=(x,y,z)=>{const a=x-origin.x+H,b=y-origin.y+H,c=z-origin.z+H;return a<0||b<0||c<0||a>=S||b>=S||c>=S?-1:(a*S+b)*S+c}
  // Feet and head cell of each hostile; either one in the bot's space is contact.
  const wanted=new Map()
- threats.forEach((t,i)=>{const c=new Vec3(t.position.x,t.position.y,t.position.z).floored();for(const k of [c.toString(),c.offset(0,1,0).toString()])wanted.set(k,[...(wanted.get(k)||[]),i])})
+ threats.forEach((t,i)=>{const c=new Vec3(t.position.x,t.position.y,t.position.z).floored();for(const k of [keyOf(c.x,c.y,c.z),keyOf(c.x,c.y+1,c.z)])if(k>=0)wanted.set(k,[...(wanted.get(k)||[]),i])})
  // A shelter is judged from where it opens, not from inside its own walls.
- const found=threats.map(()=>false),steps=threats.map(()=>null),seen=new Set(),queue=origins?[...origins]:[origin,origin.offset(0,1,0)]
- const depth=new Map(queue.map(c=>[c.toString(),0]))
- let inconclusive=false,cells=0
- for(let i=0;i<queue.length&&!found.every(Boolean);i++){
-  const c=queue[i],key=c.toString(),d=depth.get(key)??0
-  if(seen.has(key))continue
-  seen.add(key)
+ // Breadth first, each cell queued once at the depth it was first reached.
+ const found=threats.map(()=>false),steps=threats.map(()=>null),depth=new Map(),qx=[],qy=[],qz=[]
+ for(const c of seeds){const k=keyOf(c.x,c.y,c.z);if(!depth.has(k)){depth.set(k,0);qx.push(c.x);qy.push(c.y);qz.push(c.z)}}
+ let inconclusive=false,cells=0,left=threats.length
+ for(let i=0;i<qx.length&&left>0;i++){
+  const x=qx[i],y=qy[i],z=qz[i],key=keyOf(x,y,z),d=depth.get(key)
   // Space that leaves the radius is a long way round, not an unknown.
-  if(c.distanceTo(origin)>reach)continue
-  const b=bot.blockAt(c)
-  if(!b){inconclusive=true;continue}
-  if(solid(b.name)||barrier(b))continue
+  const dx=x-origin.x,dy=y-origin.y,dz=z-origin.z
+  if(dx*dx+dy*dy+dz*dz>reach*reach)continue
+  const shut=closed(x,y,z)
+  if(shut===null){inconclusive=true;continue}
+  if(shut)continue
   if(++cells>limit){inconclusive=true;break}
-  for(const index of wanted.get(key)||[])if(!found[index]){found[index]=true;steps[index]=d}
-  for(const [x,y,z] of NEIGHBOURS){const n=c.offset(x,y,z),k=n.toString();if(!depth.has(k))depth.set(k,d+1);queue.push(n)}
+  for(const index of wanted.get(key)||[])if(!found[index]){found[index]=true;steps[index]=d;left--}
+  for(const [ox,oy,oz] of NEIGHBOURS){const nx=x+ox,ny=y+oy,nz=z+oz,k=keyOf(nx,ny,nz);if(!depth.has(k)){depth.set(k,d+1);qx.push(nx);qy.push(ny);qz.push(nz)}}
  }
  return found.map((hit,i)=>({reach:hit?'open':inconclusive?'unknown':'sealed',steps:hit?steps[i]:null}))
+}
+// Whether a cell closes the space: true, false, or null where the ground is not
+// loaded. With the world's block states to hand, a block is built once per state
+// (its name and door state are the state's), not once per cell; the chunk column
+// says whether a cell is loaded, since an unloaded one reads as state 0, air.
+function cellLookup(bot,closes){
+ const slow=(x,y,z)=>{const b=bot.blockAt(new Vec3(x,y,z));return b?closes(b):null}
+ const w=bot.world,minY=bot.game?.minY,top=minY+bot.game?.height
+ if(typeof w?.getBlockStateId!=='function'||typeof w.getColumnAt!=='function'||!Number.isFinite(top))return slow
+ const byState=new Map(),columns=new Map(),at=new Vec3(0,0,0)
+ return (x,y,z)=>{
+  if(y<minY||y>=top)return slow(x,y,z)
+  const ck=`${x>>4},${z>>4}`
+  let loaded=columns.get(ck);if(loaded===undefined)columns.set(ck,loaded=!!w.getColumnAt(at.set(x,y,z)))
+  if(!loaded)return null
+  const id=w.getBlockStateId(at.set(x,y,z))
+  let v=byState.get(id);if(v===undefined){v=slow(x,y,z);if(v===null)return null;byState.set(id,v)}
+  return v
+ }
 }
