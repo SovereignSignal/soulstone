@@ -7,9 +7,13 @@ import {survivalObservation,cannotShootYet} from './survival.js'
 import {observedSightline} from './visibility.js'
 
 // Melee-defendable mobs and the health margin each demands. Skeletons shoot
-// while the bot closes in, so they need more headroom.
-export const DEFENDABLE_MOBS=new Set(['zombie','husk','spider','skeleton'])
-export const DEFENSE_HEALTH={zombie:12,husk:12,spider:12,skeleton:16}
+// while the bot closes in, so they need more headroom. A wither skeleton guards
+// every fortress corridor (step 4, lab run 131: the bot went home at the sight of
+// one); it hits hard and withers, so it is fought only alone, nearly unhurt, in
+// HEAVY armour, with a weapon of at least HEAVY damage (iron sword or axe up).
+export const DEFENDABLE_MOBS=new Set(['zombie','husk','spider','skeleton','wither_skeleton'])
+export const DEFENSE_HEALTH={zombie:12,husk:12,spider:12,skeleton:16,wither_skeleton:18}
+const HEAVY_MOBS=new Set(['wither_skeleton']),HEAVY_ARMOR=15,HEAVY_DAMAGE=6
 export const ENGAGE_RANGE=10
 // Armour changes the arithmetic. In full iron a zombie's hit falls from 3 to
 // about 1.2, and digging a burrow with two zombies on its back cost the test
@@ -93,6 +97,10 @@ export function defenseDecision(bot,{healthFloor=12,foodFloor=10,mobMargins=true
  if(!target)return reject('Target identity is unavailable')
  const weapon=weaponFor(bot,target)
  if(!weapon)return reject('No serviceable melee weapon safe to use near bystanders')
+ if(HEAVY_MOBS.has(target.name)){
+  if(armorPoints(bot)<HEAVY_ARMOR)return reject(`A ${target.name} needs full iron armour or better (${armorPoints(bot)} of ${HEAVY_ARMOR} points worn)`)
+  if(weapons[weapon.name]<HEAVY_DAMAGE)return reject(`A ${target.name} needs an iron sword or axe or better, not a ${weapon.name.replaceAll('_',' ')}`)
+ }
  return {engage:true,target:{targetId:target.id,targetUuid:target.uuid,targetName:target.name},weapon:weapon.name,...(group?{group:threats.length}:{})}
 }
 export function validateDefenseGoal(g){

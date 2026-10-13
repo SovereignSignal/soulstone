@@ -190,3 +190,21 @@ test('after a melee kill the bot picks up what the request is made from: string 
  for(const item of ['bow','arrow','string','stick','flint','feather'])assert.ok(collect.goal.items.includes(item),`${item} in ${collect.goal.items}`)
  assert.equal(collect.goal.items.includes('bone'),false,'nothing the request is not made from')
 })
+
+// Step 4, lab run 131 (pi1, 13 October): a wither skeleton walked past the Nether
+// arrival portal and the bot, in full iron with an iron sword, went home in a second:
+// the melee rule never named the one mob that guards every fortress corridor.
+test('a lone wither skeleton is fought only in full iron, with an iron-grade weapon and 18 health or more',()=>{
+ const f=fixture(),reg=registry('1.21.4')
+ f.bot.entities={7:{...reg.entitiesByName.wither_skeleton,id:7,uuid,name:'wither_skeleton',position:new Vec3(4,64,0)}}
+ const slots=[];f.bot.inventory.slots=slots;f.bot.getEquipmentDestSlot=s=>({head:5,torso:6,legs:7,feet:8})[s]
+ for(const [i,n] of [[5,'iron_helmet'],[6,'iron_chestplate'],[7,'iron_leggings'],[8,'iron_boots']])slots[i]={name:n}
+ const d=defenseDecision(f.bot);assert.equal(d.engage,true,d.reason);assert.equal(d.target.targetName,'wither_skeleton')
+ f.bot.health=17;assert.match(defenseDecision(f.bot).reason,/Health is too low to engage a wither_skeleton/);f.bot.health=20
+ slots[6]=null;assert.match(defenseDecision(f.bot).reason,/wither_skeleton needs full iron armour/);slots[6]={name:'iron_chestplate'}
+ f.items[0]={name:'stone_sword',count:1,maxDurability:131,durabilityUsed:0,slot:36}
+ assert.match(defenseDecision(f.bot).reason,/wither_skeleton needs an iron sword or axe or better/)
+ f.items[0]={name:'iron_sword',count:1,maxDurability:250,durabilityUsed:0,slot:36};assert.equal(defenseDecision(f.bot).engage,true)
+ f.bot.entities[8]={...reg.entitiesByName.wither_skeleton,id:8,uuid:'10000000-0000-0000-0000-000000000008',name:'wither_skeleton',position:new Vec3(6,64,0)}
+ assert.equal(defenseDecision(f.bot).engage,false,'two of them: shelter')
+})
