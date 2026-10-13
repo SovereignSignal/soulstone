@@ -203,7 +203,9 @@ export class Teammate extends EventEmitter {
         const shooting=runner.task?.kind==='shoot'&&runner.task.status==='running'
         // Open sky decides whether a hurt, empty-handed bot can go and find food (survival.js).
         const openSky=!!runner.bot?.entity?.position&&!roofed(runner.bot)
-        const raw=emergencyReason({...observation,shelterAvailable,sheltered,recentDamageMs,roofed:underRock,openSky})
+        // Idle: nothing running and nothing being planned. Only an idle bot is sent home at night with a base.
+        const idle=runner.task?.status!=='running'&&['ready','blocked'].includes(this.phase)
+        const raw=emergencyReason({...observation,shelterAvailable,sheltered,recentDamageMs,roofed:underRock,openSky,idle})
         const reason=crossing&&(raw===PORTAL_EMERGENCY||raw===THREAT_INTERRUPTION&&runner.work?.stage==='entering')?null
          :shooting&&raw===FIRE_EMERGENCY&&observation.inLava!==true&&observation.health>HEALTH_EMERGENCY_LINE?null:raw
         // The journal should show the times rock was the reason work carried on.

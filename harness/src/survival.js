@@ -205,6 +205,11 @@ export function emergencyReason(observation){
  // Out in the open after dusk with no built base: dig in before the crowd arrives.
  // Under rock there is no crowd arriving: trial 42 spent fifteen minutes of a
  // thirty-minute run waiting for a sunrise thirty-six blocks above it.
- if(observation.roofed!==true&&observation.shelterAvailable===false&&observation.difficulty&&observation.difficulty!=='peaceful'&&Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500))return NIGHT_EXPOSURE
+ const night=observation.difficulty&&observation.difficulty!=='peaceful'&&Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500)
+ if(night&&observation.roofed!==true&&observation.shelterAvailable===false)return NIGHT_EXPOSURE
+ // With a lit base, a bot at work keeps working (the planner decides its night), but
+ // one standing idle under the sky goes home. Lab run 121: home from the Nether at
+ // midday with its request over, it stood 30 blocks from the base into the night.
+ if(night&&observation.idle===true&&observation.shelterAvailable===true&&observation.sheltered!==true&&observation.openSky===true&&observation.dimension==='overworld')return NIGHT_EXPOSURE
  return null
 }

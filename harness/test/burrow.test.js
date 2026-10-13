@@ -269,6 +269,21 @@ test('dusk with no built base is an emergency; a built base, daylight or peacefu
  assert.equal(emergencyReason({...base,timeOfDay:13000,shelterAvailable:false,nearbyThreats:[{name:'zombie',risk:'potential_hostile',distance:8}]}),THREAT_INTERRUPTION)
 })
 
+// Lab run 121 (pi1, 13 October): home through the portal at midday with the request
+// ended, the bot stood idle 30 blocks from its lit base into the night; a skeleton
+// and a zombie killed it there twelve minutes later.
+test('idle under open sky at night with a lit base to reach, the bot goes home; working, inside, roofed or in the Nether it does not',()=>{
+ const idle={gameMode:'survival',health:20,food:20,difficulty:'normal',headSubmerged:false,oxygen:20,nearbyThreats:[],carriedFood:[],dimension:'overworld',timeOfDay:13000,shelterAvailable:true,sheltered:false,openSky:true,idle:true}
+ assert.equal(emergencyReason(idle),NIGHT_EXPOSURE)
+ assert.equal(emergencyReason({...idle,timeOfDay:200}),NIGHT_EXPOSURE)
+ assert.equal(emergencyReason({...idle,idle:false}),null,'a request at work keeps working: the planner decides its night')
+ assert.equal(emergencyReason({...idle,sheltered:true}),null)
+ assert.equal(emergencyReason({...idle,openSky:false}),null)
+ assert.equal(emergencyReason({...idle,dimension:'the_nether'}),null)
+ assert.equal(emergencyReason({...idle,timeOfDay:6000}),null)
+ assert.equal(emergencyReason({...idle,difficulty:'peaceful'}),null)
+})
+
 test('when the pathfinder will not climb out, the exit jumps and places blocks beneath until at the surface',async()=>{
  const w=world();w.bot.entity.position=new Vec3(10.5,60,10.5);w.cells.set(new Vec3(10,63,10).toString(),'dirt')
  for(const y of [60,61,62])w.cells.set(new Vec3(10,y,10).toString(),'air')
