@@ -50,3 +50,23 @@ test('the resource scan builds no block for a cell it only has to look at',()=>{
  assert.ok(found.length>=3,'the world holds most of them')
  assert.equal(built,found.length,'one block per result, to confirm its name; none per cell scanned')
 })
+// Lab run 132 (pi1, 13 October): prospecting asked findBlocks for ores 128 blocks out
+// with a per-block test, and the bot's process froze for 41.6 s. Several ids and the
+// same per-block test must still give mineflayer's own answer.
+test('findBlockCells takes several block ids and mineflayer\'s per-block test, and still gives findBlocks\' answer',()=>{
+ for(const seed of [5,6]){
+  const bot=world(seed)
+  const ids=['iron_ore','coal_ore','diamond_ore'].map(n=>registry.blocksByName[n].id)
+  const tests=[undefined,b=>b.position.y<30,b=>b.position.x%2===0&&b.position.z>-20,true]
+  for(const useExtraInfo of tests)for(const [maxDistance,count] of [[32,4],[64,32],[128,32]]){
+   const opts={maxDistance,count,...(useExtraInfo!==undefined?{useExtraInfo}:{})}
+   assert.deepEqual(findBlockCells(bot,ids,opts).map(String),bot.findBlocks({matching:ids,...opts}).map(String),`${useExtraInfo} ${maxDistance}/${count} (seed ${seed})`)
+  }
+ }
+})
+test('with a per-block test, a block is built only for a cell whose type already matches',()=>{
+ const bot=world(7);let built=0;const blockAt=bot.blockAt;bot.blockAt=(...a)=>{built++;return blockAt(...a)}
+ const ids=['iron_ore','coal_ore'].map(n=>registry.blocksByName[n].id)
+ const found=findBlockCells(bot,ids,{maxDistance:128,count:100000,useExtraInfo:()=>true})
+ assert.ok(found.length>0);assert.equal(built,found.length,'one per matching cell, none for the sky or the stone')
+})

@@ -17,7 +17,7 @@ import {executeConstruction,fullCube} from './construction.js'
 import {prepareTools,stockTunnelPickaxes} from './supplies.js'
 import {executeExpedition,EXPEDITION_ACTIONS} from './prospecting.js'
 import {executeStationSkill,STATION_ACTIONS,SMELTING} from './stations.js'
-import {nearbyResources} from './observations.js'
+import {nearbyResources,findBlockCells} from './observations.js'
 import {Vec3} from 'vec3'
 import pathfinding from 'mineflayer-pathfinder'
 import {setTimeout as delay} from 'node:timers/promises'
@@ -349,7 +349,7 @@ export async function executeWorldSkill(bot,task,context,gather) {
     const adjacent=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].map(([x,y,z])=>bot.blockAt(b.position.offset(x,y,z)))
     return adjacent.every(n=>n&&!WATER_BLOCKS.has(n.name)&&n.name!=='lava'&&n.getProperties?.().waterlogged!==true)&&adjacent.some(n=>n.name==='air')
    }
-   const candidates=bot.findBlocks({matching:ids,maxDistance:32,count:128,useExtraInfo:b=>exposed(b)&&!skipped.has(key(b.position))&&!supportsPlayer(b.position,bot.entity.position)&&!inProtectedSite(b.position,sites)}).map(p=>bot.blockAt(p)).filter(Boolean)
+   const candidates=findBlockCells(bot,ids,{maxDistance:32,count:128,useExtraInfo:b=>exposed(b)&&!skipped.has(key(b.position))&&!supportsPlayer(b.position,bot.entity.position)&&!inProtectedSite(b.position,sites)}).map(p=>bot.blockAt(p)).filter(Boolean)
    candidates.sort((a,b)=>a.position.distanceTo(bot.entity.position)-b.position.distanceTo(bot.entity.position))
    const block=candidates.find(b=>!accept||accept(b))
    if(!block)throw new Error(candidates.length?`No ${names.join(' or ')} within 32 blocks is safe to take: ${candidates.length} look${candidates.length===1?'s':''} like part of a build`:`No reachable ${names.join(' or ')} observed within 32 blocks`)

@@ -6,6 +6,7 @@ import {Vec3} from 'vec3'
 import pathfinding from 'mineflayer-pathfinder'
 import {setTimeout as delay} from 'node:timers/promises'
 import {DoorAwareMovements,supportsPlayer,openDoorHasCenterClearance} from './navigation.js'
+import {findBlockCells} from './observations.js'
 const {goals}=pathfinding
 export const EXPEDITION_ACTIONS=['prospect','return_base']
 export const ORE_SOURCES={cobblestone:['stone'],coal:['coal_ore','deepslate_coal_ore'],raw_iron:['iron_ore','deepslate_iron_ore'],raw_copper:['copper_ore','deepslate_copper_ore'],raw_gold:['gold_ore','deepslate_gold_ore'],diamond:['diamond_ore','deepslate_diamond_ore']}
@@ -183,7 +184,7 @@ export async function executeExpedition(bot,task,api){
  try{
   for(let attempt=0;attempt<8&&count(item)<total;attempt++){
    check();const centre=bot.entity.position.floored(),names=ORE_SOURCES[item]
-   const candidates=bot.findBlocks({matching:names.map(n=>bot.registry.blocksByName[n]?.id).filter(Number.isInteger),maxDistance:128,count:32,useExtraInfo:b=>insideBounds(b.position,bounds)&&!state.rejected.some(r=>r.item===item&&r.position===key(b.position))&&!protectedBase(b.position,project)})
+   const candidates=findBlockCells(bot,names.map(n=>bot.registry.blocksByName[n]?.id).filter(Number.isInteger),{maxDistance:128,count:32,useExtraInfo:b=>insideBounds(b.position,bounds)&&!state.rejected.some(r=>r.item===item&&r.position===key(b.position))&&!protectedBase(b.position,project)})
    state.surveys.push({item,centre:point(centre),radius:128,observed:candidates.length,at:new Date().toISOString()});state.surveys=state.surveys.slice(-16);save()
    let exploring=false,target=candidates[0]
    if(!target){

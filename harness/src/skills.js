@@ -27,6 +27,7 @@ import { resourceNames, resourceLabel, gatherCandidates } from './resources.js'
 import pathfinding from 'mineflayer-pathfinder'
 import { Vec3 } from 'vec3'
 import { setTimeout as delay } from 'node:timers/promises'
+import {findBlockCells} from './observations.js'
 const { goals } = pathfinding
 export const countItem = (bot, name) => bot.inventory.items().filter(i => i.name === name).reduce((n, i) => n + i.count, 0)
 
@@ -76,7 +77,7 @@ export async function executeSkill(bot, task, context) {
     if (!ids.length) throw new Error(`${resourceLabel(item)} unavailable in this version`)
     let stalled = 0, legs = 0
     const skipped = new Set(), skippedColumns = new Set()
-    const scan = (maxDistance, limit) => gatherCandidates(bot,bot.findBlocks({ matching: ids, maxDistance, count: limit }),{skipped,skippedColumns})
+    const scan = (maxDistance, limit) => gatherCandidates(bot,findBlockCells(bot, ids, { maxDistance, count: limit }),{skipped,skippedColumns})
     // A failed walk carries the pathfinder's and the server's account of it,
     // under the same error name the gather loop branches on.
     async function walk(goal, ms = 15000) {

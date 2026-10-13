@@ -52,10 +52,16 @@ export function nearbyResources(bot,names,{maxDistance=32,countPerKind=2}={}) {
 // section is decided by its value and other cells by state id. Same sections, order,
 // stopping rule and distance arithmetic, so the same answer.
 const {OctahedronIterator}=prismarineWorld.iterators
-export function findBlockCells(bot,id,{maxDistance=16,count=1,point}={}){
- const block=bot?.registry?.blocks?.[id],world=bot?.world,minY=bot?.game?.minY,height=bot?.game?.height
- if(!block||typeof world?.getColumn!=='function'||!Number.isFinite(minY)||!Number.isFinite(height))return bot.findBlocks({matching:id,maxDistance,count,...(point?{point}:{})})
- const lo=block.minStateId,hi=block.maxStateId,matches=s=>s>=lo&&s<=hi
+// `matching` is one block id or several; `useExtraInfo`, as in mineflayer, is a test
+// run on the built block, here only for a cell whose type already matches (lab run 132:
+// prospecting 128 blocks out this way froze the bot for 41.6 s).
+export function findBlockCells(bot,matching,{maxDistance=16,count=1,point,useExtraInfo}={}){
+ const ids=[matching].flat(),blocks=ids.map(id=>bot?.registry?.blocks?.[id]),world=bot?.world,minY=bot?.game?.minY,height=bot?.game?.height
+ // No id to look for finds nothing; mineflayer would scan every one-block section to say so.
+ if(!ids.length)return []
+ if(!blocks.length||blocks.some(b=>!b)||typeof world?.getColumn!=='function'||!Number.isFinite(minY)||!Number.isFinite(height))return bot.findBlocks({matching,maxDistance,count,...(point?{point}:{}),...(useExtraInfo!==undefined?{useExtraInfo}:{})})
+ const ranges=blocks.map(b=>[b.minStateId,b.maxStateId]),matches=s=>ranges.some(([lo,hi])=>s>=lo&&s<=hi)
+ const extra=typeof useExtraInfo==='function'?useExtraInfo:null
  const from=(point||bot.entity.position).floored()
  const start=new Vec3(Math.floor(from.x/16),Math.floor(from.y/16),Math.floor(from.z/16))
  const it=new OctahedronIterator(start,Math.ceil((maxDistance+8)/16)),visited=new Set(),cell=new Vec3(0,0,0),total=height>>4,below=Math.abs(minY>>4)
@@ -71,7 +77,10 @@ export function findBlockCells(bot,id,{maxDistance=16,count=1,point}={}){
     for(let x=bx;x<bx+16;x++)for(let y=by;y<by+16;y++)for(let z=bz;z<bz+16;z++){
      if(single===null&&!matches(column.getBlockStateId(cell.set(x&15,y,z&15))))continue
      const dx=from.x-x,dy=from.y-y,dz=from.z-z
-     if(Math.sqrt(dx*dx+dy*dy+dz*dz)<=maxDistance)found.push(new Vec3(x,y,z))
+     if(Math.sqrt(dx*dx+dy*dy+dz*dz)>maxDistance)continue
+     // Both must hold, as in mineflayer; distance first spares a block for every far cell.
+     if(extra&&!extra(bot.blockAt(new Vec3(x,y,z))))continue
+     found.push(new Vec3(x,y,z))
     }
    }
    visited.add(next.toString())
