@@ -275,4 +275,9 @@ test('the brief keeps a blaze hunt beside the arrival portal',()=>{
  const brief=readBrief(new URL('../src/companion/survival-capabilities.txt',import.meta.url),'utf8')
  const line=brief.split('\n').find(l=>l.startsWith('THE NETHER'))
  assert.match(line,/within 16 blocks of the arrival portal/)
+ // Step 4 (13 October): a known spawner is a trip, not a chase. Lab run 129 walked to
+ // one and could not plan its way back; the trail home (be036c1) is what makes it safe.
+ assert.match(line,/never walk or dig further into a fortress to chase one/)
+ assert.match(line,/blaze spawner[^.]*(named|known)[^.]*\./i,'a known spawner may be walked to')
+ assert.match(line,/trail/i,'the way back is the trail it walked')
 })
