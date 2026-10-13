@@ -1,14 +1,14 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {EventEmitter} from 'node:events'
-import {mkdtempSync} from 'node:fs'
+import {mkdtempSync,readFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import minecraftData from 'minecraft-data'
 import {Vec3} from 'vec3'
 import {THREAT_INTERRUPTION} from '../src/survival.js'
 import {insideBase} from '../src/retreat.js'
-import {Teammate,topUpWhileSheltered,STOP_HOLD_MS} from '../src/companion/controller.js'
+import {Teammate,topUpWhileSheltered,eatAfterPortalEscape,STOP_HOLD_MS} from '../src/companion/controller.js'
 const registry=minecraftData('1.21.4')
 // Lab, 2 October 2026, Normal difficulty at night: inside its lit base with a
 // creeper 2.8 blocks away beyond the door, the bot answered the threat with
@@ -251,6 +251,26 @@ test('hurt in a shelter below healing hunger, it eats what it carries, at most e
  fake.topUpAt=0;bot.food=18;await topUpWhileSheltered(fake,null,bot);assert.equal(eaten.length,1,'hunger 18 already heals')
  bot.food=10;bot.health=20;await topUpWhileSheltered(fake,null,bot);assert.equal(eaten.length,1,'at full health there is nothing to heal')
  bot.health=12;fake.runner.task={status:'running'};await topUpWhileSheltered(fake,null,bot);assert.equal(eaten.length,1,'never over a running task')
+})
+
+// Lab run 120, 13 October: home through the portal at 4.5 health and hunger 17 with
+// 16 cooked beef carried, the bot walked 30 blocks to the base without healing (hunger
+// below 18 heals nothing) and a spider killed it two blocks from the door.
+test('back through the portal hurt, it eats to full hunger before the walk home, unless a melee mob is close',async()=>{
+ const eaten=[],fake={runner:{task:null,log(){}},execute:async c=>{eaten.push(c.goal)}}
+ const bot={health:4.5,food:17,game:{gameMode:'survival',difficulty:'normal'},inventory:{items:()=>[{name:'cooked_beef',count:16}]},entity:{position:new Vec3(0,64,0)},entities:{1:{id:1,name:'skeleton',position:new Vec3(13,64,0)}},blockAt:()=>null,registry}
+ assert.equal(await eatAfterPortalEscape(fake,null,bot),true)
+ assert.deepEqual(eaten,[{item:'cooked_beef',count:2}],'two bites at most: enough for full hunger, short enough to keep walking')
+ bot.entities[2]={id:2,name:'spider',position:new Vec3(2.2,64,0)};bot.time={timeOfDay:13000}
+ assert.equal(await eatAfterPortalEscape(fake,null,bot),false);assert.equal(eaten.length,1,'a melee mob within reach comes first')
+ delete bot.entities[2];bot.food=20;assert.equal(await eatAfterPortalEscape(fake,null,bot),false,'full hunger already heals fastest')
+ bot.food=17;bot.health=20;assert.equal(await eatAfterPortalEscape(fake,null,bot),false,'nothing to heal')
+ bot.health=4.5;fake.execute=async()=>{throw new Error('Eating interrupted')}
+ assert.equal(await eatAfterPortalEscape(fake,null,bot),false,'a failed bite is not a failed escape')
+ const src=readFileSync(new URL('../src/companion/controller.js',import.meta.url),'utf8')
+ // Every crossing safety makes (portal home, portal home again, relocating out of a shelter) eats after it.
+ const crossings=src.match(/this\.execute\(\{action:'use_portal',goal:\{\},timeoutMs:45000\}/g).length
+ assert.equal(crossings,3);assert.equal(src.match(/await eatAfterPortalEscape\(this,/g).length,crossings,'wired after every safety crossing')
 })
 
 test('a Stop holds safety off for a minute, not for as long as the danger lasts',async()=>{

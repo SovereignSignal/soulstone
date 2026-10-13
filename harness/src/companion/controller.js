@@ -93,6 +93,18 @@ export async function topUpWhileSheltered(c,signal,bot){
  try{await c.execute({action:'eat',goal:{item:food.name,count:Math.min(8,food.count)},timeoutMs:20000},signal)}catch(error){c.runner?.log?.('top_up_failed',{reason:String(error.message).slice(0,120)})}
  return false
 }
+// Back through the portal hurt, eat before the walk home: below hunger 18 nothing
+// heals, and at 20 saturation heals fastest. Lab run 120, 13 October: home at 4.5
+// health and hunger 17 with 16 cooked beef carried, a spider killed it two blocks
+// from the base door. Two bites at most; a melee mob in reach is the retreat's to
+// answer first, and a failed bite is not a failed escape.
+export async function eatAfterPortalEscape(c,signal,bot){
+ if(!bot||!(bot.health<20)||!Number.isFinite(bot.food)||bot.food>=20||typeof c.execute!=='function')return false
+ const s=survivalObservation(bot),food=s.carriedFood?.[0];if(!food)return false
+ if(s.nearbyThreats.some(t=>t.risk==='potential_hostile'&&!SHOOTERS_ONLY.has(t.name)&&t.distance<=CLOSE_FLOORS.melee))return false
+ try{await c.execute({action:'eat',goal:{item:food.name,count:Math.min(2,food.count)},timeoutMs:10000},signal);return true}
+ catch(error){c.runner?.log?.('portal_escape_eat_failed',{reason:String(error.message).slice(0,120)});return false}
+}
 export class Teammate extends EventEmitter {
   constructor(runner, planner, statePath, recorder = null) {
     super(); this.runner = runner; this.planner = planner; this.statePath = statePath; this.recorder = recorder
@@ -672,6 +684,8 @@ export class Teammate extends EventEmitter {
         try{
           await this.execute({action:'use_portal',goal:{},timeoutMs:45000},abort.signal)
           if(epoch!==this.epoch||abort.signal.aborted)return
+          await eatAfterPortalEscape(this,abort.signal,recoveryBot)
+          if(epoch!==this.epoch||abort.signal.aborted)return
           attempt.status='crossed';this.safety=null;this.phase=canResume(this.requestProgress)?'blocked':'ready';this.persist()
           this.say('I am back in the Overworld, away from the danger.')
           return
@@ -735,6 +749,8 @@ export class Teammate extends EventEmitter {
         this.say('Nowhere to wall in here. Trying the portal again.')
         try{
           await this.execute({action:'use_portal',goal:{},timeoutMs:45000},abort.signal)
+          if(epoch!==this.epoch||abort.signal.aborted)return
+          await eatAfterPortalEscape(this,abort.signal,recoveryBot)
           if(epoch!==this.epoch||abort.signal.aborted)return
           attempt.status='crossed';this.safety=null;this.phase=canResume(this.requestProgress)?'blocked':'ready';this.persist()
           this.say('I am back in the Overworld, away from the danger.')
@@ -970,7 +986,7 @@ export class Teammate extends EventEmitter {
       if(relocate&&relocateWay(bot)==='portal'){
         // Lab run 100: in the Nether "leaving the area" fled 32 blocks deeper into a
         // fortress and met a wither skeleton. With the portal in reach, home is away.
-        try{await this.execute({action:'use_portal',goal:{},timeoutMs:45000},signal);check();safety.relocated=structuredClone(this.runner.task.result);this.persist()}
+        try{await this.execute({action:'use_portal',goal:{},timeoutMs:45000},signal);check();safety.relocated=structuredClone(this.runner.task.result);this.persist();await eatAfterPortalEscape(this,signal,bot);check()}
         catch(error){check();this.say('I could not get back through the portal: '+error.message);this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check()}
       }else if(relocate){
         try{await this.execute({action:'climb',goal:{},timeoutMs:45000},signal);check()}
