@@ -22,6 +22,7 @@ import {fireObservation} from './survival.js'
 import {correctToolTierMaterials} from './tool-tiers.js'
 import {installEconomicalTools} from './tool-choice.js'
 import {OwnBlocks,trackOwnPlacements} from './natural.js'
+import {attachTrail} from './trail.js'
 import {dirname,join as joinPath} from 'node:path'
 
 const { pathfinder, goals } = pathfinding
@@ -64,6 +65,8 @@ export class Runner extends EventEmitter {
     bot.on('path_update',result=>this.pathUpdated(bot,result))
     bot.loadPlugin(collection.plugin)
     endClientTicks(bot)
+    // The way back to a portal, kept across reconnects (trail.js).
+    attachTrail(bot,{trail:this.trail??={dimension:null,crumbs:[]}})
     if (this.chatControl) { attachChatControl(this, bot); attachIdleCompany(this, bot) }
     this.joinTimer = setTimeout(() => bot.end('join timeout'), this.options.auth === 'microsoft' ? 1200000 : 30000)
     bot.on('spawn', () => {

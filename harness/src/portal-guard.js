@@ -5,6 +5,7 @@ import pathfinding from 'mineflayer-pathfinder'
 import {dimensionOf} from './dimension.js'
 import {wearBestArmor} from './armor.js'
 import {unwall} from './hut.js'
+import {wayBack} from './trail.js'
 const {goals}=pathfinding
 
 // Sov's limit: never step through a portal or enter the Nether. A survival
@@ -43,7 +44,7 @@ export async function leavePortal(bot,task,{check,stage,progress},{pollMs=50,ste
 // Every walk avoids portal blocks, so the last step in is by direct control;
 // then it stands still until the dimension changes, and steps out of the
 // arrival portal with the same guard that steps it out of any other.
-export async function usePortal(bot,task,{check,stage,progress,netherAllowed=false},{reachMs=20000,enterMs=3000,crossMs=7000,attempts=3,pauseMs=1500,hopMs=500,loadMs=10000,pollMs=50}={}){
+export async function usePortal(bot,task,{check,stage,progress,netherAllowed=false},{reachMs=20000,enterMs=3000,crossMs=7000,attempts=3,pauseMs=1500,hopMs=500,loadMs=10000,pollMs=50,retraceMs=8000}={}){
  const xyz=p=>({x:p.x,y:p.y,z:p.z}),key=p=>`${p.x},${p.y},${p.z}`
  const until=async(predicate,ms)=>{const end=Date.now()+ms;while(Date.now()<end){check();if(predicate())return true;await delay(pollMs)}return predicate()}
  const inside=()=>portalObservation(bot).inPortal===true
@@ -100,6 +101,26 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
   // walk never digs blocks the bot placed itself.
   // A side is a way out when its feet and head cells are both open (run 74: a
   // half-opened wall left none, and the pathfinder's empty path read as done).
+  // The direct walk failed: go back the way it came, crumb by crumb (trail.js), then
+  // try the last few blocks again. Three missed hops in a row end it.
+  const retrace=async stand=>{
+   if(bot.trail?.dimension!==from)return
+   const crumbs=wayBack(bot.trail,bot.entity.position.floored())
+   if(!crumbs.length)return
+   stage('retracing');progress(`Retracing my steps to the portal (${crumbs.length} steps back)`)
+   let misses=0
+   for(const c of crumbs){
+    if(c.distanceTo(stand)<=3)break
+    const timer=setTimeout(()=>bot.pathfinder.setGoal(null),retraceMs)
+    try{await bot.pathfinder.goto(new goals.GoalNear(c.x,c.y,c.z,1));misses=0}catch{check();if(++misses>=3)break}
+    finally{clearTimeout(timer)}
+    check()
+   }
+   const timer=setTimeout(()=>bot.pathfinder.setGoal(null),reachMs)
+   try{await bot.pathfinder.goto(new goals.GoalBlock(stand.x,stand.y,stand.z))}catch(error){check();progress(`The last steps to the portal failed: ${String(error.message).slice(0,60)}`)}
+   finally{clearTimeout(timer)}
+   check()
+  }
   const passable=b=>!b||b.boundingBox==='empty'
   const feet=bot.entity.position.floored(),walled=[[1,0],[-1,0],[0,1],[0,-1]].every(([dx,dz])=>[0,1].some(y=>!passable(bot.blockAt(feet.offset(dx,y,dz)))))
   if(!beside()&&walled){progress('Opening the wall toward the portal');await unwall(bot,{kind:'unhut',goal:{toward:{x:portal.x,z:portal.z}}},{check,stage,progress})}
@@ -109,6 +130,7 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
    try{await bot.pathfinder.goto(new goals.GoalBlock(stands[0].x,stands[0].y,stands[0].z))}catch(error){check();progress(`The walk to the portal ended early: ${String(error.message).slice(0,60)}`)}
    finally{clearTimeout(timer)}
    check()
+   if(!beside())await retrace(stands[0])
    if(!beside())throw new Error(`I did not reach a standing cell beside the portal at ${key(portal)}; not stepping toward it from ${key(bot.entity.position.floored())}`)
   }
   await hop()
