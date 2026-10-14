@@ -6,7 +6,7 @@ This guide starts from a fresh clone on an Apple Silicon Mac. It does not depend
 
 | Requirement | How to prepare |
 | --- | --- |
-| Repository access | Accept the owner's GitHub invitation. Authenticate Git using your own account and normal HTTPS or SSH setup. A private repository can return “Repository not found” when access is missing. |
+| Repository access | The repository is public. Clone it over HTTPS or SSH with your normal Git setup. |
 | Apple Silicon Mac | About This Mac should list an Apple chip. Use a native Terminal session. The native build targets macOS 14+. |
 | Apple command-line tools | Run `xcode-select --install`, complete Apple's installer, then reopen Terminal. Full Xcode is optional. |
 | Python 3.9+ | Check `python3 --version`; install a current [Python for macOS](https://www.python.org/downloads/macos/) if needed. |

@@ -8,7 +8,7 @@ A separate [SoulStone Play desktop preview](desktop/README.md) is being develope
 
 ## Quick start from source
 
-You need access to this private repository, Apple command-line tools, Python 3.9+, an arm64 Node.js release version 22+, and Minecraft Launcher. **Launch Minecraft Java 1.21.4 or 26.2 once** so its Java runtime is installed. The [setup guide](docs/SETUP.md) has prerequisite instructions.
+You need Apple command-line tools, Python 3.9+, an arm64 Node.js release version 22+, and Minecraft Launcher. **Launch Minecraft Java 1.21.4 or 26.2 once** so its Java runtime is installed. The [setup guide](docs/SETUP.md) has prerequisite instructions.
 
 ```sh
 git clone https://github.com/SovereignSignal/soulstone.git
@@ -74,4 +74,4 @@ World history and linked-account data stay under `~/Library/Application Support/
 
 Credentials, receipts, weights, generated builds and local history are excluded from Git. Internal plans and dated lab records are maintained separately from this repository; installation and normal development do not require that archive.
 
-Mineflayer and its plugins retain their upstream licenses. The pinned ViaProxy binary is accompanied by its source and license in [harness/bridge](harness/bridge/README.md). This private alpha does not grant an open-source license for SoulStone's original code.
+Mineflayer and its plugins retain their upstream licenses. The pinned ViaProxy binary is accompanied by its source and license in [harness/bridge](harness/bridge/README.md). SoulStone's original code is released under the [MIT License](LICENSE).
