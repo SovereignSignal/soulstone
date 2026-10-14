@@ -11,11 +11,14 @@ import {observedSightline} from './visibility.js'
 // every fortress corridor (step 4, lab run 131: the bot went home at the sight of
 // one); it hits hard and withers, so it is fought only alone, nearly unhurt, in
 // HEAVY armour, with a weapon of at least HEAVY damage (iron sword or axe up).
-export const DEFENDABLE_MOBS=new Set(['zombie','husk','spider','skeleton','wither_skeleton'])
-export const DEFENSE_HEALTH={zombie:12,husk:12,spider:12,skeleton:16,wither_skeleton:18}
+export const DEFENDABLE_MOBS=new Set(['zombie','husk','spider','skeleton','wither_skeleton','magma_cube'])
+export const DEFENSE_HEALTH={zombie:12,husk:12,spider:12,skeleton:16,wither_skeleton:18,magma_cube:14}
 // HEAVY_ARMOR is the Nether kit: iron helmet, chestplate and leggings with the golden boots
 // piglins demand, 14 points (lab run 133 refused one at 14 of 15).
-const HEAVY_MOBS=new Set(['wither_skeleton']),HEAVY_ARMOR=14,HEAVY_DAMAGE=6
+// Magma cubes too (lab run 134: a big one stood on the trail home and killed the bot).
+const HEAVY_MOBS=new Set(['wither_skeleton','magma_cube']),HEAVY_ARMOR=14,HEAVY_DAMAGE=6
+// Hit, a big magma cube splits into two to four smaller ones: one fight, not a crowd.
+const SPLIT_SIZE=4
 export const ENGAGE_RANGE=10
 // Armour changes the arithmetic. In full iron a zombie's hit falls from 3 to
 // about 1.2, and digging a burrow with two zombies on its back cost the test
@@ -32,7 +35,10 @@ export function armorPoints(bot){
 }
 // A group fight is allowed while every hostile near is a melee mob of the
 // group kinds, there are at most GROUP_SIZE of them, and the armour holds.
-export function groupFightable(bot,threats){return threats.length>=1&&threats.length<=GROUP_SIZE&&threats.every(t=>GROUP_MOBS.has(t.name))&&armorPoints(bot)>=GROUP_ARMOR}
+export function groupFightable(bot,threats){
+ return threats.length>=1&&(threats.length<=GROUP_SIZE&&threats.every(t=>GROUP_MOBS.has(t.name))&&armorPoints(bot)>=GROUP_ARMOR||
+  threats.length<=SPLIT_SIZE&&threats.every(t=>t.name==='magma_cube')&&armorPoints(bot)>=HEAVY_ARMOR)
+}
 const weapons={wooden_axe:7,golden_axe:7,stone_axe:9,iron_axe:9,diamond_axe:9,netherite_axe:10,wooden_sword:4,golden_sword:4,stone_sword:5,iron_sword:6,diamond_sword:7,netherite_sword:8}
 const point=p=>new Vec3(p.x,p.y,p.z)
 const distance=(a,b)=>point(a).distanceTo(point(b))

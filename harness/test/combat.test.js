@@ -209,3 +209,22 @@ test('a lone wither skeleton is fought only in the Nether kit or better, with an
  f.bot.entities[8]={...reg.entitiesByName.wither_skeleton,id:8,uuid:'10000000-0000-0000-0000-000000000008',name:'wither_skeleton',position:new Vec3(6,64,0)}
  assert.equal(defenseDecision(f.bot).engage,false,'two of them: shelter')
 })
+
+// Step 4, lab run 134 (pi1, 13 October): on the way to the spawner a big magma cube
+// closed in, the bot would not fight it, and the trail home ran through it: 20 health
+// to 0 in two seconds. Hit, a big cube splits into two to four smaller ones; that is
+// still one fight, not a crowd to flee mid-swing.
+test('magma cubes are fought in the Nether kit with an iron-grade weapon, alone or as the pieces of one split',()=>{
+ const f=fixture(),reg=registry('1.21.4')
+ const cube=(id,x)=>({...reg.entitiesByName.magma_cube,id,uuid:'10000000-0000-0000-0000-00000000000'+id,name:'magma_cube',position:new Vec3(x,64,0)})
+ f.bot.entities={7:{...cube(7,3),uuid}}
+ const slots=[];f.bot.inventory.slots=slots;f.bot.getEquipmentDestSlot=s=>({head:5,torso:6,legs:7,feet:8})[s]
+ for(const [i,n] of [[5,'iron_helmet'],[6,'iron_chestplate'],[7,'iron_leggings'],[8,'golden_boots']])slots[i]={name:n}
+ let d=defenseDecision(f.bot);assert.equal(d.engage,true,d.reason);assert.equal(d.target.targetName,'magma_cube')
+ f.bot.entities[2]=cube(2,4);f.bot.entities[3]=cube(3,5);f.bot.entities[4]=cube(4,6)
+ d=defenseDecision(f.bot);assert.equal(d.engage,true,'four pieces of one split: '+d.reason);assert.equal(d.group,4)
+ f.bot.entities[5]=cube(5,7);assert.equal(defenseDecision(f.bot).engage,false,'five is more than one cube splits into')
+ delete f.bot.entities[5];slots[6]=null;assert.equal(defenseDecision(f.bot).engage,false,'without the chestplate: shelter')
+ slots[6]={name:'iron_chestplate'};f.bot.entities={7:{...cube(7,3),uuid}};f.bot.health=13
+ assert.match(defenseDecision(f.bot).reason,/Health is too low to engage a magma_cube/)
+})
