@@ -1155,9 +1155,15 @@ export class Teammate extends EventEmitter {
           await this.resume({automatic:true}).catch(error=>{request.blocker=error.message;this.persist()})
           return true
         }
+        // A new reason is said at once (night to a camper at dawn, one mob to another); the
+        // same reason is said again every HOLD_SAY_MS. The key leaves the distance out, since
+        // a mob that shuffles would otherwise be news every tick.
+        const holdKey=night?'night':`${pressing.name}:${level?'level':'off-level'}`
+        const fresh=!this.nightHold||this.holdKey!==holdKey
+        const said=()=>{this.nightHold=true;this.holdKey=holdKey;this.holdSaidAt=Date.now();this.say(reason+(night?' I will carry on with your request at daylight.':' I will carry on with your request when it has moved on.'))}
         if(night){
           this.dayHoldSince=null
-          if(!this.nightHold){this.nightHold=true;this.holdSaidAt=Date.now();this.say(reason+' I will carry on with your request at daylight.')}
+          if(fresh)said()
           return false
         }
         if(level&&this.runner.bot.health>=DAY_HOLD_FIGHT_HEALTH&&defenseDecision(this.runner.bot).engage){
@@ -1168,7 +1174,7 @@ export class Teammate extends EventEmitter {
         }
         this.dayHoldSince??=Date.now()
         if(Date.now()-this.dayHoldSince<DAY_HOLD_MS){
-          if(!this.nightHold||Date.now()-(this.holdSaidAt||0)>=HOLD_SAY_MS){this.nightHold=true;this.holdSaidAt=Date.now();this.say(reason+' I will carry on with your request when it has moved on.')}
+          if(fresh||Date.now()-(this.holdSaidAt||0)>=HOLD_SAY_MS)said()
           return false
         }
         this.dayHoldSince=null

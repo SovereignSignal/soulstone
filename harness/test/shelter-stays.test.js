@@ -337,3 +337,16 @@ test('a failed fight from the base hands the hold back, and a camper under the f
  assert.equal(await cave.c.stallRetry(),false);assert.deepEqual(sought,[],'the defense loop would go down the shaft')
  assert.ok(cave.c.messages.some(m=>/below its floor/.test(m.text)&&/moved on/.test(m.text)),cave.c.messages.map(m=>m.text).join(' | '))
 })
+
+// Lab run 139, 13 October, after the fixes above: daylight came, the hold moved from the
+// night to the creeper under the floor, and said nothing for ten minutes, because the
+// night's "already said" flag throttled the new reason. A new reason is said at once.
+test('a hold whose reason changes says the new reason at once; the same reason is still throttled',async()=>{
+ const {c,bot}=world(new Vec3(1.5,64,1.5));bot.time.timeOfDay=18000;c.phase='blocked'
+ c.requestProgress={id:'n',request:'mine iron',status:'blocked',blocker:'x'};c.blockedSince=1
+ const said=re=>c.messages.filter(m=>re.test(m.text)).length
+ assert.equal(await c.stallRetry(),false);assert.equal(said(/at daylight/),1)
+ bot.time.timeOfDay=6000;assert.equal(await c.stallRetry(),false);assert.equal(said(/moved on/),1,'the creeper is named as soon as the night ends')
+ assert.equal(await c.stallRetry(),false);assert.equal(said(/moved on/),1,'and not again at once')
+ bot.time.timeOfDay=18000;assert.equal(await c.stallRetry(),false);assert.equal(said(/at daylight/),2,'dusk is said again too')
+})
