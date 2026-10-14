@@ -218,6 +218,8 @@ export const RELOCATE_HEALTH=16
 // lines above already waives itself the same way when healing is impossible.
 export const RELOCATE_FLOOR=8
 export const RELOCATE_STANDOFF=10
+// How far the melee mobs must be for a shooter at the wall to be answered from the opened wall.
+export const SHOOTER_CONFRONT_STANDOFF=12
 const centre=threats=>({
  x:Math.round(threats.reduce((n,t)=>n+t.position.x,0)/threats.length),
  y:Math.round(threats.reduce((n,t)=>n+t.position.y,0)/threats.length),
@@ -271,7 +273,11 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  // A group the fight rules engage (a split magma cube in the Nether kit) is confronted
  // too, nearest first; lab run 135 died beside the pieces of a cube it had already fought.
  const nearest=[...near].sort((a,b)=>a.distance-b.distance)[0]
- const ready=!!lone&&bowCanAnswer(bot,lone.name)||defenseDecision(bot).engage
+ // A shooter parked at the wall is answered from the opened wall while the melee mobs
+ // are still far (lab run 141, 14 October: a blaze at three blocks, hoglins at fifteen,
+ // and "no clear area" for fourteen minutes with a bow and 79 arrows inside).
+ const shooterAtWall=!lone&&bowCanAnswer(bot,nearest.name)&&near.every(t=>t===nearest||!SHOOTERS_ONLY.has(t.name)&&t.distance>=SHOOTER_CONFRONT_STANDOFF)
+ const ready=!!lone&&bowCanAnswer(bot,lone.name)||shooterAtWall||defenseDecision(bot).engage
  if(!ready){
   // Neither fight nor hide. Unarmed against numbers or a crossbow, healthy, in
   // daylight, with nothing in melee reach and the threat sat still past the

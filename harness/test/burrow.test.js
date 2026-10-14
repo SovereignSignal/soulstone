@@ -675,3 +675,17 @@ test('in the Nether a shelter that will not clear leaves through the portal, not
  assert.equal(relocateWay(bot('the_nether',false)),'flee','no portal in reach: run')
  assert.equal(relocateWay(bot('overworld',true)),'flee','in the Overworld a portal is not the way away')
 })
+
+// Lab run 141, 14 October: on the trip with the full kit, a blaze parked three blocks from
+// the hut with hoglins at fifteen, and the wait said "no clear area" for fourteen minutes
+// with a bow and 79 arrows inside, because a pair is not a lone mob and the melee rules
+// will not take a blaze and hoglins together. A shooter at the wall is answered from the
+// opened wall while the melee mobs are far.
+test('a shooter parked at the wall is confronted with the bow while the melee mobs are still far',()=>{
+ const w=world();w.inventory.push({name:'bow',count:1,maxDurability:384,durabilityUsed:0},{name:'arrow',count:79});w.bot.time.timeOfDay=6000;w.bot.health=20;w.bot.food=20
+ w.bot.entities={1:{id:1,uuid:'00000000-0000-0000-0000-000000000001',type:'hostile',name:'blaze',position:new Vec3(12.5,64,10.5)},2:{id:2,name:'hoglin',position:new Vec3(25.5,64,10.5)}}
+ let r=burrowClearance(w.bot,{lingeredMs:61000});assert.equal(r.clear,true,r.reason);assert.equal(r.confront?.name,'blaze')
+ w.bot.entities[2].position=new Vec3(16.5,64,10.5);r=burrowClearance(w.bot,{lingeredMs:61000});assert.equal(r.clear,false,'a hoglin within twelve blocks keeps the wall shut')
+ w.inventory.splice(w.inventory.findIndex(i=>i.name==='arrow'),1);w.bot.entities[2].position=new Vec3(25.5,64,10.5)
+ assert.equal(burrowClearance(w.bot,{lingeredMs:61000}).clear,false,'no arrows, no answer')
+})
