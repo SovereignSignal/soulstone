@@ -10,7 +10,7 @@ import {Vec3} from 'vec3'
 import {DoorAwareMovements,SOFT_GROUND as SOFT,centreOn} from './navigation.js'
 import {fullCube} from './construction.js'
 import {assertNoHostileOccupants,inspectEmergencyShelter} from './shelter-occupants.js'
-import {survivalObservation,RANGED,HEALTH_EMERGENCY_LINE,breachesRock,outOfReach,SHOOTERS_ONLY} from './survival.js'
+import {survivalObservation,RANGED,HEALTH_EMERGENCY_LINE,breachesRock,outOfReach,SHOOTERS_ONLY,threatRadius} from './survival.js'
 import {threatReach,threatRoutes} from './threat-reach.js'
 import {roofed} from './observations.js'
 import {defenseDecision} from './combat.js'
@@ -235,7 +235,7 @@ export function shelterExits(retreat){
  if(retreat.shelterName==='hut')return [[1,0],[-1,0],[0,1],[0,-1]].flatMap(([dx,dz])=>[at.offset(dx*2,0,dz*2),at.offset(dx*2,1,dz*2)])
  return [at,at.offset(0,1,0),at.offset(0,2,0)]
 }
-export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_MS,relocateAfterMs=RELOCATE_PATIENCE_MS,exits=null}={}){
+export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_MS,relocateAfterMs=RELOCATE_PATIENCE_MS,exits=null,trip=false}={}){
  const s=survivalObservation(bot)
  if(!Number.isFinite(s.timeOfDay))return {clear:false,reason:'Time of day is unknown'}
  // Dawn is coming whatever we do, so waiting for it is not the window's business.
@@ -251,7 +251,10 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  if(s.health<=HEALTH_EMERGENCY_LINE&&canHeal)return {clear:false,reason:'Health is at or below the emergency line; healing before leaving the burrow'}
  // Leave a margin beyond a ranged mob's reach: surfacing with a pillager at
  // seventeen blocks is surfacing into its firing line.
- let near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=(RANGED.has(t.name)?24:16))
+ // On a trip the margin is the alarm's own radius: the trip fights what comes, so a hostile
+ // that would not interrupt the work does not hold the bot in (lab run 142, 14 October:
+ // kitted, a portal room, hoglins at fifteen that the alarm ignores, and no way out).
+ let near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=(trip?threatRadius(t.name):RANGED.has(t.name)?24:16))
  // A hostile the exits cannot reach is not waiting outside. The same floors as
  // the interruption rule still count, so leaving never walks into a re-trigger.
  if(exits&&near.length){

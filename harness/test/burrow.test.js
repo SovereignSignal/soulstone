@@ -695,3 +695,17 @@ test('a shooter parked at the wall is confronted with the bow while the melee mo
  w.inventory.splice(w.inventory.findIndex(i=>i.name==='arrow'),1)
  assert.equal(burrowClearance(w.bot,{lingeredMs:61000}).clear,false,'no arrows, no answer')
 })
+
+// Lab run 142, 14 October: kitted, walled in at the arrival portal, hoglins at fifteen
+// blocks that the work alarm would ignore, and the wait held the bot in. On a trip the
+// clearance margin is the alarm's own radius.
+test('on a trip a hostile outside the alarm radius does not hold the bot in; off a trip the wider margin stands',()=>{
+ const w=world();w.bot.time.timeOfDay=6000;w.bot.health=20;w.bot.food=20
+ w.bot.entities={1:{id:1,name:'hoglin',position:new Vec3(25.5,64,10.5)}}
+ assert.equal(burrowClearance(w.bot).clear,false,'fifteen blocks is inside the resting margin')
+ assert.equal(burrowClearance(w.bot,{trip:true}).clear,true,'and outside the alarm radius on a trip')
+ w.bot.entities[1].position=new Vec3(18.5,64,10.5)
+ assert.equal(burrowClearance(w.bot,{trip:true}).clear,false,'eight blocks holds on a trip too')
+ w.bot.entities={1:{id:1,name:'blaze',position:new Vec3(28.5,64,10.5)}}
+ assert.equal(burrowClearance(w.bot,{trip:true}).clear,true,'a shooter at eighteen is past its sixteen on a trip')
+})
