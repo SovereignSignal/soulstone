@@ -34,6 +34,11 @@ const MELEE_CHAIN=5
 // door does not open for work onto it, and waiting on it is not a stall.
 const SAFETY_RETRIES=3
 const NIGHT_HOLD_MS=14*60*1000
+// A hostile camped outside the base by day: fought if the melee rules engage it; otherwise
+// the hold is said again every HOLD_SAY_MS and ends after DAY_HOLD_MS, when the planner gets
+// a round (lab run 138: a creeper, a zombie and a spider by the door, and the bot held in
+// silence through a whole day, with a bow, 128 arrows and full iron in its pack).
+const HOLD_SAY_MS=10*60*1000,DAY_HOLD_MS=15*60*1000,DAY_HOLD_FIGHT_HEALTH=12
 import {survivalObservation,SHOOTERS_ONLY,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS,HEALTH_EMERGENCY_LINE,outOfReach,cannotShootYet} from '../survival.js'
 // Air, fire and a portal underfoot run their own recovery at once and preempt
 // any shelter attempt: each has a clock no shelter stops.
@@ -1138,8 +1143,23 @@ export class Teammate extends EventEmitter {
           await this.resume({automatic:true}).catch(error=>{request.blocker=error.message;this.persist()})
           return true
         }
-        if(!this.nightHold){this.nightHold=true;this.say(reason+(night?' I will carry on with your request at daylight.':' I will carry on with your request when it has moved on.'))}
-        return false
+        if(night){
+          this.dayHoldSince=null
+          if(!this.nightHold){this.nightHold=true;this.holdSaidAt=Date.now();this.say(reason+' I will carry on with your request at daylight.')}
+          return false
+        }
+        if(this.runner.bot.health>=DAY_HOLD_FIGHT_HEALTH&&defenseDecision(this.runner.bot).engage){
+          this.nightHold=false;this.dayHoldSince=null
+          this.say(`${reason} It is daylight and I can fight it. Going out to deal with it.`)
+          void this.seekSafety(THREAT_INTERRUPTION);return true
+        }
+        this.dayHoldSince??=Date.now()
+        if(Date.now()-this.dayHoldSince<DAY_HOLD_MS){
+          if(!this.nightHold||Date.now()-(this.holdSaidAt||0)>=HOLD_SAY_MS){this.nightHold=true;this.holdSaidAt=Date.now();this.say(reason+' I will carry on with your request when it has moved on.')}
+          return false
+        }
+        this.dayHoldSince=null
+        this.say(`${reason} It has stayed there ${Math.round(DAY_HOLD_MS/60000)} minutes into daylight. Asking the planner what to do about it.`)
       }
     }
     this.nightHold=false;this.backExitAsked=false

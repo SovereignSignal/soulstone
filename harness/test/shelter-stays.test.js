@@ -242,6 +242,29 @@ test('a hostile sealed off from the door does not hold it shut; one with a route
  assert.deepEqual(camped.r.commands,[])
 })
 
+// Lab run 138, 13 October: a creeper, a zombie and a spider by the door in daylight, and
+// the bot, with a bow, 128 arrows and full iron, held in its base in silence through a
+// whole day. A lone camper the melee rules engage is fought; anything else holds with the
+// reason repeated, and after fifteen minutes of daylight the planner gets a round.
+test('by day a lone camper the melee rules engage is fought from the base; a creeper holds, is said again, and ends in a planner round after fifteen minutes',async()=>{
+ const {r,c,bot}=world(new Vec3(1.5,64,1.5));bot.time.timeOfDay=6000
+ const sword={name:'iron_sword',count:1,maxDurability:250,durabilityUsed:0,slot:36};bot.inventory={items:()=>[sword],slots:[]}
+ bot.entities={1:{id:1,uuid:'10000000-0000-0000-0000-000000000001',type:'mob',name:'zombie',position:new Vec3(1.5,64,-1.3)}}
+ let sought=[];c.seekSafety=async reason=>{sought.push(reason)};c.phase='blocked'
+ c.requestProgress={id:'z',request:'mine iron',status:'blocked',blocker:'x'};c.blockedSince=1
+ assert.equal(await c.stallRetry(),true);assert.deepEqual(sought,[THREAT_INTERRUPTION],'the zombie is fought, through the door')
+ assert.ok(c.messages.some(m=>/It is daylight and I can fight it/.test(m.text)),c.messages.map(m=>m.text).join(' | '))
+ // The fixture's creeper: not fightable by the rules, so a hold, said once, then again after ten minutes.
+ const held=world(new Vec3(1.5,64,1.5));held.bot.time.timeOfDay=6000;let resumes=0;held.c.resume=async()=>{resumes++};held.c.phase='blocked'
+ held.c.requestProgress={id:'c',request:'mine iron',status:'blocked',blocker:'x'};held.c.blockedSince=1
+ assert.equal(await held.c.stallRetry(),false);assert.equal(held.c.messages.filter(m=>/moved on/.test(m.text)).length,1)
+ assert.equal(await held.c.stallRetry(),false);assert.equal(held.c.messages.filter(m=>/moved on/.test(m.text)).length,1,'not repeated at once')
+ held.c.holdSaidAt=Date.now()-11*60*1000;assert.equal(await held.c.stallRetry(),false);assert.equal(held.c.messages.filter(m=>/moved on/.test(m.text)).length,2,'said again after ten minutes')
+ held.c.dayHoldSince=Date.now()-16*60*1000;held.c.phase='blocked'
+ assert.equal(await held.c.stallRetry(),true);assert.equal(resumes,1,'after fifteen minutes of daylight the planner gets a round')
+ assert.ok(held.c.messages.some(m=>/Asking the planner what to do about it/.test(m.text)))
+})
+
 test('hurt in a shelter below healing hunger, it eats what it carries, at most every 30 seconds',async()=>{
  const eaten=[],fake={runner:{task:null,log(){}},execute:async c=>{eaten.push(c.goal)},topUpAt:0}
  const bot={health:12,food:17,game:{gameMode:'survival',difficulty:'normal'},inventory:{items:()=>[{name:'sweet_berries',count:9}]},entity:{position:new Vec3(0,64,0)},entities:{},blockAt:()=>null,registry}
