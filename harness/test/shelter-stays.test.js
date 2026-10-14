@@ -8,7 +8,7 @@ import minecraftData from 'minecraft-data'
 import {Vec3} from 'vec3'
 import {THREAT_INTERRUPTION} from '../src/survival.js'
 import {insideBase} from '../src/retreat.js'
-import {Teammate,topUpWhileSheltered,eatAfterPortalEscape,STOP_HOLD_MS} from '../src/companion/controller.js'
+import {Teammate,topUpWhileSheltered,eatAfterPortalEscape,STOP_HOLD_MS,DAY_HOLD_MS,DAYLIGHT_MS} from '../src/companion/controller.js'
 const registry=minecraftData('1.21.4')
 // Lab, 2 October 2026, Normal difficulty at night: inside its lit base with a
 // creeper 2.8 blocks away beyond the door, the bot answered the threat with
@@ -349,4 +349,16 @@ test('a hold whose reason changes says the new reason at once; the same reason i
  bot.time.timeOfDay=6000;assert.equal(await c.stallRetry(),false);assert.equal(said(/moved on/),1,'the creeper is named as soon as the night ends')
  assert.equal(await c.stallRetry(),false);assert.equal(said(/moved on/),1,'and not again at once')
  bot.time.timeOfDay=18000;assert.equal(await c.stallRetry(),false);assert.equal(said(/at daylight/),2,'dusk is said again too')
+})
+
+// Lab run 139, 13 October: a skeleton and a pillager trading places under the floor made
+// the hold speak four times in ninety seconds, and the fifteen-minute daylight hold never
+// ended, because a day's light is under ten minutes and the clock resets at dusk.
+test('one mob replacing another is not a new hold, and the daylight hold ends within one day\'s light',async()=>{
+ const {c,bot}=world(new Vec3(1.5,64,1.5));bot.time.timeOfDay=6000;c.phase='blocked'
+ c.requestProgress={id:'m',request:'mine iron',status:'blocked',blocker:'x'};c.blockedSince=1
+ assert.equal(await c.stallRetry(),false);assert.equal(c.messages.filter(m=>/creeper.*moved on/.test(m.text)).length,1)
+ bot.entities={1:{id:1,uuid:'10000000-0000-0000-0000-000000000001',type:'mob',name:'skeleton',position:new Vec3(1.5,64,-1.3)}}
+ assert.equal(await c.stallRetry(),false);assert.equal(c.messages.filter(m=>/moved on/.test(m.text)).length,1,'the skeleton is the same hold')
+ assert.ok(DAY_HOLD_MS<DAYLIGHT_MS,`the daylight hold (${DAY_HOLD_MS} ms) must end inside one day's light (${DAYLIGHT_MS} ms)`)
 })

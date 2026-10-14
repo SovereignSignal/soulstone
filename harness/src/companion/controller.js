@@ -38,7 +38,11 @@ const NIGHT_HOLD_MS=14*60*1000
 // the hold is said again every HOLD_SAY_MS and ends after DAY_HOLD_MS, when the planner gets
 // a round (lab run 138: a creeper, a zombie and a spider by the door, and the bot held in
 // silence through a whole day, with a bow, 128 arrows and full iron in its pack).
-const HOLD_SAY_MS=10*60*1000,DAY_HOLD_MS=15*60*1000,DAY_HOLD_FIGHT_HEALTH=12,DAY_HOLD_FIGHT_LEVEL=2
+// A Minecraft day is twenty minutes and the hold's daylight (1000 to 12500) under ten, and
+// the clock resets at dusk, so a fifteen-minute daylight hold could never end (lab run 139,
+// 13 October: it never fired). Five minutes, well inside one day's light.
+export const HOLD_SAY_MS=10*60*1000,DAY_HOLD_MS=5*60*1000,DAY_HOLD_FIGHT_HEALTH=12,DAY_HOLD_FIGHT_LEVEL=2
+export const DAYLIGHT_MS=(12500-1000)/20*1000
 import {survivalObservation,SHOOTERS_ONLY,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS,HEALTH_EMERGENCY_LINE,outOfReach,cannotShootYet} from '../survival.js'
 // Air, fire and a portal underfoot run their own recovery at once and preempt
 // any shelter attempt: each has a clock no shelter stops.
@@ -1155,10 +1159,11 @@ export class Teammate extends EventEmitter {
           await this.resume({automatic:true}).catch(error=>{request.blocker=error.message;this.persist()})
           return true
         }
-        // A new reason is said at once (night to a camper at dawn, one mob to another); the
-        // same reason is said again every HOLD_SAY_MS. The key leaves the distance out, since
-        // a mob that shuffles would otherwise be news every tick.
-        const holdKey=night?'night':`${pressing.name}:${level?'level':'off-level'}`
+        // A new kind of hold is said at once (night to a camper at dawn, dusk again); the same
+        // kind is said again every HOLD_SAY_MS with whichever mob is nearest then. The key is
+        // night or day only: with a skeleton and a pillager trading places the nearest mob
+        // changed four times in ninety seconds (lab run 139), and each was news.
+        const holdKey=night?'night':'day'
         const fresh=!this.nightHold||this.holdKey!==holdKey
         const said=()=>{this.nightHold=true;this.holdKey=holdKey;this.holdSaidAt=Date.now();this.say(reason+(night?' I will carry on with your request at daylight.':' I will carry on with your request when it has moved on.'))}
         if(night){
