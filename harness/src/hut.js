@@ -60,10 +60,18 @@ function hutSiteAt(bot,feet){
   if(carried<needed)return {ok:false,reason:`${needed} blocks needed to close this spot and ${carried} carried`}
   return {ok:true,feet,needed,portal:true,cells:room}
  }
+ // A wall cell with nothing under it gets footing first: a carried block placed off the
+ // bot's own floor block, which every side cell's ground touches (lab run 142, 14 October:
+ // kitted, a hoglin at ten on a fortress walkway, "no ground to build the wall on", home).
+ const footing=[]
  for(const [dx,dy,dz] of SIDES){
   for(const level of [0,1]){const c=feet.offset(dx,level,dz),b=bot.blockAt(c);if(!b)return {ok:false,reason:`Cell ${key(c)} is not observed`};if(!REPLACEABLE.has(b.name)&&!solid(bot,b))return {ok:false,reason:`Cannot wall through ${b.name} at ${key(c)}`}}
   // A wall that already stands (a shaft, a cave nook) needs no ground under it.
-  const ground=bot.blockAt(feet.offset(dx,-1,dz));if(!solid(bot,bot.blockAt(feet.offset(dx,0,dz)))&&!solid(bot,ground))return {ok:false,reason:`No ground to build the wall on at ${key(feet.offset(dx,-1,dz))}`}
+  const under=feet.offset(dx,-1,dz),ground=bot.blockAt(under)
+  if(!solid(bot,bot.blockAt(feet.offset(dx,0,dz)))&&!solid(bot,ground)){
+   if(!ground||!REPLACEABLE.has(ground.name))return {ok:false,reason:`No ground to build the wall on at ${key(under)}${ground?` (${ground.name})`:''}`}
+   footing.push(under)
+  }
  }
  const roof=bot.blockAt(feet.offset(0,2,0)),helper=bot.blockAt(feet.offset(1,2,0))
  if(!roof||!helper||!(REPLACEABLE.has(roof.name)||solid(bot,roof))||!(REPLACEABLE.has(helper.name)||solid(bot,helper)))return {ok:false,reason:'No room for the roof'}
@@ -73,10 +81,10 @@ function hutSiteAt(bot,feet){
  const wanted=[]
  for(const [dx,dy,dz] of SIDES)for(const level of [0,1])wanted.push(feet.offset(dx,level,dz))
  wanted.push(feet.offset(1,2,0),feet.offset(0,2,0))
- const needed=wanted.filter(c=>!solid(bot,bot.blockAt(c))).length
+ const needed=wanted.filter(c=>!solid(bot,bot.blockAt(c))).length+footing.length
  const carried=hutMaterials(bot).reduce((n,i)=>n+i.count,0)
  if(carried<needed)return {ok:false,reason:`${needed} blocks needed to close this spot and ${carried} carried`}
- return {ok:true,feet,needed}
+ return {ok:true,feet,needed,footing}
 }
 // Lab run 101, 10 October: the bot had opened its portal room and stepped two
 // blocks out to shoot; hoglins came round at ten blocks and, the room a step
@@ -133,6 +141,7 @@ export async function wallIn(bot,task,{check,stage,progress}){
  const placements=[]
  if(site.portal)for(const target of site.cells)placements.push({target,ref:null})
  else{
+  for(const under of site.footing||[])placements.push({target:under,ref:feet.offset(0,-1,0)})
   for(const [dx,dy,dz] of SIDES){
    placements.push({target:feet.offset(dx,0,dz),ref:feet.offset(dx,-1,dz)})
    placements.push({target:feet.offset(dx,1,dz),ref:feet.offset(dx,0,dz)})

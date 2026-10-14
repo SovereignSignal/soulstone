@@ -31,7 +31,10 @@ test('a burrow takes three cells when stone stops the fourth, and refuses a two-
 test('a hut needs the blocks its own site is missing, solid ground around and room above',()=>{
  assert.equal(hutSite(world().bot).ok,true)
  assert.match(hutSite(world({logs:9}).bot).reason,/10 blocks needed to close this spot and 9 carried/)
- const pit=world();pit.cells.set(new Vec3(11,63,10).toString(),'air');assert.match(hutSite(pit.bot).reason,/No ground/)
+ // Lab run 142: a wall cell over air on a fortress walkway gets footing from the carried blocks.
+ const pit=world({logs:12});pit.cells.set(new Vec3(11,63,10).toString(),'air');const edge=hutSite(pit.bot);assert.equal(edge.ok,true,edge.reason);assert.deepEqual(edge.footing,[new Vec3(11,63,10)]);assert.equal(edge.needed,11)
+ const short=world({logs:10});short.cells.set(new Vec3(11,63,10).toString(),'air');assert.match(hutSite(short.bot).reason,/11 blocks needed/)
+ const lava=world({logs:12});lava.cells.set(new Vec3(11,63,10).toString(),'lava');assert.match(hutSite(lava.bot).reason,/No ground to build the wall on .*lava/)
  const tree=world();tree.cells.set(new Vec3(10,66,10).toString(),'oak_log');assert.equal(hutSite(tree.bot).ok,true)
  const wall=world();wall.cells.set(new Vec3(11,64,10).toString(),'water');assert.match(hutSite(wall.bot).reason,/Cannot wall/)
 })
