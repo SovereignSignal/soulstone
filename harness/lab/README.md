@@ -1,40 +1,47 @@
-# Existing disposable lab
+# The lab
 
-Sov confirmed the existing Proxmox Minecraft server is for experiments and may be broken, reset and rebuilt. No second instance is needed or deployed.
+SoulStone is tested in a **test world** before anything reaches the world people play in. Every change runs there first, and so does every first-ever capability (the first Nether trip, the first fortress). The test world is a Paper server in Docker; the bot connects through a ViaProxy bridge, because the harness speaks Minecraft 1.21.4 and the servers run newer releases. As of October 2026 the lab and the family world each run on a Raspberry Pi 4 (4 GB), with the bot and the server on the same Pi.
 
-## Checkpoint
+## What is here
 
-The server was stopped before a full snapshot of server-data, Compose configuration and private environment settings. The snapshot stays on the VM, outside source control, with root-only access because it includes private configuration.
+| File | What it does |
+|---|---|
+| `bridge.js` | The ViaProxy launcher. Reads the pinned release and supported server versions from `../bridge/compatibility.json`, so one launcher serves every route. Settings are environment variables documented at its top: `MC_TARGET_VERSION` picks the route (26.2 or 26.3). |
+| `compose.example.yml` | A test-world server as the lab runs it. RCON stays inside the container. The password and seed go in a private `.env`. |
+| `nether-scan.mjs` | Reads a world's Nether region files and lists blaze spawners and structure starts, nearest first. `/locate` can be wrong after a world converts between versions; the blocks are not. |
+| `staging/` | The blaze-rod experiments (below). |
 
-- Snapshot: `snapshots/pre-harness-20260907.tar.gz` beneath the existing deployment directory.
-- SHA-256: `9f47be655967111e900b2babd1319bb155125b341410b63a97f6099d1a3bfe4a`.
-- Original ControlBot source archived locally at `baseline/control-source.tar.gz`.
-- Source archive SHA-256: `e38b767ce46878a62a93edf23ce73985323cb028a7eb9c06c00fb65424598591`.
+## Staged runs (`staging/`)
 
-RCON is enabled with a generated private password. No RCON port is published. The evaluator executes `rcon-cli` inside the existing container through SSH. Credentials are never passed to the bot or model.
+These set up a situation in the test world by console, post one request to the bot, and watch it. **Test world only.** They teleport the bot, give it kit and summon mobs, which would be cheating in a world people play in.
 
-## Platform fixture v1
+- `reset-fortress.sh`: clears what earlier runs left at the lab's Nether portal: the bot's cobblestone, loose items, hoglins, magma cubes, zombies and skeletons nearby. It keeps the three blazes nearest the portal.
+- `blaze-range.sh <log> [minutes] [max] [hoglins]`: a practice range. While the bot is on the fortress bridge and no blaze is over the deck, it summons one, at most one a minute.
+- `stage-fortress.sh <run-name> [minutes]`: teleports the bot beside the Nether portal with a bow kit, then posts `REQUEST` (default: shoot blazes and bring 3 rods home) through the watcher.
+- `watch.py <out-dir> <minutes> <request> [--allow-nether]`: posts one request, samples the bot's state every second, and ends on a death, a finished request or the time limit. It writes `watch.jsonl` and a report.
+- `alert.py <run.out> <since-iso>`: waits for a death, a stall in shelter, a give-up or the run's end.
+- `rod-watch.sh`: logs blaze rods lying near the bridge, to tell "no drop" from "dropped and lost".
 
-- Existing world, Paper 1.21.4. Smooth-stone floor: x=0…100, y=250, z=0…16. Air above: y=251…255.
-- Start: (2.5, 251, 8.5). Navigation destination: (22.5, 251, 8.5). Recovery destination: (80.5, 251, 8.5).
-- Peaceful difficulty, noon, clear weather, daylight/weather cycles and mob spawning disabled. Spawn radius zero. Platform chunks force-loaded.
-- Test bot: HarnessRunner, whitelisted, survival mode, empty inventory, restored health, fixed respawn point.
-- Navigation cannot dig, place scaffolding, tower, parkour or sprint.
-- Reset stops the bot, clears its inventory, restores survival/health/respawn and teleports it to the start. Position is independently queried through RCON.
-- Completion must occur within 60 seconds and server position must be within three blocks. Runner aims for two blocks or closer.
+The Nether coordinates in these scripts (portal at -70,61,-41, the bridge, a blaze spawner at -35,58,-8) belong to the lab world. Another world needs its own, and `nether-scan.mjs` finds them. Settings come from the environment, with the lab's values as defaults:
 
-The suite intentionally leaves this fixture in place. It affects global difficulty, world spawn and the listed gamerules. This is a navigation/recovery baseline, not T6. Establish a hard-survival fixture before scoring survival. Full-world restoration and a fixed-seed resource benchmark remain untested.
+| Variable | Meaning | Default |
+|---|---|---|
+| `MC_CONTAINER` | the test world's container | `mc-sandbox` |
+| `MC_BOT` | the bot's player name | `SoulStone303` |
+| `SOULSTONE_ROOT` | the install (harness, run) | `~/soulstone` |
+| `SOULSTONE_RUN` | the bot's run folder (its state and API) | `$SOULSTONE_ROOT/run` |
+| `LAB_OUT` | where runs are written | `$SOULSTONE_ROOT/harness/results/lab-runs` |
 
-## Run
+`--allow-nether` is refused unless `SOULSTONE_RUN` is the test bot's own run folder. Portal travel into the Nether is off for any bot until its owner turns it on.
 
-Set private MC_HOST and MC_SSH_HOST in the ignored `.env`. Then:
+## What the Raspberry Pi taught (13 October 2026)
 
-```sh
-MC_LAB_EXPERIMENT=yes npm run test:lab
-```
+Moving the lab from a fast x86 VM to a Pi 4 exposed freezes the VM had hidden. The bot's whole process stopped for 5 to 40 seconds in block scans (mineflayer's `findBlocks` builds a block for every cell of a one-block section, sky included) and in the threat-route search. Each one got the bot killed at least once. They were found by profiling the live bot (`node --cpu-prof` through the service's environment) and fixed so the answers stay identical.
 
-The explicit flag authorizes fixture edits, kicks and killing only HarnessRunner. The suite also kills its local runner process to test durability. It writes a timestamped report and stops its bot when finished. The Minecraft server stays available for further experiments.
+Two more things to keep in mind on a Pi:
+- **Never leave chunks force-loaded.** 47 force-loaded chunks held a Pi server at 5 TPS.
+- **Leave the watcher's API timeout at 15 s or more.** A Pi can stall briefly.
 
-Tests: three baseline joins, T2 navigation, T7 actual kick/resume, process kill/restart, stop across reconnect/restart, death with explicit resume, and task deadline. T1 and T3–T6 remain untested.
+## The older lab suites
 
-For restore: stop the lab; verify the archive checksum; preserve the current directory as a separate checkpoint; restore server-data into an empty target directory and deliberately choose whether to restore the old config (which disables RCON); start and health-check. Do not overlay extracted world files on an existing world. An executable restore workflow has not yet been validated.
+`npm run test:lab` (`test/lab-integration.js`) and the `test/*-lab.js` scripts drive a disposable server named by `MC_HOST` and `MC_SSH_HOST` in the ignored `.env`. `MC_LAB_EXPERIMENT=yes` authorises their fixture edits, kicks and kills of their own test players only. They predate the staged runs above and test navigation, recovery, building and items on a flat platform fixture.
