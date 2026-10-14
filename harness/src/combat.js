@@ -11,8 +11,12 @@ import {observedSightline} from './visibility.js'
 // every fortress corridor (step 4, lab run 131: the bot went home at the sight of
 // one); it hits hard and withers, so it is fought only alone, nearly unhurt, in
 // HEAVY armour, with a weapon of at least HEAVY damage (iron sword or axe up).
-export const DEFENDABLE_MOBS=new Set(['zombie','husk','spider','skeleton','wither_skeleton','magma_cube'])
-export const DEFENSE_HEALTH={zombie:12,husk:12,spider:12,skeleton:16,wither_skeleton:18,magma_cube:14}
+// Every melee-range hostile the alarm counts is one the rules can fight, or a cornered bot
+// dies with a sword in its hand (honest run 2, 14 October: a zombie villager at arm's reach
+// for thirty seconds, every shelter refused for containing it, and not one swing at 15 health).
+// The zombie and skeleton variants share their originals' floors; the poisoners a little more.
+export const DEFENDABLE_MOBS=new Set(['zombie','zombie_villager','husk','drowned','spider','cave_spider','skeleton','stray','bogged','wither_skeleton','magma_cube'])
+export const DEFENSE_HEALTH={zombie:12,zombie_villager:12,husk:12,drowned:14,spider:12,cave_spider:14,skeleton:16,stray:16,bogged:16,wither_skeleton:18,magma_cube:14}
 // HEAVY_ARMOR is the Nether kit: iron helmet, chestplate and leggings with the golden boots
 // piglins demand, 14 points (lab run 133 refused one at 14 of 15).
 // Magma cubes too (lab run 134: a big one stood on the trail home and killed the bot).

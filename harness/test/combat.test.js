@@ -244,3 +244,17 @@ test('after a melee kill the next mob the rule would fight is fought too, before
  assert.equal(f.runner.commands.some(c=>c.action==='retreat'),false)
  assert.ok(f.c.messages.some(m=>/Another husk; fighting it too/.test(m.text)))
 })
+
+// Honest run 2, 14 October: a zombie villager at arm's reach for thirty seconds, the base,
+// the burrow and the hut each refused for containing it, and the bot, with an iron sword at
+// 15 health, never swung: the variant was not on the list the rules will fight.
+test('the zombie and skeleton variants and the cave spider are fought like their originals',()=>{
+ for(const [name,floor] of [['zombie_villager',12],['drowned',14],['stray',16],['bogged',16],['cave_spider',14]]){
+  const f=fixture();f.bot.entities={7:{...registry('1.21.4').entitiesByName[name],id:7,uuid,position:new Vec3(2,64,0)}}
+  assert.equal(defenseDecision(f.bot).engage,true,name)
+  f.bot.health=floor-1;assert.equal(defenseDecision(f.bot).engage,false,`${name} below its floor`)
+  f.bot.health=20;assert.equal(corneredDecision({...f.bot,health:5}).engage,true,`${name} cornered`)
+ }
+ const f=fixture();f.bot.entities={7:{...registry('1.21.4').entitiesByName.creeper,id:7,uuid,position:new Vec3(2,64,0)}}
+ assert.equal(defenseDecision(f.bot).engage,false,'a creeper is still not fought')
+})
