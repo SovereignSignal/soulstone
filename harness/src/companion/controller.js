@@ -89,7 +89,7 @@ import { randomUUID } from 'node:crypto'
 import { validatePlan } from './planner.js'
 import {hutSite,portalRoomSpot} from '../hut.js'
 import {rangedDefenseDecision} from '../archery.js'
-import {onTrip} from '../nether-trip.js'
+import {onTrip,tripKit} from '../nether-trip.js'
 import {deliveredCount,satisfiedStep,currentRequestTask} from './progress.js'
 
 const designKey=design=>JSON.stringify((design||[]).map(b=>[b.x,b.y,b.z,b.block]).sort((a,b)=>a[0]-b[0]||a[1]-b[1]||a[2]-b[2]||a[3].localeCompare(b[3])))
@@ -709,7 +709,10 @@ export class Teammate extends EventEmitter {
       // cover is built where the bot stands, and what the rules fight is fought (lab runs
       // 129 to 137: every walk home through the corridors was the walk that killed it).
       const trip=!wallInFirst&&onTrip(recoveryBot,!!interruptedActiveRequest)
-      if(trip){this.runner.log?.('nether_trip',{reason,health:recoveryBot.health});this.say('Danger in the Nether. I have my kit, so I am taking cover here rather than running for the portal.')}
+      // Said either way: run 144 (14 October) went home from the spawner with the kit on and
+      // the journal could not say which condition the trip mode failed.
+      if(inNether(recoveryBot))this.runner.log?.('nether_trip',{reason,trip,wallInFirst,requestActive:!!interruptedActiveRequest,requestStatus:this.requestProgress?.status||null,health:recoveryBot.health,kit:tripKit(recoveryBot)})
+      if(trip)this.say('Danger in the Nether. I have my kit, so I am taking cover here rather than running for the portal.')
       if(wallInFirst)this.say('Danger in the Nether. Walling in around the portal.')
       // The room first and nothing before it: from the Nether the walk to the Overworld
       // base always refuses and nether bricks never burrow, and those 1.6 seconds under a
