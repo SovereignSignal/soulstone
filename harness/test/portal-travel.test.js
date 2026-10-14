@@ -101,6 +101,25 @@ test('in the Nether danger sends the bot back through a nearby portal before any
  assert.equal(c.safety,null,'safe on the Overworld side')
 })
 
+// Lab run 142, 14 October: hurt, a wither skeleton at 0.8 blocks, "Going back through the
+// portal" from fourteen blocks away, dead at 4.9 health six seconds later with it on the
+// bot's back. A melee mob the rules can fight at arm's reach is fought before the walk.
+test('in the Nether a melee mob at arm\'s reach is fought before the walk to the portal',async()=>{
+ const r=new PortalRunner();r.bot.game.dimension='minecraft:the_nether';r.bot.health=8
+ r.bot.inventory={items:()=>[{name:'iron_sword',count:1,maxDurability:250,durabilityUsed:0,slot:36}],slots:[]}
+ r.bot.entities={9:{id:9,uuid:'30000000-0000-0000-0000-000000000003',type:'hostile',name:'wither_skeleton',position:new Vec3(1.3,64,0.5)}}
+ r.bot.findBlock=({matching})=>matching===registry.blocksByName.nether_portal.id?{name:'nether_portal',position:new Vec3(1,64,0)}:null
+ r.command=function(c){this.commands.push(c);this.task={id:String(this.commands.length),kind:c.action,status:'running',goal:c.goal}
+  if(c.action==='defend')delete this.bot.entities[9]
+  if(c.action==='use_portal')this.bot.game.dimension='minecraft:overworld'
+  if(c.action!=='stop')setTimeout(()=>this.emit('event',{type:'task_finished',task:{...this.task,status:'completed',result:{receipt:c.action==='use_portal'?'crossed':'done'}}}),1)}
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-companion-')),'state.json'))
+ await c.seekSafety(HEALTH_EMERGENCY)
+ const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop')
+ assert.equal(acts[0],'defend',acts.join(' '));assert.ok(acts.includes('use_portal'),'then the portal')
+ assert.ok(c.messages.some(m=>/at arm's reach. Fighting it before the walk/.test(m.text)))
+})
+
 // Run 72, 8 October: twice the bot reached the portal, began stepping in, and
 // a creeper's interruption cancelled the crossing a second later. Stepping
 // into the portal is the fastest way out: nothing follows to the far side.

@@ -726,6 +726,18 @@ export class Teammate extends EventEmitter {
           this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)
         }
       }
+      // A melee mob the rules can fight at arm's reach is fought before any walk to the
+      // portal: the walk with it on the bot's back is what killed lab run 142 (14 October,
+      // a wither skeleton at 0.8 blocks, health 4.9 at the portal), and the cornered rule
+      // below only ran after the shelters, which the portal walk is chosen instead of.
+      if(!this.safety.retreat&&!trip&&inNether(recoveryBot)&&corneredDecision(recoveryBot).engage){
+        const cornered=corneredDecision(recoveryBot)
+        const attempt={name:'cornered',status:'trying',target:cornered.target.targetName};(this.safety.attempts??=[]).push(attempt);this.persist()
+        this.say(`A ${cornered.target.targetName.replaceAll('_',' ')} is at arm's reach. Fighting it before the walk to the portal.`)
+        try{await this.execute({action:'defend',goal:{...cornered.target,connectionId:this.runner.connectionId,cornered:true},timeoutMs:35000},abort.signal);attempt.status='fought';this.noteKill(this.runner.task?.result)}
+        catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;attempt.status='failed';attempt.reason=error.message;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)}
+        if(epoch!==this.epoch||abort.signal.aborted)return
+      }
       if(!this.safety.retreat&&!trip&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})){
         const attempt={name:'portal_home',status:'trying'};this.safety.attempts=[attempt];this.persist()
         this.say('Danger in the Nether. Going back through the portal.')
