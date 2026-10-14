@@ -387,7 +387,7 @@ test('flint comes from carried gravel put down beside the bot and dug again, not
  assert.ok(walks<=6,`walked only to the three exposed gravel blocks (${walks} walks)`)
 })
 
-// Lab run 124 (pi1, 13 October): every world skill began with a 48-block scan for
+// Lab run 124 (13 October): every world skill began with a 48-block scan for
 // every log and ore. Only acquiring needs it, yet a retreat with a zombie at arm's
 // length paid for it: the bot's process stood frozen 12 to 15 s on a Pi, twice, and it died.
 test('a world skill that acquires nothing never scans the terrain for resources',async()=>{

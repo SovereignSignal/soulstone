@@ -9,7 +9,7 @@ const registry=require('prismarine-registry')('1.21.4')
 const Chunk=require('prismarine-chunk')(registry)
 const World=require('prismarine-world')(registry)
 const injectBlocks=require('mineflayer/lib/plugins/blocks.js')
-// Lab runs 123 and 124 (pi1, 13 October): a resource scan held the bot's process 5 to
+// Lab runs 123 and 124 (13 October): a resource scan held the bot's process 5 to
 // 15 s at a time on a Raspberry Pi. mineflayer's findBlocks builds a block for every
 // cell of a section with no palette list, and a one-block section (sky, a lava sea) has none.
 // The replacement must give mineflayer's own answer, found without those blocks.
@@ -50,7 +50,7 @@ test('the resource scan builds no block for a cell it only has to look at',()=>{
  assert.ok(found.length>=3,'the world holds most of them')
  assert.equal(built,found.length,'one block per result, to confirm its name; none per cell scanned')
 })
-// Lab run 132 (pi1, 13 October): prospecting asked findBlocks for ores 128 blocks out
+// Lab run 132 (13 October): prospecting asked findBlocks for ores 128 blocks out
 // with a per-block test, and the bot's process froze for 41.6 s. Several ids and the
 // same per-block test must still give mineflayer's own answer.
 test('findBlockCells takes several block ids and mineflayer\'s per-block test, and still gives findBlocks\' answer',()=>{

@@ -191,7 +191,7 @@ test('after a melee kill the bot picks up what the request is made from: string 
  assert.equal(collect.goal.items.includes('bone'),false,'nothing the request is not made from')
 })
 
-// Step 4, lab run 131 (pi1, 13 October): a wither skeleton walked past the Nether
+// Step 4, lab run 131 (13 October): a wither skeleton walked past the Nether
 // arrival portal and the bot, in full iron with an iron sword, went home in a second:
 // the melee rule never named the one mob that guards every fortress corridor.
 test('a lone wither skeleton is fought only in the Nether kit or better, with an iron-grade weapon and 18 health or more',()=>{
@@ -210,7 +210,7 @@ test('a lone wither skeleton is fought only in the Nether kit or better, with an
  assert.equal(defenseDecision(f.bot).engage,false,'two of them: shelter')
 })
 
-// Step 4, lab run 134 (pi1, 13 October): on the way to the spawner a big magma cube
+// Step 4, lab run 134 (13 October): on the way to the spawner a big magma cube
 // closed in, the bot would not fight it, and the trail home ran through it: 20 health
 // to 0 in two seconds. Hit, a big cube splits into two to four smaller ones; that is
 // still one fight, not a crowd to flee mid-swing.
@@ -229,7 +229,7 @@ test('magma cubes are fought in the Nether kit with an iron-grade weapon, alone 
  assert.match(defenseDecision(f.bot).reason,/Health is too low to engage a magma_cube/)
 })
 
-// Lab run 135 (pi1, 13 October): the bot killed a magma cube, but the cube had split;
+// Lab run 135 (13 October): the bot killed a magma cube, but the cube had split;
 // the after-kill check found the pieces, the bot turned to shelter with one 2.6 blocks
 // off, and it died. Another mob the rule would fight is fought too, as the bow does.
 test('after a melee kill the next mob the rule would fight is fought too, before the area is judged',async()=>{

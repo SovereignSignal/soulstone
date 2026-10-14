@@ -269,7 +269,7 @@ test('dusk with no built base is an emergency; a built base, daylight or peacefu
  assert.equal(emergencyReason({...base,timeOfDay:13000,shelterAvailable:false,nearbyThreats:[{name:'zombie',risk:'potential_hostile',distance:8}]}),THREAT_INTERRUPTION)
 })
 
-// Lab run 121 (pi1, 13 October): home through the portal at midday with the request
+// Lab run 121 (13 October): home through the portal at midday with the request
 // ended, the bot stood idle 30 blocks from its lit base into the night; a skeleton
 // and a zombie killed it there twelve minutes later.
 test('idle under open sky at night with a lit base to reach, the bot goes home; working, inside, roofed or in the Nether it does not',()=>{

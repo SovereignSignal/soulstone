@@ -4,7 +4,7 @@ import minecraftData from 'minecraft-data'
 import {Vec3} from 'vec3'
 import {threatRoutes} from '../src/threat-reach.js'
 const registry=minecraftData('1.21.4')
-// Lab, 13 October (pi1): walled in at the fortress with nine blazes about, the flood
+// Lab, 13 October: walled in at the fortress with nine blazes about, the flood
 // ran every 500 ms of the clearance wait and every second of the survival tick, and on
 // a Raspberry Pi it took a quarter of the bot's time (CPU profile of run 123). The
 // bot's own tick ran up to 3 s late in fights and its shots came 4.5 s apart, not 2.

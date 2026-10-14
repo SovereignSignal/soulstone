@@ -1,4 +1,4 @@
-// The way back is the way it came. Lab run 129 (pi1, 13 October): eight seconds from
+// The way back is the way it came. Lab run 129 (13 October): eight seconds from
 // the Nether portal the bot was a level below the fortress bridge, and the walk back,
 // a route it had just walked, failed on the pathfinder's think limit; it drifted deeper
 // in. A planned path can fail where a remembered one cannot: every crumb is ground the

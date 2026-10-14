@@ -8,7 +8,7 @@ import {attachTrail,wayBack} from '../src/trail.js'
 import {usePortal} from '../src/portal-guard.js'
 const registry=minecraftData('1.21.4'),Block=blockLoader(registry)
 const key=p=>`${p.x},${p.y},${p.z}`
-// Lab run 129 (pi1, 13 October): eight seconds from the portal the bot was a level
+// Lab run 129 (13 October): eight seconds from the portal the bot was a level
 // below the fortress bridge; the walk back, a route it had just walked, failed on the
 // pathfinder's think limit and it drifted deeper in. The way back is the way it came.
 function walker(dimension='the_nether'){
