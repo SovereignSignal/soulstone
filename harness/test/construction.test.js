@@ -36,7 +36,8 @@ test('construction reports missing materials and never removes unexpected blocks
  const task={goal:{name:'castle',design,near:{x:0,y:64,z:0},origin:{x:0,y:64,z:0}}},api={check(){},progress(){},persist(){},place(){placed++}}
  const r=await executeConstruction(bot,task,api);assert.equal(r.partial,true);assert.equal(r.verifiedBlocks,0);assert.equal(placed,0)
  bot.blockAt=()=>({name:'chest',boundingBox:'block'})
- await assert.rejects(executeConstruction(bot,task,api),/obstruction/);assert.equal(placed,0)
+ // Wall cells now accept any full block; the walk cells still refuse the chests, and nothing is removed.
+ await assert.rejects(executeConstruction(bot,task,api),/obstruction|access/);assert.equal(placed,0)
 })
 
 test('construction reaches a late support and stops after a whole pass without progress',async()=>{
@@ -78,4 +79,19 @@ test('solid architecture checks actual collision shapes, not the misleading boun
  const registry=minecraftData('1.21.4')
  for(const name of ['stone_bricks','glowstone','spruce_planks','cobblestone'])assert.equal(fullCube(registry,name),true,name)
  for(const name of ['stone_brick_stairs','oak_slab','oak_door','oak_fence','torch'])assert.equal(fullCube(registry,name),false,name)
+})
+
+// The creative world, 14 October 2026: a child set an oak log on the roof of the castle the
+// bot was building, and the build stopped for ten minutes asking her to remove it. A plain
+// wall cell holding someone's full block is filled; an air cell holding one is still blocked.
+test('a full block someone else placed in a plain wall cell counts as part of the build',async()=>{
+ const world=new Map(),key=p=>[p.x,p.y,p.z].join(',');let placements=0
+ const bot={registry:{blockCollisionShapes:{blocks:{stone_bricks:1,oak_log:1},shapes:{1:[[0,0,0,1,1,1]]}},blocksByName:{stone_bricks:{boundingBox:'block'},oak_log:{boundingBox:'block'}},itemsByName:{stone_bricks:{}}},entity:{position:new Vec3(0,65,0),onGround:true},inventory:{items:()=>[{name:'stone_bricks',count:200}]},blockAt:p=>world.get(key(p))||{name:'air',boundingBox:'empty'}}
+ const task={kind:'construct',goal:{name:'castle',design,near:{x:0,y:64,z:0},origin:{x:0,y:64,z:0}}}
+ const api={check(){},progress(){},persist(){},async place(p,name){world.set(key(p),{name,boundingBox:'block'});placements++},async walk(g){bot.entity.position=new Vec3(g.x,g.y,g.z)},async settle(){}}
+ const wall=compileArchitecture(design).blocks[0];world.set(key(new Vec3(wall.x,64+wall.y,wall.z)),{name:'oak_log',boundingBox:'block'})
+ const r=await executeConstruction(bot,task,api)
+ assert.equal(r.partial,true,'first batch');assert.equal(placements,64,'the log cell was not placed over')
+ world.set('1,66,1',{name:'oak_log',boundingBox:'block'})
+ await assert.rejects(executeConstruction(bot,task,api),/obstruction|access/,'a log in a walk cell is still in the way')
 })

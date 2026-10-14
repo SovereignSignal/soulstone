@@ -120,6 +120,28 @@ test('in the Nether a melee mob at arm\'s reach is fought before the walk to the
  assert.ok(c.messages.some(m=>/at arm's reach. Fighting it before the walk/.test(m.text)))
 })
 
+// Lab run 144, 14 October: at the spawner with the full kit and health 20, the request
+// "interrupted" by the last alarm and waiting to resume, the next blaze found the trip mode
+// off ("requestActive false"), and the walk to the portal killed the bot. The trip is the
+// request's existence, not whether the planner is mid-step.
+test('in the Nether with the kit, an interrupted request that can resume is still a trip: cover, not the portal',async()=>{
+ const r=new PortalRunner();r.bot.game.dimension='minecraft:the_nether';r.bot.health=20
+ const worn={head:5,torso:6,legs:7,feet:8};r.bot.getEquipmentDestSlot=s=>worn[s]
+ const slots=[];slots[5]={name:'iron_helmet'};slots[6]={name:'iron_chestplate'};slots[7]={name:'iron_leggings'};slots[8]={name:'golden_boots'}
+ r.bot.inventory={items:()=>[{name:'bow',count:1,maxDurability:384,durabilityUsed:0},{name:'arrow',count:40},{name:'iron_sword',count:1,maxDurability:250,durabilityUsed:0}],slots}
+ r.bot.entities={9:{id:9,uuid:'30000000-0000-0000-0000-000000000003',type:'hostile',name:'blaze',position:new Vec3(6.5,64,0.5)}}
+ r.bot.findBlock=({matching})=>matching===registry.blocksByName.nether_portal.id?{name:'nether_portal',position:new Vec3(1,64,0)}:null
+ r.command=function(c){this.commands.push(c);this.task={id:String(this.commands.length),kind:c.action,status:'running',goal:c.goal}
+  if(c.action!=='stop')setTimeout(()=>{this.task={...this.task,status:c.action==='burrow'?'failed':'completed',reason:'nether bricks',result:c.action==='hut'?{item:'safety',count:1,receipt:'walled_in',shelterName:'hut',surface:{x:0,y:64,z:0}}:{receipt:'done'}};this.emit('event',{type:'task_finished',task:this.task})},1)}
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-companion-')),'state.json'))
+ c.requestProgress={id:'t',request:'rods',status:'interrupted',completed:[],pending:[],feedback:[]}
+ c.waitInBurrow=async()=>{}
+ await c.seekSafety(THREAT_INTERRUPTION)
+ const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop')
+ assert.ok(!acts.includes('use_portal'),`no portal walk on a trip: ${acts.join(' ')}`);assert.ok(acts.includes('hut'),'cover instead')
+ assert.ok(c.messages.some(m=>/I have my kit/.test(m.text)),c.messages.map(m=>m.text).join(' | '))
+})
+
 // Run 72, 8 October: twice the bot reached the portal, began stepping in, and
 // a creeper's interruption cancelled the crossing a second later. Stepping
 // into the portal is the fastest way out: nothing follows to the far side.

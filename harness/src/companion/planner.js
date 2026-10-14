@@ -1,3 +1,4 @@
+import {EMOTES} from '../emote.js'
 import {recoverySchema,recoveryInstructions,validateRecovery} from './adaptive-recovery.js'
 import {validateUseStep} from '../use-item.js'
 import {validateGotoStep,validateDigStep} from '../primitives.js'
@@ -24,17 +25,18 @@ const SKILL_INSTRUCTIONS='The steps in this response are INDEPENDENT alternative
 
 export const schema = { type: 'object', additionalProperties: false, required: ['reply', 'steps'], properties: {
   reply: { type: 'string' }, steps: { type: 'array', maxItems: 8, items: { type: 'object', additionalProperties: false,
-    required: ['action', 'name', 'count', 'item','design','target'], properties: { action: { type: 'string', enum: ['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest','hunt','sleep','descend','climb','use_portal','travel','goto','dig','place_at','collect','attack','shoot','use',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS] },
+    required: ['action', 'name', 'count', 'item','design','target'], properties: { action: { type: 'string', enum: ['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest','hunt','sleep','descend','climb','use_portal','travel','goto','emote','dig','place_at','collect','attack','shoot','use',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS] },
       target:{anyOf:[{type:'null'},{type:'object',additionalProperties:false,required:['x','y','z'],properties:{x:{type:'integer'},y:{type:'integer'},z:{type:'integer'}}},{type:'object',additionalProperties:false,required:['x','y','z','dig'],properties:{x:{type:'integer'},y:{type:'integer'},z:{type:'integer'},dig:{type:'boolean'}}},{type:'object',additionalProperties:false,required:['x','y','z','how','dimension'],properties:{x:{type:'integer'},y:{type:'integer'},z:{type:'integer'},how:{type:'string',enum:['click','point']},dimension:{type:'string',enum:['overworld','the_nether','the_end']}}}]},
       name: { type: 'string' }, count: { type: 'integer' }, item: { type: 'string' }, design:{type:'array',items:{type:'object',additionalProperties:false,required:['x','y','z','x2','y2','z2','block'],properties:{x:{type:'integer'},y:{type:'integer'},z:{type:'integer'},x2:{type:'integer'},y2:{type:'integer'},z2:{type:'integer'},block:{type:'string'}}}} } } }
 } }
 export function validatePlan(value) {
   if (!value || typeof value.reply !== 'string' || value.reply.length > 1000 || !Array.isArray(value.steps) || value.steps.length > 8) throw new Error('Model returned an invalid plan')
   const steps = value.steps.flatMap((s, i) => {
-    if (!s || !['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest','hunt','sleep','descend','climb','use_portal','travel','goto','dig','place_at','collect','attack','shoot','use',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action)) throw new Error('Unsupported model action')
+    if (!s || !['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest','hunt','sleep','descend','climb','use_portal','travel','goto','emote','dig','place_at','collect','attack','shoot','use',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action)) throw new Error('Unsupported model action')
     if(['descend','climb','travel','goto'].includes(s.action)&&(s.count!==0||s.name!==''||(s.item??'')!==''||s.design!==undefined&&(!Array.isArray(s.design)||s.design.length)))throw new Error('Terrain recovery requires empty name, item, design and count zero')
     if(s.action==='travel'&&(!s.target||Object.keys(s.target).length!==3||!['x','y','z'].every(k=>Number.isSafeInteger(s.target[k]))))throw new Error('Travel needs a target with integer x, y and z')
     if(s.action==='goto')validateGotoStep(s)
+    if(s.action==='emote'&&(!EMOTES.includes(s.item)||!Number.isInteger(s.count)||s.count<1||s.count>5||s.name!==''))throw new Error('Emote needs item one of '+EMOTES.join(', ')+', count 1 to 5 and an empty name')
     if(s.action==='dig')validateDigStep(s)
     if(s.action==='place_at')validatePlaceAtStep(s)
     if(s.action==='collect')validateCollectStep(s)
@@ -59,7 +61,7 @@ export function validatePlan(value) {
     if(s.action==='acquire'&&(!/^[a-z0-9_]{1,64}$/.test(s.item||'')||!Number.isInteger(s.count)||s.count<1||s.count>128))throw new Error('Acquire requires an item ID and count 1–128')
     if(s.action==='prepare'&&(!toolName(s.item)||!Number.isInteger(s.count)||s.count<1||s.count>4))throw new Error('Prepare requires 1–4 serviceable tools')
     if(s.action==='give'&&(!/^[a-z0-9_]{1,64}$/.test(s.item||'')||!Number.isInteger(s.count)||s.count<1||s.count>64))throw new Error('Give requires an item ID and count 1–64')
-    if (!['acquire','give','eat','harvest','hunt','use','inspect','place_at','collect','attack','shoot',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action) && s.item !== undefined && s.item !== '' && (!['gather', 'gather_and_return'].includes(s.action) || !validResource(s.item))) throw new Error('Invalid gather resource')
+    if (!['acquire','give','eat','harvest','hunt','use','inspect','place_at','collect','attack','shoot','emote',...PREPARE_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action) && s.item !== undefined && s.item !== '' && (!['gather', 'gather_and_return'].includes(s.action) || !validResource(s.item))) throw new Error('Invalid gather resource')
     if (s.action === 'follow' && i !== value.steps.length - 1) throw new Error('Following must be the final step')
     if (!['remember', 'return', 'gather_and_return'].includes(s.action) && s.action!=='use' && s.name && ![...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action) && !(s.action==='build'&&s.name==='shelter') && !['construct','revise'].includes(s.action)) throw new Error('Only location-saving or return actions accept a location name')
     if (['gather', 'gather_and_return'].includes(s.action) && (!Number.isInteger(s.count) || s.count < 1 || s.count > 32)) throw new Error('Gather target must be 1–32 logs')

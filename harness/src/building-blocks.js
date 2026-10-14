@@ -17,7 +17,14 @@ export function parseBuildingBlock(text) {
  if(kind==='stairs'&&properties.half&&properties.half!=='bottom')throw new Error('Only bottom-half stairs are currently supported')
  return {block,properties:{facing:properties.facing,...(kind==='bed'?{part:'foot',occupied:false}:kind==='stairs'?{half:'bottom',shape:'straight',waterlogged:false}:{open:false,powered:false,...(kind==='door'?{half:'lower'}:{})})}}
 }
-export function matchesBuildingBlock(actual,expected,{ignoreOpen=false}={}) {
+// A light source is not interchangeable with a wall block: a shelter's light is what makes it one.
+const LIGHT_BLOCKS=new Set(['torch','soul_torch','lantern','soul_lantern','glowstone','sea_lantern','shroomlight','jack_o_lantern','end_rod','redstone_lamp','ochre_froglight','verdant_froglight','pearlescent_froglight'])
+export function matchesBuildingBlock(actual,expected,{ignoreOpen=false,exact=false}={}) {
+ // A plain wall cell holding a full block someone else put there is filled, not
+ // obstructed (the creative world, 14 October 2026: a child set an oak log on the roof of
+ // the castle the bot was building, and the build stopped to ask her to remove it). Exact
+ // matching stays for revisions, which dismantle what they recorded.
+ if(!exact&&!blockKind(expected.block)&&!LIGHT_BLOCKS.has(expected.block)&&expected.block!=='air'&&!Object.keys(expected.properties||{}).length&&actual&&actual.name!==expected.block&&actual.boundingBox==='block'&&!blockKind(actual.name))return true
  return actual?.name===expected.block&&Object.entries(expected.properties||{}).every(([k,v])=>{
   const value=actual.getProperties?.()[k]
   // Vanilla can reverse a gate's facing when opening from the other side.

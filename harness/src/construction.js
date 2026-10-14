@@ -42,7 +42,7 @@ export async function applyArchitectureRevision(bot,previous,blueprint,origin,ap
  // Inspect the whole saved footprint before the first destructive action.
  for(const b of blueprint.cells){
   const actual=bot.blockAt(origin.offset(b.x,b.y,b.z)),old=changed.get(key(b))?.before
-  if(!actual||actual.name!=='air'&&!matchesBuildingBlock(actual,b,{ignoreOpen:true})&&!(old&&matchesBuildingBlock(actual,old,{ignoreOpen:true})))throw new Error('Revision world conflict at '+key(b)+'; existing content preserved')
+  if(!actual||actual.name!=='air'&&!matchesBuildingBlock(actual,b,{ignoreOpen:true,exact:true})&&!(old&&matchesBuildingBlock(actual,old,{ignoreOpen:true,exact:true})))throw new Error('Revision world conflict at '+key(b)+'; existing content preserved')
  }
  for(const {before} of changes)if(before.block!=='air'&&(!removableStructure(before)||!fullCube(bot.registry,before.block)))throw new Error('Revision cannot dismantle furnishings, stateful blocks or unsupported materials: '+before.block)
  const removals=changes.filter(c=>c.before.block!=='air').sort((a,b)=>b.before.y-a.before.y),removed=[]
@@ -50,7 +50,7 @@ export async function applyArchitectureRevision(bot,previous,blueprint,origin,ap
   api.check();const pos=origin.offset(before.x,before.y,before.z),actual=bot.blockAt(pos)
   if(actual?.name==='air'||matchesBuildingBlock(actual,after,{ignoreOpen:true}))continue
   const guard=()=>{
-   if(!matchesBuildingBlock(bot.blockAt(pos),before,{ignoreOpen:true}))throw new Error('Revision target changed before removal')
+   if(!matchesBuildingBlock(bot.blockAt(pos),before,{ignoreOpen:true,exact:true}))throw new Error('Revision target changed before removal')
    const entities=[bot.entity,...Object.values(bot.players||{}).map(p=>p.entity)].filter(Boolean)
    if(entities.some(e=>Math.abs(e.position.x-pos.x-.5)<.8&&Math.abs(e.position.z-pos.z-.5)<.8&&e.position.y>=pos.y+1&&e.position.y<pos.y+2.1))throw new Error('Revision would remove player support')
    if(api.movements?.gravityBlocks?.has(bot.blockAt(pos.offset(0,1,0))?.type))throw new Error('Revision would release a falling block')

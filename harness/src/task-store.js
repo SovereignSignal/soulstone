@@ -1,3 +1,4 @@
+import {validateEmoteGoal} from './emote.js'
 import {validateTravelGoal} from './travel.js'
 import {validateGotoGoal,validateDigGoal,validateProtectedSites} from './primitives.js'
 import {validatePlaceAtGoal,validateCollectGoal,validateAttackGoal} from './primitives-world.js'
@@ -29,6 +30,7 @@ export function validateTaskGoal(kind, goal) {
   if(['surface','douse','leave_portal','use_portal','burrow','unhut'].includes(kind))return {}
   if(kind==='travel')return validateTravelGoal(goal)
   if(kind==='goto')return validateGotoGoal(goal)
+  if(kind==='emote')return validateEmoteGoal(goal)
   if(kind==='dig')return validateDigGoal(goal)
   if(kind==='place_at')return validatePlaceAtGoal(goal)
   if(kind==='collect')return validateCollectGoal(goal)
