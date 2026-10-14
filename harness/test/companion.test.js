@@ -1422,3 +1422,18 @@ test('before its goal is interpreted, a request wants the items its own text nam
  r.goal={criteria:[{kind:'inventory',item:'blaze_rod',count:3}]}
  assert.deepEqual(wantedItems(r,registry),[{item:'blaze_rod',count:3}],'once interpreted, the criteria decide')
 })
+
+// Lab run 139, 13 October: restarted with a blocked request saved, the bot came back
+// "ready", and the stall retry, which owns the indoor holds, never ran again.
+test('a restart with a blocked request saved comes back blocked, so the stall retry and its holds keep running',async()=>{
+ const path=join(mkdtempSync(join(tmpdir(),'mc-restart-blocked-')),'state.json')
+ const {writeFileSync}=await import('node:fs')
+ const saved={profile:'lab',places:{},messages:[],projects:{},safety:null,requestProgress:{id:'b',request:'mine iron',status:'blocked',blocker:'Goal still incomplete.',completed:[],pending:[],feedback:[]}}
+ writeFileSync(path,JSON.stringify(saved))
+ const c=new Teammate(new FakeRunner(),{model:'fake',plan:async()=>({reply:'',steps:[]})},path)
+ assert.equal(c.phase,'blocked');assert.equal(c.restoreRequest,false,'a blocked request is retried by the stall rules, not continued at once')
+ writeFileSync(path,JSON.stringify({...saved,requestProgress:{...saved.requestProgress,reviewRequired:'Check inventory'}}))
+ assert.equal(new Teammate(new FakeRunner(),{model:'fake',plan:async()=>({reply:'',steps:[]})},path).phase,'ready','one that needs a person stays ready')
+ writeFileSync(path,JSON.stringify({...saved,requestProgress:null}))
+ assert.equal(new Teammate(new FakeRunner(),{model:'fake',plan:async()=>({reply:'',steps:[]})},path).phase,'ready')
+})

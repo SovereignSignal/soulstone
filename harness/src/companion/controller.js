@@ -125,6 +125,10 @@ export class Teammate extends EventEmitter {
     try { const s = JSON.parse(readFileSync(statePath, 'utf8')); if (s.profile === runner.profile) { this.recoveryHistory=Array.isArray(s.recoveryHistory)?s.recoveryHistory.slice(-16):[];this.safety=s.safety||null;if(['retreating','defending'].includes(this.safety?.status))this.safety.status='interrupted';this.messages = s.messages.slice(-60); this.places = s.places; this.projects=s.projects||{}; this.requestProgress=s.requestProgress||null; if(this.requestProgress?.status==='running')this.requestProgress.status='interrupted' } }
     catch (e) { if (e.code !== 'ENOENT') throw e }
     if(this.safety?.continuation?.status==='watching')this.safety.continuation={status:'paused',reason:'Service restarted; explicit Resume is required'}
+    // A request blocked before the restart is blocked after it: the stall retry and the
+    // indoor holds it owns run only in that phase (lab run 139, 13 October: restarted with
+    // a blocked request saved, the bot came back ready and sat silent in its base).
+    if(this.requestProgress?.status==='blocked'&&canResume(this.requestProgress))this.phase='blocked'
     // A restart while dug in must not strand the bot underground: resume the wait on spawn.
     this.restoreBurrow=['burrow','hut'].includes(this.safety?.retreat?.shelterName)&&!!this.safety.retreat.surface&&!this.safety.exit
     // A request interrupted only by a service restart continues once on its own
