@@ -46,9 +46,13 @@ const knownPoint=p=>p&&['x','y','z'].every(k=>Number.isFinite(p[k]))
 const identified=e=>e&&Number.isInteger(e.id)&&typeof e.uuid==='string'&&e.uuid.length>0&&['mob','hostile'].includes(e.type)&&DEFENDABLE_MOBS.has(e.name)&&knownPoint(e.position)
 const same=(e,g)=>identified(e)&&e.id===g.targetId&&e.uuid===g.targetUuid&&e.name===g.targetName
 const dangerNearby=(bot,range=8)=>survivalObservation(bot).nearbyThreats.filter(e=>e.risk==='potential_hostile'&&e.distance<=range)
+// A bystander is something the sweep must not hit: a player, a villager, a pet. Another
+// hostile is not one (the pieces of a split magma cube cluster, and the sword was refused).
 function swordBystander(bot,target){
- return Object.values(bot.entities||{}).some(e=>e!==bot.entity&&e!==target&&(['player','mob'].includes(e.type)||bot.registry?.entitiesByName[e.name]?.metadataKeys?.includes('health'))&&(!knownPoint(e.position)||distance(e.position,target.position)<=4||distance(e.position,bot.entity.position)<=4))
+ const hostiles=new Set(survivalObservation(bot).nearbyThreats.filter(t=>t.risk==='potential_hostile').map(t=>t.name))
+ return Object.values(bot.entities||{}).some(e=>e!==bot.entity&&e!==target&&!hostiles.has(e.name)&&(['player','mob'].includes(e.type)||bot.registry?.entitiesByName[e.name]?.metadataKeys?.includes('health'))&&(!knownPoint(e.position)||distance(e.position,target.position)<=4||distance(e.position,bot.entity.position)<=4))
 }
+export const meleeDamage=name=>weapons[name]||0
 export function weaponFor(bot,target){
  return bot.inventory.items().filter(i=>weapons[i.name]&&Number.isFinite(i.maxDurability)&&remainingDurability(i)>=16&&(!i.name.endsWith('_sword')||!swordBystander(bot,target)))
   .sort((a,b)=>weapons[b.name]-weapons[a.name]||remainingDurability(b)-remainingDurability(a))[0]

@@ -268,7 +268,10 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  // checks, including a serviceable weapon and an identified target.
  // Run 86 (10 October): a blaze outside the fortress portal room, a bow and 160 arrows
  // inside, and no exit because the sword could not answer it.
- const ready=!!lone&&(defenseDecision(bot).engage||bowCanAnswer(bot,lone.name))
+ // A group the fight rules engage (a split magma cube in the Nether kit) is confronted
+ // too, nearest first; lab run 135 died beside the pieces of a cube it had already fought.
+ const nearest=[...near].sort((a,b)=>a.distance-b.distance)[0]
+ const ready=!!lone&&bowCanAnswer(bot,lone.name)||defenseDecision(bot).engage
  if(!ready){
   // Neither fight nor hide. Unarmed against numbers or a crossbow, healthy, in
   // daylight, with nothing in melee reach and the threat sat still past the
@@ -280,8 +283,8 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
     reason:`${near.length===1?`A ${near[0].name}`:`${near.length} hostiles`} held station for ${Math.round(lingeredMs/1000)} seconds and will not disperse; surfacing to move away rather than wait them out`}
   return {clear:false,lingering:true,reason:'A potential hostile remains within 16 blocks',threats:near}
  }
- if(lingeredMs<patienceMs)return {clear:false,lingering:true,reason:`A lone ${lone.name} lingers within 16 blocks in daylight; confronting it after ${Math.round(patienceMs/1000)} seconds`,threats:near}
- return {clear:true,confront:lone,health:s.health,timeOfDay:s.timeOfDay,reason:`A lone ${lone.name} has lingered ${Math.round(lingeredMs/1000)} seconds into daylight; surfacing to confront it`,scope}
+ if(lingeredMs<patienceMs)return {clear:false,lingering:true,reason:`${lone?`A lone ${lone.name} lingers`:`${near.length} hostiles I can fight linger`} within 16 blocks in daylight; confronting after ${Math.round(patienceMs/1000)} seconds`,threats:near}
+ return {clear:true,confront:lone||nearest,health:s.health,timeOfDay:s.timeOfDay,reason:lone?`A lone ${lone.name} has lingered ${Math.round(lingeredMs/1000)} seconds into daylight; surfacing to confront it`:`${near.length} hostiles I can fight have lingered ${Math.round(lingeredMs/1000)} seconds; surfacing to fight them, nearest first`,scope}
 }
 // Manual climb for when the pathfinder will not tower out of a capped shaft:
 // dig whatever sits two above the feet, jump, place a carried full cube

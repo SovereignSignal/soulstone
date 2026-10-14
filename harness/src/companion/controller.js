@@ -78,6 +78,7 @@ import { randomUUID } from 'node:crypto'
 import { validatePlan } from './planner.js'
 import {hutSite,portalRoomSpot} from '../hut.js'
 import {rangedDefenseDecision} from '../archery.js'
+import {onTrip} from '../nether-trip.js'
 import {deliveredCount,satisfiedStep,currentRequestTask} from './progress.js'
 
 const designKey=design=>JSON.stringify((design||[]).map(b=>[b.x,b.y,b.z,b.block]).sort((a,b)=>a[0]-b[0]||a[1]-b[1]||a[2]-b[2]||a[3].localeCompare(b[3])))
@@ -680,6 +681,11 @@ export class Teammate extends EventEmitter {
       const wallInFirst=(portalRoom||!!roomSpot)&&nearest>=PORTAL_ROOM_STANDOFF+Math.ceil(stepsBack)
       // Why the room was or was not chosen (run 106: hurt beside the portal, it went home and the journal could not say why).
       if(inNether(recoveryBot))this.runner.log?.('nether_shelter',{reason,wallInFirst,portalRoom,site:roomSite?.ok?(roomSite.portal?'portal_room':'plain_hut'):roomSite?.reason,roomSpot:roomSpot?`${roomSpot.x},${roomSpot.y},${roomSpot.z}`:null,stepsBack:Math.round(stepsBack*10)/10,nearestMelee:Number.isFinite(nearest)?nearest:null,position:(p=>p&&{x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,z:Math.round(p.z*10)/10})(recoveryBot.entity?.position)})
+      // On a trip with the kit and health, the portal is not the answer to a hostile:
+      // cover is built where the bot stands, and what the rules fight is fought (lab runs
+      // 129 to 137: every walk home through the corridors was the walk that killed it).
+      const trip=!wallInFirst&&onTrip(recoveryBot,!!interruptedActiveRequest)
+      if(trip){this.runner.log?.('nether_trip',{reason,health:recoveryBot.health});this.say('Danger in the Nether. I have my kit, so I am taking cover here rather than running for the portal.')}
       if(wallInFirst)this.say('Danger in the Nether. Walling in around the portal.')
       // The room first and nothing before it: from the Nether the walk to the Overworld
       // base always refuses and nether bricks never burrow, and those 1.6 seconds under a
@@ -696,7 +702,7 @@ export class Teammate extends EventEmitter {
           this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)
         }
       }
-      if(!this.safety.retreat&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})){
+      if(!this.safety.retreat&&!trip&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})){
         const attempt={name:'portal_home',status:'trying'};this.safety.attempts=[attempt];this.persist()
         this.say('Danger in the Nether. Going back through the portal.')
         try{
