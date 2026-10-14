@@ -243,3 +243,21 @@ test('use_portal opens its own wall beside the portal, and only its own',async()
  await assert.rejects(usePortal(g.bot,{kind:'use_portal',goal:{}},{...g.api},{pollMs:5}),/walled or flooded/)
  assert.ok(!g.log.some(l=>l.startsWith('dig')),'never digs what someone else placed')
 })
+
+// Lab run 136 (13 October): the portal is two wide; every cell beside the column the
+// bot picked was obsidian frame or cobblestone it did not place, while the cell in
+// front of the other column was open air. "No standing cell beside the portal; it is
+// walled or flooded", and it walled itself in, over and over. Any column will do.
+test('use_portal steps in at whichever column of a wide portal has room in front of it',async()=>{
+ const cells={'2,64,0':'nether_portal','2,65,0':'nether_portal','3,64,0':'nether_portal','3,65,0':'nether_portal',
+  '1,64,0':'obsidian','1,65,0':'obsidian','4,64,0':'obsidian','4,65,0':'obsidian',
+  '2,64,1':'cobblestone','2,65,1':'cobblestone','2,64,-1':'cobblestone','2,65,-1':'cobblestone','3,64,-1':'cobblestone','3,65,-1':'cobblestone'}
+ const f=fixture(cells);f.bot.game.dimension='minecraft:the_nether';f.bot.entity.position=new Vec3(6.5,64,4.5)
+ f.bot.findBlock=({maxDistance})=>f.bot.blockAt(new Vec3(2,64,0))
+ let walkedTo=null;f.bot.pathfinder.goto=async g=>{walkedTo=key(new Vec3(g.x,g.y,g.z));f.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}
+ const step=f.bot.setControlState;let entered=null
+ f.bot.setControlState=(k,v)=>{step(k,v);const p=f.bot.entity.position.floored();if(k==='forward'&&v&&f.world.get(key(p))==='nether_portal'&&!entered){entered=key(p);setTimeout(()=>{f.bot.game.dimension='minecraft:overworld'},20)}}
+ const result=await usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api},{pollMs:5,hopMs:5})
+ assert.equal(result.receipt,'crossed')
+ assert.equal(walkedTo,'3,64,1','the open cell in front of the other column');assert.equal(entered,'3,64,0','into the column it stood beside')
+})

@@ -68,13 +68,20 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
  // The bottom portal cell, and the standing cells beside it at that level.
  let portal=block.position.clone?.()??block.position
  while(bot.blockAt(portal.offset(0,-1,0))?.name==='nether_portal')portal=portal.offset(0,-1,0)
+ // Every column of the portal's bottom row (lab run 136: a two-wide portal, one column
+ // walled in, the other with open floor in front; only the first was ever considered).
+ const STEPS=[[1,0],[-1,0],[0,1],[0,-1]],bottoms=[portal]
+ for(const [dx,dz] of STEPS){let c=portal.offset(dx,0,dz);while(bot.blockAt(c)?.name==='nether_portal'&&bottoms.length<23){bottoms.push(c);c=c.offset(dx,0,dz)}}
  const enter=async()=>{
   // Run 69: a walk that timed out short of the portal, then a blind step from
   // there, put the bot in a water hole and it drowned. The blind step is taken
   // only from a standing cell beside the portal.
   const here=bot.entity.position
   // Level with the bottom cell, or one lower for a frame built on the ground, jumped in from.
-  const sides=[0,-1].flatMap(dy=>[[1,0],[-1,0],[0,1],[0,-1]].map(([dx,dz])=>portal.offset(dx,dy,dz)))
+  // Each standing cell remembers the column it faces, which is the one stepped into.
+  const faces=new Map()
+  for(const b of bottoms)for(const dy of [0,-1])for(const [dx,dz] of STEPS){const c=b.offset(dx,dy,dz);if(!faces.has(key(c))&&bot.blockAt(c)?.name!=='nether_portal')faces.set(key(c),{cell:c,into:b})}
+  const sides=[...faces.values()].map(f=>f.cell)
   const order=(a,b)=>(b.y-a.y)||a.distanceTo(here)-b.distanceTo(here)
   let stands=sides.filter(p=>standable(bot,p)).sort(order)
   // Lab run 100: every cell beside the portal held the bot's own portal-room
@@ -133,6 +140,7 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
    if(!beside())await retrace(stands[0])
    if(!beside())throw new Error(`I did not reach a standing cell beside the portal at ${key(portal)}; not stepping toward it from ${key(bot.entity.position.floored())}`)
   }
+  {const f=bot.entity.position.floored(),at=stands.find(p=>p.x===f.x&&p.y===f.y&&p.z===f.z);if(at)portal=faces.get(key(at))?.into??portal}
   await hop()
   stage('entering');progress('Stepping into the portal')
   const below=Math.floor(bot.entity.position.y)<portal.y
