@@ -362,3 +362,20 @@ test('one mob replacing another is not a new hold, and the daylight hold ends wi
  assert.equal(await c.stallRetry(),false);assert.equal(c.messages.filter(m=>/moved on/.test(m.text)).length,1,'the skeleton is the same hold')
  assert.ok(DAY_HOLD_MS<DAYLIGHT_MS,`the daylight hold (${DAY_HOLD_MS} ms) must end inside one day's light (${DAYLIGHT_MS} ms)`)
 })
+
+// Honest run 2, 14 October: dusk, 107 blocks from the base, a zombie at ten. The retreat
+// chose the base, walked 83 blocks through the night spawn and died at health nine.
+test('in the dark a base beyond a sprint is not walked to; the bot digs in where it stands; by day the walk home is unchanged',async()=>{
+ const {r,c,bot}=world(new Vec3(100.5,64,100.5));bot.time.timeOfDay=13200
+ bot.entities={1:{id:1,name:'zombie',position:new Vec3(108.5,64,100.5)}}
+ await c.seekSafety(THREAT_INTERRUPTION)
+ const acted=r.commands.filter(a=>a!=='stop')
+ assert.ok(!acted.includes('retreat'),`no walk home: ${acted.join(',')}`);assert.equal(acted[0],'burrow')
+ assert.ok(c.messages.some(m=>/blocks off and it is dark/.test(m.text)))
+ const day=world(new Vec3(100.5,64,100.5));day.bot.time.timeOfDay=6000;day.bot.entities={1:{id:1,name:'zombie',position:new Vec3(108.5,64,100.5)}}
+ await day.c.seekSafety(THREAT_INTERRUPTION)
+ assert.ok(day.r.commands.includes('retreat'),'by day the base is still walked to')
+ const near=world(new Vec3(30.5,64,30.5));near.bot.time.timeOfDay=18000;near.bot.entities={1:{id:1,name:'zombie',position:new Vec3(38.5,64,30.5)}}
+ await near.c.seekSafety(THREAT_INTERRUPTION)
+ assert.ok(near.r.commands.includes('retreat'),'within a sprint the base is walked to at night as before')
+})

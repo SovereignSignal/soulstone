@@ -43,6 +43,8 @@ const NIGHT_HOLD_MS=14*60*1000
 // 13 October: it never fired). Five minutes, well inside one day's light.
 export const HOLD_SAY_MS=10*60*1000,DAY_HOLD_MS=5*60*1000,DAY_HOLD_FIGHT_HEALTH=12,DAY_HOLD_FIGHT_LEVEL=2
 export const DAYLIGHT_MS=(12500-1000)/20*1000
+// How far a shelter may be to be walked to in the dark: the saved shelters' own limit.
+export const FAR_SHELTER=48
 import {survivalObservation,SHOOTERS_ONLY,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS,HEALTH_EMERGENCY_LINE,outOfReach,cannotShootYet} from '../survival.js'
 // Air, fire and a portal underfoot run their own recovery at once and preempt
 // any shelter attempt: each has a clock no shelter stops.
@@ -732,7 +734,15 @@ export class Teammate extends EventEmitter {
           this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)
         }
       }
-      const candidates=this.safety.retreat?[]:[...(this.projects.base?[{name:'base',goal:{project:structuredClone(this.projects.base)}}]:[]),...alternativeShelters(recoveryBot,this.projects).slice(0,3).map(shelter=>({name:shelter.name,goal:{shelter:structuredClone(shelter)}}))]
+      // In the dark the base is a shelter only within a sprint of it, like any saved
+      // shelter: a long walk home at night crosses fresh spawns, and digging in takes
+      // seconds (honest run 2, 14 October: dusk, the base 107 blocks off, the retreat
+      // walked 83 of them through a skeleton, a spider, two more and a creeper, and died).
+      const tod=recoveryBot.time?.timeOfDay,dark=Number.isFinite(tod)&&(tod>=11500||tod<1000),origin=this.projects.base?.build?.origin
+      const baseDistance=origin&&recoveryBot.entity?.position?Math.hypot(origin.x-recoveryBot.entity.position.x,origin.z-recoveryBot.entity.position.z):0
+      const baseFar=dark&&baseDistance>FAR_SHELTER
+      if(baseFar&&!this.safety.retreat)this.say(`The base is ${Math.round(baseDistance)} blocks off and it is dark. Sheltering here instead of walking there.`)
+      const candidates=this.safety.retreat?[]:[...(this.projects.base&&!baseFar?[{name:'base',goal:{project:structuredClone(this.projects.base)}}]:[]),...alternativeShelters(recoveryBot,this.projects).slice(0,3).map(shelter=>({name:shelter.name,goal:{shelter:structuredClone(shelter)}}))]
       if(!this.safety.retreat)this.safety.attempts=[]
       const recoveryDeadline=Date.now()+120000
       for(const candidate of candidates){
