@@ -1,5 +1,6 @@
 # A SoulStone test world: Paper behind Docker, as the lab runs it on a Raspberry Pi 4.
-# Copy beside a private .env that sets HARNESS_RCON_PASSWORD and LEVEL_SEED; never commit it.
+# Copy beside a private .env that sets RCON_PASSWORD and SEED; never commit it. The server
+# reads both from there (env_file), so no secret is written in this file.
 # Only the game port is published, so RCON stays inside the container: the staging
 # scripts reach it with `docker exec <container> rcon-cli`.
 services:
@@ -10,6 +11,7 @@ services:
     stop_grace_period: 1m
     tty: true
     stdin_open: true
+    env_file: .env
     ports:
       - "25565:25565/tcp"
     environment:
@@ -32,10 +34,8 @@ services:
       ALLOW_FLIGHT: "TRUE"
       MAX_TICK_TIME: "180000"
       ENABLE_RCON: "TRUE"
-      RCON_PASSWORD: "${HARNESS_RCON_PASSWORD:?set HARNESS_RCON_PASSWORD}"
       BROADCAST_RCON_TO_OPS: "FALSE"
       OVERRIDE_SERVER_PROPERTIES: "TRUE"
-      SEED: "${LEVEL_SEED:?set LEVEL_SEED}"
       # Lets a newer client join to watch.
       MODRINTH_PROJECTS: "viaversion,viabackwards"
     volumes:
