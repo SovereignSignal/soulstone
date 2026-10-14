@@ -307,3 +307,33 @@ test('a Stop holds safety off for a minute, not for as long as the danger lasts'
  c.stop();r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,20))
  assert.equal(c.safety?.status,'cancelled')
 })
+
+// Lab run 139, 13 October: the hold went out for a "zombie 7.4 blocks from the base" that
+// stood in a dark pocket seven blocks under the floor. The door opened on nothing, the
+// strike never came, the retreat shut the door and marked the request ready, and the bot
+// sat silent for a hundred minutes with a skeleton and a creeper in the same pocket.
+test('a failed fight from the base hands the hold back, and a camper under the floor is held, not fought',async()=>{
+ const sword={name:'iron_sword',count:1,maxDurability:250,durabilityUsed:0,slot:36}
+ const {r,c,bot}=world(new Vec3(1.5,64,1.5));bot.time.timeOfDay=6000;bot.inventory={items:()=>[sword],slots:[]}
+ bot.entities={1:{id:1,uuid:'10000000-0000-0000-0000-000000000001',type:'mob',name:'zombie',position:new Vec3(1.5,64,-1.3)}}
+ // The defense loop gives up without a strike; the retreat then closes the door as before.
+ r.command=cmd=>{r.commands.push(cmd.action);if(cmd.action==='stop')return
+  r.task={id:String(r.commands.length),kind:cmd.action,status:'running'}
+  setTimeout(()=>{r.task=cmd.action==='defend'?{...r.task,status:'failed',reason:'Cannot reach a clear melee strike; retreat required'}:{...r.task,status:'completed',result:{item:'safety',count:1,receipt:'sheltered_door_closed'}};r.emit('event',{type:'task_finished',task:r.task})},1)}
+ c.phase='blocked';c.requestProgress={id:'z',request:'mine iron',status:'blocked',blocker:'x'};c.blockedSince=1
+ const original=c.seekSafety.bind(c);let settled;c.seekSafety=reason=>(settled=original(reason))
+ assert.equal(await c.stallRetry(),true);await settled
+ assert.deepEqual(r.commands.filter(a=>a!=='stop'),['defend','retreat'])
+ assert.equal(c.safety.status,'sheltered');assert.equal(c.phase,'blocked','a resumable request is still blocked after the retreat, so the hold keeps running')
+ // The hold runs again and the sheltered record does not stop the next fight.
+ c.blockedSince=1;assert.equal(await c.stallRetry(),true);await settled
+ assert.equal(r.commands.filter(a=>a==='defend').length,2,'fought again, not left to camp')
+ // A zombie seven blocks under the doorstep, joined to it by a shaft: in reach, so a hold, never a fight.
+ const cave=world(new Vec3(1.5,64,1.5));cave.bot.time.timeOfDay=6000;cave.bot.inventory={items:()=>[sword],slots:[]}
+ const loaded=cave.bot.blockAt;cave.bot.blockAt=p=>p.x===1&&p.z===-1&&p.y>=57&&p.y<64?{name:'air',position:p,boundingBox:'empty',getProperties:()=>({})}:loaded(p)
+ cave.bot.entities={1:{id:1,uuid:'10000000-0000-0000-0000-000000000001',type:'mob',name:'zombie',position:new Vec3(1.5,57,-0.7)}}
+ const sought=[];cave.c.seekSafety=async reason=>{sought.push(reason)};cave.c.phase='blocked'
+ cave.c.requestProgress={id:'u',request:'mine iron',status:'blocked',blocker:'x'};cave.c.blockedSince=1
+ assert.equal(await cave.c.stallRetry(),false);assert.deepEqual(sought,[],'the defense loop would go down the shaft')
+ assert.ok(cave.c.messages.some(m=>/below its floor/.test(m.text)&&/moved on/.test(m.text)),cave.c.messages.map(m=>m.text).join(' | '))
+})

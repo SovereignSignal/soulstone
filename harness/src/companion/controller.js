@@ -38,7 +38,7 @@ const NIGHT_HOLD_MS=14*60*1000
 // the hold is said again every HOLD_SAY_MS and ends after DAY_HOLD_MS, when the planner gets
 // a round (lab run 138: a creeper, a zombie and a spider by the door, and the bot held in
 // silence through a whole day, with a bow, 128 arrows and full iron in its pack).
-const HOLD_SAY_MS=10*60*1000,DAY_HOLD_MS=15*60*1000,DAY_HOLD_FIGHT_HEALTH=12
+const HOLD_SAY_MS=10*60*1000,DAY_HOLD_MS=15*60*1000,DAY_HOLD_FIGHT_HEALTH=12,DAY_HOLD_FIGHT_LEVEL=2
 import {survivalObservation,SHOOTERS_ONLY,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS,HEALTH_EMERGENCY_LINE,outOfReach,cannotShootYet} from '../survival.js'
 // Air, fire and a portal underfoot run their own recovery at once and preempt
 // any shelter attempt: each has a clock no shelter stops.
@@ -812,11 +812,15 @@ export class Teammate extends EventEmitter {
         await this.waitInBurrow(epoch,abort.signal,recoveryBot,interruptedActiveRequest&&[THREAT_INTERRUPTION,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY].includes(reason))
         return
       }
-      this.safety.status='sheltered';this.phase=this.requestProgress?.status==='interrupted'?'blocked':'ready'
+      // A request that was blocked before the retreat is blocked after it, so the stall
+      // retry and its indoor hold keep running (lab run 139, 13 October: a fight from the
+      // base failed, the retreat marked the request ready, and the bot sat silent for a
+      // hundred minutes with the saved request waiting).
+      this.safety.status='sheltered';this.phase=this.requestProgress?.status==='interrupted'||canResume(this.requestProgress)?'blocked':'ready'
       // A health retreat deserves the same watch-and-continue as a threat retreat;
       // otherwise every hurt evening ends the request until an operator resumes it.
       const eligible=interruptedActiveRequest&&[THREAT_INTERRUPTION,HEALTH_EMERGENCY,FOOD_EMERGENCY].includes(reason)&&canResume(this.requestProgress)&&canContinueAfterSafety(this.requestProgress)
-      this.say('I reached '+(this.safety.retreat.shelterName||'the lit base')+' and closed the door. '+(eligible?'I will watch for a clear area before continuing your request.':this.requestProgress?.status==='interrupted'?'Your request is paused; Resume will re-observe and continue.':'Waiting for your next instruction.'))
+      this.say('I reached '+(this.safety.retreat.shelterName||'the lit base')+' and closed the door. '+(eligible?'I will watch for a clear area before continuing your request.':this.requestProgress?.status==='interrupted'?'Your request is paused; Resume will re-observe and continue.':canResume(this.requestProgress)?'Your request is still saved. I will carry on with it when it is safe to.':'Waiting for your next instruction.'))
       if(eligible)await this.continueAfterClearance(epoch,abort.signal,recoveryBot)
 
     }catch(error){
@@ -1132,7 +1136,11 @@ export class Teammate extends EventEmitter {
       // The same hold for a hostile camped inside its radius: the door would not open for it anyway.
       const pressing=night?null:pressingOutside(this.runner.bot,this.projects.base)
       if(night||pressing){
-        const reason=night?'It is night and I am in the base.':`A ${pressing.name} is ${pressing.distance} blocks from the base.`
+        // A camper on the base's own level can be fought from the door. One under the floor or
+        // over the roof is reached only by a route the defense loop does not take (lab run 139,
+        // 13 October: a zombie seven blocks below in a dark pocket, the door opened on nothing).
+        const level=!pressing||Math.abs(pressing.verticalOffset||0)<=DAY_HOLD_FIGHT_LEVEL
+        const reason=night?'It is night and I am in the base.':`A ${pressing.name} is ${pressing.distance} blocks from the base${level?'':pressing.verticalOffset<0?', below its floor':', above its roof'}.`
         // A base with a back exit gets one planning round first: the door is
         // refused with a reason that names tunnel_out, and the planner decides
         // whether the work can go on underground (lab run 29, 3 October: held
@@ -1148,8 +1156,9 @@ export class Teammate extends EventEmitter {
           if(!this.nightHold){this.nightHold=true;this.holdSaidAt=Date.now();this.say(reason+' I will carry on with your request at daylight.')}
           return false
         }
-        if(this.runner.bot.health>=DAY_HOLD_FIGHT_HEALTH&&defenseDecision(this.runner.bot).engage){
-          this.nightHold=false;this.dayHoldSince=null
+        if(level&&this.runner.bot.health>=DAY_HOLD_FIGHT_HEALTH&&defenseDecision(this.runner.bot).engage){
+          // The hold owns this fight: a sheltered record from the last retreat would stop it.
+          this.nightHold=false;this.dayHoldSince=null;this.safety=null
           this.say(`${reason} It is daylight and I can fight it. Going out to deal with it.`)
           void this.seekSafety(THREAT_INTERRUPTION);return true
         }
