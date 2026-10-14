@@ -284,7 +284,11 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  // Several shooters are shot in turn, as the ranged chain does in the open (three blazes at
  // the wall by 18:10Z the same run).
  const shooters=near.filter(t=>SHOOTERS_ONLY.has(t.name))
- const shooterAtWall=!lone&&shooters.length>0&&shooters.length<=SHOOTERS_AT_WALL&&shooters.includes(nearest)&&shooters.every(t=>bowCanAnswer(bot,t.name))&&near.every(t=>SHOOTERS_ONLY.has(t.name)||t.distance>=SHOOTER_CONFRONT_STANDOFF)
+ // At a spawner the count never falls: the bot in cover keeps the spawner active and the
+ // blazes pile up at the wall (lab run 144, 14 October: six at four blocks through the
+ // window). On a trip, with the kit, shooters are answered whatever their number; the
+ // ranged chain takes four at a time and the cover is judged again between chains.
+ const shooterAtWall=!lone&&shooters.length>0&&(trip||shooters.length<=SHOOTERS_AT_WALL)&&shooters.includes(nearest)&&shooters.every(t=>bowCanAnswer(bot,t.name))&&near.every(t=>SHOOTERS_ONLY.has(t.name)||t.distance>=SHOOTER_CONFRONT_STANDOFF)
  const ready=!!lone&&bowCanAnswer(bot,lone.name)||shooterAtWall||defenseDecision(bot).engage
  if(!ready){
   // Neither fight nor hide. Unarmed against numbers or a crossbow, healthy, in

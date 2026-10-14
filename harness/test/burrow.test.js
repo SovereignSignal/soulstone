@@ -690,7 +690,8 @@ test('a shooter parked at the wall is confronted with the bow while the melee mo
  w.bot.entities[2].position=new Vec3(25.5,64,10.5);w.bot.entities[3]={id:3,name:'blaze',position:new Vec3(13.5,64,11.5)}
  r=burrowClearance(w.bot,{lingeredMs:61000});assert.equal(r.clear,true,r.reason);assert.equal(r.confront?.name,'blaze')
  w.bot.entities[4]={id:4,name:'blaze',position:new Vec3(13.5,64,9.5)};w.bot.entities[5]={id:5,name:'blaze',position:new Vec3(12.5,64,12.5)}
- assert.equal(burrowClearance(w.bot,{lingeredMs:61000}).clear,false,'four shooters are a wait')
+ assert.equal(burrowClearance(w.bot,{lingeredMs:61000}).clear,false,'four shooters are a wait off a trip')
+ const spawner=burrowClearance(w.bot,{lingeredMs:61000,trip:true});assert.equal(spawner.clear,true,'on a trip with the kit they are answered whatever their number');assert.equal(spawner.confront?.name,'blaze')
  delete w.bot.entities[3];delete w.bot.entities[4];delete w.bot.entities[5]
  w.inventory.splice(w.inventory.findIndex(i=>i.name==='arrow'),1)
  assert.equal(burrowClearance(w.bot,{lingeredMs:61000}).clear,false,'no arrows, no answer')
