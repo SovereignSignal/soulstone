@@ -10,6 +10,7 @@ import {harvestBerries} from './foraging.js'
 import {useHeldItem,dimensionOf} from './use-item.js'
 import {makeObsidian,fillableWaterSources,takeableObsidian} from './obsidian.js'
 import {walkNear} from './primitives.js'
+import prismarineItem from 'prismarine-item'
 import {fitConstructionSite} from './construction-site.js'
 import {surveyGround,candidateSites} from './site-survey.js'
 import {placeBuildingBlock} from './building-blocks.js'
@@ -437,6 +438,16 @@ export async function executeWorldSkill(bot,task,context,gather) {
   const next=[...path,name]
   const item=bot.registry.itemsByName[name]
   if(!item)throw new Error(`This Minecraft version has no item ${name}`)
+  // A creative-mode bot takes from the creative inventory: a child's creative world, 14
+  // October 2026, where eleven minutes of honest mining for a small castle was too slow.
+  if(bot.game?.gameMode==='creative'&&typeof bot.creative?.setInventorySlot==='function'){
+   const Item=prismarineItem(bot.registry),stack=item.stackSize||64
+   for(let missing=total-count(name);missing>0;missing=total-count(name)){
+    const slot=bot.inventory.firstEmptyInventorySlot?.();if(!Number.isInteger(slot))throw new Error('No free inventory slot for the creative inventory to fill')
+    await bot.creative.setInventorySlot(slot,new Item(item.id,Math.min(stack,missing)));check()
+   }
+   return
+  }
   // The per-trip bound applies to the shortfall, never the carry target: a
   // request to hold 40 logs while carrying 32 is an eight-log trip.
   if(isLog(name)){const missing=total-count(name);if(missing>32)throw new Error(`Gather at most 32 logs per trip: carrying ${count(name)} ${name}, ${missing} more needed`);await leaveForWork();await gather(total,name);return}

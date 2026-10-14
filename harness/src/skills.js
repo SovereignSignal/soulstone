@@ -1,4 +1,5 @@
 import {performEmote} from './emote.js'
+import {tradeWithVillager} from './trading.js'
 import {shootTarget} from './archery.js'
 import {eatFood} from './survival.js'
 import {surfaceForAir} from './water-safety.js'
@@ -50,6 +51,7 @@ export async function executeSkill(bot, task, context) {
   if(task.kind==='travel')return travelTo(bot,task,context)
   if(task.kind==='goto')return gotoPosition(bot,task,context)
   if(task.kind==='emote')return performEmote(bot,task,context)
+  if(task.kind==='trade')return tradeWithVillager(bot,task,context)
   if(task.kind==='dig')return digToward(bot,task,context)
   if(task.kind==='place_at')return placeAt(bot,task,context)
   if(task.kind==='collect')return collectDrops(bot,task,context)

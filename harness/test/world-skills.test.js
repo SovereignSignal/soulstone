@@ -401,3 +401,16 @@ test('a world skill that acquires nothing never scans the terrain for resources'
  assert.equal(result.item,'dirt')
  assert.equal(scans,0,'already carried: nothing to look for')
 })
+
+// A child's creative world, 14 October 2026: eleven minutes of honest mining for a small
+// castle. A bot that is itself in creative takes from the creative inventory instead.
+test('a creative-mode bot fills an acquire from the creative inventory, a stack at a time',async()=>{
+ const registry=minecraftData('1.21.4'),inventory=new Map(),slots=[]
+ const bot={registry,game:{gameMode:'creative'},entity:{position:new Vec3(1.5,64,0.5)},findBlocks:()=>[],findBlock:()=>null,pathfinder:{setMovements(){},setGoal(){},async goto(){}},
+  inventory:{items:()=>[...inventory].map(([name,count])=>({name,count})),firstEmptyInventorySlot:()=>36+slots.length},
+  creative:{async setInventorySlot(slot,item){slots.push(slot);const name=registry.items[item.type].name;inventory.set(name,(inventory.get(name)||0)+item.count)}},
+  recipesAll:()=>[],recipesFor:()=>[]}
+ Object.setPrototypeOf(bot,new EventEmitter())
+ const r=await executeWorldSkill(bot,{kind:'acquire',goal:{item:'cobblestone',count:100}},{check(){},stage(){},persist(){},progress(){},movements:{}},()=>{throw new Error('no gathering in creative')})
+ assert.equal(r.item,'cobblestone');assert.equal(inventory.get('cobblestone'),100);assert.deepEqual(slots,[36,37],'a stack of 64 and one of 36')
+})

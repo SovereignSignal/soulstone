@@ -10,7 +10,7 @@ export function guardIntent(plan, request, history = []) {
   if(plan.steps.some(s=>s.action==='give')&&!/\b(give|bring|deliver|hand|pass|share|drop|toss)\b|\bmake\s+me\b/i.test(request))return {reply:'I need a delivery instruction before handing over inventory.',steps:[]}
   // Open-ended tasks can legitimately require intermediate work absent from
   // the request wording. Typed tool validation owns the execution boundary.
-  if(plan.steps.some(s=>['acquire','build','construct','revise','inspect','give','eat','harvest','hunt','sleep','descend','climb','use_portal','travel','goto','emote','dig','place_at','collect','attack','shoot','use',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action)))return plan
+  if(plan.steps.some(s=>['acquire','build','construct','revise','inspect','give','eat','harvest','hunt','sleep','descend','climb','use_portal','travel','goto','emote','trade','dig','place_at','collect','attack','shoot','use',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action)))return plan
   // An empty plan can be a valid completion review, including after mining.
   if (!plan.steps.length) return plan
   // Prevent unrelated substitutions without denying implemented capabilities.

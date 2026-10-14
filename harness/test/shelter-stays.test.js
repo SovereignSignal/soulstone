@@ -8,7 +8,7 @@ import minecraftData from 'minecraft-data'
 import {Vec3} from 'vec3'
 import {THREAT_INTERRUPTION} from '../src/survival.js'
 import {insideBase} from '../src/retreat.js'
-import {Teammate,topUpWhileSheltered,eatAfterPortalEscape,STOP_HOLD_MS,DAY_HOLD_MS,DAYLIGHT_MS} from '../src/companion/controller.js'
+import {Teammate,topUpWhileSheltered,eatAfterPortalEscape,STOP_HOLD_MS,DAY_HOLD_MS,DAYLIGHT_MS,PLAYER_ANSWER_MS} from '../src/companion/controller.js'
 const registry=minecraftData('1.21.4')
 // Lab, 2 October 2026, Normal difficulty at night: inside its lit base with a
 // creeper 2.8 blocks away beyond the door, the bot answered the threat with
@@ -392,4 +392,19 @@ test('a shooter in arm\'s reach is dug in from at once, not sprinted from; a zom
  const melee=world(new Vec3(30.5,64,30.5));melee.c.projects={};melee.bot.entities={1:{id:1,name:'zombie',position:new Vec3(33.2,64,30.5)}}
  await melee.c.seekSafety(THREAT_INTERRUPTION)
  assert.equal(melee.r.commands.filter(a=>a!=='stop')[0],'flee','a melee mob in reach is still sprinted from first')
+})
+
+// The creative world, 14 October 2026: "Can you shoo them away? Then I'll sleep!" asked
+// again every ninety seconds. A question to the player waits for the player.
+test('a blocker that asks the player a question is not retried for five minutes, then once',async()=>{
+ const {c,bot}=world(new Vec3(30.5,64,30.5));c.projects={};bot.time.timeOfDay=6000;c.phase='blocked'
+ let resumes=0;c.resume=async()=>{resumes++}
+ c.requestProgress={id:'q',request:'go to sleep please',requester:'Kid',status:'blocked',blocker:'I want to sleep, Kid, but bouncy slimes are too close. Can you shoo them away? Then I will sleep!'};c.blockedSince=1
+ assert.equal(await c.stallRetry(),false);assert.equal(resumes,0,'the player was asked; wait for them')
+ assert.equal(await c.stallRetry(),false);assert.equal(resumes,0)
+ c.requestProgress.askedPlayerAt=Date.now()-PLAYER_ANSWER_MS-1;c.blockedSince=1
+ assert.equal(await c.stallRetry(),true);assert.equal(resumes,1,'after five minutes one look, in case they did it without saying')
+ const plain=world(new Vec3(30.5,64,30.5));plain.c.projects={};plain.bot.time.timeOfDay=6000;plain.c.phase='blocked';let plainResumes=0;plain.c.resume=async()=>{plainResumes++}
+ plain.c.requestProgress={id:'p',request:'mine iron',status:'blocked',blocker:'No iron within 32 blocks'};plain.c.blockedSince=1
+ assert.equal(await plain.c.stallRetry(),true);assert.equal(plainResumes,1,'an ordinary blocker retries as before')
 })
