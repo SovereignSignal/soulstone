@@ -745,7 +745,7 @@ export class Teammate extends EventEmitter {
       const tod=recoveryBot.time?.timeOfDay,dark=Number.isFinite(tod)&&(tod>=11500||tod<1000),origin=this.projects.base?.build?.origin
       const baseDistance=origin&&recoveryBot.entity?.position?Math.hypot(origin.x-recoveryBot.entity.position.x,origin.z-recoveryBot.entity.position.z):0
       const baseFar=dark&&baseDistance>FAR_SHELTER
-      if(baseFar&&!this.safety.retreat)this.say(`The base is ${Math.round(baseDistance)} blocks off and it is dark. Sheltering here instead of walking there.`)
+      if(baseFar&&!this.safety.retreat&&!inNether(recoveryBot))this.say(`The base is ${Math.round(baseDistance)} blocks off and it is dark. Sheltering here instead of walking there.`)
       const candidates=this.safety.retreat?[]:[...(this.projects.base&&!baseFar?[{name:'base',goal:{project:structuredClone(this.projects.base)}}]:[]),...alternativeShelters(recoveryBot,this.projects).slice(0,3).map(shelter=>({name:shelter.name,goal:{shelter:structuredClone(shelter)}}))]
       if(!this.safety.retreat)this.safety.attempts=[]
       const recoveryDeadline=Date.now()+120000
@@ -770,7 +770,10 @@ export class Teammate extends EventEmitter {
       // distance behind first, the way a creeper is handled, then dig. Melee reach
       // is the same floor the threat rule never negotiates.
       if(!this.safety.retreat&&!insideBase(recoveryBot,this.projects.base)&&!occupiedAlternative(recoveryBot,this.projects)){
-        const close=survivalObservation(recoveryBot).nearbyThreats.filter(t=>t.risk==='potential_hostile'&&t.position&&t.distance<=CLOSE_FLOORS.melee).sort((a,b)=>a.distance-b.distance)[0]
+        // A shooter in arm's reach is no closer for being near: distance gains nothing
+        // against it, and the sprint is where the Nether kills (lab run 141, 14 October:
+        // kitted, a blaze at three blocks, "sprinting clear", off the fortress edge, lava).
+        const close=survivalObservation(recoveryBot).nearbyThreats.filter(t=>t.risk==='potential_hostile'&&t.position&&t.distance<=CLOSE_FLOORS.melee&&!SHOOTERS_ONLY.has(t.name)).sort((a,b)=>a.distance-b.distance)[0]
         if(close&&!(this.safety.flights||[]).length){
           this.safety.status='fleeing';this.phase='retreating';this.say(`A ${close.name} is ${close.distance} blocks away and I have no shelter to reach. Sprinting clear before digging in.`)
           try{await this.execute({action:'flee',goal:{from:close.position,distance:24},timeoutMs:15000},abort.signal);if(epoch!==this.epoch||abort.signal.aborted)return;(this.safety.flights??=[]).push(structuredClone(this.runner.task.result));this.persist()}

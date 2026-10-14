@@ -379,3 +379,17 @@ test('in the dark a base beyond a sprint is not walked to; the bot digs in where
  await near.c.seekSafety(THREAT_INTERRUPTION)
  assert.ok(near.r.commands.includes('retreat'),'within a sprint the base is walked to at night as before')
 })
+
+// Lab run 141, 14 October: kitted, a blaze at three blocks, "sprinting clear before digging
+// in", off the fortress edge and into the lava. Distance gains nothing against a shooter.
+test('a shooter in arm\'s reach is dug in from at once, not sprinted from; a zombie in reach still gets the sprint first',async()=>{
+ const {r,c,bot}=world(new Vec3(30.5,64,30.5));c.projects={};bot.time.timeOfDay=6000
+ bot.inventory={items:()=>[{name:'bow',count:1,maxDurability:384,durabilityUsed:0},{name:'arrow',count:40}],slots:[]}
+ bot.entities={1:{id:1,name:'blaze',position:new Vec3(33.2,64,30.5)}}
+ await c.seekSafety(THREAT_INTERRUPTION)
+ const acted=r.commands.filter(a=>a!=='stop')
+ assert.ok(!acted.includes('flee'),`no sprint from a shooter: ${acted.join(',')}`)
+ const melee=world(new Vec3(30.5,64,30.5));melee.c.projects={};melee.bot.entities={1:{id:1,name:'zombie',position:new Vec3(33.2,64,30.5)}}
+ await melee.c.seekSafety(THREAT_INTERRUPTION)
+ assert.equal(melee.r.commands.filter(a=>a!=='stop')[0],'flee','a melee mob in reach is still sprinted from first')
+})
