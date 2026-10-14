@@ -228,3 +228,19 @@ test('magma cubes are fought in the Nether kit with an iron-grade weapon, alone 
  slots[6]={name:'iron_chestplate'};f.bot.entities={7:{...cube(7,3),uuid}};f.bot.health=13
  assert.match(defenseDecision(f.bot).reason,/Health is too low to engage a magma_cube/)
 })
+
+// Lab run 135 (pi1, 13 October): the bot killed a magma cube, but the cube had split;
+// the after-kill check found the pieces, the bot turned to shelter with one 2.6 blocks
+// off, and it died. Another mob the rule would fight is fought too, as the bow does.
+test('after a melee kill the next mob the rule would fight is fought too, before the area is judged',async()=>{
+ const f=controllerFixture(),reg=registry('1.21.4'),targets=[]
+ const second={...reg.entitiesByName.husk,id:8,uuid:'10000000-0000-0000-0000-000000000008',name:'husk',position:new Vec3(3,64,0)}
+ f.c.execute=async cmd=>{f.runner.commands.push(cmd);assert.equal(cmd.action,'defend');targets.push(cmd.goal.targetId)
+  delete f.bot.entities[cmd.goal.targetId];if(cmd.goal.targetId===7)f.bot.entities[8]=second
+  f.runner.task={result:{receipt:'target_death_observed',attacks:2}}}
+ f.c.requestProgress={id:'original',request:'gather',status:'running',feedback:[]};f.c.resume=async()=>{}
+ await f.c.seekSafety(THREAT_INTERRUPTION)
+ assert.deepEqual(targets,[7,8],'the second husk is fought: '+f.runner.commands.map(c=>c.action).join(' '))
+ assert.equal(f.runner.commands.some(c=>c.action==='retreat'),false)
+ assert.ok(f.c.messages.some(m=>/Another husk; fighting it too/.test(m.text)))
+})

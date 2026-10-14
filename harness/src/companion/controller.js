@@ -28,6 +28,8 @@ export function relocateWay(bot){
 }
 // Shooters the bow takes in one defense before the area is judged.
 const RANGED_CHAIN=4
+// Melee kills in a row before the area is judged: a big magma cube splits into up to four.
+const MELEE_CHAIN=5
 // A hostile inside its own interruption radius while the bot is indoors: the
 // door does not open for work onto it, and waiting on it is not a stall.
 const SAFETY_RETRIES=3
@@ -579,7 +581,21 @@ export class Teammate extends EventEmitter {
             if(epoch!==this.epoch||abort.signal.aborted)return
             this.safety.combat=structuredClone(this.runner.task.result)
             this.noteKill(this.safety.combat)
-            this.say('The '+decision.target.targetName+' died after my attacks. Checking the area before continuing.')
+            // Lab run 135: a killed magma cube had split, the after-kill check found the
+            // pieces and the bot turned to shelter beside one. Another mob the rule would
+            // fight is fought too, a bounded number, before the area is judged (as the bow does).
+            let fought=decision.target
+            for(let kill=1;kill<MELEE_CHAIN;kill++){
+              const next=defenseDecision(recoveryBot)
+              if(!next.engage)break
+              this.say(`The ${fought.targetName} died after my attacks. Another ${next.target.targetName}; fighting it too.`)
+              fought=next.target
+              await this.execute({action:'defend',goal:{...next.target,connectionId:this.runner.connectionId},timeoutMs:35000},abort.signal)
+              if(epoch!==this.epoch||abort.signal.aborted)return
+              this.safety.combat=structuredClone(this.runner.task.result)
+              this.noteKill(this.safety.combat)
+            }
+            this.say('The '+fought.targetName+' died after my attacks. Checking the area before continuing.')
             await finishDefense('defend');return
           }catch(error){
             if(epoch!==this.epoch||abort.signal.aborted)return
