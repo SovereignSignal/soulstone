@@ -7,7 +7,7 @@ This is an alpha. The repository includes its installation, usage and developmen
 | Native desktop app | Apple Silicon macOS. Source build explicitly targets macOS 14; actual installation/play on another Mac or older macOS remains unverified. |
 | Minecraft edition | Java. Bedrock is unsupported. |
 | Direct gameplay | Scoped disposable Paper Java 1.21.4 fixtures and natural-world experiments. |
-| Newer Java route | 26.2 uses the pinned ViaProxy helper and Minecraft Launcher's arm64 Java runtime. Account linking, joining, reconnecting and a starter house have live evidence. New mechanics remain unverified. |
+| Newer Java route | 26.2 and 26.3 use the pinned ViaProxy helper (3.4.13). On 26.2 the bot has months of live play: survival to diamond on random seeds, a Nether portal, blaze rods under staged conditions. On 26.3 (13 October 2026) it joined, walked, dug, built and burrowed on a Raspberry Pi with no kick; longer play there is still being gathered. Finding a fortress on its own and rods without staging remain unverified. |
 | Other versions/mods | Client transport detection is broader than gameplay acceptance. Modpacks and every advertised version are not supported by evidence. |
 | Models | Codex/ChatGPT and Claude Code subscription profiles; explicit API/local profiles are available through Models. Model availability depends on your account. Local-model training remains paused. |
 | Independent installation | A clean tracked-file export can be built and tested locally. A different tester's machine and real sign-in/gameplay remain separate acceptance gates. |

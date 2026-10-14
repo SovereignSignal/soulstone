@@ -48,6 +48,8 @@ Install the validated app with the normal project approval process, preserving `
 
 Keep the prior app and compatibility manifest until the new version has live acceptance. Restore the prior source pin and source revision, rebuild, and reinstall the prior app if necessary. Versioned bridge artifacts are retained so source rollback does not need a new download. A source rollback does not downgrade Minecraft world data; use the appropriate pre-upgrade world backup for older Minecraft versions.
 
-## Current 26.3 boundary
+## 26.3
 
-At this change's verification, the public ViaProxy 3.4.12 / ViaVersion 5.11.0 family supports 26.2, and the public protocol implementation does not include 26.3. The staging command rejects 26.3 and leaves it disabled. Re-run the same workflow when a compatible upstream release becomes available. This document is not a claim that 26.3 gameplay passed.
+Since ViaProxy 3.4.13 the manifest pins routes for 26.2 and 26.3. On 13 October 2026 a bot joined a Paper 26.3 server through the 3.4.13 adapter (`harness/lab/bridge.js` with `MC_TARGET_VERSION=26.3`) and walked, dug, built and burrowed on a Raspberry Pi with no kick. 26.3 enforces one position packet per client tick; the harness sends `tick_end` for that. Longer 26.3 play is still being gathered, so 26.2 remains the version the family world is pinned to.
+
+The earlier boundary, for the record: with ViaProxy 3.4.12 / ViaVersion 5.11.0 the staging command rejected 26.3, and this document made no claim that 26.3 gameplay passed.

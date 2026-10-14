@@ -1,6 +1,6 @@
 # Minecraft harness lab
 
-Our own Minecraft teammate harness for the existing disposable Paper Java 1.21.4 lab. The native companion uses the selected reasoning provider, with Astra through the Codex subscription currently active. It supports model-planned goals, reusable physical skills, deterministic outcome checks, saved projects and conditional task experience. Local-model work is paused. See [autonomy](autonomy.md), [construction](construction.md) and [current acceptance records: scope and evidence limits](../docs/STATUS.md).
+Our own Minecraft teammate harness. It is tested in a Paper test world on a Raspberry Pi (see [the lab](lab/README.md)) before anything reaches the world people play in. The native companion uses the selected reasoning provider; Claude through the Claude Code subscription is the planner in use, chosen over Astra through Codex after a comparison on fresh worlds in October 2026. It supports model-planned goals, reusable physical skills, deterministic outcome checks, saved projects and conditional task experience. Local-model work is paused. See [autonomy](autonomy.md), [construction](construction.md) and [current acceptance records: scope and evidence limits](../docs/STATUS.md).
 
 ## Play alongside the agent
 

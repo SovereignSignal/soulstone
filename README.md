@@ -2,7 +2,7 @@
 
 A Minecraft teammate for macOS. Give it a goal in text or voice, follow its progress, inspect its inventory and stop it from a native app. SoulStone can gather, craft, build, manage base supplies and explore through a bounded Mineflayer harness.
 
-**Current alpha: Apple Silicon Mac, macOS 14+ build target, Minecraft Java.** Gameplay has scoped checks on Java 1.21.4 and 26.2. Windows, Linux, Intel Mac, Bedrock and modpacks are not validated app targets. See [support and limits](docs/STATUS.md).
+**Current alpha: Apple Silicon Mac, macOS 14+ build target, Minecraft Java.** Gameplay has scoped checks on Java 1.21.4, 26.2 and 26.3. Windows, Linux, Intel Mac, Bedrock and modpacks are not validated app targets. See [support and limits](docs/STATUS.md).
 
 A separate [SoulStone Play desktop preview](desktop/README.md) is being developed for Windows and Mac, with child-facing controls and voice. It has passed installation and startup in a Windows 11 ARM VM. Real speech accuracy and gameplay acceptance are still pending.
 
