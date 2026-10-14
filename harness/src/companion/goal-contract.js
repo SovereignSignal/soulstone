@@ -58,7 +58,11 @@ export function enforceProjectIntent(contract,step,projects) {
  if(!contract||!['construct','revise'].includes(step.action))return
  if(step.action==='revise'&&contract.projectMode!=='modify')throw new Error('Revision requires explicit modify intent for an existing project')
  const targets=contract.criteria.filter(c=>c.kind==='construction').map(c=>c.target)
- if(!targets.includes(step.name))throw new Error('Use the construction project named in the goal: '+targets.join(', '))
+ // A Nether goal may rebuild the portal it needs even though the request never asked
+ // for a build (honest run 2, 14 October: 53 blocks from its own lit portal and sure
+ // there was none, the bot gathered ten obsidian and was refused the frame).
+ const portalForNether=step.action==='construct'&&step.name==='nether-portal'&&netherGoal(contract)
+ if(!targets.includes(step.name)&&!portalForNether)throw new Error('Use the construction project named in the goal: '+targets.join(', '))
  if(contract.projectMode==='new'&&contract.baselineProjects.includes(step.name))throw new Error('A new build cannot replay an existing project')
  if(!step.design.length&&!projects[step.name]?.construction)throw new Error('Create a fresh design for this new project; no saved blueprint exists')
  const design=step.action==='revise'?reviseArchitecture(projects[step.name]?.construction?.design||[],step.design):step.design.length?step.design:projects[step.name]?.construction.design
@@ -160,3 +164,5 @@ export function constructionLimits(contract,target) {
  }
  return limits
 }
+// Whether the goal takes the bot to the Nether: its summary, milestones or criteria say so.
+export const netherGoal=contract=>/\b(nether|blaze|fortress)\b/i.test([contract?.summary,...(contract?.milestones||[]),...(contract?.criteria||[]).map(c=>c.description)].join(' '))

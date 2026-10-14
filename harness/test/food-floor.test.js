@@ -199,3 +199,13 @@ test('two farm animals seen within 24 blocks mark the hunting ground',()=>{
  const lone=world(),t=teammate(lone);lone.bot.entities={2:{id:2,name:'cow',position:new Vec3(10,64,0)}}
  t.r.emit('event',{type:'survival_tick'});assert.equal(t.c.places.hunting_ground,undefined,'one animal is not a herd')
 })
+
+// Honest run 2, 14 October: 53 blocks from its own lit portal, underground, the bot saw
+// no portal within its scan and set about building a second one. A lit portal is a place.
+test('a portal the bot lights is remembered as the place nether_portal',()=>{
+ const w=world(),{c,r}=teammate(w)
+ r.emit('event',{type:'task_finished',task:{id:'u',kind:'use',status:'completed',goal:{item:'flint_and_steel',count:1,expect:'nether_portal'},result:{item:'flint_and_steel',receipt:'use_effect_observed',target:{x:133,y:72,z:-4,how:'click',dimension:'overworld'},observed:{name:'nether_portal',state:{axis:'x'}}}}})
+ assert.deepEqual(c.places.nether_portal,{x:133,y:72,z:-4,dimension:'overworld'})
+ r.emit('event',{type:'task_finished',task:{id:'v',kind:'use',status:'completed',goal:{item:'flint_and_steel',count:1,expect:'fire'},result:{item:'flint_and_steel',receipt:'use_effect_observed',target:{x:1,y:64,z:1,how:'click',dimension:'overworld'},observed:{name:'fire'}}}})
+ assert.equal(c.places.nether_portal.x,133,'lighting something else moves nothing')
+})

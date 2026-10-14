@@ -302,6 +302,10 @@ export class Teammate extends EventEmitter {
       // Both ends of each crossing: the way home is the other end of the portal it came through.
       // The last place a hunt killed is where food is: the food floor walks back there (food-floor.js).
       if(e.type==='task_finished'&&e.task?.kind==='hunt'&&e.task.status==='completed'&&e.task.result?.kills>0&&Number.isFinite(e.task.result.position?.x)){const p=e.task.result.position;this.places.hunting_ground={x:p.x,y:p.y,z:p.z,dimension:dimensionOf(runner.bot)||'overworld'};this.persist()}
+      // A portal the bot lit is a place it can return to (honest run 2, 14 October: 53
+      // blocks from its own lit portal, underground, the bot saw none within its scan
+      // and set about building a second one).
+      if(e.type==='task_finished'&&e.task?.kind==='use'&&e.task.status==='completed'&&e.task.result?.observed?.name==='nether_portal'&&Number.isFinite(e.task.result.target?.x)){const t=e.task.result.target;this.places.nether_portal={x:t.x,y:t.y,z:t.z,dimension:t.dimension||dimensionOf(runner.bot)||'overworld'};this.persist()}
       if(e.type==='task_finished'&&e.task?.kind==='use_portal'&&e.task.status==='completed'&&e.task.result?.from?.portal&&e.task.result?.to?.portal){const r=e.task.result,link={[r.from.dimension]:r.from.portal,[r.to.dimension]:r.to.portal},pairs=[...(this.projects.portal_link?.pairs||[])],same=pairs.findIndex(p=>p[r.from.dimension]&&Math.abs(p[r.from.dimension].x-r.from.portal.x)+Math.abs(p[r.from.dimension].z-r.from.portal.z)<=4);if(same>=0)pairs[same]={...pairs[same],...link};else pairs.push(link);this.projects.portal_link={pairs};this.persist()}
       if (e.type === 'skill_progress') { this.activity = e.message; this.emit('change') }
       if (e.type === 'death') {

@@ -320,3 +320,16 @@ test('the brief allows a portal only through use_portal behind the switch, and s
  assert.match(teammate,/Action use_portal: /)
  assert.doesNotMatch(brief,/never go through a portal or into the Nether/,'the old blanket rule is replaced, not contradicted')
 })
+
+// Honest run 2, 14 October: 53 blocks from its own lit portal and sure there was none, the
+// bot gathered ten obsidian and was refused the frame because the request never asked
+// for a build. A Nether goal may build the portal it needs; any other build is still refused.
+test('a Nether goal may construct a nether-portal the request did not name; other goals and other builds may not',()=>{
+ const frame=[];for(let x=0;x<4;x++)for(let z=0;z<4;z++)frame.push({x,y:0,z,block:'obsidian'});frame.push({x:1,y:1,z:1,block:'checkpoint'},{x:2,y:1,z:1,block:'checkpoint'})
+ const nether=validateContract({...contract([criterion('inventory','','blaze_rod',3)]),summary:'Cross the lit Nether portal, find a fortress and bring three blaze rods home'})
+ assert.doesNotThrow(()=>enforceProjectIntent(nether,{action:'construct',name:'nether-portal',design:frame},{}))
+ assert.throws(()=>enforceProjectIntent(nether,{action:'construct',name:'tower',design:frame},{}),/project named/)
+ assert.throws(()=>enforceProjectIntent(nether,{action:'construct',name:'nether-portal',design:[]},{}),/fresh design/,'the rest of the checks still apply')
+ const iron=validateContract({...contract([criterion('inventory','','iron_ingot',8)]),summary:'Mine eight iron'})
+ assert.throws(()=>enforceProjectIntent(iron,{action:'construct',name:'nether-portal',design:frame},{}),/project named/)
+})
