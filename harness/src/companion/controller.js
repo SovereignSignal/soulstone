@@ -219,13 +219,18 @@ export class Teammate extends EventEmitter {
         // A bow duel under way is not stopped by a fireball's flames (lab, 10 October: the
         // blaze was left on 4 health twice); lava, or health at or under half, still is.
         const shooting=runner.task?.kind==='shoot'&&runner.task.status==='running'
+        // Nor is cover going up stopped by a fire block a fireball lit (lab run 142, 14
+        // October: a hut on a fortress walkway edge, the fire alarm cancelled it to stamp
+        // out the flames, and the next fireball's knockback put the bot in the lava below).
+        // The hut takes seconds; the flames are stamped out from inside it.
+        const covering=['hut','burrow'].includes(runner.task?.kind)&&runner.task.status==='running'
         // Open sky decides whether a hurt, empty-handed bot can go and find food (survival.js).
         const openSky=!!runner.bot?.entity?.position&&!roofed(runner.bot)
         // Idle: nothing running and nothing being planned. Only an idle bot is sent home at night with a base.
         const idle=runner.task?.status!=='running'&&['ready','blocked'].includes(this.phase)
         const raw=emergencyReason({...observation,shelterAvailable,sheltered,recentDamageMs,roofed:underRock,openSky,idle})
         const reason=crossing&&(raw===PORTAL_EMERGENCY||raw===THREAT_INTERRUPTION&&runner.work?.stage==='entering')?null
-         :shooting&&raw===FIRE_EMERGENCY&&observation.inLava!==true&&observation.health>HEALTH_EMERGENCY_LINE?null:raw
+         :(shooting||covering)&&raw===FIRE_EMERGENCY&&observation.inLava!==true&&observation.health>HEALTH_EMERGENCY_LINE?null:raw
         // The journal should show the times rock was the reason work carried on.
         // The flood's answer is the evidence for an interruption through rock; without it the log says only that a hostile was "within ten blocks".
         if(reason===THREAT_INTERRUPTION&&pressing.some(t=>t.reach)&&Date.now()-(this.routeLogAt||0)>=5000){this.routeLogAt=Date.now();runner.log?.('threat_route',{threats:pressing.slice(0,4).map(t=>`${t.name}@${t.distance}/${t.verticalOffset}:${t.reach||'-'}${Number.isFinite(t.routeSteps)?'~'+t.routeSteps:''}:${t.sightline?.status||'-'}`)})}

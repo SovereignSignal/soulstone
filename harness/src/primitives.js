@@ -444,6 +444,15 @@ export async function digToward(bot, task, context) {
       if (aboveHead && (LIQUID.has(aboveHead.name) || GRAVITY.has(aboveHead.name))) {
         failOrStop(`${key(head)} directly supports ${aboveHead.name} above`, feet); break
       }
+      // A column with nothing under it is open space the tunnel has broken into, not a
+      // step (honest run 2, 14 October: a search tunnel at y 75 in the Nether, a cavern
+      // under the next column, and a thirty-eight block fall). A rising tunnel's next
+      // floor is the column the bot stands in, which it climbs out of with a jump.
+      const under = feet.offset(0, -1, 0), underBlock = bot.blockAt(under), previous = stepToward(start, target, i - 1)
+      const climbing = under.equals(previous) || under.equals(previous.offset(0, 1, 0))
+      if (!climbing && (!underBlock || AIR.has(underBlock.name) || underBlock.boundingBox === 'empty' || LIQUID.has(underBlock.name))) {
+        failOrStop(`no floor under ${key(feet)} (${underBlock?.name || 'unloaded'}); the tunnel has reached open space`, feet); break
+      }
       // Approach the column without digging through stone if we are not yet adjacent.
       if (bot.entity.position.distanceTo(feet.offset(0.5, 0, 0.5)) > DIG_REACH) {
         stage('walking'); progress(`Approaching tunnel column ${key(feet)}`)

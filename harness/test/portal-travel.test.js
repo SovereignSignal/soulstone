@@ -161,6 +161,22 @@ test('being on fire does not stop a bow duel under way; lava or low health still
  assert.equal(await tick({health:8}),FIRE_EMERGENCY,'at 8 health the fire comes first')
  assert.equal(await tick({shooting:false}),FIRE_EMERGENCY,'not shooting: the fire comes first')
 })
+// Lab run 142, 14 October: a hut going up on a fortress walkway edge, a fireball lit the
+// cell, the fire alarm cancelled the hut to stamp the flames out, and the next fireball's
+// knockback put the bot in the lava below. Cover going up finishes first.
+test('being on fire does not stop a hut or burrow going up; lava or low health still does',async()=>{
+ const tick=async({health=18,kind='hut'}={})=>{
+  const [r,c]=companion(async()=>({reply:'',steps:[]}))
+  r.bot.health=health;r.bot.entity.metadata[0]=1
+  if(kind)r.task={id:'h',kind,status:'running',goal:{}}
+  r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,20))
+  const reason=c.safety?.reason;c.cancel?.(true);return reason
+ }
+ assert.equal(await tick(),undefined,'alight with the hut going up: finish the hut')
+ assert.equal(await tick({kind:'burrow'}),undefined,'the same for a burrow')
+ assert.equal(await tick({health:8}),FIRE_EMERGENCY,'at 8 health the fire comes first')
+ assert.equal(await tick({kind:null}),FIRE_EMERGENCY,'nothing going up: the fire comes first')
+})
 
 // Lab run 101, 10 October: home from the fortress for a moment, the planner put
 // "acquire flint_and_steel" before use_portal with the portal lit, spent its

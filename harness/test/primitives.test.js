@@ -715,3 +715,17 @@ test('dig never breaks a building block: it says to go around', async () => {
   for (const n of ['stone', 'deepslate', 'grass_block', 'gravel', 'iron_ore', 'deepslate_diamond_ore', 'oak_leaves', 'netherrack', 'orange_terracotta']) assert.equal(isNatural(n), true, n)
   for (const n of ['oak_planks', 'oak_log', 'cobblestone', 'glass', 'white_wool', 'bricks', 'obsidian', 'chest', 'orange_glazed_terracotta', '', undefined]) assert.equal(isNatural(n), false, String(n))
 })
+
+// Honest run 2, 14 October: a fortress-search tunnel at y 75 in the Nether broke into a
+// cavern, the bot stepped into the next column, and fell thirty-eight blocks.
+test('a tunnel stops at a column with nothing under it instead of stepping into the void', async () => {
+  const probe = fakeBot({}), s = probe.entity.position.floored()
+  const bot = fakeBot({
+    fills: [[s.x + 3, s.y - 1, s.z, { name: 'air', boundingBox: 'empty' }]],
+    defaultBlock: p => (p.y < s.y ? stone(p) : { name: 'air', boundingBox: 'empty', position: p }),
+  })
+  const r = await digToward(bot, { kind: 'dig', goal: validateDigGoal({ x: s.x + 6, y: s.y, z: s.z, count: 6 }) }, deps())
+  assert.ok(r.broken >= 1 && r.broken < 6, `stopped short: broke ${r.broken}`)
+  assert.match(r.reason || '', /no floor under .* open space/)
+  assert.ok(bot.entity.position.x < s.x + 3, `never stood over the hole: x ${bot.entity.position.x}`)
+})
