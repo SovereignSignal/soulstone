@@ -185,10 +185,12 @@ test('the hut opened to confront carries the way it faces through the runner to 
 // seconds, which judged the shot through its own remaining wall and walled in again,
 // every ninety seconds for fifteen minutes, without one arrow loosed.
 const KIT=[{name:'bow',count:1,maxDurability:384,durabilityUsed:0},{name:'arrow',count:122},SWORD]
-function portWait({shot,blaze=[5.5,63,.5],health=20,hut=()=>{},limitMs=1500}){
- const {bot}=tunnel({mobs:[['blaze',...blaze]],items:KIT}),executed=[],said=[],held=[]
- bot.health=health
- const c={epoch:1,runner:{bot,ready:true,connectionId:'same',task:{result:{}}},safety:{status:'burrowed',retreat:{...TUNNEL_HUT}},requestProgress:null,burrowWait:{quietMs:5,limitMs,watches:1,patienceMs:0},
+function portWait({shot,blaze=[5.5,63,.5],health=20,hut=()=>{},limitMs=1500,trip=false,food=20,items=[]}){
+ const {bot}=tunnel({mobs:[['blaze',...blaze]],items:[...KIT,...items]}),executed=[],said=[],held=[]
+ bot.health=health;bot.food=food
+ // A kitted trip: a live request and iron armour with golden boots (nether-trip.js).
+ if(trip){bot.getEquipmentDestSlot=s=>({head:5,torso:6,legs:7,feet:8})[s];for(const [i,n] of [[5,'iron_helmet'],[6,'iron_chestplate'],[7,'iron_leggings'],[8,'golden_boots']])bot.inventory.slots[i]={name:n}}
+ const c={epoch:1,runner:{bot,ready:true,connectionId:'same',task:{result:{}}},safety:{status:'burrowed',retreat:{...TUNNEL_HUT}},requestProgress:trip?{id:'rods',request:'blaze rods',status:'interrupted',feedback:[]}:null,burrowWait:{quietMs:5,limitMs,watches:1,patienceMs:0},
   // Held in the hut, the blaze drifts off so the wait can end.
   persist(){},emit(){},say:t=>{said.push(t);if(/Holding the hut/.test(t))delete bot.entities[1]},dispatch(){},resume(){assert.fail('no request to resume')},
   async execute(command){
@@ -236,6 +238,18 @@ test('a shooter outside the hut is shot from a firing port while the shelter sti
  assert.equal(w.executed[3].goal.shooter,undefined,'with the blaze dead the hut opens as it always has')
  assert.deepEqual(w.c.killSites?.map(k=>k.at),[{x:5.5,y:63,z:.5}],'the rod is picked up when the wait ends')
  assert.equal(w.c.safety,null)
+})
+// Lab run 156, 15 October: at a firing port into a sealed room of blazes the bot lost 11
+// health in six seconds before the duel's own half-health line stopped it. On a kitted trip
+// the port's shot breaks off at the first hit.
+test('on a kitted trip the shot from the port breaks off at the first hit; off a trip it keeps the old line',async()=>{
+ const kill=(bot,c)=>{delete bot.entities[1];c.runner.task={result:{item:'blaze',receipt:'killed',count:1,shots:3}}}
+ const trip=portWait({shot:kill,trip:true})
+ await Teammate.prototype.waitInBurrow.call(trip.c,1,new AbortController().signal,trip.bot,false)
+ assert.deepEqual(trip.executed.find(x=>x.action==='shoot')?.goal,{type:'blaze',collect:false,stay:true,breakOnHit:true},trip.said.join(' | '))
+ const off=portWait({shot:kill})
+ await Teammate.prototype.waitInBurrow.call(off.c,1,new AbortController().signal,off.bot,false)
+ assert.deepEqual(off.executed.find(x=>x.action==='shoot')?.goal,{type:'blaze',collect:false,stay:true})
 })
 const noShot=()=>{throw new Error('No clear shot at the blaze: netherrack is in the way')}
 const run=async w=>{await Teammate.prototype.waitInBurrow.call(w.c,1,new AbortController().signal,w.bot,false);return w.executed.map(x=>x.action)}

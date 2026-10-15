@@ -49,8 +49,9 @@ export function validateTaskGoal(kind, goal) {
   if(kind==='place_at')return validatePlaceAtGoal(goal)
   if(kind==='collect')return validateCollectGoal(goal)
   // Self-defense shoots with collect:false and picks up after its area check.
-  // From a firing port it stays in cover: no walking out to find a line (lab run 146).
-  if(kind==='shoot')return {...validateAttackGoal(goal),...(goal?.collect===false?{collect:false}:{}),...(goal?.stay===true?{stay:true}:{})}
+  // From a firing port it stays in cover: no walking out to find a line (lab run 146),
+  // and on a trip a hit there ends the shot (lab run 156).
+  if(kind==='shoot')return {...validateAttackGoal(goal),...(goal?.collect===false?{collect:false}:{}),...(goal?.stay===true?{stay:true}:{}),...(goal?.breakOnHit===true?{breakOnHit:true}:{})}
   if(kind==='attack')return validateAttackGoal(goal)
   if(kind==='use')return validateUseGoal(goal)
   if(kind==='sleep')return goal?.project?{project:goal.project}:{}

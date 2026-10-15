@@ -370,6 +370,24 @@ test('the bow breaks off a duel at half health once it is being hurt, and says s
  assert.equal(result.receipt,'killed','starting at half health untouched is no reason to stop')
 })
 
+// Lab run 156, 15 October: at a firing port into a sealed room of blazes the bot went from
+// 20 health to 8.7 in about six seconds over three arrows, and broke off only at 10, then
+// burned to death walling in. Told to break on a hit, the first point lost ends the shot.
+test('told to break on a hit, the first health lost mid-draw ends the shot and stands the bow down',async()=>{
+ for(const how of ['option','goal']){
+  const r=range({arrows:16,hitsToKill:99}),slots=[]
+  r.bot.setQuickBarSlot=n=>slots.push(n)
+  const draw=r.bot.activateItem;r.bot.activateItem=()=>{draw();setTimeout(()=>{r.bot.health=19},5)}
+  const goal={type:'zombie',...(how==='goal'?{breakOnHit:true}:{})}
+  await assert.rejects(shootTarget(r.bot,{kind:'shoot',goal},api,{...fast,drawMs:200,...(how==='option'?{breakOnHit:true}:{})}),/Hit at the slit/,how)
+  assert.deepEqual(r.log,['equip bow','draw'],'never loosed: '+how);assert.equal(slots.length,1,'the draw is cancelled: '+how)
+ }
+ // Without it a point lost is no reason to stop.
+ const r=range({arrows:16,hitsToKill:2})
+ const draw=r.bot.activateItem;r.bot.activateItem=()=>{draw();r.bot.health=19}
+ assert.equal((await shootTarget(r.bot,{kind:'shoot',goal:{type:'zombie'}},api,fast)).receipt,'killed')
+ assert.deepEqual(validateTaskGoal('shoot',{type:'blaze',collect:false,stay:true,breakOnHit:true}),{type:'blaze',collect:false,stay:true,breakOnHit:true})
+})
 test('after a kill that left the bot at half health or less, it does not stand still for the area check',async()=>{
  // Lab run 101: the blaze fell with the bot on 5 health; the after-kill check then
  // stood five seconds waiting for a quiet it could never declare (health too low),

@@ -1151,7 +1151,10 @@ export class Teammate extends EventEmitter {
         catch(error){check();this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check();this.say(`No port to shoot the ${name} from: ${error.message}.`);if(leave())break;continue}
         safety.port=port;this.persist()
         let shot=null,missed=null
-        try{await this.execute({action:'shoot',goal:{type:confront.name,collect:false,stay:true},timeoutMs:60000},signal);check();shot=structuredClone(this.runner.task.result)}
+        // On a trip the first hit at the port ends the shot (lab run 156, 15 October: 20 health to
+        // 8.7 in six seconds at a port into a room of four blazes, then burned to death walling in).
+        const breakOnHit=onTrip(bot,canResume(request))?{breakOnHit:true}:{}
+        try{await this.execute({action:'shoot',goal:{type:confront.name,collect:false,stay:true,...breakOnHit},timeoutMs:60000},signal);check();shot=structuredClone(this.runner.task.result)}
         catch(error){check();missed=error.message;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check()}
         // The bow reports a step back from the port that did not land home; the hut then
         // walls in where the bot stands, and the wait watches that hut from here on.

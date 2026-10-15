@@ -50,7 +50,7 @@ aimPitch.lead=function(from,to,velocity){
  return {aimAt,pitch}
 }
 
-export const SHOOT={radius:32,drawMs:1100,maxShots:12,settleMs:900,reacquire:10,reposition:4,repositionMs:12000,repositions:3,healthStop:10}
+export const SHOOT={radius:32,drawMs:1100,maxShots:12,settleMs:900,reacquire:10,reposition:4,repositionMs:12000,repositions:3,healthStop:10,breakOnHit:false}
 // Security reviews of 6da6e6c, ae7e4aa and 1993aea (9 October): an arrow flies on
 // past a miss, so the target's type is not enough. A protected bystander within a
 // block and a half of the arrow's arc holds the shot, along the whole flight: until
@@ -106,7 +106,7 @@ export function coveredSteps(bot,feet){
 }
 export async function shootTarget(bot,task,{check,stage,progress,movements},options={}){
  // Shooting from a firing port it stays in cover (lab run 146, 15 October).
- const o={...SHOOT,...(task.goal?.stay?{repositions:0}:{}),...options}
+ const o={...SHOOT,...(task.goal?.stay?{repositions:0}:{}),...(task.goal?.breakOnHit===true?{breakOnHit:true}:{}),...options}
  const goal=validateAttackGoal(task.goal,bot.registry)
  const bow=bot.inventory.items().find(i=>i.name==='bow')
  if(!bow)throw new Error('Shooting needs a bow (3 sticks and 3 string)')
@@ -182,9 +182,18 @@ export async function shootTarget(bot,task,{check,stage,progress,movements},opti
  // Lab run 101: 20 health to 5 in five seconds against a blaze at close range, still
  // drawing. In the Nether burning raises no alarm, so the duel must end itself: once
  // it has cost health and left half or less, break off and let the shelter decide.
+ // Lab run 156, 15 October: at a firing port into a sealed room of blazes, 20 health to 8.7
+ // in about six seconds over three arrows, then death by fire while walling in. A port that
+ // lets one hit through will let the next: told to break on a hit, any point lost ends it.
  const startHealth=bot.health
- const hurtOut=()=>Number.isFinite(bot.health)&&Number.isFinite(startHealth)&&bot.health<startHealth&&bot.health<=o.healthStop
- const breakOff=()=>new Error(`Breaking off at ${Math.round(bot.health)} health: the ${goal.type} survived ${shots} arrow${shots===1?'':'s'}`)
+ let top=startHealth
+ const hurtOut=()=>{
+  if(!Number.isFinite(bot.health)||!Number.isFinite(startHealth))return false
+  if(o.breakOnHit){top=Math.max(top,bot.health);return bot.health<top}
+  return bot.health<startHealth&&bot.health<=o.healthStop
+ }
+ const breakOff=()=>new Error(o.breakOnHit?`Hit at the slit: ${Math.round(bot.health*10)/10} health after ${shots} arrow${shots===1?'':'s'} at the ${goal.type}; standing down`
+  :`Breaking off at ${Math.round(bot.health)} health: the ${goal.type} survived ${shots} arrow${shots===1?'':'s'}`)
  const killed=e=>{if(e?.id===target.id)dead=true}
  bot.on('entityDead',killed)
  const eye=()=>bot.entity.position.offset(0,bot.entity.eyeHeight??1.62,0)
