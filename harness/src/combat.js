@@ -97,6 +97,22 @@ export function corneredDecision(bot){
  if(!weapon)return reject('Nothing carried to fight with')
  return {engage:true,cornered:true,target:{targetId:target.id,targetUuid:target.uuid,targetName:target.name},weapon:weapon.name}
 }
+// What a lone fight with a <name> asks of the bot itself, by the floors defenseDecision
+// holds: fed and over twelve, the mob's own health margin, and for a heavy mob the kit and
+// an iron blade (the best carried, unless the fight names its weapon). Why not, or ''.
+// Asked by name, so the Nether trip's alarm can judge a mob still past ENGAGE_RANGE
+// (lab run 148, 15 October: a wither skeleton at 11 held a kitted bot in cover for good).
+function aloneRefusal(bot,name,{healthFloor=12,foodFloor=10,mobMargins=true,weapon=meleeWeapon(bot)?.name}={}){
+ const s=survivalObservation(bot)
+ if(!Number.isFinite(s.health)||s.health<healthFloor||s.food<foodFloor||!Number.isFinite(s.food))return 'Health or food is too low to engage'
+ if(mobMargins&&s.health<DEFENSE_HEALTH[name])return `Health is too low to engage a ${name}`
+ if(HEAVY_MOBS.has(name)){
+  if(armorPoints(bot)<HEAVY_ARMOR)return `A ${name} needs iron armour, golden boots allowed, or better (${armorPoints(bot)} of ${HEAVY_ARMOR} points worn)`
+  if(!(weapons[weapon]>=HEAVY_DAMAGE))return `A ${name} needs an iron sword or axe or better, not a ${(weapon||'bare hand').replaceAll('_',' ')}`
+ }
+ return ''
+}
+export const fightableAlone=(bot,name)=>DEFENDABLE_MOBS.has(name)&&!aloneRefusal(bot,name)
 // The margins are the rule's; a judged fight may lower them to floors it names.
 export function defenseDecision(bot,{healthFloor=12,foodFloor=10,mobMargins=true}={}){
  const s=survivalObservation(bot)
@@ -114,10 +130,9 @@ export function defenseDecision(bot,{healthFloor=12,foodFloor=10,mobMargins=true
  if(!target)return reject('Target identity is unavailable')
  const weapon=weaponFor(bot,target)
  if(!weapon)return reject('No serviceable melee weapon safe to use near bystanders')
- if(HEAVY_MOBS.has(target.name)){
-  if(armorPoints(bot)<HEAVY_ARMOR)return reject(`A ${target.name} needs iron armour, golden boots allowed, or better (${armorPoints(bot)} of ${HEAVY_ARMOR} points worn)`)
-  if(weapons[weapon.name]<HEAVY_DAMAGE)return reject(`A ${target.name} needs an iron sword or axe or better, not a ${weapon.name.replaceAll('_',' ')}`)
- }
+ // The floors above were asked first so their reasons keep their order; this adds the heavy kit.
+ const refused=aloneRefusal(bot,target.name,{healthFloor,foodFloor,mobMargins,weapon:weapon.name})
+ if(refused)return reject(refused)
  return {engage:true,target:{targetId:target.id,targetUuid:target.uuid,targetName:target.name},weapon:weapon.name,...(group?{group:threats.length}:{})}
 }
 export function validateDefenseGoal(g){

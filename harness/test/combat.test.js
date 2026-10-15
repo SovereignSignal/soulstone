@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import registry from 'prismarine-registry'
 import {Vec3} from 'vec3'
-import {defenseDecision,defendAgainstMob,clearStrike} from '../src/combat.js'
+import {defenseDecision,defendAgainstMob,clearStrike,fightableAlone} from '../src/combat.js'
 import {validateTaskGoal} from '../src/task-store.js'
 import {Runner} from '../src/runner.js'
 import {Teammate} from '../src/companion/controller.js'
@@ -257,4 +257,20 @@ test('the zombie and skeleton variants and the cave spider are fought like their
  }
  const f=fixture();f.bot.entities={7:{...registry('1.21.4').entitiesByName.creeper,id:7,uuid,position:new Vec3(2,64,0)}}
  assert.equal(defenseDecision(f.bot).engage,false,'a creeper is still not fought')
+})
+
+// Lab run 148, 15 October: the alarm on a Nether trip has to know whether the fight rule
+// would take on a lone mob still past its ten blocks. The same floors, asked by name.
+test('fightableAlone asks the fight rule\'s floors by name: for a wither skeleton the kit, an iron blade, 18 health and food',()=>{
+ const f=fixture()
+ const slots=[];f.bot.inventory.slots=slots;f.bot.getEquipmentDestSlot=s=>({head:5,torso:6,legs:7,feet:8})[s]
+ for(const [i,n] of [[5,'iron_helmet'],[6,'iron_chestplate'],[7,'iron_leggings'],[8,'golden_boots']])slots[i]={name:n}
+ assert.equal(fightableAlone(f.bot,'wither_skeleton'),true)
+ f.bot.health=17;assert.equal(fightableAlone(f.bot,'wither_skeleton'),false,'under its health floor');f.bot.health=20
+ f.bot.food=9;assert.equal(fightableAlone(f.bot,'wither_skeleton'),false,'hungry');f.bot.food=20
+ slots[6]=null;assert.equal(fightableAlone(f.bot,'wither_skeleton'),false,'short of the kit')
+ assert.equal(fightableAlone(f.bot,'husk'),true,'a husk asks no armour');slots[6]={name:'iron_chestplate'}
+ f.items[0]={name:'stone_sword',count:1,maxDurability:131,durabilityUsed:0,slot:36};assert.equal(fightableAlone(f.bot,'wither_skeleton'),false,'a stone blade')
+ assert.equal(fightableAlone(f.bot,'husk'),true);f.bot.health=11;assert.equal(fightableAlone(f.bot,'husk'),false,'under twelve');f.bot.health=20
+ for(const name of ['hoglin','creeper','blaze'])assert.equal(fightableAlone(f.bot,name),false,name+' is no mob the rule fights')
 })
