@@ -313,7 +313,32 @@ test('a hut opened away from a mob never opens the wall facing it',async()=>{
  // Only the tunnel's ends have ground beyond; toward a place off to the side both tie.
  assert.deepEqual((await unwall(w.bot,{kind:'unhut',goal:{toward:{x:-20,z:10}}},api)).side,{dx:0,dz:1},'the tie goes to the first side')
  const v=tunnelHut();await executeSkill(v.bot,{kind:'hut',goal:{}},api)
- assert.deepEqual((await unwall(v.bot,{kind:'unhut',goal:{toward:{x:-20,z:10},from:{x:10,z:30}}},api)).side,{dx:0,dz:-1})
- assert.deepEqual(validateTaskGoal('unhut',{toward:{x:-20,z:10},from:{x:10,z:30}}),{toward:{x:-20,z:10},from:{x:10,z:30}})
- assert.deepEqual(validateTaskGoal('unhut',{toward:{x:-20,z:10},from:{x:10.5,z:30}}),{toward:{x:-20,z:10}})
+ assert.deepEqual((await unwall(v.bot,{kind:'unhut',goal:{toward:{x:-20,z:10},from:[{x:10,z:30}]}},api)).side,{dx:0,dz:-1})
+ assert.deepEqual(validateTaskGoal('unhut',{toward:{x:-20,z:10},from:[{x:10,z:30},{x:1.5,z:2},'x']}),{toward:{x:-20,z:10},from:[{x:10,z:30}]})
+ assert.deepEqual(validateTaskGoal('unhut',{toward:{x:-20,z:10},from:{x:10,z:30}}),{toward:{x:-20,z:10}})
+})
+test('away from mobs, every side with any pull toward one stays shut, as does one onto lava; with none left the hut holds',async()=>{
+ // A mob on the diagonal ties two sides: both stay shut, even when the place asked for is past them.
+ const diagonal=world();await executeSkill(diagonal.bot,{kind:'hut',goal:{}},api)
+ const d=await unwall(diagonal.bot,{kind:'unhut',goal:{toward:{x:40,z:40},from:[{x:20,z:20}]}},api)
+ assert.ok(d.side.dx<=0&&d.side.dz<=0,JSON.stringify(d.side))
+ // Two mobs on different sides.
+ const two=world();await executeSkill(two.bot,{kind:'hut',goal:{}},api)
+ const t=await unwall(two.bot,{kind:'unhut',goal:{toward:{x:40,z:10},from:[{x:30,z:10},{x:10,z:30}]}},api)
+ assert.ok(!(t.side.dx===1||t.side.dz===1),JSON.stringify(t.side))
+ // Lava two cells out on every other side: nothing is opened and the hut holds.
+ const shut=world();await executeSkill(shut.bot,{kind:'hut',goal:{}},api);shut.dug.length=0
+ for(const [x,z] of [[8,10],[12,10],[10,8]])shut.cells.set(new Vec3(x,64,z).toString(),'lava')
+ await assert.rejects(unwall(shut.bot,{kind:'unhut',goal:{toward:{x:10,z:-30},from:[{x:10,z:30}]}},api),/No wall to open away from/)
+ assert.deepEqual(shut.dug,[],'the hut is kept')
+ // Without mobs named, the old exit is unchanged.
+ const old=world();await executeSkill(old.bot,{kind:'hut',goal:{}},api)
+ assert.ok((await unwall(old.bot,{kind:'unhut',goal:{}},api)).side)
+})
+test('away from a mob beside a portal, the portal side is never opened',async()=>{
+ const w=besidePortal();await executeSkill(w.bot,{kind:'hut',goal:{}},api);w.dug.length=0
+ // The portal is to the north (z=9); the mob is east, the place asked for north, and rock beyond west and south.
+ for(const c of ['8,64,10','8,65,10','10,64,12','10,65,12'])w.cells.set(new Vec3(...c.split(',').map(Number)).toString(),'stone')
+ const out=await unwall(w.bot,{kind:'unhut',goal:{toward:{x:10,z:-30},from:[{x:30,z:10}]}},api)
+ assert.notDeepEqual(out.side,{dx:0,dz:-1});assert.ok(!w.dug.some(c=>c.endsWith(',9')),w.dug.join(' '))
 })

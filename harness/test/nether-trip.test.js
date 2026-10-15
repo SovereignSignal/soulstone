@@ -252,7 +252,7 @@ test('a crossing the alarm cancelled still marks the kitted trip by the dimensio
 // Lab run 147, the second crossing: the hut held, a wither skeleton lingered about thirteen
 // blocks off, and after four minutes "leaving the area" took the portal home with health 20
 // and 128 arrows. On a kitted trip, strong and past the standoff, leaving means going on.
-function lingeringHut({health=20,arrows=40,pending=[]}={}){
+function lingeringHut({health=20,arrows=40,pending=[],eligible=true}={}){
  const t=tripTeammate({});const {bot,r,c}=t;bot.health=health;bot.inventory.items()[1].count=arrows
  // Walled in on open netherrack: walls at feet and head, a roof, open ground beyond.
  const wall=p=>p.y===63||p.y===66&&(p.x===0||p.x===1)&&p.z===0||(p.y===64||p.y===65)&&Math.abs(p.x)+Math.abs(p.z)===1
@@ -263,7 +263,7 @@ function lingeringHut({health=20,arrows=40,pending=[]}={}){
  c.burrowWait={quietMs:50,limitMs:1500,patienceMs:100,relocateAfterMs:100,watches:1}
  const commands=[],resumed=[];c.execute=async command=>{commands.push(command);r.task={kind:command.action,status:'completed',result:command.action==='use_portal'?crossTo(bot,'overworld'):{receipt:command.action}}}
  c.resume=async o=>{resumed.push(o)}
- return {...t,commands,resumed,run:()=>c.waitInBurrow(c.epoch,new AbortController().signal,bot,true)}
+ return {...t,commands,resumed,run:()=>c.waitInBurrow(c.epoch,new AbortController().signal,bot,eligible)}
 }
 test('on a kitted trip, strong and past the standoff, a mob that will not move on means going on: the hut opens toward the next step and the request resumes',async()=>{
  const ahead=lingeringHut({pending:[{action:'shoot',item:'blaze'},{action:'goto',target:{x:-3,y:64,z:-30}}]});await ahead.run()
@@ -274,7 +274,27 @@ test('on a kitted trip, strong and past the standoff, a mob that will not move o
  // No step ahead with a place in it: the side away from the mob, and never the side facing it.
  const away=lingeringHut();await away.run()
  const goal=away.commands.find(x=>x.action==='unhut').goal
- assert.ok(goal.toward.x<0,JSON.stringify(goal));assert.deepEqual(goal.from,{x:12,z:0});assert.equal(away.resumed.length,1)
+ assert.ok(goal.toward.x<0,JSON.stringify(goal));assert.deepEqual(goal.from,[{x:12,z:0}]);assert.equal(away.resumed.length,1)
+ // The next step lies past the mob: the wall that opens still faces away from it.
+ const behind=lingeringHut({pending:[{action:'goto',target:{x:30,y:64,z:0}}]});await behind.run()
+ const past=behind.commands.find(x=>x.action==='unhut').goal
+ assert.ok(past.toward.x<0,JSON.stringify(past));assert.deepEqual(past.from,[{x:12,z:0}]);assert.equal(behind.resumed.length,1)
+})
+// Review of the above: going on opened the wall and then nothing resumed when the
+// continuation was not due, leaving the bot in an open hut with the mob near.
+test('going on needs the request to resume: with the continuation spent or not eligible, the old way out',async()=>{
+ const spent=lingeringHut();spent.c.requestProgress.safetyContinuations=[{requestId:'trip',resumeSerial:0}];await spent.run()
+ assert.ok(spent.commands.some(x=>x.action==='use_portal'),spent.commands.map(x=>x.action).join(' '));assert.equal(spent.resumed.length,0)
+ assert.ok(!spent.commands.some(x=>x.goal?.from),'no going-on exit')
+ const idle=lingeringHut({eligible:false});await idle.run()
+ assert.ok(idle.commands.some(x=>x.action==='use_portal'),idle.commands.map(x=>x.action).join(' '));assert.equal(idle.resumed.length,0)
+})
+test('with no wall away from the mob to open, going on falls back to the old way out',async()=>{
+ const shut=lingeringHut();const execute=shut.c.execute
+ shut.c.execute=async command=>{if(command.action==='unhut'&&command.goal?.from){shut.commands.push(command);throw new Error('No wall to open away from the mob')}return execute(command)}
+ await shut.run()
+ const acts=shut.commands.map(x=>x.action)
+ assert.deepEqual(acts.filter(a=>a==='unhut').length,2,acts.join(' '));assert.ok(acts.includes('use_portal'),acts.join(' '));assert.equal(shut.resumed.length,0)
 })
 test('hurt, short of the kit, or with no request, the burrow wait still holds or goes home as before',async()=>{
  // Twelve health with food to heal on: not strong enough to walk out, so the hut holds.

@@ -1143,19 +1143,29 @@ export class Teammate extends EventEmitter {
       // home and ended the trip. On a trip, strong and past the standoff, leaving goes on: the
       // hut opens toward the request's next place, or away from the mob, and the planner
       // carries on with the alarm still guarding the walk.
-      const goOn=!!relocate&&onTrip(bot,canResume(request))&&strongEnoughToLeave(bot)&&relocate.threats.every(t=>t.distance>=RELOCATE_STANDOFF)
-      const mob=goOn&&[...relocate.threats].sort((a,b)=>a.distance-b.distance)[0].position
-      const ahead=goOn&&[request.inFlight?.step,...(request.pending||[])].find(s=>Number.isFinite(s?.target?.x)&&Number.isFinite(s?.target?.z))?.target
+      // Going on is only going on if the request resumes after: otherwise an opened hut and a mob near.
+      const resumes=(eligible||safety.resumeRequested)&&canResume(request)&&(safety.resumeRequested||canContinueAfterSafety(request))
+      let goOn=!!relocate&&resumes&&onTrip(bot,canResume(request))&&strongEnoughToLeave(bot)&&relocate.threats.every(t=>t.distance>=RELOCATE_STANDOFF)
+      const here=bot.entity.position,mobs=goOn?relocate.threats.map(t=>t.position):[]
+      // The next place the request walks to, unless it lies past a mob; then straight away from them.
+      const next=goOn&&[request.inFlight?.step,...(request.pending||[])].find(s=>Number.isFinite(s?.target?.x)&&Number.isFinite(s?.target?.z))?.target
+      const ahead=next&&mobs.every(m=>(next.x-here.x)*(m.x-here.x)+(next.z-here.z)*(m.z-here.z)<=0)?next
+        :goOn&&{x:2*here.x-mobs.reduce((n,m)=>n+m.x,0)/mobs.length,z:2*here.z-mobs.reduce((n,m)=>n+m.z,0)/mobs.length}
       this.say(goOn?`A ${relocate.threats[0].name.replaceAll('_',' ')}${relocate.threats.length>1?` and ${relocate.threats.length-1} more`:''} will not move on. I have my kit and my health, so I am going on with the request rather than home.`
         :confront?`${inNether(bot)?'A':'Daylight, and a'} lone ${confront.name} has lingered ${confront.distance} blocks away. Opening up to confront it.`
         :relocate?`${inNether(bot)?'':'Daylight, and '}${relocate.threats.length===1?`a ${relocate.threats[0].name.replaceAll('_',' ')}`:`${relocate.threats.length} hostiles`} will not move on. I cannot fight that from here and waiting is not working, so I am leaving the area.`.replace(/^a /,'A ')
         :'Daylight with no hostile nearby. Opening up.')
       // Confronting from a hut, open the wall that faces it: the bow needs the sightline (run 86).
-      const here=bot.entity.position
       const facing=confront?.position?{toward:{x:Math.floor(confront.position.x),z:Math.floor(confront.position.z)}}
-        :ahead?{toward:{x:Math.floor(ahead.x),z:Math.floor(ahead.z)}}
-        :mob?{toward:{x:Math.floor(2*here.x-mob.x),z:Math.floor(2*here.z-mob.z)},from:{x:Math.floor(mob.x),z:Math.floor(mob.z)}}:{}
-      await this.execute(safety.retreat.shelterName==='hut'?{action:'unhut',goal:facing,timeoutMs:60000}:{action:'unburrow',goal:{surface:safety.retreat.surface},timeoutMs:90000},signal);check()
+        :goOn?{toward:{x:Math.floor(ahead.x),z:Math.floor(ahead.z)},from:mobs.map(m=>({x:Math.floor(m.x),z:Math.floor(m.z)}))}:{}
+      try{await this.execute(safety.retreat.shelterName==='hut'?{action:'unhut',goal:facing,timeoutMs:60000}:{action:'unburrow',goal:{surface:safety.retreat.surface},timeoutMs:90000},signal);check()}
+      catch(error){
+        // No wall away from them to open: the hut is still whole, so leave the old way.
+        if(!goOn||!facing.from)throw error
+        check();this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check()
+        goOn=false;this.say(`${error.message}. Leaving the area the old way.`)
+        await this.execute({action:'unhut',goal:{},timeoutMs:60000},signal);check()
+      }
       safety.exit=structuredClone(this.runner.task.result);this.persist()
       // Surfacing beside a threat that outguns us only helps if we then leave.
       // Opening one wall is not leaving: a shelter four blocks down still needs
