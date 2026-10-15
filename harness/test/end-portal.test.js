@@ -10,7 +10,8 @@ import minecraftData from 'minecraft-data'
 import blockLoader from 'prismarine-block'
 import {Vec3} from 'vec3'
 import {PortalTravel} from '../src/portal-travel.js'
-import {usePortal} from '../src/portal-guard.js'
+import {usePortal,portalKind} from '../src/portal-guard.js'
+import {DoorAwareMovements} from '../src/navigation.js'
 import {Teammate} from '../src/companion/controller.js'
 const registry=minecraftData('1.21.4'),Block=blockLoader(registry)
 const key=p=>`${p.x},${p.y},${p.z}`
@@ -85,6 +86,36 @@ test('a buried arrival digs out through end stone, and never through obsidian',a
  await assert.rejects(usePortal(g.bot,{kind:'use_portal',goal:{}},{...g.api,endAllowed:true},{pollMs:5}),/obsidian/)
  assert.ok(!g.log.some(l=>/^dig/.test(l)),g.log.join(' | '))
  assert.ok(!g.log.some(l=>/dig .*obsidian/.test(l)))
+})
+
+test('the End dig-out never digs bedrock',async()=>{
+ const f=stronghold({buried:'bedrock'})
+ await assert.rejects(usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,endAllowed:true},{pollMs:5}),/bedrock/)
+ assert.ok(!f.log.some(l=>/^dig/.test(l)),f.log.join(' | '))
+})
+
+// Review of brief 3: a nearer end portal with the End off hid a lit nether portal
+// the switch allows. The nearest allowed portal is the one meant.
+test('with both portals in reach, use_portal takes the nearest one its switches allow',async()=>{
+ const f=stronghold();f.worlds.overworld.set('-6,30,0','nether_portal');f.worlds.overworld.set('-6,31,0','nether_portal')
+ assert.equal(portalKind(f.bot,{netherAllowed:true,endAllowed:false}),'nether','the End off: the nether portal, though further')
+ assert.equal(portalKind(f.bot,{netherAllowed:true,endAllowed:true}),'end','both on: the nearer')
+ assert.equal(portalKind(f.bot,{netherAllowed:false,endAllowed:false}),'end','neither on: the nearer, so the refusal names it')
+ f.bot.findBlock=(orig=>o=>{f.log.push('find '+o.matching);return orig(o)})(f.bot.findBlock)
+ const r=await usePortal(f.bot,{kind:'use_portal',goal:{}},{...f.api,netherAllowed:true,endAllowed:false},{pollMs:5,crossMs:40,attempts:1,pauseMs:5}).catch(e=>e)
+ assert.doesNotMatch(String(r?.message),/End is off/,'not refused for the End');assert.ok(!f.log.some(l=>/^step [3-5],30,/.test(l)),'never onto the end portal: '+f.log.join(' | '))
+})
+
+// The pathfinder never routes through a lit end portal: not into it from the
+// floor beside the rim, not off the rim onto it.
+test('no walk steps into or drops onto an end portal cell',()=>{
+ const f=stronghold(),m=new DoorAwareMovements(f.bot),portal=n=>n.x>=3&&n.x<=5&&n.z>=-1&&n.z<=1&&n.y<=31
+ for(const [x,y,z] of [[1,30,0],[2,31,0],[2,31,1],[4,31,-2]]){const moves=m.getNeighbors({x,y,z,remainingBlocks:0});assert.ok(!moves.some(portal),`from ${x},${y},${z}: `+JSON.stringify(moves.filter(portal)))}
+ // A console-placed portal with no frame, on solid floor: only the avoid list stands between a walk and it.
+ const bare=stronghold()
+ for(const [k,n] of [...bare.worlds.overworld])if(n==='end_portal_frame')bare.worlds.overworld.delete(k);else if(n==='lava')bare.worlds.overworld.set(k,'stone_bricks')
+ const walk=new DoorAwareMovements(bare.bot)
+ for(const [x,y,z] of [[2,30,0],[2,30,1],[4,30,-2],[6,30,0]]){const moves=walk.getNeighbors({x,y,z,remainingBlocks:0});assert.ok(!moves.some(portal),`from ${x},${y},${z}: `+JSON.stringify(moves.filter(portal)))}
 })
 
 test('from the End the only way home is the exit fountain at 0,0, whatever the switch says',async()=>{

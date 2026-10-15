@@ -54,19 +54,21 @@ export async function hop(bot,{check=()=>{}}={},{hopMs=500,pollMs=50}={}){
 }
 const PORTAL_REACH=48
 const findPortal=(bot,name)=>{const id=bot.registry?.blocksByName?.[name]?.id;if(id===undefined)return null;const b=bot.findBlock?.({matching:id,maxDistance:PORTAL_REACH});return b?.name===name?b:null}
-// Which portal use_portal means. From the Overworld the nearer lit portal decides,
-// and each kind answers to its own switch; from the End there is only the End's.
-export function portalKind(bot){
+// Which portal use_portal means. From the Overworld the nearest lit portal its
+// switch allows, and with none allowed the nearest, so the refusal names it;
+// from the End there is only the End's.
+export function portalKind(bot,{netherAllowed=false,endAllowed=false}={}){
  const from=dimensionOf(bot)
  if(from==='the_end')return 'end'
  if(from!=='overworld')return 'nether'
  const end=findPortal(bot,'end_portal');if(!end)return 'nether'
  const nether=findPortal(bot,'nether_portal'),here=bot.entity.position
- return nether&&nether.position.distanceTo(here)<end.position.distanceTo(here)?'nether':'end'
+ const found=[{kind:'end',block:end,allowed:endAllowed},...(nether?[{kind:'nether',block:nether,allowed:netherAllowed}]:[])].sort((a,b)=>a.block.position.distanceTo(here)-b.block.position.distanceTo(here))
+ return (found.find(f=>f.allowed)??found[0]).kind
 }
 export function portalRefusal(bot,{netherAllowed=false,endAllowed=false,kind}={}){
  if(dimensionOf(bot)!=='overworld')return null
- return (kind??portalKind(bot))==='end'
+ return (kind??portalKind(bot,{netherAllowed,endAllowed}))==='end'
   ?endAllowed?null:'Portal travel to the End is off for this world; only the owner can turn it on'
   :netherAllowed?null:'Portal travel to the Nether is off for this world; only the owner can turn it on'
 }
@@ -141,7 +143,7 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
  const inside=()=>portalObservation(bot).inPortal===true
  check()
  const from=dimensionOf(bot)
- const kind=portalKind(bot),refused=portalRefusal(bot,{netherAllowed,endAllowed,kind});if(refused)throw new Error(refused)
+ const kind=portalKind(bot,{netherAllowed,endAllowed}),refused=portalRefusal(bot,{netherAllowed,endAllowed,kind});if(refused)throw new Error(refused)
  if(kind==='end')return crossEnd(bot,{check,stage,progress},{reachMs,crossMs,hopMs,loadMs,pollMs})
  if(!['overworld','the_nether'].includes(from))throw new Error(`No portal travel from ${from||'an unknown dimension'}`)
  const block=bot.findBlock({matching:bot.registry.blocksByName.nether_portal.id,maxDistance:48})
