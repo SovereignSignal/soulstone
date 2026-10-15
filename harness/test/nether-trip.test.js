@@ -128,7 +128,8 @@ test('a death on a kitted trip ends it, and the dawn respawn still comes back fo
  let respawns=0;r.respawn=()=>{respawns++;r.respawnPending=true}
  bot.time.timeOfDay=15000;r.ready=false;bot.health=0;bot.isAlive=false;r.emit('event',{type:'death'})
  assert.equal(c.requestProgress.status,'blocked');assert.equal(canResume(c.requestProgress),false)
- assert.match(String(c.requestProgress.reviewRequired),/The Nether trip is over/)
+ assert.match(String(c.requestProgress.reviewRequired),/The Nether trip is over: I died on it/)
+ assert.ok(!c.messages.some(m=>/^I died\./.test(m.text)),'one line for the death: the trip-over line')
  now+=10*60000;await wait(30);assert.equal(respawns,1,'dawn brings it back for the drop pile')
  bot.health=20;bot.isAlive=true;r.respawnPending=false;r.ready=true;r.emit('event',{type:'spawn'})
  assert.equal(c.phase,'ready');assert.equal(c.requestProgress.status,'blocked')
@@ -143,12 +144,34 @@ test('an unkitted Nether request that crosses home is not ended by the trip rule
  assert.ok(r.commands.some(x=>x.action==='use_portal'));assert.equal(bot.game.dimension,'minecraft:overworld')
  assert.equal(canResume(c.requestProgress),true,'the honest run carries on');assert.equal(over(c).length,0)
 })
-test('a planner crossing home without the kit ends the trip; with the kit it only ends the leg',()=>{
- const spent=tripTeammate({});spent.bot.inventory.items()[1].count=3;spent.r.walkThrough()
- assert.equal(canResume(spent.c.requestProgress),false);assert.match(String(spent.c.requestProgress.reviewRequired),/The Nether trip is over: .*arrows/)
- const kitted=tripTeammate({});kitted.r.walkThrough()
- assert.equal(kitted.c.requestProgress.kittedTrip,undefined,'home with the kit: the leg is over');assert.equal(kitted.c.requestProgress.status,'running');assert.equal(over(kitted.c).length,0)
- kitted.r.ready=false;kitted.bot.health=0;kitted.bot.isAlive=false;kitted.r.respawn=()=>{};kitted.r.emit('event',{type:'death'})
- assert.equal(canResume(kitted.c.requestProgress),true,'a later death at home is an ordinary death')
- clearInterval(kitted.c.dawnTimer)
+// A rod run that spent its arrows walks the rods home: the planner going home is its own
+// call, and the trip is not ended at the portal before it reports done.
+test('a planner crossing home, kit or no kit, only ends the leg; a later death at home is an ordinary death',()=>{
+ for(const arrows of [3,40]){
+  const t=tripTeammate({});t.bot.inventory.items()[1].count=arrows;t.r.walkThrough()
+  assert.equal(t.c.requestProgress.kittedTrip,undefined,'home: the leg is over');assert.equal(t.c.requestProgress.status,'running',String(arrows));assert.equal(over(t.c).length,0)
+  t.r.ready=false;t.bot.health=0;t.bot.isAlive=false;t.r.respawn=()=>{};t.r.emit('event',{type:'death'})
+  assert.equal(canResume(t.c.requestProgress),true,'a later death at home is an ordinary death');assert.equal(over(t.c).length,0)
+  clearInterval(t.c.dawnTimer)
+ }
+})
+test('a stopped request is no trip: Stop in the Nether, then a death, leaves it cancelled and says nothing of a trip',()=>{
+ const {bot,r,c}=tripTeammate({})
+ c.stop();assert.equal(c.requestProgress.status,'cancelled');assert.equal(c.requestProgress.kittedTrip,undefined,'a finished request drops the trip mark')
+ r.respawn=()=>{};r.ready=false;bot.health=0;bot.isAlive=false;r.emit('event',{type:'death'})
+ assert.equal(c.requestProgress.status,'cancelled');assert.equal(over(c).length,0,c.messages.map(m=>m.text).join(' | '))
+ clearInterval(c.dawnTimer)
+})
+test('a kitted trip moved home from the burrow wait is over, said in one line',async()=>{
+ const {bot,r,c}=tripTeammate({});delete bot.entities[7]
+ // Dug in four down, a wither skeleton on the surface that will not move on.
+ bot.blockAt=p=>{const name=p.x===0&&p.z===0&&p.y>=64&&p.y<=65||p.y>=68?'air':'netherrack';return {name,position:p.clone(),boundingBox:registry.blocksByName[name].boundingBox,getProperties:()=>({})}}
+ bot.entities={8:{id:8,type:'mob',name:'wither_skeleton',position:new Vec3(12.5,68,.5)}}
+ c.requestProgress.status='interrupted';c.safety={status:'burrowed',retreat:{shelterName:'burrow',surface:{x:0,y:68,z:0}}};c.shelterPlanning=false
+ c.burrowWait={quietMs:50,limitMs:1500,patienceMs:100,relocateAfterMs:100,watches:1}
+ const acts=[];c.execute=async command=>{acts.push(command.action);r.task={kind:command.action,status:'completed',result:command.action==='use_portal'?crossTo(bot,'overworld'):{receipt:command.action}}};c.resume=async()=>{throw new Error('resumed an ended trip')}
+ await c.waitInBurrow(c.epoch,new AbortController().signal,bot,true)
+ assert.ok(acts.includes('use_portal'),acts.join(' ')+' :: '+c.messages.map(m=>m.text).join(' | '))
+ assert.equal(canResume(c.requestProgress),false);assert.equal(over(c).length,1)
+ assert.ok(!c.messages.some(m=>/^Back on the surface/.test(m.text)),c.messages.map(m=>m.text).join(' | '))
 })

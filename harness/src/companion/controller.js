@@ -65,6 +65,8 @@ async function collectKillSites(c,signal,bot,request){
 }
 // The drop pile is worth going back for even when the trip it fell on is over: an ended
 // trip is never resumed, but the bot still comes back for what it dropped.
+// A request that can still go on: a finished, stopped or failed one carries no trip.
+const LIVE_REQUEST=new Set(['running','blocked','interrupted','paused'])
 const comeBackFor=request=>canResume(request)||!!request?.tripEnded
 const inventoryOf=bot=>(bot?.inventory?.items?.()||[]).reduce((m,i)=>(m[i.name]=(m[i.name]||0)+i.count,m),{})
 export const STOP_HOLD_MS=60000
@@ -318,12 +320,12 @@ export class Teammate extends EventEmitter {
       if(e.type==='task_finished'&&e.task?.kind==='use_portal'&&e.task.status==='completed'&&e.task.result?.from?.portal&&e.task.result?.to?.portal){const r=e.task.result,link={[r.from.dimension]:r.from.portal,[r.to.dimension]:r.to.portal},pairs=[...(this.projects.portal_link?.pairs||[])],same=pairs.findIndex(p=>p[r.from.dimension]&&Math.abs(p[r.from.dimension].x-r.from.portal.x)+Math.abs(p[r.from.dimension].z-r.from.portal.z)<=4);if(same>=0)pairs[same]={...pairs[same],...link};else pairs.push(link);this.projects.portal_link={pairs};this.persist()}
       // A kitted trip starts at the crossing out with the kit ready. An honest run crosses
       // unkitted and builds its kit over there, and that is no kitted trip. Home again by the
-      // planner's own step: without the kit the trip is over, with it only the leg is. The
-      // safety chain ends its own crossings home (tripEnded).
+      // planner's own step, kit or no kit, the leg is over and the request goes on: a rod run
+      // that spent its arrows walks the rods home and reports done. The safety chain ends its
+      // own crossings home (tripEnded).
       if(e.type==='task_finished'&&e.task?.kind==='use_portal'&&e.task.status==='completed'&&this.requestProgress){
         const request=this.requestProgress,to=e.task.result?.to?.dimension,kit=tripKit(runner.bot)
         if(to==='the_nether'&&kit.ready&&(request.status==='running'||canResume(request))){request.kittedTrip={at:new Date().toISOString(),how:'crossed'};this.persist()}
-        else if(to==='overworld'&&request.kittedTrip&&!kit.ready)this.tripEnded(`I came back through the portal without the kit (missing ${kit.missing.join(', ')})`)
         else if(to==='overworld'&&request.kittedTrip&&request.status==='running'){delete request.kittedTrip;this.persist()}
       }
       if (e.type === 'skill_progress') { this.activity = e.message; this.emit('change') }
@@ -336,8 +338,8 @@ export class Teammate extends EventEmitter {
         // survives the clear and reaches observe().
         this.lastDeath={position:runner.position(),dimension:dimensionOf(runner.bot)||'overworld'}
         if(canResume(this.requestProgress)){this.requestProgress.blocker='The agent died. Respawn first, then review the lost inventory before resuming.';this.persist()}
-        this.say('I died. Use Respawn agent to return to the world. The saved request will stay paused; inventory may have been dropped.')
-        this.tripEnded('I died on it')
+        // A death that ends a trip is said once, by the trip-over line.
+        if(!this.tripEnded('I died on it'))this.say('I died. Use Respawn agent to return to the world. The saved request will stay paused; inventory may have been dropped.')
         // The drop pile despawns in five minutes, and on 20 September nobody was
         // watching: the agent sat dead through the whole window and a full kit
         // was lost. Come back automatically while a saved request is still live.
@@ -396,7 +398,7 @@ export class Teammate extends EventEmitter {
     updateMission(request,request.verification,{connected:this.runner.ready})
     return request.verification
   }
-  persist() { syncMissionStatus(this.requestProgress); mkdirSync(dirname(this.statePath), { recursive: true }); writeFileSync(this.statePath + '.tmp', JSON.stringify({ profile: this.runner.profile, places: this.places, messages: this.messages.slice(-60), requestProgress:this.requestProgress,canResume:canResume(this.requestProgress),projects:this.projects,experienceCount:this.experience.entries.length,recoveryHistory:this.recoveryHistory,safety:this.safety }), { mode: 0o600 }); renameSync(this.statePath + '.tmp', this.statePath) }
+  persist() { syncMissionStatus(this.requestProgress); if(this.requestProgress?.kittedTrip&&!LIVE_REQUEST.has(this.requestProgress.status))delete this.requestProgress.kittedTrip; mkdirSync(dirname(this.statePath), { recursive: true }); writeFileSync(this.statePath + '.tmp', JSON.stringify({ profile: this.runner.profile, places: this.places, messages: this.messages.slice(-60), requestProgress:this.requestProgress,canResume:canResume(this.requestProgress),projects:this.projects,experienceCount:this.experience.entries.length,recoveryHistory:this.recoveryHistory,safety:this.safety }), { mode: 0o600 }); renameSync(this.statePath + '.tmp', this.statePath) }
   // game:false keeps a line out of game chat (the step narration); it still
   // shows in the companion. Everything else is relayed through gameLine.
   say(text, role = 'assistant', { game = true } = {}) { const m = { id: randomUUID(), role, text: String(text).slice(0,2000), at: new Date().toISOString(), ...(game ? {} : { game: false }) }; this.messages.push(m); this.messages = this.messages.slice(-60); this.persist(); this.emit('change'); return m }
@@ -1082,10 +1084,11 @@ export class Teammate extends EventEmitter {
       // Opening one wall is not leaving: a shelter four blocks down still needs
       // the pit exit before a sprint has anywhere to go, which is why moving away
       // from danger climbs first everywhere else the harness does it.
+      let ended=false
       if(relocate&&relocateWay(bot)==='portal'){
         // Lab run 100: in the Nether "leaving the area" fled 32 blocks deeper into a
         // fortress and met a wither skeleton. With the portal in reach, home is away.
-        try{await this.execute({action:'use_portal',goal:{},timeoutMs:45000},signal);check();safety.relocated=structuredClone(this.runner.task.result);this.persist();await eatAfterPortalEscape(this,signal,bot);check();this.tripEnded('danger sent me home through the portal')}
+        try{await this.execute({action:'use_portal',goal:{},timeoutMs:45000},signal);check();safety.relocated=structuredClone(this.runner.task.result);this.persist();await eatAfterPortalEscape(this,signal,bot);check();ended=this.tripEnded('danger sent me home through the portal')}
         catch(error){check();this.say('I could not get back through the portal: '+error.message);this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check()}
       }else if(relocate){
         try{await this.execute({action:'climb',goal:{},timeoutMs:45000},signal);check()}
@@ -1105,7 +1108,7 @@ export class Teammate extends EventEmitter {
         ;(request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations.at(-1)});this.persist()
         this.say('Back on the surface. I am continuing your saved request.')
         await this.resume({automatic:true})
-      }else this.say('Back on the surface. '+(canResume(request)?'Resume is available if the saved request can safely continue.':'Ready for your next instruction.'))
+      }else if(!ended)this.say('Back on the surface. '+(canResume(request)?'Resume is available if the saved request can safely continue.':'Ready for your next instruction.'))
     }catch(error){
       if(epoch!==this.epoch)return
       safety.status='failed';safety.error=error.message;safety.failedAt=Date.now();safety.protection={verified:false,reason:error.message};this.phase='blocked';this.activity='';this.persist()
@@ -1283,6 +1286,7 @@ export class Teammate extends EventEmitter {
   tripEnded(reason){
     const request=this.requestProgress
     if(!request?.kittedTrip)return false
+    if(!LIVE_REQUEST.has(request.status)){delete request.kittedTrip;this.persist();return false}
     const message=`The Nether trip is over: ${reason}. Re-kit me or give me a new instruction.`
     if(request.status==='running')this.cancel(false,'blocked')
     delete request.kittedTrip;request.tripEnded={reason,at:new Date().toISOString()}
