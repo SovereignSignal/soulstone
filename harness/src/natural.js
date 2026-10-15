@@ -10,6 +10,9 @@ export const NATURAL=new Set([
  'dirt','grass_block','coarse_dirt','podzol','rooted_dirt','mud','clay','mycelium','moss_block',
  'sand','red_sand','gravel','sandstone','red_sandstone','terracotta','snow','snow_block','powder_snow',
  'netherrack','soul_sand','soul_soil','magma_block','end_stone','sculk','ancient_debris','amethyst_block','budding_amethyst',
+ // The Nether's forest floor and growth (lab run 152, 15 October: a dig toward the blaze
+ // spawner stopped at crimson nylium as if a player had built it).
+ 'crimson_nylium','warped_nylium','nether_wart_block','warped_wart_block','glowstone','gilded_blackstone',
 ])
 export const isNatural=name=>!!name&&(NATURAL.has(name)||/_ore$/.test(name)||/_leaves$/.test(name)||/_terracotta$/.test(name)&&!/glazed/.test(name))
 

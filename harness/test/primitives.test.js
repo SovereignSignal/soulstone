@@ -712,7 +712,7 @@ test('dig never breaks a building block: it says to go around', async () => {
   await assert.rejects(() => digToward(planks, { kind: 'dig', goal: validateDigGoal({ x: 1, y: 64, z: 0, count: 1 }) }, deps()), /oak_planks at 1,64,0 is not natural ground.*Go around it/)
   assert.equal(planks._dug || 0, 0)
   const { isNatural } = await import('../src/natural.js')
-  for (const n of ['stone', 'deepslate', 'grass_block', 'gravel', 'iron_ore', 'deepslate_diamond_ore', 'oak_leaves', 'netherrack', 'orange_terracotta']) assert.equal(isNatural(n), true, n)
+  for (const n of ['stone', 'deepslate', 'grass_block', 'gravel', 'iron_ore', 'deepslate_diamond_ore', 'oak_leaves', 'netherrack', 'orange_terracotta', 'crimson_nylium', 'warped_nylium', 'nether_wart_block', 'warped_wart_block', 'glowstone', 'gilded_blackstone', 'nether_gold_ore']) assert.equal(isNatural(n), true, n)
   for (const n of ['oak_planks', 'oak_log', 'cobblestone', 'glass', 'white_wool', 'bricks', 'obsidian', 'chest', 'orange_glazed_terracotta', '', undefined]) assert.equal(isNatural(n), false, String(n))
 })
 
