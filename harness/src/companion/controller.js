@@ -1,5 +1,5 @@
 import {validateUseGoal,interactableObservation,useTargetNames,dimensionOf} from '../use-item.js'
-import {addBearing} from '../eye-of-ender.js'
+import {addBearing,EYE} from '../eye-of-ender.js'
 import {projectDimension,sameDimension,inNether} from '../dimension.js'
 import {updateMission,syncMissionStatus,missionFocus} from './milestones.js'
 import {SkillControl,selectSkill} from './skill-control.js'
@@ -1597,7 +1597,7 @@ export class Teammate extends EventEmitter {
               else if(OBSIDIAN_ACTIONS.includes(step.action))command={action:'make_obsidian',goal:validateObsidianGoal({count:step.count,protectedSites:projectFootprints(this.projects,dimensionOf(this.runner.bot))}),timeoutMs:600000}
               else if(step.action==='travel')command={action:'travel',goal:validateObservedTravelGoal(this.runner.bot,step.target),timeoutMs:180000}
               else if(step.action==='emote')command={action:'emote',goal:{move:step.item,count:step.count||1},timeoutMs:30000}
-              else if(step.action==='throw_eye')command={action:'throw_eye',goal:{},timeoutMs:90000}
+              else if(step.action==='throw_eye')command={action:'throw_eye',goal:{},timeoutMs:EYE.timeoutMs}
               else if(step.action==='trade')command={action:'trade',goal:{item:step.item||'',count:step.count||1},timeoutMs:120000}
               else if(step.action==='goto')command={action:'goto',goal:validateGotoGoal({...step.target,protectedSites:projectFootprints(this.projects,dimensionOf(this.runner.bot))}),timeoutMs:180000}
               else if(step.action==='dig')command={action:'dig',goal:validateDigGoal({...step.target,count:step.count,protectedSites:projectFootprints(this.projects,dimensionOf(this.runner.bot))}),timeoutMs:120000}

@@ -13,7 +13,10 @@ import {collectKillDrops} from './primitives-world.js'
 
 // spawnTicks: wait for the eye after the click. flightTicks: vanilla's eye lives 80 ticks.
 // dropTicks: wait for the dropped item, which spawns as the eye goes and gets its stack a packet later.
-export const EYE={reach:3,spawnTicks:20,flightTicks:80,dropTicks:20,dropRadius:3,overhead:6,keep:8,minSeparation:10}
+// baseline: a heading from less flight than this is rounding noise. fallbackMs stands in for a
+// tick that never comes. timeoutMs is the step's limit: every wait at its fallback, plus the
+// pickup's own bound, with room to spare (a test holds the sum to it).
+export const EYE={reach:3,spawnTicks:20,flightTicks:80,dropTicks:20,dropRadius:3,overhead:6,baseline:3,keep:8,minSeparation:10,fallbackMs:500,timeoutMs:150000}
 const round1=v=>Math.round(v*10)/10
 const at=p=>({x:round1(p.x),y:round1(p.y),z:round1(p.z)})
 const carried=bot=>(bot.inventory?.items?.()||[]).filter(i=>i.name==='ender_eye').reduce((n,i)=>n+i.count,0)
@@ -29,7 +32,7 @@ export function validateThrowEyeGoal(goal){
 export function bearingFromFlight(samples){
  if(!Array.isArray(samples)||samples.length<2)return {heading:null,travelled:0,overhead:false}
  const a=samples[0],b=samples.at(-1),dx=b.x-a.x,dz=b.z-a.z,travelled=round1(Math.hypot(dx,dz))
- const heading=travelled?Math.round((Math.atan2(dx,-dz)*180/Math.PI+360)%360)%360:null
+ const heading=travelled>=EYE.baseline?Math.round((Math.atan2(dx,-dz)*180/Math.PI+360)%360)%360:null
  return {heading,travelled,overhead:travelled<=EYE.overhead&&b.y<a.y-1}
 }
 
@@ -66,7 +69,7 @@ export function addBearing(list,result){
 // connection must not hang the step), then the task's own interrupt check.
 const nextTick=(bot,check)=>new Promise(resolve=>{
  const done=()=>{clearTimeout(timer);bot.off?.('physicsTick',done);resolve()}
- const timer=setTimeout(done,500);bot.on?.('physicsTick',done)
+ const timer=setTimeout(done,EYE.fallbackMs);bot.on?.('physicsTick',done)
 }).then(check)
 
 export async function throwEye(bot,task,context){
@@ -93,7 +96,8 @@ export async function throwEye(bot,task,context){
   await bot.look(bot.entity.yaw,Math.PI/2,true);check()
   task.eye={uncertain:true,before};persist()
   stage('throwing');progress('Throwing an eye of ender')
-  bot.activateItem()
+  // Released at once, as every activate in the tree is: an eye is thrown on the press.
+  try{bot.activateItem()}finally{bot.deactivateItem?.()}
   // The spawn event can be missed through a version bridge; the entity table is the second witness.
   for(let t=0;t<EYE.spawnTicks&&!eye;t++){await nextTick(bot,check);eye??=Object.values(bot.entities||{}).find(ours)??null}
   if(!eye){
@@ -111,17 +115,22 @@ export async function throwEye(bot,task,context){
  const flight=bearingFromFlight(samples),last=samples.at(-1)
  const base={item:'ender_eye',from:at(start),...flight,at:last,ticks:samples.length-1,dimension:'overworld'}
  task.eye.uncertain=false;persist()
- if(flight.heading===null&&!flight.overhead)
-  return {...base,receipt:'eye_without_bearing',partial:true,recovered:false,shattered:false,
-   next:'The eye was seen but barely moved, so it gave no bearing. Throw again from here.'}
+ // Another player's eye beside the bot looks the same: only the bot's own spend makes it the
+ // bot's throw. In creative the hand never empties, so there the count is no witness.
+ if(carried(bot)>=before&&bot.game?.gameMode!=='creative')
+  return {...base,heading:null,overhead:false,receipt:'eye_not_mine',partial:true,recovered:false,shattered:false,
+   next:'An eye flew, but none left this bot\'s hand, so it was not this throw and gives no bearing. Throw again.'}
+ const bearing=flight.heading!==null||flight.overhead
+ const outcome=bearing?{receipt:'eye_bearing'}:{receipt:'eye_without_bearing',partial:true,
+  next:'The eye was seen for too little of its flight to give a bearing. Throw again from here.'}
  // Most eyes drop as an item where they fell; about one in five shatters.
  const dropped=()=>Object.values(bot.entities||{}).find(e=>!known.has(e.id)&&e.getDroppedItem?.()?.name==='ender_eye'&&e.position&&Math.hypot(e.position.x-last.x,e.position.z-last.z)<=EYE.dropRadius)
  let drop=dropped()
  for(let t=0;t<EYE.dropTicks&&!drop;t++){await nextTick(bot,check);drop=dropped()}
- if(!drop)return {...base,receipt:'eye_bearing',recovered:false,shattered:true}
+ if(!drop)return {...base,...outcome,recovered:false,shattered:true}
  stage('collecting');progress('Picking up the eye where it fell')
  // Centred on the drop, not the eye: an eye that sank into the ground leaves its item pushed up out of the rock.
  const r=await collectKillDrops(bot,[drop.position.clone()],context,{items:['ender_eye'],radius:EYE.dropRadius})
  const recovered=(r.gained.ender_eye||0)>0
- return {...base,receipt:'eye_bearing',recovered,shattered:false,...(recovered?{}:{missed:r.missed||['the dropped eye was not picked up']})}
+ return {...base,...outcome,recovered,shattered:false,...(recovered?{}:{missed:r.missed||['the dropped eye was not picked up']})}
 }

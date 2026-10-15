@@ -9,6 +9,9 @@ import {validateTaskGoal} from '../src/task-store.js'
 import {guardIntent} from '../src/companion/intent.js'
 import {SKILL_ACTIONS} from '../src/companion/skill-control.js'
 import {Teammate} from '../src/companion/controller.js'
+import {EYE} from '../src/eye-of-ender.js'
+import {KILL_DROPS} from '../src/primitives-world.js'
+import {readFileSync} from 'node:fs'
 import {mkdtempSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -21,16 +24,16 @@ const NE=line(new Vec3(.5,65.6,.5),new Vec3(.5+12/Math.SQRT2,73.6,.5-12/Math.SQR
 
 // A scripted world on a physics clock: the eye spawns two ticks after the click, flies its
 // samples, vanishes, and maybe leaves an item where it fell.
-function fixture({eyes=2,dimension='overworld',flight=NE,drop=true,roof=false,spend=true,spawn=true}={}){
+function fixture({eyes=2,dimension='overworld',flight=NE,drop=true,roof=false,spend=true,spawn=true,gameMode='survival',ticking=true}={}){
  const bot=new EventEmitter(),inv=new Map([['ender_eye',eyes]]),log={thrown:0,looked:null,held:null}
  let tick=0,clicked=null,nextId=50
- Object.assign(bot,{registry,game:{dimension:'minecraft:'+dimension},entities:{},
+ Object.assign(bot,{registry,game:{dimension:'minecraft:'+dimension,gameMode},entities:{},
   entity:{position:new Vec3(.5,64,.5),yaw:0,pitch:0,onGround:true,height:1.8,eyeHeight:1.62},
   inventory:{items:()=>[...inv].filter(([,c])=>c>0).map(([name,count])=>({name,count,type:registry.itemsByName[name].id}))},
   blockAt:p=>{const y=Math.floor(p.y);return y<64?{name:'stone',boundingBox:'block',position:p.floored()}:roof&&y===70?{name:'stone',boundingBox:'block',position:p.floored()}:{name:'air',boundingBox:'empty',skyLight:roof&&y<70?0:15,position:p.floored()}},
   async equip(item,dest){assert.equal(dest,'hand');log.held=item.name},
   async look(yaw,pitch){log.looked=pitch},async lookAt(){},setControlState(){},clearControlStates(){},
-  activateItem(){log.thrown++;clicked=tick;if(spend)inv.set('ender_eye',inv.get('ender_eye')-1)},
+  activateItem(){log.thrown++;clicked=tick;if(spend)inv.set('ender_eye',inv.get('ender_eye')-1)},deactivateItem(){log.released=(log.released||0)+1},
   pathfinder:{setMovements(){},setGoal(){},async goto(g){bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)
    for(const e of Object.values(bot.entities))if(e.name==='item'&&e.position.distanceTo(bot.entity.position)<1.5){const s=e.getDroppedItem();inv.set(s.name,(inv.get(s.name)||0)+s.count);delete bot.entities[e.id];bot.emit('entityGone',e)}}},
   tool:{equipForBlock:async()=>{}},canDigBlock:()=>false,dig:async()=>{}})
@@ -48,7 +51,7 @@ function fixture({eyes=2,dimension='overworld',flight=NE,drop=true,roof=false,sp
    else if(eye&&i===flight.length){delete bot.entities[eye.id];bot.emit('entityGone',eye)
     if(drop){const at=flight.at(-1);add({name:'item',type:'object',position:new Vec3(at.x,64,at.z),getDroppedItem:()=>({name:'ender_eye',count:1})})}}
   }
-  bot.emit('physicsTick')
+  if(ticking)bot.emit('physicsTick')
  },1)
  const api={check(){},stage(){},progress(){},persist(){log.persisted=(log.persisted||0)+1},movements:null}
  return {bot,inv,log,api,stop:()=>clearInterval(timer)}
@@ -77,6 +80,7 @@ test('a twelve-block north-east flight reads heading 45, and the eye that drops 
  assert.equal(r.recovered,true);assert.equal(r.shattered,false);assert.ok(!r.partial)
  assert.deepEqual(r.from,{x:.5,y:64,z:.5})
  assert.equal(f.inv.get('ender_eye'),2,'the eye came back')
+ assert.equal(f.log.released,1,'the use is released, as every other activate in the tree is')
 })
 
 test('an eye that vanishes without a drop is shattered, and the bearing still stands',async()=>{
@@ -112,6 +116,10 @@ test('bearingFromFlight reads compass headings from the first and last samples',
  for(const [x,z,h] of [[0,-10,0],[10,0,90],[0,10,180],[-10,0,270]])
   assert.equal(bearingFromFlight([o,{x,y:78,z}]).heading,h)
  assert.equal(bearingFromFlight([o]).heading,null,'one sample is no flight')
+ // A tick or two of sight is rounding noise, not a direction.
+ assert.equal(bearingFromFlight([o,{x:.3,y:70,z:0}]).heading,null)
+ assert.equal(bearingFromFlight([o,{x:2.9,y:71,z:0}]).heading,null,'under three blocks is no baseline')
+ assert.equal(bearingFromFlight([o,{x:3,y:71,z:0}]).heading,90)
 })
 
 test('two bearings cross at the stronghold, and near-parallel or backward ones give no point',()=>{
@@ -156,4 +164,33 @@ test('the controller saves each watched bearing in places.stronghold_bearing, an
  done({receipt:'eye_bearing',from:{x:0,y:70,z:0},heading:45,overhead:false,at:{x:8,y:78,z:-8}})
  done({receipt:'eye_bearing',from:{x:100,y:70,z:0},heading:315,overhead:false,at:{x:92,y:78,z:-8}})
  assert.equal(c.places.stronghold_bearing.length,2);assert.deepEqual(c.places.stronghold_bearing[1].estimate,{x:50,z:-50})
+})
+
+test('a flight too short for a bearing is partial, and the eye is still picked up where it fell',async()=>{
+ const f=fixture({flight:line(new Vec3(.5,65.6,.5),new Vec3(2.5,66,.5),10)})
+ const r=await run(f)
+ assert.equal(r.receipt,'eye_without_bearing');assert.equal(r.partial,true);assert.equal(r.heading,null)
+ assert.equal(r.recovered,true);assert.equal(f.inv.get('ender_eye'),2)
+})
+
+test('an eye that flies while the bot keeps every eye it had is someone else\'s, and no bearing is reported',async()=>{
+ const f=fixture({spend:false})
+ const r=await run(f)
+ assert.equal(r.receipt,'eye_not_mine');assert.equal(r.partial,true);assert.equal(r.heading,null)
+ assert.equal(f.inv.get('ender_eye'),2,'nor is its drop taken')
+ // In creative the hand never empties, so the count is no witness there.
+ const c=fixture({spend:false,gameMode:'creative'})
+ const k=await run(c)
+ assert.equal(k.receipt,'eye_bearing');assert.equal(k.heading,45)
+})
+
+test('with no physics ticks at all the waits still end, and the worst case fits the step\'s time limit',async()=>{
+ const saved=EYE.fallbackMs;EYE.fallbackMs=5
+ const f=fixture({spawn:false,spend:false,ticking:false}),started=Date.now()
+ try{await assert.rejects(run(f),/threw no eye/)}finally{EYE.fallbackMs=saved}
+ assert.ok(Date.now()-started<2000)
+ const worst=(EYE.spawnTicks+EYE.flightTicks+EYE.dropTicks)*EYE.fallbackMs+KILL_DROPS.settleMs+KILL_DROPS.timeoutMs
+ assert.ok(worst+30000<=EYE.timeoutMs,`worst case ${worst} ms needs 30 s of margin under ${EYE.timeoutMs}`)
+ const src=readFileSync(new URL('../src/companion/controller.js',import.meta.url),'utf8')
+ assert.ok(src.includes("command={action:'throw_eye',goal:{},timeoutMs:EYE.timeoutMs}"),'the controller gives the step that limit')
 })
