@@ -54,8 +54,11 @@ export const outOfReach=t=>sealedOff(t)||farRoute(t)
 // so until it has one, or is within four blocks, it raises no alarm; the moment it
 // can see the bot, the bow can see it. Melee mobs (wither skeletons, drowned) count
 // through walls as before. One test for the alarms and the shelter's clearance alike.
+// Within four blocks a shooter with a way round can be in sight a second later; one the
+// flood found sealed off has no air path at all, flying or walking (lab run 155, 15
+// October: a blaze two blocks outside the sealed tube's wall stopped the walk for minutes).
 export const SHOOTERS_ONLY=new Set([...RANGED].filter(n=>!['wither_skeleton','drowned'].includes(n)))
-export const cannotShootYet=t=>SHOOTERS_ONLY.has(t?.name)&&t.sightline?.status==='blocked'&&t.distance>4
+export const cannotShootYet=t=>SHOOTERS_ONLY.has(t?.name)&&t.sightline?.status==='blocked'&&(t.distance>4||t.reach==='sealed')
 export const THREAT_INTERRUPTION='A potential hostile is within ten blocks'
 export const NIGHT_EXPOSURE='Night with no shelter'
 export const HEALTH_EMERGENCY='Health is at or below half'

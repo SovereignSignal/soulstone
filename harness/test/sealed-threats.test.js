@@ -165,6 +165,11 @@ test('a shooter with no line of sight is no alarm until it has one; melee mobs s
  assert.equal(emergencyReason({...o,nearbyThreats:[t('wither_skeleton',8,'blocked')]}),THREAT_INTERRUPTION,'a melee mob behind a wall still counts')
  assert.equal(emergencyReason({...o,health:8,nearbyThreats:[t('blaze',13,'blocked')]}),null,'nor is it a health alarm')
  assert.equal(cannotShootYet(t('ghast',30,'blocked')),true);assert.equal(cannotShootYet(t('drowned',10,'blocked')),false)
+ // Lab run 155, 15 October: a blaze hovering two blocks outside the sealed tube's wall stopped
+ // the walk for minutes. Sealed means no air path at all, so even a flyer cannot come round.
+ assert.equal(emergencyReason({...o,nearbyThreats:[t('blaze',2,'blocked','sealed')]}),null,'a sealed blaze two blocks off')
+ assert.equal(emergencyReason({...o,nearbyThreats:[t('blaze',2,'clear','sealed')]}),THREAT_INTERRUPTION,'in sight it counts even sealed')
+ assert.equal(emergencyReason({...o,nearbyThreats:[t('skeleton',3.5,'blocked','open')]}),THREAT_INTERRUPTION,'with a way round, within four still counts')
 })
 // pi2, 10 October: two dawn hunts at 1 health were cancelled by the health alarm
 // within six seconds, and the journal could not say which hostile raised it: the
