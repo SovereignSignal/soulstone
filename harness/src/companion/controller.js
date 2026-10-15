@@ -224,6 +224,8 @@ export class Teammate extends EventEmitter {
         // use_portal stands in a portal on purpose; every other way into one is still an emergency.
         const crossing=runner.task?.kind==='use_portal'&&runner.task.status==='running'
         // Once it is stepping in, a hostile does not stop it either: the far side is the escape (run 72).
+        // Nor while it steps out of the arrival portal and hops: until that hop the server ignores
+        // placements, so cover ordered before it fails (lab run 147, 15 October).
         // A bow duel under way is not stopped by a fireball's flames (lab, 10 October: the
         // blaze was left on 4 health twice); lava, or health at or under half, still is.
         const shooting=runner.task?.kind==='shoot'&&runner.task.status==='running'
@@ -237,7 +239,7 @@ export class Teammate extends EventEmitter {
         // Idle: nothing running and nothing being planned. Only an idle bot is sent home at night with a base.
         const idle=runner.task?.status!=='running'&&['ready','blocked'].includes(this.phase)
         const raw=emergencyReason({...observation,shelterAvailable,sheltered,recentDamageMs,roofed:underRock,openSky,idle})
-        const reason=crossing&&(raw===PORTAL_EMERGENCY||raw===THREAT_INTERRUPTION&&runner.work?.stage==='entering')?null
+        const reason=crossing&&(raw===PORTAL_EMERGENCY||raw===THREAT_INTERRUPTION&&['entering','leaving_portal','arrival_hop'].includes(runner.work?.stage))?null
          :(shooting||covering)&&raw===FIRE_EMERGENCY&&observation.inLava!==true&&observation.health>HEALTH_EMERGENCY_LINE?null:raw
         // The journal should show the times rock was the reason work carried on.
         // The flood's answer is the evidence for an interruption through rock; without it the log says only that a hostile was "within ten blocks".
@@ -741,15 +743,22 @@ export class Teammate extends EventEmitter {
       // skeleton's arrows were the bot's last (run 106 staging). If it fails, the portal.
       if(wallInFirst){
         const attempt={name:'portal_room',status:'trying'};this.safety.attempts=[attempt];this.persist()
-        try{
-          await this.execute({action:'hut',goal:{portalRoom:true},timeoutMs:60000},abort.signal)
-          if(epoch!==this.epoch||abort.signal.aborted)return
-          this.safety.retreat=structuredClone(this.runner.task.result);attempt.status='sheltered';this.persist()
-        }catch(error){
-          if(epoch!==this.epoch||abort.signal.aborted)return
-          attempt.status='rejected';attempt.reason=error.message;this.persist()
-          this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)
+        // A room one block short is tried once more before the walk home (lab run 147, 15
+        // October: one ignored placement, and the next thing tried was the portal).
+        for(let tries=1;;tries++){
+          try{
+            await this.execute({action:'hut',goal:{portalRoom:true},timeoutMs:60000},abort.signal)
+            if(epoch!==this.epoch||abort.signal.aborted)return
+            this.safety.retreat=structuredClone(this.runner.task.result);attempt.status='sheltered';this.persist();break
+          }catch(error){
+            if(epoch!==this.epoch||abort.signal.aborted)return
+            attempt.status='rejected';attempt.reason=error.message;this.persist()
+            this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)
+            if(tries>1||!/^Hut incomplete: 1 of /.test(error.message)||epoch!==this.epoch||abort.signal.aborted)break
+            attempt.status='trying';attempt.retried=true;this.persist()
+          }
         }
+        if(epoch!==this.epoch||abort.signal.aborted)return
       }
       // A melee mob the rules can fight at arm's reach is fought before any walk to the
       // portal: the walk with it on the bot's back is what killed lab run 142 (14 October,

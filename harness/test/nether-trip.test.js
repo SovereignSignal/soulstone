@@ -92,12 +92,13 @@ test('from cover, a group the fight rules engage is confronted nearest first, no
 // nothing overnight, 170 blocks from base, dying four more times. A kitted trip ends.
 const portal={x:0,y:64,z:-1}
 function crossTo(bot,to){const from=bot.game.dimension.replace(/^minecraft:/,'');bot.game.dimension='minecraft:'+to;return {item:'portal',count:1,receipt:'crossed',from:{dimension:from,portal},to:{dimension:to,portal,position:{x:.5,y:64,z:.5}}}}
-function tripTeammate(opts){
+// fails: reasons each action fails with, in turn, before it completes.
+function tripTeammate({fails={},...opts}={}){
  const bot=netherBot(opts),r=new EventEmitter()
  Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Sov',connectionId:'20000000-0000-0000-0000-000000000003',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{}})
  r.command=c=>{r.commands.push(c);if(c.action==='stop')return
-  const task=r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal}
-  setTimeout(()=>{if(r.task!==task)return;task.status='completed';task.result=c.action==='use_portal'?crossTo(bot,bot.game.dimension.endsWith('the_nether')?'overworld':'the_nether'):{receipt:c.action};r.emit('event',{type:'task_finished',task})},1)}
+  const task=r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal},reason=fails[c.action]?.shift()
+  setTimeout(()=>{if(r.task!==task)return;if(reason){task.status='failed';task.reason=reason}else{task.status='completed';task.result=c.action==='use_portal'?crossTo(bot,bot.game.dimension.endsWith('the_nether')?'overworld':'the_nether'):{receipt:c.action}};r.emit('event',{type:'task_finished',task})},1)}
  // The planner's own use_portal step, as the runner reports it finished.
  r.walkThrough=()=>{const task=r.task={id:'walk'+r.commands.length,kind:'use_portal',status:'completed',goal:{},result:crossTo(bot,bot.game.dimension.endsWith('the_nether')?'overworld':'the_nether')};r.emit('event',{type:'task_finished',task})}
  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-trip-end-')),'state.json'))
@@ -193,4 +194,40 @@ test('in open Nether air the tick and the clearance agree: a wither skeleton bel
  const calls=[],logs=[];c.seekSafety=async why=>{calls.push(why)};r.log=(type,data)=>logs.push([type,data])
  r.emit('event',{type:'survival_tick'})
  assert.deepEqual(calls,[],JSON.stringify(logs))
+})
+
+// Lab run 147, 15 October: across at 17:16:18Z, an alarm at 18.98 cancelled use_portal in
+// leaving_portal, before the arrival hop; until the hop the server ignores placements, so
+// the portal room failed by one block. The arrival is part of the crossing.
+function crossingTeammate(blockAt){
+ const bot=netherBot({hoglinAt:30});bot.entities={8:{id:8,type:'mob',name:'wither_skeleton',position:new Vec3(10.5,64,.5)}}
+ if(blockAt){const base=bot.blockAt;bot.blockAt=p=>blockAt(p)??base(p)}
+ const r=new EventEmitter();Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Sov',connectionId:'20000000-0000-0000-0000-000000000005',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{},command(c){r.commands.push(c)}})
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-trip-arrive-')),'state.json'))
+ const calls=[];c.seekSafety=async why=>{calls.push(why)}
+ return {r,c,calls}
+}
+test('a hostile does not cancel a crossing while it steps out of the arrival portal or hops; lava still does',()=>{
+ for(const stage of ['entering','leaving_portal','arrival_hop']){
+  const {r,calls}=crossingTeammate()
+  r.task={id:'1',kind:'use_portal',status:'running'};r.work={stage}
+  r.emit('event',{type:'survival_tick'})
+  assert.deepEqual(calls,[],stage)
+ }
+ const walking=crossingTeammate();walking.r.task={id:'1',kind:'use_portal',status:'running'};walking.r.work={stage:'walking'}
+ walking.r.emit('event',{type:'survival_tick'});assert.deepEqual(walking.calls,[THREAT_INTERRUPTION],'on the walk to the portal the alarm still stops it')
+ const lava=crossingTeammate(p=>p.x===0&&p.y===64&&p.z===0?{name:'lava',position:p.clone(),boundingBox:'empty',getProperties:()=>({level:0})}:null)
+ lava.r.task={id:'1',kind:'use_portal',status:'running'};lava.r.work={stage:'leaving_portal'}
+ lava.r.emit('event',{type:'survival_tick'});assert.equal(lava.calls.length,1);assert.notEqual(lava.calls[0],THREAT_INTERRUPTION)
+})
+// Lab run 147: the portal room the alarm asked for failed by one block, and the next thing
+// tried was the walk home. One cell short is tried once more first.
+test('a portal room that fails by one cell is tried again before the portal walk',async()=>{
+ const {r,c}=tripTeammate({hoglinAt:8,fails:{hut:['Hut incomplete: 1 of 15 blocks missing (0,65,1)']}})
+ void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,100))
+ const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop');c.cancel?.(true)
+ assert.deepEqual(acts.slice(0,2),['hut','hut'],acts.join(' '));assert.ok(!acts.includes('use_portal'),acts.join(' '))
+ const short=tripTeammate({hoglinAt:8,fails:{hut:['Hut incomplete: 3 of 15 blocks missing (0,65,1)']}})
+ await short.c.seekSafety(THREAT_INTERRUPTION)
+ const two=short.r.commands.map(x=>x.action).filter(a=>a!=='stop');assert.deepEqual(two.slice(0,2),['hut','use_portal'],two.join(' '))
 })

@@ -183,6 +183,32 @@ test('walling in beside a portal leaves a closed room that passes the shelter in
  for(let y=64;y<=66;y++)assert.equal(w.cells.get(new Vec3(10,y,9).toString()),'nether_portal','the portal itself is untouched')
 })
 
+// Lab run 147, 15 October: an alarm cancelled the crossing before the arrival hop, and
+// through the bridge the server ignores placements until the bot jumps. The portal room
+// needed one block, failed after 8.4 seconds and the journal never said why. Two minutes
+// later, after a crossing that hopped, the same placement landed in 0.64 seconds.
+test('in the Nether a placement the server ignores until a jump is retried after one hop, and a failed one is reported',async()=>{
+ const w=besidePortal(),place=w.bot.placeBlock.bind(w.bot),said=[];let jumped=false,ignored=0
+ w.bot.setControlState=(control,on)=>{if(control==='jump'&&on){jumped=true;w.bot.entity.onGround=false;setTimeout(()=>{w.bot.entity.onGround=true},20)}}
+ w.bot.placeBlock=async(ref,face)=>{if(!jumped){ignored++;throw new Error('Event blockUpdate did not fire within timeout of 5000ms')}return place(ref,face)}
+ const result=await wallIn(w.bot,{kind:'hut',goal:{}},{...api,progress:t=>said.push(t)})
+ assert.equal(result.receipt,'walled_in');assert.equal(ignored,1,'one ignored placement, then the hop')
+ assert.ok(said.some(t=>/Placement at .* unconfirmed: Event blockUpdate/.test(t)),said.join(' | '))
+ // In the Overworld nothing waits on a jump: no hop, and a wall that never lands is said.
+ const v=world(),place2=v.bot.placeBlock.bind(v.bot),bad=new Vec3(9,64,10).toString(),told=[];let hops=0
+ v.bot.setControlState=(control,on)=>{if(control==='jump'&&on)hops++}
+ v.bot.placeBlock=async(ref,face)=>{if(ref.position.plus(face).toString()===bad)throw new Error('rejected');await place2(ref,face)}
+ await assert.rejects(wallIn(v.bot,{kind:'hut',goal:{}},{...api,progress:t=>told.push(t)}),/Hut incomplete/)
+ assert.equal(hops,0);assert.ok(told.some(t=>/Placement at 9,64,10 unconfirmed: rejected/.test(t)),told.join(' | '))
+})
+test('a wall whose planned reference is gone places against whatever solid neighbour stands',async()=>{
+ // The ground under the east wall goes (a fireball, a mob) after the site was judged; stone stands beyond it.
+ const w=world();w.cells.set(new Vec3(12,64,10).toString(),'stone')
+ const equip=w.bot.equip;let first=true
+ w.bot.equip=async item=>{if(first){first=false;w.cells.set(new Vec3(11,63,10).toString(),'air')}return equip(item)}
+ const result=await wallIn(w.bot,{kind:'hut',goal:{}},api)
+ assert.equal(result.receipt,'walled_in');assert.equal(w.cells.get(new Vec3(11,64,10).toString()),'oak_log')
+})
 // Lab run 101, 10 October: the bot had opened its portal room and stepped two
 // blocks out to shoot; three hoglins came round at ten blocks, and with the
 // room a step away it went home through the portal, leaving the blaze and its
@@ -279,3 +305,4 @@ test('a firing port never opens onto lava or fire; a melee mob keeps the old exi
  assert.deepEqual(validateTaskGoal('unhut',{toward:{x:13,z:12},shooter:'blaze',skip:[{dx:1,dz:0}]}),{toward:{x:13,z:12},shooter:'blaze',skip:[{dx:1,dz:0}]})
  assert.deepEqual(validateTaskGoal('unhut',{toward:{x:13,z:12},shooter:'zombie',skip:[{dx:2,dz:0},'x']}),{toward:{x:13,z:12}})
 })
+
