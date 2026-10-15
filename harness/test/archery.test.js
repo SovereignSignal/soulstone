@@ -565,3 +565,39 @@ test('a step back from the port that lands short is reported, not assumed home; 
  ordinary.pathfinder={movements:null,setMovements(){},setGoal(){},async goto(g){steps.push(g)}}
  await assert.rejects(shootTarget(ordinary,{kind:'shoot',goal:{type:'blaze',collect:false}},api,fast),/No clear shot/);assert.deepEqual(steps,[],'ordinary shots keep the old reposition rules')
 })
+
+// Lab run 156, 15 October: a firing port into a sealed room of four blazes at 2.6 to 4 blocks.
+// A blaze fires from its feet+1.4 at the target's mid-height, and needs eye-to-eye sight. Here
+// the bot stands a block up in a bay (feet y62) behind a wall (x -41, y61 and y62) with a
+// one-high slit at eye level (-41,63). The room beyond is roofed at y63 from x -39, which caps
+// a blaze's feet at 61.2; the cell above the room's edge (-40,63) is the slit's open mouth,
+// since a roof flush against the wall would leave no line through a one-high slit at all. Every
+// fireball meets the wall under the slit; the bot sees down through the slit to a blaze across
+// the room, never to one close under the wall, and a slit is no cell to step into.
+import {coveredSteps} from '../src/archery.js'
+import {observedSightline} from '../src/visibility.js'
+function slitRoom(blaze){
+ const bot=threatened({distance:5})
+ const air=p=>p.z===0&&(p.x===-42&&(p.y===62||p.y===63)||p.y===63&&(p.x===-41||p.x===-40))||p.x>=-40&&p.x<=-35&&p.y>=57&&p.y<=62&&Math.abs(p.z)<=2
+ const name=p=>air(p)?'air':'netherrack'
+ bot.game.dimension='the_nether';bot.entity.position=new Vec3(-41.5,62,.5)
+ bot.blockAt=p=>{const c=p.floored(),n=name(c);return {name:n,position:c,boundingBox:n==='air'?'empty':'block'}}
+ bot.world={raycast:(from,dir,range)=>{for(let d=0.01;d<=range;d+=0.01){const c=from.plus(dir.scaled(d)).floored(),n=name(c);if(n!=='air')return {name:n,position:c}}return null}}
+ bot.entities[7].position=blaze
+ const walked=[];bot.pathfinder={movements:null,setMovements(){},setGoal(){},async goto(g){walked.push(g)}}
+ return {bot,walked}
+}
+test('through a one-high slit the bow engages a blaze across the room without a step, and none close under the wall',async()=>{
+ const across=slitRoom(new Vec3(-36.5,61,.5)),feet=across.bot.entity.position.floored()
+ assert.deepEqual(coveredSteps(across.bot,feet),[],'a one-high slit is no cell to step into')
+ const fireball=b=>observedSightline(b,b.entities[7].position.offset(0,1.4,0),b.entity.position.offset(0,.9,0)).status
+ assert.equal(fireball(across.bot),'blocked','its fireball meets the wall under the slit')
+ const yes=rangedDefenseDecision(across.bot);assert.equal(yes.engage,true,yes.reason);assert.equal(yes.target.targetName,'blaze')
+ const shot=await shootTarget(across.bot,{kind:'shoot',goal:{type:'blaze',collect:false,stay:true,breakOnHit:true}},api,fast)
+ assert.equal(shot.receipt,'killed');assert.deepEqual(across.walked,[],'shot from where it stands')
+ const under=slitRoom(new Vec3(-39.5,58,.5))
+ assert.equal(fireball(under.bot),'blocked')
+ assert.match(rangedDefenseDecision(under.bot).reason,/No clear shot at the blaze: netherrack/)
+ await assert.rejects(shootTarget(under.bot,{kind:'shoot',goal:{type:'blaze',collect:false,stay:true}},api,fast),/No clear shot/)
+ assert.deepEqual(under.walked,[],'and no walk to look for one')
+})
