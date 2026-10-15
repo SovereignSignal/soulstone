@@ -121,7 +121,7 @@ import { randomUUID } from 'node:crypto'
 import { validatePlan } from './planner.js'
 import {hutSite,portalRoomSpot} from '../hut.js'
 import {rangedDefenseDecision,bowCanAnswer} from '../archery.js'
-import {onTrip,tripKit,walkOnThreat} from '../nether-trip.js'
+import {onTrip,tripKit,walkOnThreat,portReady} from '../nether-trip.js'
 import {deliveredCount,satisfiedStep,currentRequestTask} from './progress.js'
 
 const designKey=design=>JSON.stringify((design||[]).map(b=>[b.x,b.y,b.z,b.block]).sort((a,b)=>a[0]-b[0]||a[1]-b[1]||a[2]-b[2]||a[3].localeCompare(b[3])))
@@ -1081,12 +1081,23 @@ export class Teammate extends EventEmitter {
     // the wait oscillates for ever, never accumulating the quiet period it needs.
     // A brief clear reading is still inside the quiet-area verification window.
     // Keep elapsed patience until clearance succeeds; night starts a fresh wait.
-    let protectedHealth=bot.health
+    let protectedHealth=bot.health,portWait=null
     const observe=()=>{
       safety.protection=inspectEmergencyShelter(bot)
       if(bot.health<protectedHealth)throw new Error('Health fell inside the emergency shelter; protection is not established')
       protectedHealth=bot.health
-      const r=burrowClearance(bot,{lingeredMs:lingerSince?Date.now()-lingerSince:0,patienceMs,relocateAfterMs,exits:shelterExits(safety.retreat),canPort:safety.retreat?.shelterName==='hut',trip:onTrip(bot,canResume(request))});if(r.lingering||r.confront||r.relocate)lingerSince??=Date.now();else if(r.holding)lingerSince=null;return r}
+      const r=burrowClearance(bot,{lingeredMs:lingerSince?Date.now()-lingerSince:0,patienceMs,relocateAfterMs,exits:shelterExits(safety.retreat),canPort:safety.retreat?.shelterName==='hut',trip:onTrip(bot,canResume(request))});if(r.lingering||r.confront||r.relocate)lingerSince??=Date.now();else if(r.holding)lingerSince=null
+      // Lab run 156, 15 October: broken off at a port at 10 health and alight, the bot walled in
+      // and burned to death. In the Nether no port opens toward a shooter until portReady; the
+      // hut holds meanwhile, and the wait's top-up eats when it can.
+      const port=r.confront&&safety.retreat?.shelterName==='hut'&&inNether(bot)&&SHOOTERS_ONLY.has(r.confront.name)&&bowCanAnswer(bot,r.confront.name)
+      const ready=port?portReady(bot):{ready:true}
+      if(ready.ready){portWait=null;return r}
+      const reason=`Holding the port toward the ${r.confront.name.replaceAll('_',' ')} shut: ${ready.reason}`
+      // Said once per cause, not at every point healed.
+      const cause=ready.reason.split(' ')[0],eats=bot.food<18&&survivalObservation(bot).carriedFood?.length
+      if(portWait!==cause){portWait=cause;this.say(`${reason}. Waiting in the hut${eats?' and eating':''} before I open it.`)}
+      return {clear:false,lingering:true,reason,threats:[r.confront]}}
     const check=()=>{
       if(signal.aborted||epoch!==this.epoch||this.safety!==safety)throw new Error('Burrow wait cancelled')
       if(!this.runner.ready||this.runner.bot!==bot||this.runner.connectionId!==connection)throw new Error('Connection changed while burrowed')

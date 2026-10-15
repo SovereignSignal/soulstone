@@ -5,7 +5,7 @@
 // rule sent the bot home at any hostile within ten blocks, and a fortress always has
 // one; it never got twenty blocks in, and died retreating through the corridors.
 import {armorPoints,meleeWeapon,meleeDamage,fightableAlone,ENGAGE_RANGE} from './combat.js'
-import {SHOOTERS_ONLY,breachesRock,outOfReach,cannotShootYet,threatRadius} from './survival.js'
+import {SHOOTERS_ONLY,breachesRock,outOfReach,cannotShootYet,threatRadius,fireObservation} from './survival.js'
 import {inNether} from './dimension.js'
 // The same lines the heavy-mob fight rules use (combat.js), plus arrows for the blazes.
 export const TRIP_ARMOR=14,TRIP_DAMAGE=6,TRIP_ARROWS=16,TRIP_HEALTH=12
@@ -35,4 +35,15 @@ export function walkOnThreat(bot,t,threats){
  const counts=x=>x.risk==='potential_hostile'&&x.distance<=threatRadius(x.name)&&!outOfReach(x)&&!cannotShootYet(x)
  return t.risk==='potential_hostile'&&t.sightline?.status==='blocked'&&t.distance>ENGAGE_RANGE&&!SHOOTERS_ONLY.has(t.name)&&!breachesRock(t)&&
   fightableAlone(bot,t.name)&&counts(t)&&threats.filter(counts).length===1
+}
+// Lab run 156, 15 October: broken off at a firing port at 10 health and alight, the bot
+// walled in and burned to death. A port opens toward a shooter only on health enough to take
+// a fireball and its burn with room to break off (a blaze's 5 and a few seconds alight), not
+// while burning, and with food enough to go on healing.
+export const PORT_HEALTH=16,PORT_FOOD=6
+export function portReady(bot){
+ if(!Number.isFinite(bot?.health)||bot.health<PORT_HEALTH)return {ready:false,reason:`health ${Number.isFinite(bot?.health)?Math.round(bot.health*10)/10:'unknown'} of ${PORT_HEALTH}`}
+ if(fireObservation(bot).onFire===true)return {ready:false,reason:'on fire'}
+ if(!Number.isFinite(bot?.food)||bot.food<PORT_FOOD)return {ready:false,reason:`food ${Number.isFinite(bot?.food)?bot.food:'unknown'} of ${PORT_FOOD}`}
+ return {ready:true}
 }

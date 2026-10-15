@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import registryFor from 'prismarine-registry'
 import {Vec3} from 'vec3'
-import {tripKit,onTrip,TRIP_ARMOR,TRIP_ARROWS} from '../src/nether-trip.js'
+import {tripKit,onTrip,TRIP_ARMOR,TRIP_ARROWS,portReady} from '../src/nether-trip.js'
 import {burrowClearance} from '../src/burrow.js'
 import {Teammate} from '../src/companion/controller.js'
 import {THREAT_INTERRUPTION} from '../src/survival.js'
@@ -374,4 +374,14 @@ test('from a hut on a kitted trip a lone wither skeleton out of sight of the exi
  assert.ok(burrowClearance(bot,{exits,trip:false,lingeredMs:600000}).relocate)
  // Two of them still hold the hut.
  bot.entities[9]=wither(9,11,3);assert.equal(burrowClearance(bot,{exits,trip:true,lingeredMs:1000}).clear,false)
+})
+// Lab run 156, 15 October: broken off at a firing port at 10 health and alight, the bot
+// burned to death walling in. A port opens toward a shooter only on 16 health or more, not
+// burning, and with the food to keep healing.
+test('a firing port is ready only on 16 health or more, not on fire, and food 6 or more',()=>{
+ const bot=(health,food,flags=0)=>({health,food,entity:{metadata:[flags]}})
+ assert.deepEqual(portReady(bot(16,6)),{ready:true})
+ for(const [why,b,re] of [['hurt',bot(15.5,20),/health 15.5 of 16/],['burning',bot(20,20,1),/on fire/],['hungry',bot(20,5),/food 5 of 6/],['unknown',bot(undefined,20),/health/]]){
+  const r=portReady(b);assert.equal(r.ready,false,why);assert.match(r.reason,re,why)
+ }
 })

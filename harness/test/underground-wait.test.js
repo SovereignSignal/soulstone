@@ -254,6 +254,21 @@ test('on a kitted trip the shot from the port breaks off at the first hit; off a
 const noShot=()=>{throw new Error('No clear shot at the blaze: netherrack is in the way')}
 const run=async w=>{await Teammate.prototype.waitInBurrow.call(w.c,1,new AbortController().signal,w.bot,false);return w.executed.map(x=>x.action)}
 const leaving=actions=>actions.filter(a=>['climb','flee','use_portal'].includes(a))
+// Lab run 156, 15 October: broken off at 10 health and burning, the bot walled in and burned
+// to death. In the Nether the wait opens no port toward a shooter until it is ready: hurt,
+// alight or hungry it holds the hut, says why, and eats when it can.
+test('hurt, burning or hungry, the wait holds the hut shut rather than open a port, says why, and eats',async()=>{
+ const opened=w=>w.executed.filter(x=>['unhut','shoot'].includes(x.action)).map(x=>x.action)
+ const hurt=portWait({shot:noShot,health:14,limitMs:800});await run(hurt)
+ assert.deepEqual(opened(hurt),[],hurt.said.join(' | '));assert.ok(hurt.said.some(t=>/health 14 of 16/.test(t)),hurt.said.join(' | '))
+ const burning=portWait({shot:noShot,limitMs:800});burning.bot.entity.metadata=[1];await run(burning)
+ assert.deepEqual(opened(burning),[],burning.said.join(' | '));assert.ok(burning.said.some(t=>/on fire/.test(t)),burning.said.join(' | '))
+ const hungry=portWait({shot:noShot,health:14,food:10,items:[{name:'cooked_beef',count:4}],limitMs:800});await run(hungry)
+ assert.deepEqual(opened(hungry),[],hungry.said.join(' | '));assert.deepEqual(hungry.executed.map(x=>x.action),['eat'])
+ // Ready again, the port opens as before.
+ const well=portWait({shot:noShot,health:16,limitMs:800});await run(well)
+ assert.deepEqual(opened(well).slice(0,2),['unhut','shoot'],well.said.join(' | '))
+})
 test('a firing port with no shot closes again and is not reopened; out of ports with the blaze close, it holds the hut',async()=>{
  const w=portWait({shot:noShot}),actions=await run(w)
  assert.deepEqual(actions.slice(0,4),['unhut','shoot','hut','unhut'],w.said.join(' | '))
