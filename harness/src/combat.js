@@ -63,8 +63,8 @@ export function weaponFor(bot,target){
   .sort((a,b)=>weapons[b.name]-weapons[a.name]||remainingDurability(b)-remainingDurability(a))[0]
 }
 // The best carried melee weapon for any target, bystanders aside.
-export function meleeWeapon(bot){
- return bot.inventory.items().filter(i=>weapons[i.name]&&Number.isFinite(i.maxDurability)&&remainingDurability(i)>=8).sort((a,b)=>weapons[b.name]-weapons[a.name])[0]||null
+export function meleeWeapon(bot,uses=8){
+ return bot.inventory.items().filter(i=>weapons[i.name]&&Number.isFinite(i.maxDurability)&&remainingDurability(i)>=uses).sort((a,b)=>weapons[b.name]-weapons[a.name])[0]||null
 }
 export function clearStrike(bot,target){
  if(!knownPoint(bot.entity?.position)||!knownPoint(target?.position)||typeof bot.world?.raycast!=='function')return false
@@ -102,7 +102,8 @@ export function corneredDecision(bot){
 // an iron blade (the best carried, unless the fight names its weapon). Why not, or ''.
 // Asked by name, so the Nether trip's alarm can judge a mob still past ENGAGE_RANGE
 // (lab run 148, 15 October: a wither skeleton at 11 held a kitted bot in cover for good).
-function aloneRefusal(bot,name,{healthFloor=12,foodFloor=10,mobMargins=true,weapon=meleeWeapon(bot)?.name}={}){
+// The default blade is one the fight rule would draw: weaponFor wants 16 uses left.
+function aloneRefusal(bot,name,{healthFloor=12,foodFloor=10,mobMargins=true,weapon=meleeWeapon(bot,16)?.name}={}){
  const s=survivalObservation(bot)
  if(!Number.isFinite(s.health)||s.health<healthFloor||s.food<foodFloor||!Number.isFinite(s.food))return 'Health or food is too low to engage'
  if(mobMargins&&s.health<DEFENSE_HEALTH[name])return `Health is too low to engage a ${name}`

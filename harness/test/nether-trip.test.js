@@ -317,6 +317,7 @@ const tunnel=new Set();for(let i=0;i<=11;i++)for(const y of [64,65]){if(i<=5){tu
 const wither=(id,x,z)=>({id,type:'mob',name:'wither_skeleton',position:new Vec3(x+.5,64,z+.5)})
 function walkOnTick({request='running',dimension='the_nether',sight='blocked',mobs=[wither(8,11,0)],...opts}={}){
  const bot=netherBot({hoglinAt:30,...opts});bot.game.dimension='minecraft:'+dimension
+ if(opts.swordUsed)bot.inventory.items().find(i=>i.name==='iron_sword').durabilityUsed=opts.swordUsed
  bot.blockAt=p=>{const name=tunnel.has(`${p.x},${p.y},${p.z}`)?'air':'netherrack';return {name,position:p.clone(),boundingBox:registry.blocksByName[name].boundingBox,getProperties:()=>({})}}
  bot.world={raycast:()=>sight==='blocked'?{name:'netherrack'}:null,getColumn:()=>({})}
  bot.entities=Object.fromEntries(mobs.map(m=>[m.id,m]))
@@ -335,7 +336,12 @@ test('on a kitted trip a lone wither skeleton out of sight past arm\'s reach is 
  assert.deepEqual(walkOnTick({request:'interrupted'}).calls,[],'a request waiting to resume is still the trip')
 })
 test('the walk-on still alarms hurt below the mob\'s floor, without the kit, with two, in sight, at arm\'s reach, with no request, or in the Overworld',()=>{
- const cases={hurt:{health:16},bare:{kit:false},two:{mobs:[wither(8,11,0),wither(9,11,3)]},seen:{sight:'clear'},close:{mobs:[wither(8,0,5)]},none:{request:null},ended:{request:'cancelled'},overworld:{dimension:'overworld'}}
+ const cases={hurt:{health:16},bare:{kit:false},two:{mobs:[wither(8,11,0),wither(9,11,3)]},seen:{sight:'clear'},close:{mobs:[wither(8,0,5)]},
+  // Inside the fight rule's ten a hidden one is the alarm's, which fights it: a wither skeleton
+  // covers about four blocks a second, so a six-block line is one tick of warning.
+  within:{mobs:[wither(8,6,5)]},
+  // A blade the fight rule would not draw (under 16 uses) is no blade to walk on with.
+  worn:{swordUsed:240},none:{request:null},ended:{request:'cancelled'},overworld:{dimension:'overworld'}}
  for(const [name,opts] of Object.entries(cases)){
   const {calls,logs}=walkOnTick(opts)
   assert.deepEqual(calls,[THREAT_INTERRUPTION],name);assert.ok(!logs.some(([type])=>type==='threat_walk_on'),name)
