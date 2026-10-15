@@ -762,3 +762,24 @@ test('on a trip a hostile outside the alarm radius does not hold the bot in; off
  w.bot.entities={1:{id:1,name:'blaze',position:new Vec3(28.5,64,10.5)}}
  assert.equal(burrowClearance(w.bot,{trip:true}).clear,true,'a shooter at eighteen is past its sixteen on a trip')
 })
+// Lab run 145, 15 October: kitted, walled in at the portal, a wither skeleton fourteen
+// blocks off and six below behind rock, and the exits open onto open air. The flood from
+// the exits ran out of cells, the skeleton stayed "unknown", and after four minutes the
+// bot relocated home through the portal. A flood that got 27 steps out without meeting
+// it has shown its route is longer than one and a half alarm radii. A cavern twelve high.
+test('on a trip a wither skeleton below rock that a capped flood has not met in 27 steps clears the wait and does not relocate',async()=>{
+ const {threatRoutes}=await import('../src/threat-reach.js')
+ const w=world();w.bot.time.timeOfDay=6000;w.bot.health=20;w.bot.food=20
+ const open=w.bot.blockAt;w.bot.blockAt=p=>p.y>=76?{name:'netherrack',position:p.clone(),boundingBox:'block'}:open(p)
+ w.cells.set(new Vec3(22,57,10).toString(),'air');w.cells.set(new Vec3(22,58,10).toString(),'air')
+ w.bot.world={raycast:()=>({name:'dirt'})}
+ w.bot.entities={1:{id:1,name:'wither_skeleton',position:new Vec3(22.5,57,10.5)}}
+ const exits=[new Vec3(10,64,10),new Vec3(10,65,10),new Vec3(10,66,10)]
+ const [route]=threatRoutes(w.bot,[{position:new Vec3(22.5,57,10.5)}],{origins:exits})
+ assert.equal(route.reach,'unknown');assert.equal(route.atLeast,27)
+ const r=burrowClearance(w.bot,{exits,trip:true,lingeredMs:RELOCATE_PATIENCE_MS+1000})
+ assert.equal(r.clear,true,r.reason);assert.equal(r.relocate,undefined);assert.equal(r.confront,undefined)
+ // A way up from the skeleton's pocket brings it within the alarm's reach, and it holds again.
+ for(let y=59;y<=63;y++)w.cells.set(new Vec3(22,y,10).toString(),'air')
+ assert.equal(burrowClearance(w.bot,{exits,trip:true}).clear,false,'a short route out of the rock')
+})

@@ -181,3 +181,73 @@ test('the health alarm logs the hostiles it counted, with reach and sightline',(
  assert.ok(entry,JSON.stringify(logs));assert.equal(entry[1].health,5)
  assert.ok(entry[1].counted.some(t=>/^creeper@[\d.]+\/-?[\d.]+:open(~\d+)?:blocked$/.test(t)),JSON.stringify(entry[1]))
 })
+
+// Lab run 145, 15 October: walled in at the Nether portal, a wither skeleton 10 to 16
+// blocks off and six below behind netherrack read "unknown" for good, because the
+// bot's space opened onto the Nether's open air and the flood ran out of cells long
+// before it could say anything. The flood is breadth first, so how deep it got when it
+// stopped is a floor under every route it had not found yet. Here a cavern twelve high
+// over netherrack.
+const NETHER_ORIGIN=new Vec3(.5,64,.5)
+function netherField({pocket=[new Vec3(14,58,0),new Vec3(14,59,0)],tunnel=[],unloaded=[]}={}){
+ const air=new Set([...pocket,...tunnel].map(c=>c.toString())),gone=new Set(unloaded.map(c=>c.toString()))
+ return {registry,game:{gameMode:'survival',difficulty:'normal',dimension:'minecraft:the_nether'},entity:{position:NETHER_ORIGIN.clone()},
+  blockAt(p){const k=p.floored().toString();if(gone.has(k))return null;const n=p.y>=64&&p.y<=75||air.has(k)?'air':'netherrack';return {name:n,position:p,boundingBox:registry.blocksByName[n].boundingBox,getProperties:()=>({})}}}
+}
+test('a hostile the flood did not reach before its cell limit reports how deep the flood got, and that depth never overstates a route',()=>{
+ const skeleton={position:new Vec3(14.5,58,.5)}
+ const [capped]=threatRoutes(netherField(),[skeleton])
+ assert.equal(capped.reach,'unknown');assert.equal(capped.steps,null)
+ assert.equal(capped.atLeast,28,'the cavern runs the flood out of cells 28 steps out')
+ // A shaft down from the open air to the pocket: the true route is known with no limit,
+ // and at every limit the flood either finds it or reports no more than its length.
+ const shaft=[];for(let y=60;y<=63;y++)shaft.push(new Vec3(14,y,0))
+ const [truth]=threatRoutes(netherField({tunnel:shaft}),[skeleton],{limit:Infinity})
+ assert.equal(truth.reach,'open')
+ for(const limit of [1,10,100,1000,3000,6000,12000]){
+  const [r]=threatRoutes(netherField({tunnel:shaft}),[skeleton],{limit})
+  if(r.reach==='open')assert.equal(r.steps,truth.steps)
+  else{assert.equal(r.reach,'unknown');assert.ok(Number.isFinite(r.atLeast)&&r.atLeast<=truth.steps,`limit ${limit}: ${r.atLeast} against ${truth.steps}`)}
+ }
+ assert.deepEqual(threatRoutes(trial42().bot,[{position:new Vec3(-600.16,-49,-325.84)}]),[{reach:'sealed',steps:null}],'sealed reads as before')
+})
+test('an unloaded cell bounds the routes at the depth the flood met it',()=>{
+ const near=trial42();near.cells.set(HUT.offset(1,0,0).toString(),null)
+ assert.deepEqual(threatRoutes(near.bot,survivalObservation(near.bot).nearbyThreats).map(r=>[r.reach,r.atLeast]),Array(5).fill(['unknown',1]))
+ // A tunnel twelve long ending in unloaded ground: nothing beyond it is nearer than thirteen.
+ const far=trial42();for(let x=1;x<=12;x++)air(far.cells,HUT.offset(x,0,0),HUT.offset(x,1,0));far.cells.set(HUT.offset(13,0,0).toString(),null)
+ assert.deepEqual(threatRoutes(far.bot,survivalObservation(far.bot).nearbyThreats).map(r=>[r.reach,r.atLeast]),Array(5).fill(['unknown',13]))
+ // Run 145 from the other side: open air whose only unloaded cell lies thirty steps out.
+ const ring=[];for(let x=0;x<=12;x++)ring.push(new Vec3(x,62,0));for(let z=1;z<=12;z++)ring.push(new Vec3(12,62,z));for(let x=11;x>=0;x--)ring.push(new Vec3(x,62,12))
+ const bot={...netherField({pocket:[new Vec3(6,57,4),new Vec3(6,58,4)],tunnel:ring,unloaded:[new Vec3(6,62,12)]}),entity:{position:new Vec3(.5,62,.5)}}
+ const [r]=threatRoutes(bot,[{position:new Vec3(6.5,57,4.5)}],{origins:[new Vec3(0,62,0)]})
+ assert.equal(r.reach,'unknown');assert.equal(r.atLeast,30)
+})
+test('an unknown route the flood has followed past one and a half alarm radii is out of reach; nearer, in sight or within the floors it counts',async()=>{
+ const {HEALTH_EMERGENCY}=await import('../src/survival.js')
+ const o={gameMode:'survival',health:20,difficulty:'normal',timeOfDay:6000,sheltered:false,shelterAvailable:false,food:20,carriedFood:[],nearbyThreats:[]}
+ const t=(name,distance,routeAtLeast,sight='blocked')=>({risk:'potential_hostile',name,distance,reach:'unknown',routeSteps:null,routeAtLeast,sightline:{status:sight}})
+ assert.equal(emergencyReason({...o,nearbyThreats:[t('wither_skeleton',14,28)]}),null,'the run 145 wither skeleton')
+ assert.equal(emergencyReason({...o,health:8,nearbyThreats:[t('wither_skeleton',14,28)]}),null,'nor a health alarm')
+ assert.equal(outOfReach(t('wither_skeleton',14,28)),true);assert.equal(farRoute(t('wither_skeleton',14,28)),true)
+ assert.equal(emergencyReason({...o,nearbyThreats:[t('wither_skeleton',14,24)]}),THREAT_INTERRUPTION,'not past 24, the route may be short enough')
+ assert.equal(emergencyReason({...o,health:8,nearbyThreats:[t('wither_skeleton',14,24)]}),HEALTH_EMERGENCY)
+ assert.equal(emergencyReason({...o,nearbyThreats:[t('zombie',8,16)]}),null);assert.equal(emergencyReason({...o,nearbyThreats:[t('zombie',8,15)]}),THREAT_INTERRUPTION)
+ assert.equal(emergencyReason({...o,nearbyThreats:[t('wither_skeleton',14,28,'clear')]}),THREAT_INTERRUPTION,'in sight counts whatever the flood says')
+ assert.equal(emergencyReason({...o,nearbyThreats:[t('wither_skeleton',14,null)]}),THREAT_INTERRUPTION,'an unknown with no depth proves nothing')
+ assert.equal(emergencyReason({...o,nearbyThreats:[t('creeper',3.5,40)]}),THREAT_INTERRUPTION,'a creeper inside the rock floor')
+ assert.equal(emergencyReason({...o,nearbyThreats:[t('zombie',2.5,40)]}),THREAT_INTERRUPTION,'a melee mob inside the rock floor')
+ assert.equal(emergencyReason({...o,nearbyThreats:[t('warden',9,60)]}),THREAT_INTERRUPTION,'a warden always counts')
+})
+test('the threat journal says how far the flood got for a hostile it never met',()=>{
+ const bot=Object.assign(netherField(),{time:{timeOfDay:6000},health:20,food:20,oxygenLevel:20,players:{},inventory:{items:()=>[]},world:{raycast:()=>({name:'netherrack'})},
+  entities:{1:{id:1,name:'wither_skeleton',position:new Vec3(14.5,58,.5)},2:{id:2,name:'zombie',position:new Vec3(5.5,64,.5)}}})
+ Object.assign(bot.entity,{onGround:true,eyeHeight:1.62,isInWater:false,metadata:[0]})
+ const r=new FakeRunner(bot),c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-bound-log-')),'state.json'))
+ const calls=[],logs=[];c.seekSafety=async why=>{calls.push(why);c.safety={status:'retreating',reason:why}};r.log=(type,data)=>logs.push([type,data])
+ r.emit('event',{type:'survival_tick'})
+ assert.deepEqual(calls,[THREAT_INTERRUPTION],'the zombie in the cavern')
+ const entry=logs.find(([type])=>type==='threat_route')
+ assert.ok(entry?.[1].threats.includes('wither_skeleton@15.2/-6:unknown>=28:blocked'),JSON.stringify(logs))
+ assert.ok(entry[1].threats.includes('zombie@5/0:open~5:blocked'),JSON.stringify(entry))
+})

@@ -216,7 +216,7 @@ export class Teammate extends EventEmitter {
         // when one of them is behind something, since a mob in plain view counts anyway.
         // Out to the health alarm's radius too, so it judges a hidden hostile by reach as well.
         const pressing=observation.nearbyThreats.filter(t=>t.risk==='potential_hostile'&&t.distance<=Math.max(threatRadius(t.name),HEALTH_THREAT_RADIUS))
-        if(pressing.some(t=>t.sightline?.status==='blocked')){const routes=threatRoutes(runner.bot,pressing);pressing.forEach((t,i)=>{t.reach=routes[i].reach;t.routeSteps=routes[i].steps})}
+        if(pressing.some(t=>t.sightline?.status==='blocked')){const routes=threatRoutes(runner.bot,pressing);pressing.forEach((t,i)=>{t.reach=routes[i].reach;t.routeSteps=routes[i].steps;t.routeAtLeast=routes[i].atLeast})}
         // Night only matters where the sky is: asked when it is dark and there is no base.
         const underRock=!shelterAvailable&&Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500)&&roofed(runner.bot)
         // use_portal stands in a portal on purpose; every other way into one is still an emergency.
@@ -239,10 +239,10 @@ export class Teammate extends EventEmitter {
          :(shooting||covering)&&raw===FIRE_EMERGENCY&&observation.inLava!==true&&observation.health>HEALTH_EMERGENCY_LINE?null:raw
         // The journal should show the times rock was the reason work carried on.
         // The flood's answer is the evidence for an interruption through rock; without it the log says only that a hostile was "within ten blocks".
-        if(reason===THREAT_INTERRUPTION&&pressing.some(t=>t.reach)&&Date.now()-(this.routeLogAt||0)>=5000){this.routeLogAt=Date.now();runner.log?.('threat_route',{threats:pressing.slice(0,4).map(t=>`${t.name}@${t.distance}/${t.verticalOffset}:${t.reach||'-'}${Number.isFinite(t.routeSteps)?'~'+t.routeSteps:''}:${t.sightline?.status||'-'}`)})}
+        if(reason===THREAT_INTERRUPTION&&pressing.some(t=>t.reach)&&Date.now()-(this.routeLogAt||0)>=5000){this.routeLogAt=Date.now();runner.log?.('threat_route',{threats:pressing.slice(0,4).map(t=>`${t.name}@${t.distance}/${t.verticalOffset}:${t.reach||'-'}${Number.isFinite(t.routeSteps)?'~'+t.routeSteps:Number.isFinite(t.routeAtLeast)?'>='+t.routeAtLeast:''}:${t.sightline?.status||'-'}`)})}
         // What raised the health alarm, as the alarm counted it: the recovery record is
         // taken a moment later and can no longer say (pi2, 10 October, two dawn hunts).
-        if(reason===HEALTH_EMERGENCY&&Date.now()-(this.healthLogAt||0)>=5000){this.healthLogAt=Date.now();runner.log?.('health_alarm',{health:observation.health,food:observation.food,timeOfDay:observation.timeOfDay,recentDamageMs,counted:pressing.filter(t=>t.distance<=HEALTH_THREAT_RADIUS&&!outOfReach(t)&&!cannotShootYet(t)).slice(0,4).map(t=>`${t.name}@${t.distance}/${t.verticalOffset}:${t.reach||'-'}${Number.isFinite(t.routeSteps)?'~'+t.routeSteps:''}:${t.sightline?.status||'-'}`)})}
+        if(reason===HEALTH_EMERGENCY&&Date.now()-(this.healthLogAt||0)>=5000){this.healthLogAt=Date.now();runner.log?.('health_alarm',{health:observation.health,food:observation.food,timeOfDay:observation.timeOfDay,recentDamageMs,counted:pressing.filter(t=>t.distance<=HEALTH_THREAT_RADIUS&&!outOfReach(t)&&!cannotShootYet(t)).slice(0,4).map(t=>`${t.name}@${t.distance}/${t.verticalOffset}:${t.reach||'-'}${Number.isFinite(t.routeSteps)?'~'+t.routeSteps:Number.isFinite(t.routeAtLeast)?'>='+t.routeAtLeast:''}:${t.sightline?.status||'-'}`)})}
         if(!reason&&pressing.some(t=>t.reach==='sealed')&&Date.now()-(this.sealedLogAt||0)>=30000&&emergencyReason({...observation,nearbyThreats:observation.nearbyThreats.map(t=>({...t,reach:undefined})),shelterAvailable,sheltered,recentDamageMs,roofed:underRock})===THREAT_INTERRUPTION){this.sealedLogAt=Date.now();runner.log?.('threat_sealed',{threats:pressing.slice(0,4).map(t=>`${t.name}@${t.distance}/${t.verticalOffset}:${t.reach}`)})}
         // Stop cancels the recovery in hand and stands while that emergency lasts.
         // Once nothing is wrong it has nothing left to hold: left in place it

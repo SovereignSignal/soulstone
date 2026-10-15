@@ -174,7 +174,7 @@ export const pressingOutside=(bot,project=null)=>{
    const o=new Vec3(project.build.origin.x,project.build.origin.y,project.build.origin.z),layout=shelterLayout(project.build.design),doorstep=o.plus(layout.door).plus(layout.out)
    for(const t of blocked){
     const from={entity:{position:new Vec3(t.position.x,t.position.y,t.position.z)},blockAt:p=>bot.blockAt(p),registry:bot.registry,game:bot.game}
-    const route=threatRoutes(from,[{position:doorstep}])[0];t.reach=route.reach;t.routeSteps=route.steps
+    const route=threatRoutes(from,[{position:doorstep}])[0];t.reach=route.reach;t.routeSteps=route.steps;t.routeAtLeast=route.atLeast
    }
   }
   return near.filter(t=>!outOfReach(t)).sort((a,b)=>a.distance-b.distance)[0]||null

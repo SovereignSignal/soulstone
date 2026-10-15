@@ -287,7 +287,7 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
   // From the shelter's own exits, by the same test the alarm uses afterwards,
   // so a hostile it ignores is never the one that sends the bot back in.
   const routes=threatRoutes(bot,near,{origins:exits})
-  near=near.filter((t,i)=>!outOfReach({...t,reach:routes[i].reach,routeSteps:routes[i].steps,sightline:t.sightline?.status?t.sightline:{status:'blocked'}}))
+  near=near.filter((t,i)=>!outOfReach({...t,reach:routes[i].reach,routeSteps:routes[i].steps,routeAtLeast:routes[i].atLeast,sightline:t.sightline?.status?t.sightline:{status:'blocked'}}))
   // Run 86 (10 October): from inside, the shelter's own walls block every sightline,
   // so a shooter is judged at the exits: one that could not see the bot at any exit
   // is not waiting outside (a blaze behind the fortress's nether bricks).

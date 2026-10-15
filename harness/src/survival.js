@@ -39,8 +39,11 @@ export const sealedOff=t=>t.reach==='sealed'&&t.sightline?.status==='blocked'&&!
 // Out of sight with only a long way round: a hostile that cannot see the bot
 // counts by the length of its open route, not the straight line through rock.
 // ROUTE_FACTOR allows for the flood's square steps against a mob's diagonal walk.
+// An unknown route counts by how far the flood got without meeting it, which is
+// no longer than the route (threat-reach.js; lab run 145, 15 October).
 export const ROUTE_FACTOR=1.5
-export const farRoute=t=>t.reach==='open'&&t.sightline?.status==='blocked'&&Number.isFinite(t.routeSteps)&&t.routeSteps>threatRadius(t.name)*ROUTE_FACTOR&&!breachesRock(t)
+const routeLength=t=>t.reach==='open'?t.routeSteps:t.reach==='unknown'?t.routeAtLeast:null
+export const farRoute=t=>t.sightline?.status==='blocked'&&Number.isFinite(routeLength(t))&&routeLength(t)>threatRadius(t.name)*ROUTE_FACTOR&&!breachesRock(t)
 // The one test of "this hostile cannot get at the bot yet", for the alarm, the
 // shelter's clearance and the door guard alike.
 export const outOfReach=t=>sealedOff(t)||farRoute(t)

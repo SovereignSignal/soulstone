@@ -175,3 +175,22 @@ test('a kitted trip moved home from the burrow wait is over, said in one line',a
  assert.equal(canResume(c.requestProgress),false);assert.equal(over(c).length,1)
  assert.ok(!c.messages.some(m=>/^Back on the surface/.test(m.text)),c.messages.map(m=>m.text).join(' | '))
 })
+// Lab run 145, 15 October: out of the wall again, the tick must not alarm on the wither
+// skeleton below the netherrack that the clearance has just judged too far round to
+// matter, or the bot walls in, waits four minutes and goes home through the portal.
+// A cavern twelve high over netherrack, the skeleton in a pocket below it.
+test('in open Nether air the tick and the clearance agree: a wither skeleton below rock a capped flood never met is no alarm',()=>{
+ const bot=netherBot({hoglinAt:30});delete bot.entities[7]
+ const pocket=new Set(['14,57,0','14,58,0'])
+ bot.blockAt=p=>{const name=p.y>=64&&p.y<=75||pocket.has(`${p.x},${p.y},${p.z}`)?'air':'netherrack';return {name,position:p.clone(),boundingBox:registry.blocksByName[name].boundingBox,getProperties:()=>({})}}
+ bot.world={raycast:()=>({name:'netherrack'}),getColumn:()=>({})}
+ bot.entities={8:{id:8,type:'mob',name:'wither_skeleton',position:new Vec3(14.5,57,.5)}}
+ const exits=[new Vec3(0,64,0),new Vec3(0,65,0)]
+ assert.equal(burrowClearance(bot,{exits,trip:true,lingeredMs:600000}).relocate,undefined)
+ assert.equal(burrowClearance(bot,{exits,trip:true}).clear,true)
+ const r=new EventEmitter();Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Sov',connectionId:'20000000-0000-0000-0000-000000000004',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{},command(c){r.commands.push(c)}})
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-trip-tick-')),'state.json'))
+ const calls=[],logs=[];c.seekSafety=async why=>{calls.push(why)};r.log=(type,data)=>logs.push([type,data])
+ r.emit('event',{type:'survival_tick'})
+ assert.deepEqual(calls,[],JSON.stringify(logs))
+})
