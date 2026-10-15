@@ -367,6 +367,27 @@ test('attack refuses at low health, throws when none of the type is loaded, and 
   await assert.rejects(() => attackEntity(gone, attackTask('zombie'), deps()), /Lost the zombie.*none within 8 blocks.*1 swings landed, no kill confirmed/)
 })
 
+// Lab run 148, 15 October: the planner asked to attack the nearest wither skeleton, 13 blocks
+// off behind netherrack, from the covered tunnel the mob could not enter; the walk to it is the
+// walk that every Nether death so far has been. In the Nether the verb will not go looking.
+test('in the Nether attack refuses a target out of sight beyond ten blocks before it walks; in sight, within ten or in the Overworld it goes', async () => {
+  const sighted = ({ x, sight, dimension = 'the_nether' }) => {
+    const bot = fightBot({ entities: { 8: mob(8, 'wither_skeleton', x, 64, 0.5) }, items: [{ name: 'iron_sword', count: 1, type: registry.itemsByName.iron_sword.id, maxDurability: 250, durabilityUsed: 0 }] })
+    bot.game = { dimension: 'minecraft:' + dimension }
+    bot.blockAt = p => air(p)
+    bot.world = { raycast: () => sight === 'blocked' ? { name: 'netherrack' } : null }
+    bot.equip = async () => { throw new Error('armed') }
+    return bot
+  }
+  const hidden = sighted({ x: 13.5, sight: 'blocked' })
+  await assert.rejects(() => attackEntity(hidden, attackTask('wither_skeleton'), deps()), /I will not walk toward a wither skeleton I cannot see/)
+  assert.equal(hidden.pathfinder.goal, null, 'no step toward it')
+  await assert.rejects(() => attackEntity(sighted({ x: 8.5, sight: 'clear' }), attackTask('wither_skeleton'), deps()), /armed/)
+  await assert.rejects(() => attackEntity(sighted({ x: 13.5, sight: 'clear' }), attackTask('wither_skeleton'), deps()), /armed/)
+  await assert.rejects(() => attackEntity(sighted({ x: 8.5, sight: 'blocked' }), attackTask('wither_skeleton'), deps()), /armed/)
+  await assert.rejects(() => attackEntity(sighted({ x: 13.5, sight: 'blocked', dimension: 'overworld' }), attackTask('wither_skeleton'), deps()), /armed/)
+})
+
 // Lab, 10 October: the bow killed a pig and collect walked to the porkchops
 // three times without picking them up. The drop lay at x 1970.99, the walk
 // ("within one block of its cell") stopped at 1969.5, and a player picks up

@@ -7,7 +7,9 @@ import pathfinding from 'mineflayer-pathfinder'
 import { Vec3 } from 'vec3'
 import { fullCube } from './construction.js'
 import { DoorAwareMovements, centreOn } from './navigation.js'
-import { weaponFor, clearStrike } from './combat.js'
+import { weaponFor, clearStrike, ENGAGE_RANGE } from './combat.js'
+import { observedSightline } from './visibility.js'
+import { inNether } from './dimension.js'
 import { walkNear, inProtectedSite, validateProtectedSites, inventoryCounts, inventoryDelta, LIQUID, AIR, DIG_REACH, key, point } from './primitives.js'
 
 const { goals } = pathfinding
@@ -322,6 +324,13 @@ export async function attackEntity(bot, task, { check, stage, progress, movement
       .sort((a, b) => a.position.distanceTo(here) - b.position.distanceTo(here)).slice(0, 3)
       .map(e => `${e.name} ${Math.round(e.position.distanceTo(here))}`)
     throw new Error(`No ${goal.type} within ${ATTACK_RADIUS} blocks${others.length ? `; nearest loaded entities: ${others.join(', ')}` : ''}`)
+  }
+  // Lab run 148, 15 October: from a covered tunnel the planner sent the bot to attack a wither
+  // skeleton 13 blocks off behind netherrack, the walk off cover that every Nether death so far
+  // has been. In the Nether a target out of sight past the fight rule's range is not gone after.
+  if (inNether(bot) && target.position.distanceTo(here) > ENGAGE_RANGE) {
+    const sight = observedSightline(bot, here.offset(0, bot.entity.eyeHeight || 1.62, 0), target.position.offset(0, 1, 0))
+    if (sight.status === 'blocked') throw new Error(`I will not walk toward a ${goal.type.replaceAll('_', ' ')} I cannot see: ${Math.round(target.position.distanceTo(here))} blocks off behind ${(sight.block || 'rock').replaceAll('_', ' ')}`)
   }
   const weapon = weaponFor(bot, target) || null
   const cooldown = weapon ? (weapon.name.endsWith('_axe') ? 1300 : 700) : 500
