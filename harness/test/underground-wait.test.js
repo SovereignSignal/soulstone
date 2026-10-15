@@ -252,6 +252,24 @@ test('on a kitted trip the shot from the port breaks off at the first hit; off a
  assert.deepEqual(off.executed.find(x=>x.action==='shoot')?.goal,{type:'blaze',collect:false,stay:true})
 })
 const noShot=()=>{throw new Error('No clear shot at the blaze: netherrack is in the way')}
+// Lab run 156, 15 October: on a trip, rods from the port's kills are walked for only after a
+// quiet minute, on 16 health, and only within eight blocks of the hut (tripPickup).
+test('on a trip the wait leaves the rods while a shooter was near in the last minute, and walks only for kills near the hut',async()=>{
+ const site={at:{x:5.5,y:63,z:.5}}
+ const kill=(bot,c)=>{delete bot.entities[1];c.runner.task={result:{item:'blaze',receipt:'killed',count:1,shots:3,at:site.at}}}
+ const recent=portWait({shot:kill,trip:true})
+ await Teammate.prototype.waitInBurrow.call(recent.c,1,new AbortController().signal,recent.bot,false)
+ assert.ok(!recent.executed.some(x=>x.action==='collect'),recent.executed.map(x=>x.action).join(' '))
+ assert.ok(recent.said.some(t=>/Leaving what fell .*shooter/.test(t)),recent.said.join(' | '))
+ assert.deepEqual(recent.c.killSites.map(k=>k.at),[site.at],'kept for later')
+ // No shooter near for the whole wait: only the kill within eight blocks of the hut is walked for.
+ const quiet=portWait({shot:kill,trip:true});delete quiet.bot.entities[1]
+ quiet.c.killSites=[{at:site.at,time:Date.now()},{at:{x:14.5,y:64,z:.5},time:Date.now()}]
+ await Teammate.prototype.waitInBurrow.call(quiet.c,1,new AbortController().signal,quiet.bot,false)
+ assert.deepEqual(quiet.executed.find(x=>x.action==='collect')?.goal.at,[site.at],quiet.said.join(' | '))
+ assert.deepEqual(quiet.c.killSites.map(k=>k.at),[{x:14.5,y:64,z:.5}],'the far one is left')
+})
+
 const run=async w=>{await Teammate.prototype.waitInBurrow.call(w.c,1,new AbortController().signal,w.bot,false);return w.executed.map(x=>x.action)}
 const leaving=actions=>actions.filter(a=>['climb','flee','use_portal'].includes(a))
 // Lab run 156, 15 October: broken off at 10 health and burning, the bot walled in and burned

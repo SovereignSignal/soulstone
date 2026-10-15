@@ -47,3 +47,15 @@ export function portReady(bot){
  if(!Number.isFinite(bot?.food)||bot.food<PORT_FOOD)return {ready:false,reason:`food ${Number.isFinite(bot?.food)?bot.food:'unknown'} of ${PORT_FOOD}`}
  return {ready:true}
 }
+// Lab run 156, 15 October: the port's kills fell in a sealed room beside the hut with three
+// more blazes in it. On a trip the rods are walked for only once no shooter has been near for
+// a minute, on 16 health or more, and only where they fell within eight blocks of the hut.
+// sites: kill sites ({at}); hut: the shelter's feet cell; shooterSeenAt: ms, or none seen.
+export const PICKUP={quietMs:60000,health:16,reach:8}
+export function tripPickup({health,shooterSeenAt,now,hut,sites=[]}){
+ const no=reason=>({ok:false,reason,sites:[]})
+ if(Number.isFinite(shooterSeenAt)&&now-shooterSeenAt<PICKUP.quietMs)return no(`a shooter was near ${Math.round((now-shooterSeenAt)/1000)} seconds ago`)
+ if(!Number.isFinite(health)||health<PICKUP.health)return no(`health ${Number.isFinite(health)?Math.round(health*10)/10:'unknown'} of ${PICKUP.health}`)
+ const near=hut?sites.filter(k=>Math.hypot(k.at.x-(hut.x+.5),k.at.y-hut.y,k.at.z-(hut.z+.5))<=PICKUP.reach):[]
+ return near.length?{ok:true,sites:near}:no(`nothing fell within ${PICKUP.reach} blocks of the hut`)
+}

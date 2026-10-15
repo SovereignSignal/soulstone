@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import registryFor from 'prismarine-registry'
 import {Vec3} from 'vec3'
-import {tripKit,onTrip,TRIP_ARMOR,TRIP_ARROWS,portReady} from '../src/nether-trip.js'
+import {tripKit,onTrip,TRIP_ARMOR,TRIP_ARROWS,portReady,tripPickup} from '../src/nether-trip.js'
 import {burrowClearance} from '../src/burrow.js'
 import {Teammate} from '../src/companion/controller.js'
 import {THREAT_INTERRUPTION} from '../src/survival.js'
@@ -383,5 +383,20 @@ test('a firing port is ready only on 16 health or more, not on fire, and food 6 
  assert.deepEqual(portReady(bot(16,6)),{ready:true})
  for(const [why,b,re] of [['hurt',bot(15.5,20),/health 15.5 of 16/],['burning',bot(20,20,1),/on fire/],['hungry',bot(20,5),/food 5 of 6/],['unknown',bot(undefined,20),/health/]]){
   const r=portReady(b);assert.equal(r.ready,false,why);assert.match(r.reason,re,why)
+ }
+})
+// Lab run 156, 15 October: the blazes the slit shot fell in a sealed room beside the hut,
+// with three more still in it. On a trip the bot walks for what they dropped only once no
+// shooter has been near for a minute, on 16 health or more, and only to kills within eight
+// blocks of the hut.
+test('on a trip the rods are walked for only after a quiet minute, on 16 health, and within eight blocks of the hut',()=>{
+ const now=1e6,hut={x:0,y:64,z:0},near={at:{x:5.5,y:62,z:.5}},far={at:{x:12.5,y:64,z:.5}}
+ assert.deepEqual(tripPickup({health:16,shooterSeenAt:now-60000,now,hut,sites:[near,far]}),{ok:true,sites:[near]})
+ assert.deepEqual(tripPickup({health:20,now,hut,sites:[near]}).sites,[near],'no shooter seen at all')
+ for(const [why,args,re] of [
+  ['a shooter seen 59 s ago',{health:20,shooterSeenAt:now-59000},/shooter .*59 seconds/],
+  ['hurt',{health:15},/health 15 of 16/],
+  ['nothing near the hut',{health:20,sites:[far]},/within 8 blocks of the hut/]]){
+  const r=tripPickup({now,hut,sites:[near,far],...args});assert.equal(r.ok,false,why);assert.match(r.reason,re,why);assert.deepEqual(r.sites,[],why)
  }
 })

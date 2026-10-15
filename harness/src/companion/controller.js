@@ -80,13 +80,14 @@ const URGENT=new Set([WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY])
 const KILL_DROP_LIFE_MS=270000
 // Walk for what the request wants where recent kills fell, once: only what it asks
 // for (lab run 103: bones at night got the bot killed), only while drops last.
-async function collectKillSites(c,signal,bot,request){
+// within: which sites to walk for now; the rest stay for later.
+async function collectKillSites(c,signal,bot,request,within=()=>true){
  const sites=(c.killSites||[]).filter(k=>Date.now()-k.time<KILL_DROP_LIFE_MS)
  c.killSites=sites
- const wanted=wantedDrops(request,bot?.registry).slice(0,8)
- if(!sites.length||!wanted.length)return null
- c.killSites=[]
- try{await c.execute({action:'collect',goal:{item:'',count:64,at:sites.slice(-8).map(k=>k.at),items:wanted},timeoutMs:30000},signal);return structuredClone(c.runner.task.result)}
+ const wanted=wantedDrops(request,bot?.registry).slice(0,8),taken=sites.filter(within)
+ if(!taken.length||!wanted.length)return null
+ c.killSites=sites.filter(k=>!taken.includes(k))
+ try{await c.execute({action:'collect',goal:{item:'',count:64,at:taken.slice(-8).map(k=>k.at),items:wanted},timeoutMs:30000},signal);return structuredClone(c.runner.task.result)}
  catch(error){if(signal.aborted)throw error;c.dispatch({action:'stop'});await c.runner.waitForIdle?.(signal);return {failed:error.message}}
 }
 // The drop pile is worth going back for even when the trip it fell on is over: an ended
@@ -121,7 +122,7 @@ import { randomUUID } from 'node:crypto'
 import { validatePlan } from './planner.js'
 import {hutSite,portalRoomSpot} from '../hut.js'
 import {rangedDefenseDecision,bowCanAnswer} from '../archery.js'
-import {onTrip,tripKit,walkOnThreat,portReady} from '../nether-trip.js'
+import {onTrip,tripKit,walkOnThreat,portReady,tripPickup} from '../nether-trip.js'
 import {deliveredCount,satisfiedStep,currentRequestTask} from './progress.js'
 
 const designKey=design=>JSON.stringify((design||[]).map(b=>[b.x,b.y,b.z,b.block]).sort((a,b)=>a[0]-b[0]||a[1]-b[1]||a[2]-b[2]||a[3].localeCompare(b[3])))
@@ -1086,6 +1087,8 @@ export class Teammate extends EventEmitter {
       safety.protection=inspectEmergencyShelter(bot)
       if(bot.health<protectedHealth)throw new Error('Health fell inside the emergency shelter; protection is not established')
       protectedHealth=bot.health
+      // Any shooter loaded within its alarm radius, seen or behind rock, for the rod pickup's quiet minute.
+      if(Object.values(bot.entities||{}).some(e=>SHOOTERS_ONLY.has(e?.name)&&e.position&&e.position.distanceTo(bot.entity.position)<=threatRadius(e.name)))this.shooterSeenAt=Date.now()
       const r=burrowClearance(bot,{lingeredMs:lingerSince?Date.now()-lingerSince:0,patienceMs,relocateAfterMs,exits:shelterExits(safety.retreat),canPort:safety.retreat?.shelterName==='hut',trip:onTrip(bot,canResume(request))});if(r.lingering||r.confront||r.relocate)lingerSince??=Date.now();else if(r.holding)lingerSince=null
       // Lab run 156, 15 October: broken off at a port at 10 health and alight, the bot walled in
       // and burned to death. In the Nether no port opens toward a shooter until portReady; the
@@ -1238,7 +1241,12 @@ export class Teammate extends EventEmitter {
       }
       // Out with nothing near: pick up what earlier fights dropped (lab run 111: two rods
       // fell mid-chain, the chain ended in the portal room, and nobody went back for them).
-      if(!confront&&!relocate&&canResume(request)){const got=await collectKillSites(this,signal,bot,request);check();if(got)safety.collected=got}
+      // In the Nether only after a quiet minute, on 16 health, and near the hut (lab run 156, 15 October).
+      if(!confront&&!relocate&&canResume(request)){
+        const guard=inNether(bot)?tripPickup({health:bot.health,shooterSeenAt:this.shooterSeenAt,now:Date.now(),hut:safety.retreat?.surface,sites:this.killSites||[]}):null
+        if(guard&&!guard.ok){if(this.killSites?.length&&wantedDrops(request,bot.registry).length)this.say(`Leaving what fell where it lies for now: ${guard.reason}.`)}
+        else{const got=await collectKillSites(this,signal,bot,request,guard?k=>guard.sites.includes(k):undefined);check();if(got)safety.collected=got}
+      }
       const continuing=(eligible||safety.resumeRequested)&&canResume(request)&&(safety.resumeRequested||canContinueAfterSafety(request))
       this.safety=null;this.activity='';this.phase=canResume(request)?'blocked':'ready'
       if(continuing){
