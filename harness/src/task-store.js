@@ -28,7 +28,9 @@ export function validateGoal(goal) {
 export function validateTaskGoal(kind, goal) {
   // A hut may be asked to step back to a portal first (lab run 101).
   if(kind==='hut')return goal?.portalRoom===true?{portalRoom:true}:{}
-  if(['surface','douse','leave_portal','use_portal','burrow','unhut'].includes(kind))return {}
+  // The hut opens the wall facing the mob it confronts (lab run 146, 15 October: dropped here, so it never did).
+  if(kind==='unhut')return Number.isInteger(goal?.toward?.x)&&Number.isInteger(goal?.toward?.z)?{toward:{x:goal.toward.x,z:goal.toward.z}}:{}
+  if(['surface','douse','leave_portal','use_portal','burrow'].includes(kind))return {}
   if(kind==='travel')return validateTravelGoal(goal)
   if(kind==='goto')return validateGotoGoal(goal)
   if(kind==='emote')return validateEmoteGoal(goal)

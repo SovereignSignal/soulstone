@@ -385,7 +385,7 @@ export class Runner extends EventEmitter {
       case 'burrow': this.skill('burrow',{},command.timeoutMs); break
       case 'unburrow': this.skill('unburrow',command.goal,command.timeoutMs); break
       case 'hut': this.skill('hut',command.goal||{},command.timeoutMs); break
-      case 'unhut': this.skill('unhut',{},command.timeoutMs); break
+      case 'unhut': this.skill('unhut',command.goal||{},command.timeoutMs); break
       case 'flee': this.skill('flee',command.goal,command.timeoutMs); break
       case 'descend': this.skill('descend',command.goal,command.timeoutMs); break
       case 'climb': this.skill('climb',command.goal,command.timeoutMs); break

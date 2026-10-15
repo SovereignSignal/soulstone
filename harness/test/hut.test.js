@@ -218,3 +218,13 @@ test('a step back to the portal room that arrives in the air waits to land befor
  const result=await executeSkill(w.bot,{kind:'hut',goal:{portalRoom:true}},api)
  assert.equal(result.receipt,'walled_in');assert.equal(result.portalRoom,true)
 })
+
+// Lab run 146, 15 October: the confront's facing never reached the skill.
+import {validateTaskGoal} from '../src/task-store.js'
+test('an unhut goal keeps the way it faces, and nothing else',()=>{
+ assert.deepEqual(validateTaskGoal('unhut',{toward:{x:40,z:11}}),{toward:{x:40,z:11}})
+ assert.deepEqual(validateTaskGoal('unhut',{toward:{x:40.5,z:11}}),{})
+ assert.deepEqual(validateTaskGoal('unhut',{toward:{x:40}}),{})
+ assert.deepEqual(validateTaskGoal('unhut',{}),{})
+ assert.deepEqual(validateTaskGoal('unhut',undefined),{})
+})

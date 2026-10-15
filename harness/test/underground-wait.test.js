@@ -153,3 +153,30 @@ test('a shelter whose watch has cleared is leaving, not stalled',async()=>{
  c.safety={status:'failed',error:'Health fell inside the emergency shelter',continuation:{status:'watching'}}
  c.blockedSince=1;assert.equal(await c.stallRetry(),true);assert.equal(resumes,2,'a watch that failed while watching leaves the retry in charge')
 })
+// Lab run 146, 15 October: kitted in the Nether, walled in inside a one-wide
+// netherrack tunnel, a blaze hovering outside the tunnel wall. The tunnel runs
+// along z at x 0; its walls are netherrack, one thick on the +x side with open
+// air beyond, solid rock on the -x side; the hut closes it at z ±1.
+import {Runner} from '../src/runner.js'
+import {validateTaskGoal} from '../src/task-store.js'
+const TUNNEL_HUT={shelterName:'hut',surface:{x:0,y:64,z:0}}
+function tunnel({mobs=[],items=[],timeOfDay=6000,cells=new Map()}={}){
+ const name=p=>cells.has(p.toString())?cells.get(p.toString()):p.x===0&&(p.y===64||p.y===65)&&Math.abs(p.z)<=10?(Math.abs(p.z)===1?'cobblestone':'air'):p.x>=2?'air':'netherrack'
+ const bot=base(new Vec3(.5,64,.5),name,{timeOfDay,mobs})
+ bot.game.dimension='the_nether'
+ Object.values(bot.entities).forEach((e,i)=>Object.assign(e,{uuid:`00000000-0000-0000-0000-00000000001${i}`,type:'hostile',height:e.name==='blaze'?1.8:1.95,velocity:new Vec3(0,0,0)}))
+ bot.food=20;bot.inventory={items:()=>items,slots:[]}
+ return {bot,cells}
+}
+const SWORD={name:'iron_sword',count:1,maxDurability:250,durabilityUsed:0}
+test('the hut opened to confront carries the way it faces through the runner to the skill',async()=>{
+ // The controller built goal.toward; the runner's unhut case dropped it and the
+ // task goal validator returned {} for unhut, so the wall facing the mob never opened.
+ const {bot}=tunnel({mobs:[['zombie',.5,64,6.5]],items:[SWORD]}),executed=[]
+ const c={epoch:1,runner:{bot,ready:true,connectionId:'same',task:{result:{receipt:'unwalled'}}},safety:{status:'burrowed',retreat:TUNNEL_HUT},requestProgress:null,burrowWait:{quietMs:5,limitMs:1500,watches:1,patienceMs:0},
+  persist(){},emit(){},say(){},dispatch(){},async execute(command){executed.push(command)},resume(){assert.fail('no request to resume')}}
+ await Teammate.prototype.waitInBurrow.call(c,1,new AbortController().signal,bot,false)
+ assert.deepEqual(executed.map(x=>x.action),['unhut'])
+ const skilled=[];Runner.prototype.command.call({emit(){},skill:(kind,goal)=>skilled.push([kind,validateTaskGoal(kind,goal)])},executed[0])
+ assert.deepEqual(skilled,[['unhut',{toward:{x:0,z:6}}]])
+})
