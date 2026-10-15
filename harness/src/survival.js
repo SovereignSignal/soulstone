@@ -205,7 +205,9 @@ export function emergencyReason(observation){
  if(Number.isFinite(observation.food)&&observation.food<=6&&(observation.carriedFood||[]).length)return FOOD_EMERGENCY
  // Inside a verified closed lit shelter the answer to a nearby hostile is already
  // in place; interrupting there only retreats into the room the bot is standing in.
- if(observation.sheltered!==true&&observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name)&&!outOfReach(t)&&!cannotShootYet(t))||shotAt)return THREAT_INTERRUPTION
+ // A mob the tick marked walkOn (a lone fightable one out of sight on a Nether trip,
+ // nether-trip.js; lab run 148, 15 October) is the trip's to walk on, not an interruption.
+ if(observation.sheltered!==true&&observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&!t.walkOn&&t.distance<=threatRadius(t.name)&&!outOfReach(t)&&!cannotShootYet(t))||shotAt)return THREAT_INTERRUPTION
  // Out in the open after dusk with no built base: dig in before the crowd arrives.
  // Under rock there is no crowd arriving: trial 42 spent fifteen minutes of a
  // thirty-minute run waiting for a sunrise thirty-six blocks above it.

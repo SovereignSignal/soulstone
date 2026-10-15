@@ -14,6 +14,7 @@ import {survivalObservation,RANGED,HEALTH_EMERGENCY_LINE,breachesRock,outOfReach
 import {threatReach,threatRoutes} from './threat-reach.js'
 import {roofed} from './observations.js'
 import {defenseDecision,armorPoints,HEAVY_ARMOR} from './combat.js'
+import {walkOnThreat} from './nether-trip.js'
 const {goals}=pathfinding
 // Four deep keeps a creeper standing on the rim outside its three-block
 // trigger distance; the cap goes on the top cell so nothing can drop in.
@@ -299,7 +300,11 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
   // so a shooter is judged at the exits: one that could not see the bot at any exit
   // is not waiting outside (a blaze behind the fortress's nether bricks).
   const eyeAt=c=>({x:c.x+.5,y:c.y+(bot.entity?.eyeHeight??1.62),z:c.z+.5})
-  near=near.filter(t=>!(SHOOTERS_ONLY.has(t.name)&&t.distance>4&&t.position&&exits.every(c=>observedSightline(bot,eyeAt(c),{x:t.position.x,y:t.position.y+1,z:t.position.z}).status==='blocked')))
+  const hidden=t=>!!t.position&&exits.every(c=>observedSightline(bot,eyeAt(c),{x:t.position.x,y:t.position.y+1,z:t.position.z}).status==='blocked')
+  near=near.filter(t=>!(SHOOTERS_ONLY.has(t.name)&&t.distance>4&&hidden(t)))
+  // On a trip a mob the alarm walks on outside is not waiting outside either, judged by sight
+  // at the exits, or the hut holds the bot over it for good (lab run 148, 15 October).
+  if(trip){const seen=near.map(t=>({...t,sightline:{status:hidden(t)?'blocked':'clear'}}));near=near.filter((t,i)=>!walkOnThreat(bot,seen[i],seen))}
  }
  const scope='Loaded entities within 16 blocks and the world clock; not proof of a safe surface'
  if(!near.length)return {clear:true,health:s.health,timeOfDay:s.timeOfDay,scope}

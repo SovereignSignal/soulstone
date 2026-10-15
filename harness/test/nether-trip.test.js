@@ -307,3 +307,48 @@ test('hurt, short of the kit, or with no request, the burrow wait still holds or
  const none=lingeringHut();none.c.requestProgress.status='cancelled';await none.run()
  assert.ok(none.commands.some(x=>x.action==='use_portal'),none.commands.map(x=>x.action).join(' '))
 })
+// Lab run 148, 15 October: kitted, health 20, the bot held its portal-room hut for fifteen
+// minutes over one wither skeleton 11 blocks off behind netherrack, its open route about 21.
+// Out of the fight rule's ten and not a shooter, nothing could answer it but cover, and cover
+// never ends a mob that stays. The kit beats a lone one at health 18 and up (lab run 142), so
+// on a trip one such mob, out of sight and past arm's reach, lets the work walk on.
+// A tunnel one wide and two high: z 0 to 5 at x 0, x 0 to 11 at z 5, z 5 back to 0 at x 11.
+const tunnel=new Set();for(let i=0;i<=11;i++)for(const y of [64,65]){if(i<=5){tunnel.add(`0,${y},${i}`);tunnel.add(`11,${y},${i}`)}tunnel.add(`${i},${y},5`)}
+const wither=(id,x,z)=>({id,type:'mob',name:'wither_skeleton',position:new Vec3(x+.5,64,z+.5)})
+function walkOnTick({request='running',dimension='the_nether',sight='blocked',mobs=[wither(8,11,0)],...opts}={}){
+ const bot=netherBot({hoglinAt:30,...opts});bot.game.dimension='minecraft:'+dimension
+ bot.blockAt=p=>{const name=tunnel.has(`${p.x},${p.y},${p.z}`)?'air':'netherrack';return {name,position:p.clone(),boundingBox:registry.blocksByName[name].boundingBox,getProperties:()=>({})}}
+ bot.world={raycast:()=>sight==='blocked'?{name:'netherrack'}:null,getColumn:()=>({})}
+ bot.entities=Object.fromEntries(mobs.map(m=>[m.id,m]))
+ const r=new EventEmitter();Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Sov',connectionId:'20000000-0000-0000-0000-000000000006',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{},command(c){r.commands.push(c)}})
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-trip-walk-')),'state.json'))
+ if(request)c.requestProgress={id:'trip',request:'rods',status:request,feedback:[],completed:[]}
+ const calls=[],logs=[];c.seekSafety=async why=>{calls.push(why)};c.stallRetry=async()=>false;r.log=(type,data)=>logs.push([type,data])
+ r.emit('event',{type:'survival_tick'})
+ return {bot,calls,logs}
+}
+test('on a kitted trip a lone wither skeleton out of sight past arm\'s reach is walked on: no alarm, logged with its route',()=>{
+ const {calls,logs}=walkOnTick()
+ assert.deepEqual(calls,[],JSON.stringify(logs))
+ const walk=logs.find(([type])=>type==='threat_walk_on')
+ assert.ok(walk,JSON.stringify(logs));assert.deepEqual(walk[1].threats,['wither_skeleton@11/0:open~21:blocked'])
+ assert.deepEqual(walkOnTick({request:'interrupted'}).calls,[],'a request waiting to resume is still the trip')
+})
+test('the walk-on still alarms hurt below the mob\'s floor, without the kit, with two, in sight, at arm\'s reach, with no request, or in the Overworld',()=>{
+ const cases={hurt:{health:16},bare:{kit:false},two:{mobs:[wither(8,11,0),wither(9,11,3)]},seen:{sight:'clear'},close:{mobs:[wither(8,0,5)]},none:{request:null},ended:{request:'cancelled'},overworld:{dimension:'overworld'}}
+ for(const [name,opts] of Object.entries(cases)){
+  const {calls,logs}=walkOnTick(opts)
+  assert.deepEqual(calls,[THREAT_INTERRUPTION],name);assert.ok(!logs.some(([type])=>type==='threat_walk_on'),name)
+ }
+})
+test('from a hut on a kitted trip a lone wither skeleton out of sight of the exits neither holds the bot in nor sends it away',()=>{
+ const {bot}=walkOnTick()
+ const exits=[new Vec3(0,64,0),new Vec3(0,65,0)]
+ const r=burrowClearance(bot,{exits,trip:true,lingeredMs:600000})
+ assert.equal(r.clear,true,r.reason);assert.equal(r.relocate,undefined);assert.equal(r.confront,undefined)
+ // Off the trip the wait is what it was: the mob lingers, and in time the bot moves away.
+ assert.equal(burrowClearance(bot,{exits,trip:false,lingeredMs:1000}).lingering,true)
+ assert.ok(burrowClearance(bot,{exits,trip:false,lingeredMs:600000}).relocate)
+ // Two of them still hold the hut.
+ bot.entities[9]=wither(9,11,3);assert.equal(burrowClearance(bot,{exits,trip:true,lingeredMs:1000}).clear,false)
+})

@@ -97,7 +97,7 @@ import { randomUUID } from 'node:crypto'
 import { validatePlan } from './planner.js'
 import {hutSite,portalRoomSpot} from '../hut.js'
 import {rangedDefenseDecision,bowCanAnswer} from '../archery.js'
-import {onTrip,tripKit} from '../nether-trip.js'
+import {onTrip,tripKit,walkOnThreat} from '../nether-trip.js'
 import {deliveredCount,satisfiedStep,currentRequestTask} from './progress.js'
 
 const designKey=design=>JSON.stringify((design||[]).map(b=>[b.x,b.y,b.z,b.block]).sort((a,b)=>a[0]-b[0]||a[1]-b[1]||a[2]-b[2]||a[3].localeCompare(b[3])))
@@ -219,6 +219,13 @@ export class Teammate extends EventEmitter {
         // Out to the health alarm's radius too, so it judges a hidden hostile by reach as well.
         const pressing=observation.nearbyThreats.filter(t=>t.risk==='potential_hostile'&&t.distance<=Math.max(threatRadius(t.name),HEALTH_THREAT_RADIUS))
         if(pressing.some(t=>t.sightline?.status==='blocked')){const routes=threatRoutes(runner.bot,pressing);pressing.forEach((t,i)=>{t.reach=routes[i].reach;t.routeSteps=routes[i].steps;t.routeAtLeast=routes[i].atLeast})}
+        // On a kitted trip a lone mob the fight rule would take, out of sight past arm's reach,
+        // is walked on rather than an alarm (nether-trip.js; lab run 148, 15 October: fifteen
+        // minutes in the portal-room hut over one wither skeleton behind netherrack).
+        const tripRequest=this.requestProgress?.status==='running'||canResume(this.requestProgress)
+        const walkOn=onTrip(runner.bot,tripRequest)?pressing.filter(t=>walkOnThreat(runner.bot,t,observation.nearbyThreats)):[]
+        for(const t of walkOn)t.walkOn=true
+        if(walkOn.length&&Date.now()-(this.walkOnLogAt||0)>=5000){this.walkOnLogAt=Date.now();runner.log?.('threat_walk_on',{threats:walkOn.map(t=>`${t.name}@${t.distance}/${t.verticalOffset}:${t.reach||'-'}${Number.isFinite(t.routeSteps)?'~'+t.routeSteps:Number.isFinite(t.routeAtLeast)?'>='+t.routeAtLeast:''}:${t.sightline?.status||'-'}`)})}
         // Night only matters where the sky is: asked when it is dark and there is no base.
         const underRock=!shelterAvailable&&Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500)&&roofed(runner.bot)
         // use_portal stands in a portal on purpose; every other way into one is still an emergency.
