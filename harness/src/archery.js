@@ -94,7 +94,8 @@ export function edgeExposed(bot,cell){
  return AROUND.some(([dx,dz])=>{const n=cell.offset(dx,0,dz);return !fullCube(bot.registry,bot.blockAt(n)?.name)&&bridgeFall(bot,n)==='unsafe'})
 }
 export async function shootTarget(bot,task,{check,stage,progress,movements},options={}){
- const o={...SHOOT,...options}
+ // Shooting from a firing port it stays in cover (lab run 146, 15 October).
+ const o={...SHOOT,...(task.goal?.stay?{repositions:0}:{}),...options}
  const goal=validateAttackGoal(task.goal,bot.registry)
  const bow=bot.inventory.items().find(i=>i.name==='bow')
  if(!bow)throw new Error('Shooting needs a bow (3 sticks and 3 string)')

@@ -28,6 +28,8 @@ export function relocateWay(bot){
 }
 // Shooters the bow takes in one defense before the area is judged.
 const RANGED_CHAIN=4
+// Firing ports a shelter wait opens without a kill before it moves away (lab run 146).
+const PORT_ATTEMPTS=4
 // Melee kills in a row before the area is judged: a big magma cube splits into up to four.
 const MELEE_CHAIN=5
 // A hostile inside its own interruption radius while the bot is indoors: the
@@ -94,7 +96,7 @@ import { dirname,join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { validatePlan } from './planner.js'
 import {hutSite,portalRoomSpot} from '../hut.js'
-import {rangedDefenseDecision} from '../archery.js'
+import {rangedDefenseDecision,bowCanAnswer} from '../archery.js'
 import {onTrip,tripKit} from '../nether-trip.js'
 import {deliveredCount,satisfiedStep,currentRequestTask} from './progress.js'
 
@@ -1064,15 +1066,45 @@ export class Teammate extends EventEmitter {
       // waiting for a person to notice. Working unattended that is where the day
       // ends. Keep watching a bounded number of times, carrying the linger clock
       // across so a threat holding station still comes due, before giving up.
-      let result
-      for(let watch=1;;watch++){
-        result=await awaitClearance({check,observe,quietMs,limitMs,maintain:()=>topUpWhileSheltered(this,signal,bot),onUpdate:record=>{safety.continuation={...record,watch};this.persist();this.emit('change')}})
-        check();safety.continuation={...result,watch};this.persist()
-        if(result.status==='cleared'||watch>=watches)break
-        this.say(`Still no clear area after ${Math.round(limitMs/60000)} minutes. I am staying dug in and watching again.`)
+      // Lab run 146, 15 October: kitted, walled in inside a one-wide netherrack tunnel, a
+      // blaze outside its wall. The confront opened a wall and resumed; the alarm fired
+      // seconds later at the same blaze, judged the shot through the hut's remaining wall
+      // and walled in again, every ninety seconds for fifteen minutes, no arrow loosed.
+      // A shooter the bow answers is shot through a firing port while the shelter is
+      // still held, so no alarm fires, and the hut closes the port after. A port with no
+      // shot is not opened again; PORT_ATTEMPTS openings without a kill and it moves away.
+      let result,confront,relocate,attempts=0
+      const tried=[]
+      for(;;){
+        for(let watch=1;;watch++){
+          result=await awaitClearance({check,observe,quietMs,limitMs,maintain:()=>topUpWhileSheltered(this,signal,bot),onUpdate:record=>{safety.continuation={...record,watch};this.persist();this.emit('change')}})
+          check();safety.continuation={...result,watch};this.persist()
+          if(result.status==='cleared'||watch>=watches)break
+          this.say(`Still no clear area after ${Math.round(limitMs/60000)} minutes. I am staying dug in and watching again.`)
+        }
+        if(result.status!=='cleared'){this.say('I am staying dug in. Resume is required because daylight and a clear area were not established in time.');return}
+        confront=result.observation?.confront;relocate=result.observation?.relocate
+        if(!(safety.retreat.shelterName==='hut'&&confront?.position&&SHOOTERS_ONLY.has(confront.name)&&bowCanAnswer(bot,confront.name)))break
+        const name=confront.name.replaceAll('_',' '),moveAway=()=>{relocate={threats:[confront],from:confront.position};confront=null}
+        this.say(`A ${name} has lingered ${confront.distance} blocks away. Opening a firing port toward it.`)
+        let port
+        try{await this.execute({action:'unhut',goal:{toward:{x:Math.floor(confront.position.x),z:Math.floor(confront.position.z)},shooter:confront.name,...(tried.length?{skip:structuredClone(tried)}:{})},timeoutMs:60000},signal);check();port=structuredClone(this.runner.task.result)}
+        catch(error){check();this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check();this.say(`No port to shoot the ${name} from: ${error.message}.`);moveAway();break}
+        safety.port=port;this.persist()
+        let shot=null,missed=null
+        try{await this.execute({action:'shoot',goal:{type:confront.name,collect:false,stay:true},timeoutMs:60000},signal);check();shot=structuredClone(this.runner.task.result)}
+        catch(error){check();missed=error.message;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check()}
+        // The hut puts back what is missing: the port, and any wall a fireball took.
+        await this.execute({action:'hut',goal:{},timeoutMs:60000},signal);check()
+        delete safety.port;protectedHealth=bot.health;this.persist()
+        if(shot?.receipt==='killed'){
+          if(shot.at)(this.killSites??=[]).push({at:shot.at,time:Date.now()})
+          this.say(`The ${name} fell to my arrows. Port closed; watching again.`);continue
+        }
+        if(port?.side&&/No clear shot/.test(missed||''))tried.push(port.side)
+        this.say(`${missed?`No luck through that port: ${missed}`:`The ${name} survived ${shot?.shots??0} arrows`}. Port closed.`)
+        if(++attempts>=PORT_ATTEMPTS){moveAway();break}
       }
-      if(result.status!=='cleared'){this.say('I am staying dug in. Resume is required because daylight and a clear area were not established in time.');return}
-      const confront=result.observation?.confront,relocate=result.observation?.relocate
       this.say(confront?`${inNether(bot)?'A':'Daylight, and a'} lone ${confront.name} has lingered ${confront.distance} blocks away. Opening up to confront it.`
         :relocate?`${inNether(bot)?'':'Daylight, and '}${relocate.threats.length===1?`a ${relocate.threats[0].name.replaceAll('_',' ')}`:`${relocate.threats.length} hostiles`} will not move on. I cannot fight that from here and waiting is not working, so I am leaving the area.`.replace(/^a /,'A ')
         :'Daylight with no hostile nearby. Opening up.')

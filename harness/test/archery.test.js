@@ -496,3 +496,16 @@ test('kills whose fight ended in shelter are picked up when the bot comes out, w
  c.killSites=[{at:{x:1,y:64,z:9},time:Date.now()}];c.requestProgress.request='build a house'
  assert.equal(await c.collectKillSites(new AbortController().signal,bot,c.requestProgress),null,'nothing wanted, no walk')
 })
+
+// Lab run 146, 15 October: shooting through a hut's firing port, the bow stays in
+// cover. Asked to stay, it never walks out to look for a line.
+test('a shot asked to stay in cover does not walk to a better spot',async()=>{
+ const walk=({stay})=>{
+  const r=range(),walked=[]
+  r.bot.world={raycast:from=>from.x===0.5&&from.z===0.5?{name:'netherrack'}:null}
+  r.bot.pathfinder={movements:null,setMovements(){},setGoal(){},async goto(g){walked.push(g);r.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}}
+  return {run:shootTarget(r.bot,{kind:'shoot',goal:{type:'zombie',...(stay?{stay:true}:{})}},api,fast),walked}
+ }
+ const free=walk({stay:false});assert.equal((await free.run).receipt,'killed');assert.equal(free.walked.length,1)
+ const held=walk({stay:true});await assert.rejects(held.run,/No clear shot.*netherrack/);assert.equal(held.walked.length,0)
+})

@@ -180,3 +180,44 @@ test('the hut opened to confront carries the way it faces through the runner to 
  const skilled=[];Runner.prototype.command.call({emit(){},skill:(kind,goal)=>skilled.push([kind,validateTaskGoal(kind,goal)])},executed[0])
  assert.deepEqual(skilled,[['unhut',{toward:{x:0,z:6}}]])
 })
+// The same hut, kitted, a lone blaze hovering outside the one-thick +x wall below
+// eye level. Opening a door and resuming put the bot back under the alarm within
+// seconds, which judged the shot through its own remaining wall and walled in again,
+// every ninety seconds for fifteen minutes, without one arrow loosed.
+const KIT=[{name:'bow',count:1,maxDurability:384,durabilityUsed:0},{name:'arrow',count:122},SWORD]
+function portWait({shot}){
+ const {bot}=tunnel({mobs:[['blaze',5.5,63,.5]],items:KIT}),executed=[],said=[],held=[]
+ const c={epoch:1,runner:{bot,ready:true,connectionId:'same',task:{result:{}}},safety:{status:'burrowed',retreat:TUNNEL_HUT},requestProgress:null,burrowWait:{quietMs:5,limitMs:1500,watches:1,patienceMs:0},
+  persist(){},emit(){},say:t=>said.push(t),dispatch(){},resume(){assert.fail('no request to resume')},
+  async execute(command){
+   executed.push(command)
+   if(command.action==='unhut'&&command.goal?.shooter){
+    if(command.goal.skip?.some(s=>s.dx===1&&s.dz===0))throw new Error('No wall facing the blaze left to open without lava, water or fire beside it')
+    this.runner.task={result:{receipt:'unwalled',port:true,side:{dx:1,dz:0}}};return
+   }
+   if(command.action==='shoot'){held.push(this.safety?.status);return shot(bot,this)}
+   this.runner.task={result:{receipt:command.action==='hut'?'walled_in':'done'}}
+  }}
+ return {bot,c,executed,said,held}
+}
+test('a shooter outside the hut is shot from a firing port while the shelter still holds, then the port closes',async()=>{
+ const w=portWait({shot:(bot,c)=>{delete bot.entities[1];c.runner.task={result:{item:'blaze',receipt:'killed',count:1,shots:3,at:{x:5.5,y:63,z:.5}}}}})
+ await Teammate.prototype.waitInBurrow.call(w.c,1,new AbortController().signal,w.bot,false)
+ assert.deepEqual(w.executed.map(x=>x.action),['unhut','shoot','hut','unhut'],w.said.join(' | '))
+ assert.deepEqual(w.executed[0].goal,{toward:{x:5,z:0},shooter:'blaze'})
+ assert.deepEqual(w.executed[1].goal,{type:'blaze',collect:false,stay:true},'shot from cover, never walking out to find a line')
+ assert.deepEqual(validateTaskGoal('shoot',w.executed[1].goal),w.executed[1].goal,'and the runner keeps it so')
+ assert.deepEqual(w.held,['burrowed'],'the shelter is still held while it shoots, so the alarm does not fire')
+ assert.equal(w.executed[3].goal.shooter,undefined,'with the blaze dead the hut opens as it always has')
+ assert.deepEqual(w.c.killSites?.map(k=>k.at),[{x:5.5,y:63,z:.5}],'the rod is picked up when the wait ends')
+ assert.equal(w.c.safety,null)
+})
+test('a firing port with no shot closes again and is not reopened; with no wall left to try the bot leaves',async()=>{
+ const w=portWait({shot:()=>{throw new Error('No clear shot at the blaze: netherrack is in the way')}})
+ await Teammate.prototype.waitInBurrow.call(w.c,1,new AbortController().signal,w.bot,false)
+ const actions=w.executed.map(x=>x.action)
+ assert.deepEqual(actions.slice(0,4),['unhut','shoot','hut','unhut'],w.said.join(' | '))
+ assert.deepEqual(w.executed[3].goal.skip,[{dx:1,dz:0}],'the port that had no shot is not opened again')
+ assert.deepEqual(actions.slice(4),['unhut','climb','flee'],'out of walls to try, it moves away instead of looping')
+ assert.equal(actions.filter(a=>a==='shoot').length,1)
+})
