@@ -192,7 +192,7 @@ function portWait({shot,blaze=[5.5,63,.5],health=20,hut=()=>{},limitMs=1500,trip
  if(trip){bot.getEquipmentDestSlot=s=>({head:5,torso:6,legs:7,feet:8})[s];for(const [i,n] of [[5,'iron_helmet'],[6,'iron_chestplate'],[7,'iron_leggings'],[8,'golden_boots']])bot.inventory.slots[i]={name:n}}
  const c={epoch:1,runner:{bot,ready:true,connectionId:'same',task:{result:{}}},safety:{status:'burrowed',retreat:{...TUNNEL_HUT}},requestProgress:trip?{id:'rods',request:'blaze rods',status:'interrupted',feedback:[]}:null,burrowWait:{quietMs:5,limitMs,watches:1,patienceMs:0},
   // Held in the hut, the blaze drifts off so the wait can end.
-  persist(){},emit(){},say:t=>{said.push(t);if(/Holding the hut/.test(t))delete bot.entities[1]},dispatch(){},resume(){assert.fail('no request to resume')},
+  persist(){},emit(){},say:t=>{said.push(t);if(/Holding the hut/.test(t))delete bot.entities[1]},dispatch(){},resume(){assert.fail('no request to resume')},tripEnded:Teammate.prototype.tripEnded,
   async execute(command){
    executed.push(command)
    if(command.action==='unhut'&&command.goal?.shooter){
@@ -252,6 +252,19 @@ test('on a kitted trip the shot from the port breaks off at the first hit; off a
  assert.deepEqual(off.executed.find(x=>x.action==='shoot')?.goal,{type:'blaze',collect:false,stay:true})
 })
 const noShot=()=>{throw new Error('No clear shot at the blaze: netherrack is in the way')}
+// Review of the burn rule: on fire without end (a fire block, say) the grace would mask every
+// point lost until death. Past burnCapMs of continuous fire the wait douses once, and from
+// then on a drop is a breach again.
+test('burning past the cap, the wait douses once and then counts a drop as a breach',async()=>{
+ const {bot}=tunnel({items:KIT}),executed=[],said=[];bot.entity.metadata=[1]
+ const c={epoch:1,runner:{bot,ready:true,connectionId:'same',task:{result:{}}},safety:{status:'burrowed',retreat:{...TUNNEL_HUT}},requestProgress:null,burrowWait:{quietMs:3000,limitMs:3000,watches:1,patienceMs:0,burnCapMs:300},
+  persist(){},emit(){},say:t=>said.push(t),dispatch(){},resume(){assert.fail('no request to resume')},async execute(command){executed.push({action:command.action,health:bot.health});this.runner.task={result:{receipt:command.action}}}}
+ setTimeout(()=>{bot.health--},100);setTimeout(()=>{bot.health-=2},1200)
+ await Teammate.prototype.waitInBurrow.call(c,1,new AbortController().signal,bot,false)
+ assert.deepEqual(executed,[{action:'douse',health:19}],said.join(' | '))
+ assert.ok(said.some(t=>/Health fell inside the emergency shelter/.test(t)),said.join(' | '))
+})
+
 // Lab run 156, 15 October: broken off at the port alight, the bot closed the hut and burned.
 // Fire ticks after the hut has closed are a burn, not a breach: the hut is kept and the wait
 // goes on. Only a drop while not burning, nor burnt within the last few seconds, fails it.
@@ -294,14 +307,28 @@ test('on a trip the wait leaves the rods while a shooter was near in the last mi
 
 const run=async w=>{await Teammate.prototype.waitInBurrow.call(w.c,1,new AbortController().signal,w.bot,false);return w.executed.map(x=>x.action)}
 const leaving=actions=>actions.filter(a=>['climb','flee','use_portal'].includes(a))
+// Review of portReady: holding the port shut heals nothing with no food carried and too little
+// hunger to regenerate. On a kitted trip that ends the trip, out of food; otherwise the hold is
+// skipped and the hut's ordinary rules decide.
+test('unable to heal while holding the port shut, a kitted trip ends out of food; off a trip the hold is skipped',async()=>{
+ const trip=portWait({shot:noShot,trip:true,health:14,food:10,limitMs:800});trip.c.requestProgress.kittedTrip={at:'t',how:'crossed'}
+ await run(trip)
+ assert.match(String(trip.c.requestProgress.tripEnded?.reason),/out of food/,trip.said.join(' | '))
+ assert.ok(trip.said.some(t=>/The Nether trip is over: .*out of food/.test(t)),trip.said.join(' | '))
+ assert.ok(!trip.said.some(t=>/Holding the port/.test(t)),trip.said.join(' | '))
+ const off=portWait({shot:noShot,health:14,food:10,limitMs:800});await run(off)
+ assert.ok(!off.said.some(t=>/Holding the port/.test(t)),off.said.join(' | '))
+ assert.ok(off.executed.some(x=>x.action==='unhut'&&x.goal?.shooter),off.said.join(' | '))
+ assert.ok(off.said.some(t=>/cannot heal/.test(t)),off.said.join(' | '))
+})
 // With kills to fetch on a trip, the wait holds the hut quiet until no shooter has been near
 // for a minute (or until the watch has no room left for it), then walks for them, guarded.
 // Trip kills are kept until fetched or the trip ends, not dropped after four and a half minutes.
 test('with kills to fetch on a trip the hut holds quiet a minute after the last shooter, then collects; trip kills last until the trip ends',async()=>{
  const site={x:5.5,y:63,z:.5},far={x:14.5,y:64,z:.5}
- const pending=({seenAgo,limitMs,age=0})=>{
+ const pending=({seenAgo,limitMs,age=0,onlyFar=false})=>{
   const w=portWait({shot:noShot,trip:true,limitMs});delete w.bot.entities[1]
-  w.c.killSites=[{at:site,time:Date.now()-age,trip:true},{at:far,time:Date.now(),trip:true}];w.c.shooterSeenAt=Date.now()-seenAgo
+  w.c.killSites=[{at:site,time:Date.now()-age,trip:true},{at:far,time:Date.now(),trip:true}].slice(onlyFar?1:0);w.c.shooterSeenAt=Date.now()-seenAgo
   const at={};const execute=w.c.execute;w.c.execute=async function(command){at[command.action]??=Date.now();return execute.call(this,command)}
   return {...w,at}
  }
@@ -317,6 +344,9 @@ test('with kills to fetch on a trip the hut holds quiet a minute after the last 
  assert.deepEqual(quiet.executed.find(x=>x.action==='collect')?.goal.at,[site],quiet.said.join(' | '))
  assert.ok(quiet.at.unhut-seen>=60000,'opened only after a quiet minute');assert.ok(quiet.at.collect-seen>=60000)
  assert.deepEqual(quiet.c.killSites.map(k=>k.at),[far],'the far one is kept for later')
+ // Only kills near the hut are worth holding for.
+ const farOnly=pending({seenAgo:20000,limitMs:2000,onlyFar:true});await run(farOnly)
+ assert.ok(!farOnly.said.some(t=>/Holding the hut quiet/.test(t)),farOnly.said.join(' | '))
  // The trip ending drops its kills; a kill from before it is kept.
  const said=[],c={requestProgress:{id:'rods',status:'interrupted',kittedTrip:{at:'t'}},killSites:[{at:site,time:Date.now(),trip:true},{at:far,time:Date.now()}],runner:{},say:t=>said.push(t),persist(){},cancel(){}}
  assert.equal(Teammate.prototype.tripEnded.call(c,'danger sent me home through the portal'),true)

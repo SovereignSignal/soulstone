@@ -396,7 +396,21 @@ test('on a trip the rods are walked for only after a quiet minute, on 16 health,
  for(const [why,args,re] of [
   ['a shooter seen 59 s ago',{health:20,shooterSeenAt:now-59000},/shooter .*59 seconds/],
   ['hurt',{health:15},/health 15 of 16/],
-  ['nothing near the hut',{health:20,sites:[far]},/within 8 blocks of the hut/]]){
+  ['nothing near the hut',{health:20,sites:[far]},/within 8 blocks of the hut/],
+  ['burning',{health:20,onFire:true},/on fire/]]){
   const r=tripPickup({now,hut,sites:[near,far],...args});assert.equal(r.ok,false,why);assert.match(r.reason,re,why);assert.deepEqual(r.sites,[],why)
  }
+})
+// Review of the above: a trip's kills and the last shooter seen belong to the dimension they
+// were in. Through a portal, either way, both are dropped.
+test('a dimension change drops the trip\'s kills and the last shooter seen, and keeps other kills',()=>{
+ const {bot,r,c}=tripTeammate({})
+ r.emit('event',{type:'spawn'})
+ const trip={at:{x:5.5,y:64,z:.5},time:Date.now(),trip:true},home={at:{x:1,y:64,z:1},time:Date.now()}
+ c.killSites=[trip,home];c.shooterSeenAt=Date.now()
+ r.emit('event',{type:'spawn'})
+ assert.deepEqual(c.killSites,[trip,home],'the same dimension keeps them')
+ bot.game.dimension='minecraft:overworld';r.emit('event',{type:'spawn'})
+ assert.deepEqual(c.killSites,[home]);assert.equal(c.shooterSeenAt,null)
+ clearInterval(c.dawnTimer)
 })

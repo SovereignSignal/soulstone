@@ -54,7 +54,7 @@ export function centreward(bot,{reach=32,keep=6,main=80,climb=4}={}){
 const RANGED_CHAIN=4
 // Firing ports a shelter wait opens without a kill before it moves away (lab run 146).
 const PORT_ATTEMPTS=4
-const BURN_MS=6000
+const BURN_MS=6000,BURN_CAP_MS=10000
 // Melee kills in a row before the area is judged: a big magma cube splits into up to four.
 const MELEE_CHAIN=5
 // A hostile inside its own interruption radius while the bot is indoors: the
@@ -127,7 +127,7 @@ import { randomUUID } from 'node:crypto'
 import { validatePlan } from './planner.js'
 import {hutSite,portalRoomSpot} from '../hut.js'
 import {rangedDefenseDecision,bowCanAnswer} from '../archery.js'
-import {onTrip,tripKit,walkOnThreat,portReady,tripPickup,PICKUP} from '../nether-trip.js'
+import {onTrip,tripKit,walkOnThreat,portReady,tripPickup,sitesNearHut,PICKUP,PORT_HEALTH,PORT_FOOD} from '../nether-trip.js'
 import {deliveredCount,satisfiedStep,currentRequestTask} from './progress.js'
 
 const designKey=design=>JSON.stringify((design||[]).map(b=>[b.x,b.y,b.z,b.block]).sort((a,b)=>a[0]-b[0]||a[1]-b[1]||a[2]-b[2]||a[3].localeCompare(b[3])))
@@ -407,6 +407,8 @@ export class Teammate extends EventEmitter {
           this.say('I keep getting knocked out here. I will try again at the next sunrise.')
         }
       }
+      // A trip's kills and the last shooter seen belong to the dimension they were in.
+      if(e.type==='spawn'&&runner.ready){const here=dimensionOf(runner.bot);if(this.lastDimension&&here!==this.lastDimension){this.killSites=(this.killSites||[]).filter(k=>!k.trip);this.shooterSeenAt=null}this.lastDimension=here}
       if(e.type==='spawn'&&this.restoreBurrow&&runner.ready){this.restoreBurrow=false;this.phase='blocked';this.safety.status='burrowed';delete this.safety.error;this.persist();const abort=this.abort=new AbortController();this.say('Service restarted while I was dug in. Waiting for daylight before digging out.');void this.waitInBurrow(this.epoch,abort.signal,runner.bot,this.requestProgress?.status==='interrupted')}
       if(e.type==='spawn'&&this.restoreRequest&&runner.ready&&!this.snapshot().dead){this.restoreRequest=false;this.requestProgress.restartContinuations=(this.requestProgress.restartContinuations||0)+1;this.persist();this.say('Service restarted while a request was running. Continuing it automatically.');setTimeout(()=>{this.resume({automatic:true}).catch(error=>{this.requestProgress.blocker=error.message;this.persist()})},1500)}
       // The dimension marks the trip too: the alarm can cancel a crossing that has already
@@ -1080,46 +1082,64 @@ export class Teammate extends EventEmitter {
   async waitInBurrow(epoch,signal,bot,eligible) {
     const request=this.requestProgress,safety=this.safety,connection=this.runner.connectionId
     if(eligible&&request?.status==='interrupted'){safety.resumeRequestId=request.id;this.persist()}
-    const {quietMs=20000,limitMs=14*60*1000,patienceMs,relocateAfterMs,watches=BURROW_WATCHES}=this.burrowWait||{}
+    const {quietMs=20000,limitMs=14*60*1000,patienceMs,relocateAfterMs,watches=BURROW_WATCHES,burnCapMs=BURN_CAP_MS}=this.burrowWait||{}
     let lingerSince=null
     // The relocate decision is derived from how long the threat has held, so
     // clearing the timer the moment it fires un-decides it on the next poll and
     // the wait oscillates for ever, never accumulating the quiet period it needs.
     // A brief clear reading is still inside the quiet-area verification window.
     // Keep elapsed patience until clearance succeeds; night starts a fresh wait.
-    let protectedHealth=bot.health,portWait=null,burntAt=-Infinity,watchStart=Date.now()
+    let protectedHealth=bot.health,portWait=null,burntAt=-Infinity,fireSince=null,doused=false,watchStart=Date.now()
     const observe=()=>{
       safety.protection=inspectEmergencyShelter(bot)
       // Lab run 156, 15 October: alight from the port, the bot closed the hut and the fire ticks
       // read as a breach. A drop while burning, or within BURN_MS of it (the last tick can land
       // after the flag clears), is a burn: the hut is kept and the wait goes on. The inspection
-      // above still finds a hut that is no longer closed.
-      if(fireObservation(bot).onFire===true)burntAt=Date.now()
-      if(bot.health<protectedHealth&&Date.now()-burntAt>BURN_MS)throw new Error('Health fell inside the emergency shelter; protection is not established')
+      // above still finds a hut that is no longer closed or has fire inside. Past burnCapMs of
+      // continuous fire the wait douses once (douseLongBurn), and from then until the fire is
+      // out a drop is a breach again, so no burn is waited out to the death.
+      const alight=fireObservation(bot).onFire===true
+      if(alight){burntAt=Date.now();fireSince??=Date.now()}else{fireSince=null;if(Date.now()-burntAt>BURN_MS)doused=false}
+      if(bot.health<protectedHealth&&(doused||Date.now()-burntAt>BURN_MS))throw new Error('Health fell inside the emergency shelter; protection is not established')
       protectedHealth=bot.health
       // Any shooter loaded within its alarm radius, seen or behind rock, for the rod pickup's quiet minute.
       if(Object.values(bot.entities||{}).some(e=>SHOOTERS_ONLY.has(e?.name)&&e.position&&e.position.distanceTo(bot.entity.position)<=threatRadius(e.name)))this.shooterSeenAt=Date.now()
       const r=burrowClearance(bot,{lingeredMs:lingerSince?Date.now()-lingerSince:0,patienceMs,relocateAfterMs,exits:shelterExits(safety.retreat),canPort:safety.retreat?.shelterName==='hut',trip:onTrip(bot,canResume(request))});if(r.lingering||r.confront||r.relocate)lingerSince??=Date.now();else if(r.holding)lingerSince=null
-      // Lab run 156, 15 October: broken off at a port at 10 health and alight, the bot walled in
-      // and burned to death. In the Nether no port opens toward a shooter until portReady; the
-      // hut holds meanwhile, and the wait's top-up eats when it can.
-      // With kills to fetch on a trip the hut holds quiet until no shooter has been near for
-      // tripPickup's minute, so the walk for them comes before going on; never so late in a watch
-      // that the quiet the wait needs after it no longer fits (lab run 156, 15 October).
+      // With kills near the hut to fetch on a trip, the hut holds quiet until no shooter has been
+      // near for tripPickup's minute, so the walk for them comes before going on; never so late in
+      // a watch that the quiet the wait needs after it no longer fits (lab run 156, 15 October).
       const since=Date.now()-(this.shooterSeenAt??-Infinity)
-      if(r.clear&&!r.confront&&!r.relocate&&since<PICKUP.quietMs&&Date.now()-watchStart<limitMs-quietMs-1000&&inNether(bot)&&canResume(request)&&this.killSites?.length&&wantedDrops(request,bot.registry).length){
+      if(r.clear&&!r.confront&&!r.relocate&&since<PICKUP.quietMs&&Date.now()-watchStart<limitMs-quietMs-1000&&inNether(bot)&&canResume(request)&&sitesNearHut(safety.retreat?.surface,this.killSites||[]).length&&wantedDrops(request,bot.registry).length){
         const reason=`Holding the hut quiet before fetching what fell: a shooter was near ${Math.round(since/1000)} seconds ago`
         if(portWait!=='pickup'){portWait='pickup';this.say(reason+'.')}
         return {clear:false,reason}
       }
+      // Lab run 156, 15 October: broken off at a port at 10 health and alight, the bot walled in
+      // and burned to death. In the Nether no port opens toward a shooter until portReady; the
+      // hut holds meanwhile, and the wait's top-up eats when it can.
       const port=r.confront&&safety.retreat?.shelterName==='hut'&&inNether(bot)&&SHOOTERS_ONLY.has(r.confront.name)&&bowCanAnswer(bot,r.confront.name)
       const ready=port?portReady(bot):{ready:true}
       if(ready.ready){portWait=null;return r}
+      // A hold that cannot heal (no food carried, and too hungry to regenerate) only waits. On a
+      // kitted trip that is the trip's end, out of food; otherwise the hut's own rules decide.
+      const carried=survivalObservation(bot).carriedFood?.length>0
+      if(!carried&&(!(bot.food>=PORT_FOOD)||bot.health<PORT_HEALTH&&!(bot.food>=18))){
+        if(inNether(bot)&&request?.kittedTrip&&LIVE_REQUEST.has(request.status))this.tripEnded('I am out of food to heal on')
+        else if(portWait!=='unhealed'){portWait='unhealed';this.say(`I cannot heal here: no food carried and hunger ${bot.food}. Not waiting to open the port.`)}
+        return r
+      }
       const reason=`Holding the port toward the ${r.confront.name.replaceAll('_',' ')} shut: ${ready.reason}`
       // Said once per cause, not at every point healed.
-      const cause=ready.reason.split(' ')[0],eats=bot.food<18&&survivalObservation(bot).carriedFood?.length
+      const cause=ready.reason.split(' ')[0],eats=bot.food<18&&carried
       if(portWait!==cause){portWait=cause;this.say(`${reason}. Waiting in the hut${eats?' and eating':''} before I open it.`)}
       return {clear:false,lingering:true,reason,threats:[r.confront]}}
+    // Burning past the cap inside the hut: put it out once (fire-safety.js), then count from here.
+    const douseLongBurn=async()=>{
+      if(doused||fireSince===null||Date.now()-fireSince<burnCapMs)return
+      doused=true;this.say(`Burning for ${Math.round((Date.now()-fireSince)/1000)} seconds in the hut. Putting the fire out.`)
+      try{await this.execute({action:'douse',goal:{},timeoutMs:30000},signal)}catch(error){check();this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal)}
+      check();protectedHealth=bot.health
+    }
     const check=()=>{
       if(signal.aborted||epoch!==this.epoch||this.safety!==safety)throw new Error('Burrow wait cancelled')
       if(!this.runner.ready||this.runner.bot!==bot||this.runner.connectionId!==connection)throw new Error('Connection changed while burrowed')
@@ -1163,7 +1183,7 @@ export class Teammate extends EventEmitter {
       for(;;){
         for(let watch=1;;watch++){
           watchStart=Date.now()
-          result=await awaitClearance({check,observe,quietMs,limitMs,maintain:()=>topUpWhileSheltered(this,signal,bot),onUpdate:record=>{safety.continuation={...record,watch};this.persist();this.emit('change')}})
+          result=await awaitClearance({check,observe,quietMs,limitMs,maintain:async()=>{await douseLongBurn();return topUpWhileSheltered(this,signal,bot)},onUpdate:record=>{safety.continuation={...record,watch};this.persist();this.emit('change')}})
           check();safety.continuation={...result,watch};this.persist()
           if(result.status==='cleared'||watch>=watches)break
           this.say(`Still no clear area after ${Math.round(limitMs/60000)} minutes. I am staying dug in and watching again.`)
@@ -1263,7 +1283,7 @@ export class Teammate extends EventEmitter {
       // fell mid-chain, the chain ended in the portal room, and nobody went back for them).
       // In the Nether only after a quiet minute, on 16 health, and near the hut (lab run 156, 15 October).
       if(!confront&&!relocate&&canResume(request)){
-        const guard=inNether(bot)?tripPickup({health:bot.health,shooterSeenAt:this.shooterSeenAt,now:Date.now(),hut:safety.retreat?.surface,sites:this.killSites||[]}):null
+        const guard=inNether(bot)?tripPickup({health:bot.health,onFire:fireObservation(bot).onFire===true,shooterSeenAt:this.shooterSeenAt,now:Date.now(),hut:safety.retreat?.surface,sites:this.killSites||[]}):null
         if(guard&&!guard.ok){if(this.killSites?.length&&wantedDrops(request,bot.registry).length)this.say(`Leaving what fell where it lies for now: ${guard.reason}.`)}
         else{const got=await collectKillSites(this,signal,bot,request,guard?k=>guard.sites.includes(k):undefined);check();if(got)safety.collected=got}
       }

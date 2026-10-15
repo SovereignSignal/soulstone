@@ -6,6 +6,7 @@ import minecraftData from 'minecraft-data'
 import {Vec3} from 'vec3'
 import {hutSite,wallIn,unwall} from '../src/hut.js'
 import {burrowSite} from '../src/burrow.js'
+import {inspectEmergencyShelter} from '../src/shelter-occupants.js'
 import {executeSkill} from '../src/skills.js'
 import {Teammate} from '../src/companion/controller.js'
 import {THREAT_INTERRUPTION} from '../src/survival.js'
@@ -357,4 +358,13 @@ test('away from a mob beside a portal, the portal side is never opened',async()=
  for(const c of ['8,64,10','8,65,10','10,64,12','10,65,12'])w.cells.set(new Vec3(...c.split(',').map(Number)).toString(),'stone')
  const out=await unwall(w.bot,{kind:'unhut',goal:{toward:{x:10,z:-30},from:[{x:30,z:10}]}},api)
  assert.notDeepEqual(out.side,{dx:0,dz:-1});assert.ok(!w.dug.some(c=>c.endsWith(',9')),w.dug.join(' '))
+})
+// Review of lab run 156, 15 October: a fireball can light the hut's own floor, and a bot
+// standing in fire burns for as long as it stands there. Fire in the cavity is no shelter,
+// as liquid is not.
+test('a closed hut with fire in its cavity fails the shelter inspection',async()=>{
+ const w=world();await executeSkill(w.bot,{kind:'hut',goal:{}},api)
+ assert.equal(inspectEmergencyShelter(w.bot).verified,true)
+ w.cells.set(new Vec3(10,64,10).toString(),'fire')
+ assert.throws(()=>inspectEmergencyShelter(w.bot),/Emergency shelter contains fire/)
 })

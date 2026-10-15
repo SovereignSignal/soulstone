@@ -1,5 +1,5 @@
 import {fullCube} from './construction.js'
-import {isPotentialHostile} from './survival.js'
+import {isPotentialHostile,FIRE_BLOCKS} from './survival.js'
 
 // Use all loaded entities, not the truncated nearby-threat summary. Bounding
 // boxes catch mobs straddling the doorway or standing on furniture.
@@ -13,7 +13,7 @@ export function assertNoHostileOccupants(bot,cells){
 
 // Emergency shelters are small closed cavities. Follow their actual connected
 // air volume, including any alcove dug for material, instead of trusting a cap
-// receipt. Unknown blocks, liquids and open space cannot establish protection.
+// receipt. Unknown blocks, liquids, fire and open space cannot establish protection.
 export function inspectEmergencyShelter(bot){
  const p=bot.entity?.position
  if(!p||!bot.blockAt)throw new Error('Emergency shelter position or blocks unavailable')
@@ -31,6 +31,8 @@ export function inspectEmergencyShelter(bot){
    continue
   }
   if(['water','lava','bubble_column'].includes(b.name))throw new Error('Emergency shelter contains liquid')
+  // A fireball can light the floor inside (review of lab run 156, 15 October): fire is no shelter.
+  if(FIRE_BLOCKS.has(b.name))throw new Error('Emergency shelter contains fire')
   inside.push(c)
   if(inside.length>32)throw new Error('Emergency shelter is open or exceeds the verified cavity limit')
   for(const [x,y,z] of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]])queue.push(c.offset(x,y,z))
