@@ -1199,8 +1199,8 @@ export class Teammate extends EventEmitter {
     // I'll gear up first"; this retry resumed it ninety seconds later and the bot rebuilt a
     // kit from nothing in the dark). Held until an explicit Resume, which does not come
     // through here. Narrow on purpose: the controller's own blockers say "Resume to",
-    // "and Resume" or "the lost inventory", and those are what this retry is for.
-    if(/\bpress resume\b|\blost (?:my |the |all )?(?:\w+ )?(?:kit|gear|armou?r)\b/i.test(request.blocker||''))return false
+    // "and Resume" or "the lost inventory before resuming", and those are what this retry is for.
+    if(/\b(?:press|hit|tell me to|say) (?:the )?resume\b/i.test(request.blocker||'')||/\blost\b[^.]{0,40}\b(?:kit|gear|armou?r)\b/i.test(request.blocker||''))return false
     // Inside the base at night with the work unfinished is a wait, not a stall.
     // Asking the planner again every ninety seconds gets the same answer three
     // times and leaves the request dead before dawn. Hold, say so once, and let

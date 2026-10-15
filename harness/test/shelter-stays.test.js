@@ -415,7 +415,8 @@ test('a planner blocker that asks for Resume or says it lost its kit waits for a
  const held=blocker=>{const w=world(new Vec3(30.5,64,30.5));w.c.projects={};w.bot.time.timeOfDay=6000;w.c.phase='blocked';w.resumes=0;w.c.resume=async()=>{w.resumes++}
   w.c.requestProgress={id:'k',request:'shoot blazes at the spawner',status:'blocked',blocker};w.c.blockedSince=1;return w}
  for(const blocker of ["Goal still incomplete. I can't do this run yet. I lost the iron armour, the bow and the sword when I died. Press Resume at daylight and I'll gear up first.",
-  'Goal still incomplete. I lost my kit in the lava; I need a new bow and arrows before the fortress.']){
+  'Goal still incomplete. I lost my kit in the lava; I need a new bow and arrows before the fortress.',
+  'Goal still incomplete. I lost all my iron armour to the blazes.','Please press the Resume button once I have a bow.','Hit Resume when ready and I will try the fortress again.']){
   const w=held(blocker)
   assert.equal(await w.c.stallRetry(),false,blocker);assert.equal(w.resumes,0,blocker)
   w.c.requestProgress.askedPlayerAt=Date.now()-PLAYER_ANSWER_MS-1;w.c.blockedSince=1
