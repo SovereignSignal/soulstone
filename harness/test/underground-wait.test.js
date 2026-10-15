@@ -76,7 +76,8 @@ const IRON=['iron_helmet','iron_chestplate','iron_leggings','iron_boots']
 function bareSkeleton(mobs=[['skeleton',8.5,64,.5]]){
  const bot=shallow({mobs}),items=[{name:'iron_sword',count:1,maxDurability:250,durabilityUsed:0}],slots=[]
  Object.values(bot.entities).forEach((e,i)=>Object.assign(e,{uuid:`00000000-0000-0000-0000-00000000000${i+1}`,type:'hostile'}))
- bot.inventory={items:()=>items,slots};bot.getEquipmentDestSlot=slot=>({head:5,torso:6,legs:7,feet:8})[slot]
+ // Fed to eighteen, so waiting can heal and the wait is worth something.
+ bot.food=20;bot.inventory={items:()=>items,slots};bot.getEquipmentDestSlot=slot=>({head:5,torso:6,legs:7,feet:8})[slot]
  const wear=names=>names.forEach((name,i)=>{slots[5+i]={name}})
  return {bot,items,wear}
 }
@@ -89,6 +90,14 @@ test('a sword alone does not open the burrow to a shooter; worn armour or a bow 
  const a=burrowClearance(armoured.bot,{lingeredMs:61000});assert.equal(a.clear,true,a.reason);assert.equal(a.confront?.name,'skeleton')
  const archer=bareSkeleton();archer.items.push({name:'bow',count:1,maxDurability:384,durabilityUsed:0},{name:'arrow',count:64})
  const b=burrowClearance(archer.bot,{lingeredMs:61000});assert.equal(b.clear,true,b.reason);assert.equal(b.confront?.name,'skeleton')
+})
+// The gate is only worth holding while waiting can heal; hungry with no food, waiting
+// is the slower death, and the sword confronts as it did before the gate.
+test('a bot that cannot heal under the cap confronts a shooter with the sword as before',()=>{
+ const hungry=bareSkeleton();hungry.bot.food=10
+ const r=burrowClearance(hungry.bot,{lingeredMs:61000});assert.equal(r.clear,true,r.reason);assert.equal(r.confront?.name,'skeleton')
+ hungry.items.push({name:'bread',count:3})
+ const fed=burrowClearance(hungry.bot,{lingeredMs:61000});assert.equal(fed.clear,false,'carrying food it can heal, so it waits');assert.equal(fed.lingering,true)
 })
 test('melee mobs are confronted with the sword alone as before, unless a shooter waits behind them',()=>{
  const zombie=bareSkeleton([['zombie',5.5,64,.5]])

@@ -322,7 +322,10 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  // answers it or the armour the heavy fights ask for, iron with golden boots or better
  // (14 points), which takes about half off each arrow; an iron chestplate alone, a sixth.
  const armoured=armorPoints(bot)>=HEAVY_ARMOR
- const meleeReady=defenseDecision(bot).engage&&near.every(t=>!SHOOTERS_ONLY.has(t.name)||armoured||bowCanAnswer(bot,t.name))
+ // The gate holds only while waiting can heal: hungry with no food, waiting is the slower
+ // death (a blaze at the wall or a skeleton parked inside ten blocks never leaves, and
+ // relocation needs ten blocks clear), so the sword confronts as it did before.
+ const meleeReady=defenseDecision(bot).engage&&(!canHeal||near.every(t=>!SHOOTERS_ONLY.has(t.name)||armoured||bowCanAnswer(bot,t.name)))
  const ready=!!lone&&bowCanAnswer(bot,lone.name)||shooterAtWall||meleeReady
  if(!ready){
   // Neither fight nor hide. Unarmed against numbers or a crossbow, healthy, in
