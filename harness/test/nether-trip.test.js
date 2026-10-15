@@ -168,6 +168,8 @@ test('a stopped request is no trip: Stop in the Nether, then a death, leaves it 
 })
 test('a kitted trip moved home from the burrow wait is over, said in one line',async()=>{
  const {bot,r,c}=tripTeammate({});delete bot.entities[7]
+ // The arrows spent since crossing: with the kit whole it would go on (lab run 147).
+ bot.inventory.items()[1].count=3
  // Dug in four down, a wither skeleton on the surface that will not move on.
  bot.blockAt=p=>{const name=p.x===0&&p.z===0&&p.y>=64&&p.y<=65||p.y>=68?'air':'netherrack';return {name,position:p.clone(),boundingBox:registry.blocksByName[name].boundingBox,getProperties:()=>({})}}
  bot.entities={8:{id:8,type:'mob',name:'wither_skeleton',position:new Vec3(12.5,68,.5)}}
@@ -246,4 +248,42 @@ test('a crossing the alarm cancelled still marks the kitted trip by the dimensio
  // The planner's own walk home, arriving with the request running, ends the leg only.
  const leg=tripTeammate({cancelled:true});leg.bot.game.dimension='minecraft:overworld';leg.r.emit('event',{type:'spawn'})
  assert.equal(leg.c.requestProgress.kittedTrip,undefined);assert.equal(leg.c.requestProgress.status,'running')
+})
+// Lab run 147, the second crossing: the hut held, a wither skeleton lingered about thirteen
+// blocks off, and after four minutes "leaving the area" took the portal home with health 20
+// and 128 arrows. On a kitted trip, strong and past the standoff, leaving means going on.
+function lingeringHut({health=20,arrows=40,pending=[]}={}){
+ const t=tripTeammate({});const {bot,r,c}=t;bot.health=health;bot.inventory.items()[1].count=arrows
+ // Walled in on open netherrack: walls at feet and head, a roof, open ground beyond.
+ const wall=p=>p.y===63||p.y===66&&(p.x===0||p.x===1)&&p.z===0||(p.y===64||p.y===65)&&Math.abs(p.x)+Math.abs(p.z)===1
+ bot.blockAt=p=>{const name=wall(p)?'netherrack':'air';return {name,position:p.clone(),boundingBox:registry.blocksByName[name].boundingBox,getProperties:()=>({})}}
+ bot.entities={8:{id:8,type:'mob',name:'wither_skeleton',position:new Vec3(12.5,64,.5)}}
+ c.requestProgress.status='interrupted';c.requestProgress.pending=pending
+ c.safety={status:'burrowed',retreat:{shelterName:'hut',surface:{x:0,y:64,z:0}}};c.shelterPlanning=false
+ c.burrowWait={quietMs:50,limitMs:1500,patienceMs:100,relocateAfterMs:100,watches:1}
+ const commands=[],resumed=[];c.execute=async command=>{commands.push(command);r.task={kind:command.action,status:'completed',result:command.action==='use_portal'?crossTo(bot,'overworld'):{receipt:command.action}}}
+ c.resume=async o=>{resumed.push(o)}
+ return {...t,commands,resumed,run:()=>c.waitInBurrow(c.epoch,new AbortController().signal,bot,true)}
+}
+test('on a kitted trip, strong and past the standoff, a mob that will not move on means going on: the hut opens toward the next step and the request resumes',async()=>{
+ const ahead=lingeringHut({pending:[{action:'shoot',item:'blaze'},{action:'goto',target:{x:-3,y:64,z:-30}}]});await ahead.run()
+ const acts=ahead.commands.map(x=>x.action),said=ahead.c.messages.map(m=>m.text).join(' | ')
+ assert.ok(!acts.includes('use_portal'),acts.join(' ')+' :: '+said);assert.ok(!acts.includes('flee'),acts.join(' '))
+ assert.deepEqual(ahead.commands.find(x=>x.action==='unhut').goal.toward,{x:-3,z:-30})
+ assert.equal(ahead.resumed.length,1);assert.equal(ahead.resumed[0].automatic,true);assert.equal(canResume(ahead.c.requestProgress),true);assert.equal(over(ahead.c).length,0)
+ // No step ahead with a place in it: the side away from the mob, and never the side facing it.
+ const away=lingeringHut();await away.run()
+ const goal=away.commands.find(x=>x.action==='unhut').goal
+ assert.ok(goal.toward.x<0,JSON.stringify(goal));assert.deepEqual(goal.from,{x:12,z:0});assert.equal(away.resumed.length,1)
+})
+test('hurt, short of the kit, or with no request, the burrow wait still holds or goes home as before',async()=>{
+ // Twelve health with food to heal on: not strong enough to walk out, so the hut holds.
+ const hurt=lingeringHut({health:12});await hurt.run()
+ assert.ok(!hurt.commands.some(x=>['use_portal','unhut'].includes(x.action)),hurt.commands.map(x=>x.action).join(' '));assert.equal(hurt.resumed.length,0)
+ // The arrows spent: the kit is short, so home through the portal, and the trip is over.
+ const spent=lingeringHut({arrows:3});spent.c.resume=async()=>{throw new Error('resumed an ended trip')};await spent.run()
+ assert.ok(spent.commands.some(x=>x.action==='use_portal'),spent.commands.map(x=>x.action).join(' '));assert.equal(over(spent.c).length,1)
+ // No live request: no trip, so home through the portal.
+ const none=lingeringHut();none.c.requestProgress.status='cancelled';await none.run()
+ assert.ok(none.commands.some(x=>x.action==='use_portal'),none.commands.map(x=>x.action).join(' '))
 })

@@ -306,3 +306,14 @@ test('a firing port never opens onto lava or fire; a melee mob keeps the old exi
  assert.deepEqual(validateTaskGoal('unhut',{toward:{x:13,z:12},shooter:'zombie',skip:[{dx:2,dz:0},'x']}),{toward:{x:13,z:12}})
 })
 
+// Lab run 147, 15 October: going on from a hut on a kitted trip, the wall that opens is
+// never the one facing the mob that held it.
+test('a hut opened away from a mob never opens the wall facing it',async()=>{
+ const w=tunnelHut();await executeSkill(w.bot,{kind:'hut',goal:{}},api)
+ // Only the tunnel's ends have ground beyond; toward a place off to the side both tie.
+ assert.deepEqual((await unwall(w.bot,{kind:'unhut',goal:{toward:{x:-20,z:10}}},api)).side,{dx:0,dz:1},'the tie goes to the first side')
+ const v=tunnelHut();await executeSkill(v.bot,{kind:'hut',goal:{}},api)
+ assert.deepEqual((await unwall(v.bot,{kind:'unhut',goal:{toward:{x:-20,z:10},from:{x:10,z:30}}},api)).side,{dx:0,dz:-1})
+ assert.deepEqual(validateTaskGoal('unhut',{toward:{x:-20,z:10},from:{x:10,z:30}}),{toward:{x:-20,z:10},from:{x:10,z:30}})
+ assert.deepEqual(validateTaskGoal('unhut',{toward:{x:-20,z:10},from:{x:10.5,z:30}}),{toward:{x:-20,z:10}})
+})

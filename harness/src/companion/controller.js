@@ -1138,11 +1138,23 @@ export class Teammate extends EventEmitter {
         this.say(`${missed?`No luck through that port: ${missed}`:`The ${name} survived ${shot?.shots??0} arrows`}. Port closed.`)
         if(++attempts>=PORT_ATTEMPTS&&leave())break
       }
-      this.say(confront?`${inNether(bot)?'A':'Daylight, and a'} lone ${confront.name} has lingered ${confront.distance} blocks away. Opening up to confront it.`
+      // Lab run 147, 15 October: kitted, health 20, 128 arrows, a wither skeleton lingering
+      // thirteen blocks off held the hut four minutes, and "leaving the area" took the portal
+      // home and ended the trip. On a trip, strong and past the standoff, leaving goes on: the
+      // hut opens toward the request's next place, or away from the mob, and the planner
+      // carries on with the alarm still guarding the walk.
+      const goOn=!!relocate&&onTrip(bot,canResume(request))&&strongEnoughToLeave(bot)&&relocate.threats.every(t=>t.distance>=RELOCATE_STANDOFF)
+      const mob=goOn&&[...relocate.threats].sort((a,b)=>a.distance-b.distance)[0].position
+      const ahead=goOn&&[request.inFlight?.step,...(request.pending||[])].find(s=>Number.isFinite(s?.target?.x)&&Number.isFinite(s?.target?.z))?.target
+      this.say(goOn?`A ${relocate.threats[0].name.replaceAll('_',' ')}${relocate.threats.length>1?` and ${relocate.threats.length-1} more`:''} will not move on. I have my kit and my health, so I am going on with the request rather than home.`
+        :confront?`${inNether(bot)?'A':'Daylight, and a'} lone ${confront.name} has lingered ${confront.distance} blocks away. Opening up to confront it.`
         :relocate?`${inNether(bot)?'':'Daylight, and '}${relocate.threats.length===1?`a ${relocate.threats[0].name.replaceAll('_',' ')}`:`${relocate.threats.length} hostiles`} will not move on. I cannot fight that from here and waiting is not working, so I am leaving the area.`.replace(/^a /,'A ')
         :'Daylight with no hostile nearby. Opening up.')
       // Confronting from a hut, open the wall that faces it: the bow needs the sightline (run 86).
-      const facing=confront?.position?{toward:{x:Math.floor(confront.position.x),z:Math.floor(confront.position.z)}}:{}
+      const here=bot.entity.position
+      const facing=confront?.position?{toward:{x:Math.floor(confront.position.x),z:Math.floor(confront.position.z)}}
+        :ahead?{toward:{x:Math.floor(ahead.x),z:Math.floor(ahead.z)}}
+        :mob?{toward:{x:Math.floor(2*here.x-mob.x),z:Math.floor(2*here.z-mob.z)},from:{x:Math.floor(mob.x),z:Math.floor(mob.z)}}:{}
       await this.execute(safety.retreat.shelterName==='hut'?{action:'unhut',goal:facing,timeoutMs:60000}:{action:'unburrow',goal:{surface:safety.retreat.surface},timeoutMs:90000},signal);check()
       safety.exit=structuredClone(this.runner.task.result);this.persist()
       // Surfacing beside a threat that outguns us only helps if we then leave.
@@ -1150,12 +1162,12 @@ export class Teammate extends EventEmitter {
       // the pit exit before a sprint has anywhere to go, which is why moving away
       // from danger climbs first everywhere else the harness does it.
       let ended=false
-      if(relocate&&relocateWay(bot)==='portal'){
+      if(relocate&&!goOn&&relocateWay(bot)==='portal'){
         // Lab run 100: in the Nether "leaving the area" fled 32 blocks deeper into a
         // fortress and met a wither skeleton. With the portal in reach, home is away.
         try{await this.execute({action:'use_portal',goal:{},timeoutMs:45000},signal);check();safety.relocated=structuredClone(this.runner.task.result);this.persist();await eatAfterPortalEscape(this,signal,bot);check();ended=this.tripEnded('danger sent me home through the portal')}
         catch(error){check();this.say('I could not get back through the portal: '+error.message);this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check()}
-      }else if(relocate){
+      }else if(relocate&&!goOn){
         try{await this.execute({action:'climb',goal:{},timeoutMs:45000},signal);check()}
         catch(error){check();this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check()}
         try{await this.execute({action:'flee',goal:{from:relocate.from,distance:32},timeoutMs:60000},signal);check()

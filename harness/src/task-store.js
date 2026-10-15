@@ -33,7 +33,8 @@ export function validateTaskGoal(kind, goal) {
   if(kind==='unhut'){
     if(!Number.isInteger(goal?.toward?.x)||!Number.isInteger(goal?.toward?.z))return {}
     const skip=SHOOTERS_ONLY.has(goal.shooter)&&Array.isArray(goal.skip)?goal.skip.filter(s=>[s?.dx,s?.dz].every(Number.isInteger)&&Math.abs(s.dx)+Math.abs(s.dz)===1).slice(0,4).map(s=>({dx:s.dx,dz:s.dz})):[]
-    return {toward:{x:goal.toward.x,z:goal.toward.z},...(SHOOTERS_ONLY.has(goal.shooter)?{shooter:goal.shooter}:{}),...(skip.length?{skip}:{})}
+    const from=Number.isInteger(goal.from?.x)&&Number.isInteger(goal.from?.z)?{from:{x:goal.from.x,z:goal.from.z}}:{}
+    return {toward:{x:goal.toward.x,z:goal.toward.z},...(SHOOTERS_ONLY.has(goal.shooter)?{shooter:goal.shooter}:{}),...(skip.length?{skip}:{}),...from}
   }
   if(['surface','douse','leave_portal','use_portal','burrow'].includes(kind))return {}
   if(kind==='travel')return validateTravelGoal(goal)

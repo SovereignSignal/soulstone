@@ -224,7 +224,9 @@ export async function unwall(bot,task,{check,stage,progress}){
  // Asked to face a place (the way to a portal in the Nether, run 73), the side
  // toward it opens first among the sides that are safe to step out of.
  const t=task.goal?.toward,facing=([dx,,dz])=>t?-(dx*(t.x-feet.x)+dz*(t.z-feet.z)):0
- const order=[...SIDES].sort((a,b)=>{const score=([dx,,dz])=>{const o=feet.offset(dx*2,0,dz*2);return (REPLACEABLE.has(bot.blockAt(o)?.name)&&REPLACEABLE.has(bot.blockAt(o.offset(0,1,0))?.name)&&solid(bot,bot.blockAt(o.offset(0,-1,0))))?0:1};return score(a)-score(b)||facing(a)-facing(b)})
+ // Going on past a mob that held the hut (lab run 147, 15 October), the wall facing it stays shut.
+ const f=task.goal?.from,toMob=([dx,,dz])=>f?dx*(f.x-feet.x)+dz*(f.z-feet.z):0,mobSide=f&&SIDES.reduce((a,b)=>toMob(b)>toMob(a)?b:a)
+ const order=SIDES.filter(s=>s!==mobSide||toMob(s)<=0).sort((a,b)=>{const score=([dx,,dz])=>{const o=feet.offset(dx*2,0,dz*2);return (REPLACEABLE.has(bot.blockAt(o)?.name)&&REPLACEABLE.has(bot.blockAt(o.offset(0,1,0))?.name)&&solid(bot,bot.blockAt(o.offset(0,-1,0))))?0:1};return score(a)-score(b)||facing(a)-facing(b)})
  for(const [dx,dy,dz] of order){
   const cells=[feet.offset(dx,1,dz),feet.offset(dx,0,dz)]
   let opened=true
