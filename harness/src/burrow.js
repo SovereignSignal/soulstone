@@ -244,6 +244,13 @@ export const RELOCATE_HEALTH=16
 // lines above already waives itself the same way when healing is impossible.
 export const RELOCATE_FLOOR=8
 export const RELOCATE_STANDOFF=10
+// Strong enough to walk away from what holds the shelter: sixteen health, or eight
+// when waiting cannot heal. The shelter wait's own relocation and the firing ports'
+// (lab run 146, 15 October) both ask this.
+export function strongEnoughToLeave(bot){
+ const s=survivalObservation(bot),canHeal=(s.carriedFood||[]).length>0||Number.isFinite(s.food)&&s.food>=18
+ return Number.isFinite(s.health)&&(s.health>=RELOCATE_HEALTH||!canHeal&&s.health>=RELOCATE_FLOOR)
+}
 // How far the melee mobs must be for a shooter at the wall to be answered from the opened wall.
 export const SHOOTER_CONFRONT_STANDOFF=12
 // How many shooters at the wall the bow takes on in turn; more is a wait or a relocation.
@@ -332,8 +339,7 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
   // daylight, with nothing in melee reach and the threat sat still past the
   // patience window: the judgement a player makes here is to leave.
   const closest=near.reduce((m,t)=>Math.min(m,t.distance),Infinity)
-  const strongEnough=s.health>=RELOCATE_HEALTH||!canHeal&&s.health>=RELOCATE_FLOOR
-  if(lingeredMs>=relocateAfterMs&&strongEnough&&closest>=RELOCATE_STANDOFF&&near.every(t=>t.position))
+  if(lingeredMs>=relocateAfterMs&&strongEnoughToLeave(bot)&&closest>=RELOCATE_STANDOFF&&near.every(t=>t.position))
    return {clear:true,relocate:{threats:near,from:centre(near)},health:s.health,timeOfDay:s.timeOfDay,scope,
     reason:`${near.length===1?`A ${near[0].name}`:`${near.length} hostiles`} held station for ${Math.round(lingeredMs/1000)} seconds and will not disperse; surfacing to move away rather than wait them out`}
   return {clear:false,lingering:true,reason:'A potential hostile remains within 16 blocks',threats:near}

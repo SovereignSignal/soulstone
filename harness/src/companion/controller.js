@@ -72,7 +72,7 @@ const LIVE_REQUEST=new Set(['running','blocked','interrupted','paused'])
 const comeBackFor=request=>canResume(request)||!!request?.tripEnded
 const inventoryOf=bot=>(bot?.inventory?.items?.()||[]).reduce((m,i)=>(m[i.name]=(m[i.name]||0)+i.count,m),{})
 export const STOP_HOLD_MS=60000
-import {burrowClearance,shelterExits} from '../burrow.js'
+import {burrowClearance,shelterExits,strongEnoughToLeave,RELOCATE_STANDOFF} from '../burrow.js'
 import {roofed} from '../observations.js'
 import {inspectEmergencyShelter} from '../shelter-occupants.js'
 import {threatReach,threatRoutes} from '../threat-reach.js'
@@ -1085,25 +1085,37 @@ export class Teammate extends EventEmitter {
         if(result.status!=='cleared'){this.say('I am staying dug in. Resume is required because daylight and a clear area were not established in time.');return}
         confront=result.observation?.confront;relocate=result.observation?.relocate
         if(!(safety.retreat.shelterName==='hut'&&confront?.position&&SHOOTERS_ONLY.has(confront.name)&&bowCanAnswer(bot,confront.name)))break
-        const name=confront.name.replaceAll('_',' '),moveAway=()=>{relocate={threats:[confront],from:confront.position};confront=null}
+        // Out of ports, leaving takes the same health and standoff as the wait's own
+        // relocation; short of them the hut holds, and the next watch's gates decide
+        // (hurt, the bow no longer answers and the bot heals). The patience runs again.
+        const name=confront.name.replaceAll('_',' '),leave=()=>{
+          if(strongEnoughToLeave(bot)&&confront.distance>=RELOCATE_STANDOFF){relocate={threats:[confront],from:confront.position};confront=null;return true}
+          this.say(`I will not walk out with the ${name} ${confront.distance} blocks away. Holding the hut and watching again.`)
+          attempts=0;tried.length=0;lingerSince=null;return false
+        }
         this.say(`A ${name} has lingered ${confront.distance} blocks away. Opening a firing port toward it.`)
         let port
         try{await this.execute({action:'unhut',goal:{toward:{x:Math.floor(confront.position.x),z:Math.floor(confront.position.z)},shooter:confront.name,...(tried.length?{skip:structuredClone(tried)}:{})},timeoutMs:60000},signal);check();port=structuredClone(this.runner.task.result)}
-        catch(error){check();this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check();this.say(`No port to shoot the ${name} from: ${error.message}.`);moveAway();break}
+        catch(error){check();this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check();this.say(`No port to shoot the ${name} from: ${error.message}.`);if(leave())break;continue}
         safety.port=port;this.persist()
         let shot=null,missed=null
         try{await this.execute({action:'shoot',goal:{type:confront.name,collect:false,stay:true},timeoutMs:60000},signal);check();shot=structuredClone(this.runner.task.result)}
         catch(error){check();missed=error.message;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check()}
-        // The hut puts back what is missing: the port, and any wall a fireball took.
-        await this.execute({action:'hut',goal:{},timeoutMs:60000},signal);check()
-        delete safety.port;protectedHealth=bot.health;this.persist()
+        // The hut puts back what is missing: the port, and any wall a fireball took. A
+        // close the bridge drops is tried once more before the shelter counts as failed.
+        try{
+          try{await this.execute({action:'hut',goal:{},timeoutMs:60000},signal);check()}
+          catch(error){check();this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check();await this.execute({action:'hut',goal:{},timeoutMs:60000},signal);check()}
+        }finally{delete safety.port;this.persist()}
+        // Arrows taken at the open port are not a failed shelter; from here, closed, any hit is.
+        protectedHealth=bot.health
         if(shot?.receipt==='killed'){
           if(shot.at)(this.killSites??=[]).push({at:shot.at,time:Date.now()})
           this.say(`The ${name} fell to my arrows. Port closed; watching again.`);continue
         }
         if(port?.side&&/No clear shot/.test(missed||''))tried.push(port.side)
         this.say(`${missed?`No luck through that port: ${missed}`:`The ${name} survived ${shot?.shots??0} arrows`}. Port closed.`)
-        if(++attempts>=PORT_ATTEMPTS){moveAway();break}
+        if(++attempts>=PORT_ATTEMPTS&&leave())break
       }
       this.say(confront?`${inNether(bot)?'A':'Daylight, and a'} lone ${confront.name} has lingered ${confront.distance} blocks away. Opening up to confront it.`
         :relocate?`${inNether(bot)?'':'Daylight, and '}${relocate.threats.length===1?`a ${relocate.threats[0].name.replaceAll('_',' ')}`:`${relocate.threats.length} hostiles`} will not move on. I cannot fight that from here and waiting is not working, so I am leaving the area.`.replace(/^a /,'A ')
