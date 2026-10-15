@@ -10,6 +10,7 @@ import {tripKit,onTrip,TRIP_ARMOR,TRIP_ARROWS} from '../src/nether-trip.js'
 import {burrowClearance} from '../src/burrow.js'
 import {Teammate} from '../src/companion/controller.js'
 import {THREAT_INTERRUPTION} from '../src/survival.js'
+import {canResume} from '../src/companion/continuity.js'
 const registry=registryFor('1.21.4')
 // Step 4, lab runs 129 to 137 (13 October): the planner said walk 47 blocks to the
 // spawner while the Nether safety rule sent the bot home at any hostile within ten
@@ -84,3 +85,70 @@ test('from cover, a group the fight rules engage is confronted nearest first, no
  const early=burrowClearance(bot,{lingeredMs:10000,patienceMs:60000});assert.equal(early.clear,false);assert.match(early.reason,/3 hostiles I can fight linger/)
 })
 
+// Run 144, after the walk home: the kit was lost, the bot died, and every automatic path
+// (dawn respawn, standoff resume, stall retry, safety and restart continuations) revived
+// the same request. At 23:26Z the planner itself said "I can't do this run yet... Press
+// Resume at daylight", the stall retry resumed it anyway, and the bot rebuilt a kit from
+// nothing overnight, 170 blocks from base, dying four more times. A kitted trip ends.
+const portal={x:0,y:64,z:-1}
+function crossTo(bot,to){const from=bot.game.dimension.replace(/^minecraft:/,'');bot.game.dimension='minecraft:'+to;return {item:'portal',count:1,receipt:'crossed',from:{dimension:from,portal},to:{dimension:to,portal,position:{x:.5,y:64,z:.5}}}}
+function tripTeammate(opts){
+ const bot=netherBot(opts),r=new EventEmitter()
+ Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Sov',connectionId:'20000000-0000-0000-0000-000000000003',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{}})
+ r.command=c=>{r.commands.push(c);if(c.action==='stop')return
+  const task=r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal}
+  setTimeout(()=>{if(r.task!==task)return;task.status='completed';task.result=c.action==='use_portal'?crossTo(bot,bot.game.dimension.endsWith('the_nether')?'overworld':'the_nether'):{receipt:c.action};r.emit('event',{type:'task_finished',task})},1)}
+ // The planner's own use_portal step, as the runner reports it finished.
+ r.walkThrough=()=>{const task=r.task={id:'walk'+r.commands.length,kind:'use_portal',status:'completed',goal:{},result:crossTo(bot,bot.game.dimension.endsWith('the_nether')?'overworld':'the_nether')};r.emit('event',{type:'task_finished',task})}
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-trip-end-')),'state.json'))
+ c.requestProgress={id:'trip',request:'shoot blazes at the spawner',status:'running',feedback:[],completed:[]}
+ // Out from the Overworld through the portal, as the trip begins.
+ bot.game.dimension='minecraft:overworld';r.walkThrough()
+ return {bot,r,c}
+}
+const over=c=>c.messages.filter(m=>/The Nether trip is over/.test(m.text))
+test('a kitted trip the safety chain takes home through the portal is over: blocked, named, said once',async()=>{
+ const {bot,r,c}=tripTeammate({})
+ assert.ok(c.requestProgress.kittedTrip,'crossing out with the kit marks the trip')
+ bot.health=8
+ await c.seekSafety(THREAT_INTERRUPTION)
+ assert.ok(r.commands.some(x=>x.action==='use_portal'),'hurt: home through the portal')
+ assert.equal(bot.game.dimension,'minecraft:overworld')
+ assert.equal(c.requestProgress.status,'blocked')
+ assert.equal(canResume(c.requestProgress),false,'no automatic path can revive it')
+ assert.match(String(c.requestProgress.reviewRequired),/The Nether trip is over: .*Re-kit me or give me a new instruction/)
+ assert.equal(over(c).length,1,c.messages.map(m=>m.text).join(' | '))
+ assert.equal(c.phase,'ready')
+ c.blockedSince=1;assert.equal(await c.stallRetry(),false)
+ await assert.rejects(c.resume({automatic:true}),/The Nether trip is over/)
+})
+test('a death on a kitted trip ends it, and the dawn respawn still comes back for the drop pile without resuming it',async()=>{
+ const wait=ms=>new Promise(res=>setTimeout(res,ms))
+ const {bot,r,c}=tripTeammate({});let now=0;c.now=()=>now;c.dawnPollMs=5
+ let respawns=0;r.respawn=()=>{respawns++;r.respawnPending=true}
+ bot.time.timeOfDay=15000;r.ready=false;bot.health=0;bot.isAlive=false;r.emit('event',{type:'death'})
+ assert.equal(c.requestProgress.status,'blocked');assert.equal(canResume(c.requestProgress),false)
+ assert.match(String(c.requestProgress.reviewRequired),/The Nether trip is over/)
+ now+=10*60000;await wait(30);assert.equal(respawns,1,'dawn brings it back for the drop pile')
+ bot.health=20;bot.isAlive=true;r.respawnPending=false;r.ready=true;r.emit('event',{type:'spawn'})
+ assert.equal(c.phase,'ready');assert.equal(c.requestProgress.status,'blocked')
+ c.blockedSince=1;assert.equal(await c.stallRetry(),false,'the ended trip is not retried')
+ assert.equal(over(c).length,1)
+ clearInterval(c.dawnTimer)
+})
+test('an unkitted Nether request that crosses home is not ended by the trip rule',async()=>{
+ const {bot,r,c}=tripTeammate({kit:false})
+ assert.equal(c.requestProgress.kittedTrip,undefined,'crossing out without the kit is no kitted trip')
+ await c.seekSafety(THREAT_INTERRUPTION)
+ assert.ok(r.commands.some(x=>x.action==='use_portal'));assert.equal(bot.game.dimension,'minecraft:overworld')
+ assert.equal(canResume(c.requestProgress),true,'the honest run carries on');assert.equal(over(c).length,0)
+})
+test('a planner crossing home without the kit ends the trip; with the kit it only ends the leg',()=>{
+ const spent=tripTeammate({});spent.bot.inventory.items()[1].count=3;spent.r.walkThrough()
+ assert.equal(canResume(spent.c.requestProgress),false);assert.match(String(spent.c.requestProgress.reviewRequired),/The Nether trip is over: .*arrows/)
+ const kitted=tripTeammate({});kitted.r.walkThrough()
+ assert.equal(kitted.c.requestProgress.kittedTrip,undefined,'home with the kit: the leg is over');assert.equal(kitted.c.requestProgress.status,'running');assert.equal(over(kitted.c).length,0)
+ kitted.r.ready=false;kitted.bot.health=0;kitted.bot.isAlive=false;kitted.r.respawn=()=>{};kitted.r.emit('event',{type:'death'})
+ assert.equal(canResume(kitted.c.requestProgress),true,'a later death at home is an ordinary death')
+ clearInterval(kitted.c.dawnTimer)
+})

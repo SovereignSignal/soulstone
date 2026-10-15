@@ -63,6 +63,9 @@ async function collectKillSites(c,signal,bot,request){
  try{await c.execute({action:'collect',goal:{item:'',count:64,at:sites.slice(-8).map(k=>k.at),items:wanted},timeoutMs:30000},signal);return structuredClone(c.runner.task.result)}
  catch(error){if(signal.aborted)throw error;c.dispatch({action:'stop'});await c.runner.waitForIdle?.(signal);return {failed:error.message}}
 }
+// The drop pile is worth going back for even when the trip it fell on is over: an ended
+// trip is never resumed, but the bot still comes back for what it dropped.
+const comeBackFor=request=>canResume(request)||!!request?.tripEnded
 const inventoryOf=bot=>(bot?.inventory?.items?.()||[]).reduce((m,i)=>(m[i.name]=(m[i.name]||0)+i.count,m),{})
 export const STOP_HOLD_MS=60000
 import {burrowClearance,shelterExits} from '../burrow.js'
@@ -313,6 +316,16 @@ export class Teammate extends EventEmitter {
       // and set about building a second one).
       if(e.type==='task_finished'&&e.task?.kind==='use'&&e.task.status==='completed'&&e.task.result?.observed?.name==='nether_portal'&&Number.isFinite(e.task.result.target?.x)){const t=e.task.result.target;this.places.nether_portal={x:t.x,y:t.y,z:t.z,dimension:t.dimension||dimensionOf(runner.bot)||'overworld'};this.persist()}
       if(e.type==='task_finished'&&e.task?.kind==='use_portal'&&e.task.status==='completed'&&e.task.result?.from?.portal&&e.task.result?.to?.portal){const r=e.task.result,link={[r.from.dimension]:r.from.portal,[r.to.dimension]:r.to.portal},pairs=[...(this.projects.portal_link?.pairs||[])],same=pairs.findIndex(p=>p[r.from.dimension]&&Math.abs(p[r.from.dimension].x-r.from.portal.x)+Math.abs(p[r.from.dimension].z-r.from.portal.z)<=4);if(same>=0)pairs[same]={...pairs[same],...link};else pairs.push(link);this.projects.portal_link={pairs};this.persist()}
+      // A kitted trip starts at the crossing out with the kit ready. An honest run crosses
+      // unkitted and builds its kit over there, and that is no kitted trip. Home again by the
+      // planner's own step: without the kit the trip is over, with it only the leg is. The
+      // safety chain ends its own crossings home (tripEnded).
+      if(e.type==='task_finished'&&e.task?.kind==='use_portal'&&e.task.status==='completed'&&this.requestProgress){
+        const request=this.requestProgress,to=e.task.result?.to?.dimension,kit=tripKit(runner.bot)
+        if(to==='the_nether'&&kit.ready&&(request.status==='running'||canResume(request))){request.kittedTrip={at:new Date().toISOString(),how:'crossed'};this.persist()}
+        else if(to==='overworld'&&request.kittedTrip&&!kit.ready)this.tripEnded(`I came back through the portal without the kit (missing ${kit.missing.join(', ')})`)
+        else if(to==='overworld'&&request.kittedTrip&&request.status==='running'){delete request.kittedTrip;this.persist()}
+      }
       if (e.type === 'skill_progress') { this.activity = e.message; this.emit('change') }
       if (e.type === 'death') {
         const recovery=['retreating','defending'].includes(this.phase),action=this.phase==='defending'?'defense':'retreat'
@@ -324,6 +337,7 @@ export class Teammate extends EventEmitter {
         this.lastDeath={position:runner.position(),dimension:dimensionOf(runner.bot)||'overworld'}
         if(canResume(this.requestProgress)){this.requestProgress.blocker='The agent died. Respawn first, then review the lost inventory before resuming.';this.persist()}
         this.say('I died. Use Respawn agent to return to the world. The saved request will stay paused; inventory may have been dropped.')
+        this.tripEnded('I died on it')
         // The drop pile despawns in five minutes, and on 20 September nobody was
         // watching: the agent sat dead through the whole window and a full kit
         // was lost. Come back automatically while a saved request is still live.
@@ -331,13 +345,13 @@ export class Teammate extends EventEmitter {
         // dark, three times, onto the mob that was standing there. The drop pile
         // is not coming back from that either: wait for daylight.
         const tod=runner.bot?.time?.timeOfDay,dark=Number.isFinite(tod)&&(tod>=12500||tod<1000)
-        if(canResume(this.requestProgress)&&(this.requestProgress.autoRespawns||0)<AUTO_RESPAWN_LIMIT){
+        if(comeBackFor(this.requestProgress)&&(this.requestProgress.autoRespawns||0)<AUTO_RESPAWN_LIMIT){
           if(dark){this.respawnAtDawn=true;this.watchForDawn();this.say('It is night. I will come back at daylight rather than empty-handed into the dark.')}
           else{
             this.requestProgress.autoRespawns=(this.requestProgress.autoRespawns||0)+1;this.persist()
             try{this.respawn()}catch(error){this.runner.log?.('auto_respawn_failed',{error:error.message})}
           }
-        }else if(canResume(this.requestProgress)){
+        }else if(comeBackFor(this.requestProgress)){
           // Round 3 on pi1 (9 October): killed three times in two minutes at its
           // spawn, the bot then waited for a person who was not there. A whole day
           // lets the crowd move or burn; then it tries again with a fresh budget.
@@ -347,7 +361,7 @@ export class Teammate extends EventEmitter {
       }
       if(e.type==='spawn'&&this.restoreBurrow&&runner.ready){this.restoreBurrow=false;this.phase='blocked';this.safety.status='burrowed';delete this.safety.error;this.persist();const abort=this.abort=new AbortController();this.say('Service restarted while I was dug in. Waiting for daylight before digging out.');void this.waitInBurrow(this.epoch,abort.signal,runner.bot,this.requestProgress?.status==='interrupted')}
       if(e.type==='spawn'&&this.restoreRequest&&runner.ready&&!this.snapshot().dead){this.restoreRequest=false;this.requestProgress.restartContinuations=(this.requestProgress.restartContinuations||0)+1;this.persist();this.say('Service restarted while a request was running. Continuing it automatically.');setTimeout(()=>{this.resume({automatic:true}).catch(error=>{this.requestProgress.blocker=error.message;this.persist()})},1500)}
-      if(e.type==='spawn'&&this.respawning){this.respawning=false;this.safety=null;this.phase=canResume(this.requestProgress)?'blocked':'ready';if(canResume(this.requestProgress))this.requestProgress.blocker='Respawned. Review current inventory before resuming the saved task.';this.say('I respawned. Check my current inventory before resuming the saved request.')}
+      if(e.type==='spawn'&&this.respawning){this.respawning=false;this.safety=null;this.phase=canResume(this.requestProgress)?'blocked':'ready';if(canResume(this.requestProgress))this.requestProgress.blocker='Respawned. Review current inventory before resuming the saved task.';this.say(this.requestProgress?.tripEnded&&!canResume(this.requestProgress)?'I respawned. Ready for your next instruction.':'I respawned. Check my current inventory before resuming the saved request.')}
     })
   }
   // A dead player gets no physics ticks, so no survival tick either: the dawn
@@ -367,7 +381,7 @@ export class Teammate extends EventEmitter {
       const seen=this.runner.bot?.time?.timeOfDay
       if(!(now()>=dawnAt||!nextSunrise&&Number.isFinite(seen)&&seen>=1000&&seen<12500))return
       this.respawnAtDawn=false;stop()
-      if(this.snapshot().dead&&canResume(this.requestProgress)){
+      if(this.snapshot().dead&&comeBackFor(this.requestProgress)){
         if(nextSunrise)this.requestProgress.autoRespawns=0
         this.requestProgress.autoRespawns=(this.requestProgress.autoRespawns||0)+1;this.persist()
         try{this.respawn()}catch(error){this.runner.log?.('auto_respawn_failed',{error:error.message})}
@@ -753,8 +767,9 @@ export class Teammate extends EventEmitter {
           if(epoch!==this.epoch||abort.signal.aborted)return
           await eatAfterPortalEscape(this,abort.signal,recoveryBot)
           if(epoch!==this.epoch||abort.signal.aborted)return
-          attempt.status='crossed';this.safety=null;this.phase=canResume(this.requestProgress)?'blocked':'ready';this.persist()
-          this.say('I am back in the Overworld, away from the danger.')
+          attempt.status='crossed';this.safety=null
+          this.say('I am back in the Overworld, away from the danger.');this.tripEnded('danger sent me home through the portal')
+          this.phase=canResume(this.requestProgress)?'blocked':'ready';this.persist()
           return
         }catch(error){
           if(epoch!==this.epoch||abort.signal.aborted)return
@@ -830,8 +845,9 @@ export class Teammate extends EventEmitter {
           if(epoch!==this.epoch||abort.signal.aborted)return
           await eatAfterPortalEscape(this,abort.signal,recoveryBot)
           if(epoch!==this.epoch||abort.signal.aborted)return
-          attempt.status='crossed';this.safety=null;this.phase=canResume(this.requestProgress)?'blocked':'ready';this.persist()
-          this.say('I am back in the Overworld, away from the danger.')
+          attempt.status='crossed';this.safety=null
+          this.say('I am back in the Overworld, away from the danger.');this.tripEnded('danger sent me home through the portal')
+          this.phase=canResume(this.requestProgress)?'blocked':'ready';this.persist()
           return
         }catch(error){
           if(epoch!==this.epoch||abort.signal.aborted)return
@@ -850,7 +866,8 @@ export class Teammate extends EventEmitter {
       // bot starves holding the food that would clear it.
       {
         const carried=survivalObservation(this.runner.bot).carriedFood[0]
-        if(this.runner.bot.food<20&&carried&&!this.requestProgress?.reviewRequired){
+        // An ended Nether trip's review is of the trip, not the food: it still eats here.
+        if(this.runner.bot.food<20&&carried&&!(this.requestProgress?.reviewRequired&&!this.requestProgress.tripEnded)){
           try{await this.execute({action:'eat',goal:{item:carried.name,count:Math.min(8,carried.count)},timeoutMs:30000},abort.signal);if(epoch!==this.epoch||abort.signal.aborted)return;this.safety.eating=structuredClone(this.runner.task.result)}
           catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;this.safety.eating={failed:error.message};const review=interruptedEffect(this.runner.task);if(review&&this.requestProgress){this.requestProgress.reviewRequired=review;this.requestProgress.blocker=review;this.persist()}}
         }
@@ -1068,7 +1085,7 @@ export class Teammate extends EventEmitter {
       if(relocate&&relocateWay(bot)==='portal'){
         // Lab run 100: in the Nether "leaving the area" fled 32 blocks deeper into a
         // fortress and met a wither skeleton. With the portal in reach, home is away.
-        try{await this.execute({action:'use_portal',goal:{},timeoutMs:45000},signal);check();safety.relocated=structuredClone(this.runner.task.result);this.persist();await eatAfterPortalEscape(this,signal,bot);check()}
+        try{await this.execute({action:'use_portal',goal:{},timeoutMs:45000},signal);check();safety.relocated=structuredClone(this.runner.task.result);this.persist();await eatAfterPortalEscape(this,signal,bot);check();this.tripEnded('danger sent me home through the portal')}
         catch(error){check();this.say('I could not get back through the portal: '+error.message);this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check()}
       }else if(relocate){
         try{await this.execute({action:'climb',goal:{},timeoutMs:45000},signal);check()}
@@ -1250,6 +1267,22 @@ export class Teammate extends EventEmitter {
     await this.resume({automatic:true}).catch(error=>{request.blocker=error.message;this.persist()})
     return true
   }
+  // A kitted Nether trip is over when the safety chain takes the bot home through the
+  // portal, when it comes home without the kit, or when it dies on the trip. Lab run 144
+  // (14 October): home with the kit lost, every automatic path (dawn respawn, standoff,
+  // stall retry, safety and restart continuations) revived the request, and the bot rebuilt
+  // a kit from nothing overnight, 170 blocks from base, dying four more times. reviewRequired
+  // makes canResume false, which every one of those paths checks. Said once.
+  tripEnded(reason){
+    const request=this.requestProgress
+    if(!request?.kittedTrip)return false
+    const message=`The Nether trip is over: ${reason}. Re-kit me or give me a new instruction.`
+    if(request.status==='running')this.cancel(false,'blocked')
+    delete request.kittedTrip;request.tripEnded={reason,at:new Date().toISOString()}
+    request.status='blocked';request.pending=[];request.inFlight=null;request.blocker=message;request.reviewRequired=message
+    this.runner.log?.('nether_trip_ended',{requestId:request.id,reason})
+    this.say(message);return true
+  }
   respawn() {
     if(!this.snapshot().dead)throw new Error('The agent is not dead')
     if(this.runner.respawnPending){this.runner.log?.('respawn_ignored',{reason:'controller: respawn already pending'});return}
@@ -1290,6 +1323,9 @@ export class Teammate extends EventEmitter {
     const history = this.messages.slice(-12); this.say(continuation?(automatic?'Automatically continuing the saved request: ':'Resume the saved request: ')+text:text, automatic?'assistant':'user'); this.phase = 'thinking'; this.emit('change')
     const episode = this.episode = this.recorder?.start({ request: text, model: this.planner.model, profile: this.runner.profile, minecraftVersion: this.runner.bot?.version || null })
     this.requestProgress=continuation||{id:randomUUID(),request:text,completed:[],pending:[],feedback:[],rounds:0,...(requester?{requester}:{})};this.requestProgress.status='running';this.requestProgress.blocker=null
+    // A request that begins in the Nether with the kit on is the same trip as one that
+    // crossed out with it: the staged lab trips are put there with the kit by console.
+    if(!continuation&&inNether(this.runner.bot)&&tripKit(this.runner.bot).ready)this.requestProgress.kittedTrip={at:new Date().toISOString(),how:'started'}
     if(continuation&&!automatic)this.requestProgress.resumeSerial=(continuation.resumeSerial||0)+1
     this.persist()
     const requestTasks=new Set()

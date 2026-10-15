@@ -12,7 +12,8 @@ export async function eatOnClearGround(c,epoch,signal,bot,eligible){
   return bot.health>=health&&s.gameMode==='survival'&&['easy','normal','hard','peaceful'].includes(s.difficulty)&&s.headSubmerged===false&&bot.entity?.onGround===true&&!bot.entity.isInWater&&!bot.entity.isInLava&&openGroundClearance(bot).clear
  }
  const food=survivalObservation(bot).carriedFood[0]
- if(!current()||request?.reviewRequired||!food||!clear())return false
+ // An ended Nether trip asks for review of the trip, not of the food (controller tripEnded).
+ if(!current()||request?.reviewRequired&&!request.tripEnded||!food||!clear())return false
  const feeding=new AbortController(),combined=AbortSignal.any([signal,feeding.signal])
  let unsafe=false
  const monitor=setInterval(()=>{

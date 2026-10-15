@@ -96,6 +96,16 @@ test('uncertain sheltered eating also blocks continuation after the task is repl
  c.execute=async(cmd,signal)=>{if(cmd.action==='eat'){runner.commands.push('eat');runner.task={consumption:{uncertain:true}};throw Error('Missing receipt')}else await execute(cmd,signal)}
  await c.seekSafety(FOOD_EMERGENCY);assert.match(c.requestProgress.reviewRequired,/eating/)
 })
+// An ended Nether trip blocks its request for review of the trip, not of the food: the
+// bot still eats on clear ground and in shelter, and the trip is not resumed.
+test('a hungry bot whose Nether trip is over still eats, by day on clear ground and at night in shelter',async()=>{
+ for(const [tod,want] of [[3000,['eat']],[14000,['burrow','eat']]]){
+  const {runner,c,resumed}=fixture();runner.bot.time.timeOfDay=tod
+  Object.assign(c.requestProgress,{status:'blocked',tripEnded:{reason:'I died on it'},blocker:'The Nether trip is over',reviewRequired:'The Nether trip is over: I died on it. Re-kit me or give me a new instruction.'})
+  await c.seekSafety(FOOD_EMERGENCY)
+  assert.deepEqual(runner.commands,want,String(tod));assert.equal(resumed(),0);assert.equal(c.requestProgress.status,'blocked')
+ }
+})
 test('interruption preserves harvest stage evidence without turning inventory gain into verified harvesting',()=>{
  const {runner,c}=fixture();const step={action:'harvest',item:'sweet_berries',count:16}
  runner.task={id:'harvest',kind:'harvest',status:'running',harvestAttempt:{position:{x:1,y:64,z:0},status:'approaching'},harvested:[],harvestRejected:[]};c.requestProgress.inFlight={taskId:'harvest',step}
