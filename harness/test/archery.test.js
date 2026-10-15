@@ -509,3 +509,28 @@ test('a shot asked to stay in cover does not walk to a better spot',async()=>{
  const free=walk({stay:false});assert.equal((await free.run).receipt,'killed');assert.equal(free.walked.length,1)
  const held=walk({stay:true});await assert.rejects(held.run,/No clear shot.*netherrack/);assert.equal(held.walked.length,0)
 })
+
+// Lab run 146, 15 October: in a hut inside a one-wide netherrack tunnel, a blaze
+// below eye level outside the tunnel wall. From the middle of the hut the line runs
+// into the port's own floor; one step into the port, still under the tunnel roof and
+// between its walls, it is clear. The gate judges from there too, and the bow steps in.
+function portHut({open=true,blaze=new Vec3(3.5,60,.5)}={}){
+ const bot=threatened({distance:5})
+ const name=p=>p.x===0&&(p.y===64||p.y===65)&&Math.abs(p.z)<=10?(Math.abs(p.z)===1?'cobblestone':'air'):open&&p.x===1&&p.z===0&&(p.y===64||p.y===65)?'air':p.x>=2?'air':'netherrack'
+ bot.blockAt=p=>{const n=name(p);return {name:n,position:p,boundingBox:n==='air'?'empty':'block'}}
+ bot.world={raycast:(from,dir,range)=>{for(let d=0.05;d<=range;d+=0.05){const c=from.plus(dir.scaled(d)).floored(),n=name(c);if(n!=='air')return {name:n,position:c}}return null}}
+ bot.entities[7].position=blaze
+ return bot
+}
+test('the bow judges the shot from one step into an opened port that is still cover',()=>{
+ const yes=rangedDefenseDecision(portHut());assert.equal(yes.engage,true,yes.reason);assert.equal(yes.target.targetName,'blaze')
+ assert.match(rangedDefenseDecision(portHut({open:false})).reason,/No clear shot at the blaze: netherrack/,'with nothing open, as before')
+})
+test('the bow steps into the port for the shot and back into the hut after',async()=>{
+ const bot=portHut(),walked=[]
+ bot.pathfinder={movements:null,setMovements(){},setGoal(){},async goto(g){walked.push(`${g.x},${g.y},${g.z}`);bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}}
+ const result=await shootTarget(bot,{kind:'shoot',goal:{type:'blaze',collect:false,stay:true}},api,fast)
+ assert.equal(result.receipt,'killed');assert.deepEqual(walked,['1,64,0','0,64,0'])
+ const shut=portHut({open:false});shut.pathfinder=bot.pathfinder;walked.length=0
+ await assert.rejects(shootTarget(shut,{kind:'shoot',goal:{type:'blaze',collect:false,stay:true}},api,fast),/No clear shot/);assert.deepEqual(walked,[])
+})

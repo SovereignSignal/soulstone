@@ -93,6 +93,17 @@ const AROUND=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]
 export function edgeExposed(bot,cell){
  return AROUND.some(([dx,dz])=>{const n=cell.offset(dx,0,dz);return !fullCube(bot.registry,bot.blockAt(n)?.name)&&bridgeFall(bot,n)==='unsafe'})
 }
+// Lab run 146, 15 October: in a hut inside a one-wide netherrack tunnel, a blaze below
+// eye level outside the tunnel wall. Through the firing port the line from the middle
+// of the hut ran into the port's own floor; one step into the port it was clear. That
+// step is still cover when the port cell has a floor, a full block over it and both of
+// its sides walled, as a port in a tunnel wall does: only its front is open, and what
+// shoots from there knocks the bot back into the hut, not over an edge.
+const SIDES=[[1,0],[-1,0],[0,1],[0,-1]]
+export function coveredSteps(bot,feet){
+ const solid=c=>fullCube(bot.registry,bot.blockAt(c)?.name)
+ return SIDES.filter(([dx,dz])=>{const c=feet.offset(dx,0,dz);return standable(bot,c)&&solid(c.offset(0,2,0))&&[0,1].every(y=>solid(c.offset(dz,y,dx))&&solid(c.offset(-dz,y,-dx)))}).map(([dx,dz])=>feet.offset(dx,0,dz))
+}
 export async function shootTarget(bot,task,{check,stage,progress,movements},options={}){
  // Shooting from a firing port it stays in cover (lab run 146, 15 October).
  const o={...SHOOT,...(task.goal?.stay?{repositions:0}:{}),...options}
@@ -111,12 +122,29 @@ export async function shootTarget(bot,task,{check,stage,progress,movements},opti
  let lastBlock=null
  const visibleFrom=(from,e)=>{const sight=observedSightline(bot,from,centreOf(e));if(sight.status==='blocked'){lastBlock=sight.block;return false}return aimPitch(from,centreOf(e))!==null}
  const inSight=()=>candidates().find(e=>visibleFrom(bot.entity.position.offset(0,bot.entity.eyeHeight??1.62,0),e))
- let moves=0,edgeRefusal=false
+ let moves=0,edgeRefusal=false,stepped=null
+ const walk=async(c,why)=>{
+  stage('repositioning');progress(why)
+  // Security review of 35a7589: walk as attack chases, never digging, towering or
+  // placing on the way, and give the runner its own movement profile back.
+  const previous=bot.pathfinder.movements,movement=new DoorAwareMovements(bot)
+  Object.assign(movement,{canDig:false,allow1by1towers:false,allowParkour:false,allowSprinting:false,maxDropDown:2,scafoldingBlocks:[]})
+  bot.pathfinder.setMovements(movement)
+  const timer=setTimeout(()=>bot.pathfinder?.setGoal?.(null),o.repositionMs)
+  try{await bot.pathfinder.goto(new goals.GoalBlock(c.x,c.y,c.z))}catch{check()}finally{clearTimeout(timer);if(previous)bot.pathfinder.setMovements(previous)}
+  check()
+ }
  const takeAim=async()=>{
   // Lab run 99: knocked off the open end of the fortress bridge between shots.
   // Never draw at an open edge; step back from one first.
-  const feet=bot.entity.position.floored(),atEdge=edgeExposed(bot,feet)
+  const feet=bot.entity.position.floored(),atEdge=!stepped&&edgeExposed(bot,feet)
   const seen=atEdge?null:inSight();if(seen)return seen
+  // A step into a firing port is still cover, so it is taken even when told to stay.
+  if(!stepped&&!atEdge)for(const c of coveredSteps(bot,feet)){
+   if(!candidates().some(t=>visibleFrom(eyeAt(c),t)))continue
+   stepped=feet;await walk(c,`Stepping into the port at ${c.x},${c.y},${c.z} for a clear shot at the ${goal.type}`)
+   return inSight()||null
+  }
   if(moves>=o.repositions)return null
   const spots=[]
   for(let dx=-o.reposition;dx<=o.reposition;dx++)for(let dz=-o.reposition;dz<=o.reposition;dz++)for(const dy of [0,1,-1]){
@@ -127,20 +155,16 @@ export async function shootTarget(bot,task,{check,stage,progress,movements},opti
   spots.sort((a,b)=>Math.hypot(a.x-feet.x,a.z-feet.z)-Math.hypot(b.x-feet.x,b.z-feet.z)||Math.abs(a.y-feet.y)-Math.abs(b.y-feet.y))
   for(const c of spots){
    const e=candidates().find(t=>visibleFrom(eyeAt(c),t));if(!e){if(atEdge)edgeRefusal=true;continue}
-   moves++;stage('repositioning');progress(`Stepping to ${c.x},${c.y},${c.z} for a clear shot at the ${goal.type}`)
-   // Security review of 35a7589: walk as attack chases, never digging, towering or
-   // placing on the way, and give the runner its own movement profile back.
-   const previous=bot.pathfinder.movements,movement=new DoorAwareMovements(bot)
-   Object.assign(movement,{canDig:false,allow1by1towers:false,allowParkour:false,allowSprinting:false,maxDropDown:2,scafoldingBlocks:[]})
-   bot.pathfinder.setMovements(movement)
-   const timer=setTimeout(()=>bot.pathfinder?.setGoal?.(null),o.repositionMs)
-   try{await bot.pathfinder.goto(new goals.GoalBlock(c.x,c.y,c.z))}catch{check()}finally{clearTimeout(timer);if(previous)bot.pathfinder.setMovements(previous)}
-   check()
+   moves++;await walk(c,`Stepping to ${c.x},${c.y},${c.z} for a clear shot at the ${goal.type}`)
    return inSight()||null
   }
   return null
  }
- let target=await takeAim()
+ // Out of the port and back into the hut, so the hut closes round the bot again.
+ const back=async()=>{if(!stepped)return;const home=stepped;stepped=null;try{check();await walk(home,'Stepping back into the hut')}catch{}}
+ let target
+ try{target=await takeAim()}catch(error){await back();throw error}
+ if(!target)await back()
  if(!target&&edgeRefusal)throw new Error(`Not shooting from an open edge: no spot within ${o.reposition} blocks away from the drop has a clear shot at a ${goal.type}`)
  if(!target)throw new Error(`No clear shot at any ${goal.type} within ${o.radius} blocks, nor from a spot within ${o.reposition}: ${lastBlock||'a block'} is in the way`)
  let dead=false,shots=0,drawn=false,stopped=null,lastSeen=target.position.clone?.()??target.position
@@ -203,6 +227,7 @@ export async function shootTarget(bot,task,{check,stage,progress,movements},opti
   // Never leave an arrow drawn: the runner's cleanup calls deactivateItem, which would loose it.
   if(drawn)standDown()
   bot.removeListener('entityDead',killed)
+  await back()
  }
  const at=dead?{x:target.position.x,y:target.position.y,z:target.position.z}:null
  // The kill's drops are part of the fight (lab runs 99 to 101: rods left on the
@@ -227,14 +252,18 @@ export function rangedDefenseDecision(bot,{healthFloor=10,foodFloor=6,minArrows=
  const threats=s.nearbyThreats.filter(t=>t.risk==='potential_hostile').sort((a,b)=>a.distance-b.distance)
  if(!threats.length)return reject('No hostile in sight to shoot')
  if(threats.some(t=>t.distance<=meleeClose&&!RANGED_DEFENSE.has(t.name)))return reject('A melee hostile is close; the bow waits')
- const eye=bot.entity.position.offset(0,bot.entity.eyeHeight??1.62,0)
+ const height=bot.entity.eyeHeight??1.62,here=bot.entity.position.offset(0,height,0)
+ // Blocked from here, the shot is judged from one step into a firing port as well,
+ // the step the bow takes (lab run 146, 15 October).
+ const steps=coveredSteps(bot,bot.entity.position.floored()).map(c=>c.offset(.5,height,.5))
  const judge=t=>{
   if(t.distance>SHOOT.radius)return `The ${t.name} is out of bow range`
   const target=nearestOfType(bot,t.name,t.position,1)
   if(!target)return 'Target identity is unavailable'
   const centre=target.position.offset(0,(target.height??1.8)/2,0)
-  const sight=observedSightline(bot,eye,centre)
-  if(sight.status==='blocked')return `No clear shot at the ${t.name}: ${sight.block||'a block'} is in the way`
+  const sight=observedSightline(bot,here,centre)
+  const eye=sight.status==='blocked'?steps.find(e=>observedSightline(bot,e,centre).status!=='blocked'):here
+  if(!eye)return `No clear shot at the ${t.name}: ${sight.block||'a block'} is in the way`
   if(aimPitch(eye,centre)===null)return `The ${t.name} is out of bow range`
   const blocker=lineOfFireBlocker(bot,eye,centre,target)
   if(blocker)return `A ${blocker.type==='player'?'player':blocker.name} is in the line of fire`
