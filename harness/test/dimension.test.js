@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {EventEmitter} from 'node:events'
 import {Vec3} from 'vec3'
+import minecraftData from 'minecraft-data'
 import {projectFootprints} from '../src/site-survey.js'
 import {insideBase,inspectRetreatShelter} from '../src/retreat.js'
 import {projectDimension,sameDimension,inEnd} from '../src/dimension.js'
@@ -68,7 +69,26 @@ test('the End is a dimension of its own, and its clock means nothing',()=>{
 test('in the End a shelter that will not clear moves toward the centre, never outward',()=>{
  assert.equal(relocateWay(bot('the_end',[100.5,49,.5])),'centre')
  assert.equal(relocateWay(bot('overworld')),'flee')
- assert.deepEqual(centreward({x:100,z:0}),{x:68,z:0})
- for(const p of [{x:-30,z:40},{x:12,z:-90},{x:7,z:7}]){const to=centreward(p);assert.ok(Math.hypot(to.x,to.z)<Math.hypot(p.x,p.z),JSON.stringify([p,to]))}
- assert.equal(centreward({x:3,z:2}),null,'beside the fountain already: nowhere further in to go')
+ for(const at of [[60.5,61,.5],[-30.5,61,40.5],[12.5,61,-70.5],[9.5,61,9.5]]){const b=island(at),to=centreward(b);assert.ok(to&&Math.hypot(to.x,to.z)<Math.hypot(at[0],at[2]),JSON.stringify([at,to]))}
+ assert.equal(centreward(island([3.5,61,2.5])),null,'beside the fountain already: nowhere further in to go')
+})
+
+// Review of brief 3: the step toward 0,0 kept the bot's height and ignored the
+// ground, so from an outer island it pointed across the void. It moves only on
+// the main island, and only to a cell with ground under it.
+const MAIN=new Set(['end_stone'])
+function island(at,{hole=()=>false,ground=60}={}){
+ const name=p=>hole(p)?'air':p.y<=ground&&Math.abs(p.x)<90&&Math.abs(p.z)<90||p.y<=ground&&Math.abs(p.x-1000)<20&&Math.abs(p.z)<20?'end_stone':'air'
+ return {...bot('the_end',at),registry:minecraftData('1.21.4'),blockAt:p=>({name:name(p),position:p,boundingBox:MAIN.has(name(p))?'block':'empty'})}
+}
+test('in the End the move toward the centre lands on ground, and never leaves an outer island',()=>{
+ const to=centreward(island([60.5,61,.5]))
+ assert.deepEqual(to,{x:29,y:61,z:0},'a full step onto end stone')
+ assert.deepEqual(centreward(island([60.5,61,.5],{hole:p=>p.x<50&&p.y>57})),{x:29,y:58,z:0},'ground a few blocks lower is still ground')
+ const gap=island([60.5,61,.5],{hole:p=>p.x>=20&&p.x<=36})
+ const short=centreward(gap)
+ assert.ok(short&&short.x>36&&short.x<60,'a shorter step when the full one ends over the void: '+JSON.stringify(short))
+ assert.equal(gap.blockAt(new Vec3(short.x,short.y-1,short.z)).name,'end_stone')
+ assert.equal(centreward(island([1000.5,61,.5])),null,'an outer island holds where it is: inward from there is the void')
+ assert.equal(centreward(island([85.5,61,.5])),null,'past the main island\'s middle, it holds')
 })

@@ -17,6 +17,7 @@ import {THREAT_INTERRUPTION,clearanceObservation,awaitClearance,openGroundCleara
 import {alternativeShelters,occupiedAlternative} from '../alternate-shelter.js'
 import {shelteredObservation,inspectRetreatShelter,insideBase,inBackExit,backExitObservation,pressingOutside,departureRefusal} from '../retreat.js'
 import {fullCube} from '../construction.js'
+import {Vec3} from 'vec3'
 import {canopyLandings} from '../canopy.js'
 import {setTimeout as delay} from 'node:timers/promises'
 // Four expired windows is an hour of watching; past that a person should look.
@@ -31,10 +32,22 @@ export function relocateWay(bot){
  return inNether(bot)&&bot?.findBlock?.({matching:bot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})?'portal':'flee'
 }
 // Where a move toward 0,0 ends: up to `reach` blocks in, stopping `keep` short of
-// the exit fountain. Already that close, there is nowhere further in to go.
-export function centreward(p,reach=32,keep=6){
- const d=Math.hypot(p.x,p.z),go=Math.min(reach,d-keep)
- return go>0?{x:Math.round(p.x-p.x/d*go),z:Math.round(p.z-p.z/d*go)}:null
+// the exit fountain, on a cell with ground under it within `climb` of the bot's
+// height; a step ending over the void is halved until one does not. Only on the
+// main island: from an outer one, inward is the void, so it holds (null), as it
+// does when already beside the fountain.
+export function centreward(bot,{reach=32,keep=6,main=80,climb=4}={}){
+ const p=bot.entity.position,d=Math.hypot(p.x,p.z)
+ if(Math.abs(p.x)>=main||Math.abs(p.z)>=main)return null
+ const solid=b=>!!b&&fullCube(bot.registry,b.name),open=b=>!!b&&b.boundingBox==='empty'&&!/lava|water/.test(b.name)
+ for(let go=Math.min(reach,d-keep);go>=4;go=Math.floor(go/2)){
+  const x=Math.round(p.x-p.x/d*go),z=Math.round(p.z-p.z/d*go)
+  for(let y=Math.floor(p.y)+climb;y>=Math.floor(p.y)-climb;y--){
+   const at=new Vec3(x,y,z)
+   if(solid(bot.blockAt(at.offset(0,-1,0)))&&open(bot.blockAt(at))&&open(bot.blockAt(at.offset(0,1,0))))return {x,y,z}
+  }
+ }
+ return null
 }
 // Shooters the bow takes in one defense before the area is judged.
 const RANGED_CHAIN=4
@@ -1198,8 +1211,8 @@ export class Teammate extends EventEmitter {
         try{await this.execute({action:'climb',goal:{},timeoutMs:45000},signal);check()}
         catch(error){check();this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check()}
         // In the End away is toward 0,0, since the void is every other way; beside the fountain already, it stays.
-        const way=relocateWay(bot),centre=way==='centre'?centreward(bot.entity.position):null
-        if(way!=='centre'||centre)try{await this.execute(centre?{action:'travel',goal:{x:centre.x,y:Math.floor(bot.entity.position.y),z:centre.z},timeoutMs:60000}:{action:'flee',goal:{from:relocate.from,distance:32},timeoutMs:60000},signal);check()
+        const way=relocateWay(bot),centre=way==='centre'?centreward(bot):null
+        if(way!=='centre'||centre)try{await this.execute(centre?{action:'travel',goal:centre,timeoutMs:60000}:{action:'flee',goal:{from:relocate.from,distance:32},timeoutMs:60000},signal);check()
           safety.relocated=structuredClone(this.runner.task.result);this.persist()}
         catch(error){check();this.say('I could not get clear of them: '+error.message)
           this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check()}
