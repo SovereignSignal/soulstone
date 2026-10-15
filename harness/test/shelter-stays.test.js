@@ -408,3 +408,21 @@ test('a blocker that asks the player a question is not retried for five minutes,
  plain.c.requestProgress={id:'p',request:'mine iron',status:'blocked',blocker:'No iron within 32 blocks'};plain.c.blockedSince=1
  assert.equal(await plain.c.stallRetry(),true);assert.equal(plainResumes,1,'an ordinary blocker retries as before')
 })
+// Run 144, 23:26Z (14 October): the planner blocked with "I can't do this run yet. I lost
+// the iron armour... Press Resume at daylight and I'll gear up first." Ninety seconds later
+// the stall retry resumed it, and the bot rebuilt a kit from nothing in the dark.
+test('a planner blocker that asks for Resume or says it lost its kit waits for a person, not the clock',async()=>{
+ const held=blocker=>{const w=world(new Vec3(30.5,64,30.5));w.c.projects={};w.bot.time.timeOfDay=6000;w.c.phase='blocked';w.resumes=0;w.c.resume=async()=>{w.resumes++}
+  w.c.requestProgress={id:'k',request:'shoot blazes at the spawner',status:'blocked',blocker};w.c.blockedSince=1;return w}
+ for(const blocker of ["Goal still incomplete. I can't do this run yet. I lost the iron armour, the bow and the sword when I died. Press Resume at daylight and I'll gear up first.",
+  'Goal still incomplete. I lost my kit in the lava; I need a new bow and arrows before the fortress.']){
+  const w=held(blocker)
+  assert.equal(await w.c.stallRetry(),false,blocker);assert.equal(w.resumes,0,blocker)
+  w.c.requestProgress.askedPlayerAt=Date.now()-PLAYER_ANSWER_MS-1;w.c.blockedSince=1
+  assert.equal(await w.c.stallRetry(),false,'still held after five minutes: it asked for Resume');assert.equal(w.resumes,0)
+ }
+ // The controller's own blockers that mention Resume are what the stall retry exists for.
+ for(const blocker of ['Service restarted. Resume to re-observe and continue.','No observed progress for three planning rounds. Progress is saved; resolve the blocker and Resume.','The agent died. Respawn first, then review the lost inventory before resuming.']){
+  const w=held(blocker);assert.equal(await w.c.stallRetry(),true,blocker);assert.equal(w.resumes,1,blocker)
+ }
+})

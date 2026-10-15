@@ -1191,6 +1191,13 @@ export class Teammate extends EventEmitter {
     // A watch that failed, whatever its last record said, leaves the retry in charge
     // (lab run 98: failed mid-watch, still marked watching, idle for 34 minutes).
     if(this.safety?.status!=='failed'&&['watching','cleared'].includes(this.safety?.continuation?.status))return false
+    // A planner that asks for Resume, or says it lost its kit, has said a person must look
+    // first (lab run 144, 23:26Z: "I lost the iron armour... Press Resume at daylight and
+    // I'll gear up first"; this retry resumed it ninety seconds later and the bot rebuilt a
+    // kit from nothing in the dark). Held until an explicit Resume, which does not come
+    // through here. Narrow on purpose: the controller's own blockers say "Resume to",
+    // "and Resume" or "the lost inventory", and those are what this retry is for.
+    if(/\bpress resume\b|\blost (?:my |the |all )?(?:\w+ )?(?:kit|gear|armou?r)\b/i.test(request.blocker||''))return false
     // Inside the base at night with the work unfinished is a wait, not a stall.
     // Asking the planner again every ninety seconds gets the same answer three
     // times and leaves the request dead before dawn. Hold, say so once, and let
