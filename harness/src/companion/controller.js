@@ -54,6 +54,7 @@ export function centreward(bot,{reach=32,keep=6,main=80,climb=4}={}){
 const RANGED_CHAIN=4
 // Firing ports a shelter wait opens without a kill before it moves away (lab run 146).
 const PORT_ATTEMPTS=4
+const BURN_MS=6000
 // Melee kills in a row before the area is judged: a big magma cube splits into up to four.
 const MELEE_CHAIN=5
 // A hostile inside its own interruption radius while the bot is indoors: the
@@ -72,7 +73,7 @@ export const HOLD_SAY_MS=10*60*1000,DAY_HOLD_MS=5*60*1000,DAY_HOLD_FIGHT_HEALTH=
 export const DAYLIGHT_MS=(12500-1000)/20*1000
 // How far a shelter may be to be walked to in the dark: the saved shelters' own limit.
 export const FAR_SHELTER=48
-import {survivalObservation,SHOOTERS_ONLY,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS,HEALTH_EMERGENCY_LINE,outOfReach,cannotShootYet} from '../survival.js'
+import {survivalObservation,fireObservation,SHOOTERS_ONLY,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS,HEALTH_EMERGENCY_LINE,outOfReach,cannotShootYet} from '../survival.js'
 // Air, fire and a portal underfoot run their own recovery at once and preempt
 // any shelter attempt: each has a clock no shelter stops.
 const URGENT=new Set([WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY])
@@ -1082,10 +1083,15 @@ export class Teammate extends EventEmitter {
     // the wait oscillates for ever, never accumulating the quiet period it needs.
     // A brief clear reading is still inside the quiet-area verification window.
     // Keep elapsed patience until clearance succeeds; night starts a fresh wait.
-    let protectedHealth=bot.health,portWait=null
+    let protectedHealth=bot.health,portWait=null,burntAt=-Infinity
     const observe=()=>{
       safety.protection=inspectEmergencyShelter(bot)
-      if(bot.health<protectedHealth)throw new Error('Health fell inside the emergency shelter; protection is not established')
+      // Lab run 156, 15 October: alight from the port, the bot closed the hut and the fire ticks
+      // read as a breach. A drop while burning, or within BURN_MS of it (the last tick can land
+      // after the flag clears), is a burn: the hut is kept and the wait goes on. The inspection
+      // above still finds a hut that is no longer closed.
+      if(fireObservation(bot).onFire===true)burntAt=Date.now()
+      if(bot.health<protectedHealth&&Date.now()-burntAt>BURN_MS)throw new Error('Health fell inside the emergency shelter; protection is not established')
       protectedHealth=bot.health
       // Any shooter loaded within its alarm radius, seen or behind rock, for the rod pickup's quiet minute.
       if(Object.values(bot.entities||{}).some(e=>SHOOTERS_ONLY.has(e?.name)&&e.position&&e.position.distanceTo(bot.entity.position)<=threatRadius(e.name)))this.shooterSeenAt=Date.now()

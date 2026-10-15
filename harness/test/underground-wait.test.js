@@ -252,6 +252,28 @@ test('on a kitted trip the shot from the port breaks off at the first hit; off a
  assert.deepEqual(off.executed.find(x=>x.action==='shoot')?.goal,{type:'blaze',collect:false,stay:true})
 })
 const noShot=()=>{throw new Error('No clear shot at the blaze: netherrack is in the way')}
+// Lab run 156, 15 October: broken off at the port alight, the bot closed the hut and burned.
+// Fire ticks after the hut has closed are a burn, not a breach: the hut is kept and the wait
+// goes on. Only a drop while not burning, nor burnt within the last few seconds, fails it.
+test('health lost to fire inside a closed hut is a burn, not a breach; a drop when not burning still fails it',async()=>{
+ const closed=({burning})=>{
+  const {bot}=tunnel({items:KIT}),executed=[],said=[];bot.entity.metadata=[burning?1:0]
+  const c={epoch:1,runner:{bot,ready:true,connectionId:'same',task:{result:{}}},safety:{status:'burrowed',retreat:{...TUNNEL_HUT}},requestProgress:null,burrowWait:{quietMs:1500,limitMs:3000,watches:1,patienceMs:0},
+   persist(){},emit(){},say:t=>said.push(t),dispatch(){},resume(){assert.fail('no request to resume')},async execute(command){executed.push(command.action);this.runner.task={result:{receipt:command.action}}}}
+  return {bot,c,executed,said}
+ }
+ const fire=closed({burning:true})
+ // 20 to 16 in four ticks; the flag goes out before the last, which still lands as a burn.
+ for(const [ms,last] of [[200],[400],[600],[800,true]])setTimeout(()=>{fire.bot.health--;if(last)fire.bot.entity.metadata=[0]},ms)
+ setTimeout(()=>{fire.bot.entity.metadata=[0]},700)
+ await Teammate.prototype.waitInBurrow.call(fire.c,1,new AbortController().signal,fire.bot,false)
+ assert.equal(fire.bot.health,16)
+ assert.ok(!fire.said.some(t=>/Health fell/.test(t)),fire.said.join(' | '));assert.deepEqual(fire.executed,['unhut'],fire.said.join(' | '))
+ const hit=closed({burning:false});setTimeout(()=>{hit.bot.health-=4},200)
+ await Teammate.prototype.waitInBurrow.call(hit.c,1,new AbortController().signal,hit.bot,false)
+ assert.ok(hit.said.some(t=>/Health fell inside the emergency shelter/.test(t)),hit.said.join(' | '));assert.deepEqual(hit.executed,[])
+})
+
 // Lab run 156, 15 October: on a trip, rods from the port's kills are walked for only after a
 // quiet minute, on 16 health, and only within eight blocks of the hut (tripPickup).
 test('on a trip the wait leaves the rods while a shooter was near in the last minute, and walks only for kills near the hut',async()=>{
