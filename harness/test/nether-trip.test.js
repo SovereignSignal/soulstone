@@ -48,12 +48,12 @@ function netherBot({health=20,kit=true,hoglinAt=3}={}){
  if(kit)wear(bot)
  return bot
 }
-async function firstActs(opts){
+async function firstActs({status='running',...opts}={}){
  const bot=netherBot(opts),r=new EventEmitter()
  Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Sov',connectionId:'20000000-0000-0000-0000-000000000002',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{}})
  r.command=c=>{r.commands.push(c);if(c.action!=='stop')r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal}}
  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-trip-')),'state.json'))
- c.requestProgress={id:'trip',request:'rods',status:'running',feedback:[]}
+ c.requestProgress={id:'trip',request:'rods',status,feedback:[]}
  void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,80))
  const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop');c.cancel?.(true);return {acts,said:c.messages.map(m=>m.text)}
 }
@@ -63,6 +63,14 @@ test('on a trip with the kit, a hoglin three blocks off beside the portal means 
  assert.ok(trip.said.some(t=>/taking cover here rather than running for the portal/.test(t)),trip.said.join(' | '))
  const hurt=await firstActs({health:8});assert.equal(hurt.acts[0],'use_portal','hurt: home, '+hurt.acts.join(' '))
  const bare=await firstActs({kit:false});assert.equal(bare.acts[0],'use_portal','no kit: home, '+bare.acts.join(' '))
+})
+// Lab run 144 (14 October): a shelter wait at the spawner spent its idle continuations and
+// left the request interrupted; the next alarm read "no request" and walked the bot home
+// with full health and kit. A request waiting to resume is still the trip (36def62).
+test('on a trip with the kit, an interrupted request waiting to resume is still the trip: cover here, not the portal',async()=>{
+ const trip=await firstActs({status:'interrupted'})
+ assert.ok(!trip.acts.includes('use_portal'),'no run for the portal: '+trip.acts.join(' '))
+ assert.ok(trip.said.some(t=>/taking cover here rather than running for the portal/.test(t)),trip.said.join(' | '))
 })
 test('from cover, a group the fight rules engage is confronted nearest first, not waited out or run from',()=>{
  const bot=netherBot({hoglinAt:30});delete bot.entities[7]
@@ -75,3 +83,4 @@ test('from cover, a group the fight rules engage is confronted nearest first, no
  assert.match(r.reason,/3 hostiles I can fight/)
  const early=burrowClearance(bot,{lingeredMs:10000,patienceMs:60000});assert.equal(early.clear,false);assert.match(early.reason,/3 hostiles I can fight linger/)
 })
+
