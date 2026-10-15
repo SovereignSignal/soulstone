@@ -63,14 +63,28 @@ test('the cap is the most blast-resistant cube carried, whatever comes first in 
  const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
  assert.equal(result.receipt,'burrowed_capped');assert.equal(w.cells.get(new Vec3(10,63,10).toString()),'cobblestone')
 })
+// Ancient debris and crying obsidian resist any blast, but they are worth keeping and
+// take a diamond pickaxe or longer to dig back out.
+test('the cap is chosen among plain cubes, never a valuable or near-unbreakable block',async()=>{
+ const w=world();w.inventory.push({name:'ancient_debris',count:4},{name:'cobblestone',count:30})
+ await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ assert.equal(w.cells.get(new Vec3(10,63,10).toString()),'cobblestone')
+})
 // With the cap gone, a mob standing on the plug is three blocks from the feet with no
 // sight of the bot, so a creeper there never fuses; the feet and head cells stay open.
-test('a second carried cube plugs the cell under the cap, leaving the bot its two cells',async()=>{
+test('with cubes to spare after the cap, the cell under it is plugged, leaving the bot its two cells',async()=>{
  const w=world();w.inventory.push({name:'dirt',count:13},{name:'cobblestone',count:30})
  await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
  assert.deepEqual(w.placed,[new Vec3(10,63,10).toString(),new Vec3(10,62,10).toString()])
  assert.equal(w.cells.get(new Vec3(10,62,10).toString()),'cobblestone')
  assert.equal(w.bot.entity.position.y,60);assert.equal(inspectEmergencyShelter(w.bot).cells,2)
+})
+test('with two cubes and no more, the second is kept to recap or climb with, not spent on a plug',async()=>{
+ const w=world();w.inventory.push({name:'cobblestone',count:2});const dig=w.bot.dig
+ w.bot.dig=async block=>{const n=w.inventory.length;await dig(block);w.inventory.length=n}
+ const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ assert.equal(result.receipt,'burrowed_capped');assert.deepEqual(w.placed,[new Vec3(10,63,10).toString()])
+ assert.equal(w.inventory.find(i=>i.name==='cobblestone')?.count,1);assert.equal(inspectEmergencyShelter(w.bot).cells,3)
 })
 test('with one cube carried the cap takes it and there is no plug',async()=>{
  // Nothing drops from the dig and rock walls give no spare block, so the single

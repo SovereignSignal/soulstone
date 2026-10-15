@@ -1,6 +1,6 @@
 import {bowCanAnswer} from './bow-readiness.js'
 import {observedSightline} from './visibility.js'
-import {scaffoldItems,fillCell} from './scaffold.js'
+import {scaffoldItems,fillCell,plainCube} from './scaffold.js'
 // Emergency burrow: the shelter of last resort for a spawn with no base and no
 // weapon. Seal the verified shaft as soon as three cells give headroom,
 // deepen under the cap, then watch protection and surface clearance.
@@ -80,18 +80,24 @@ export const climbBlocks=bot=>scaffoldItems(bot).reduce((n,i)=>n+i.count,0)
 // dropped down the open shaft onto it. At three to five blocks a blast breaks dirt (0.5)
 // for about half its rays, wood (2 to 3) for some and stone-class blocks (6) for none.
 // Only the cap and its plug are chosen by strength; the climb out takes inventory order.
+// Strength is ranked among plain cubes: ancient debris or crying obsidian resist any blast
+// but are worth keeping and slow or impossible to dig back out. Carrying no plain cube,
+// the first carried cube still caps, as before: a cap over the bot beats keeping a block.
 const resistance=(bot,item)=>bot.registry.blocksByName[item.name]?.resistance??0
 function capItem(bot){
- return scaffoldItems(bot).reduce((best,i)=>!best||resistance(bot,i)>resistance(bot,best)?i:best,null)
+ const cubes=scaffoldItems(bot),plain=cubes.filter(plainCube(bot))
+ return plain.reduce((best,i)=>!best||resistance(bot,i)>resistance(bot,best)?i:best,null)||cubes[0]||null
 }
 // A plug in the cell under the cap leaves the bot its feet and head cells and nothing
 // more. A mob that clears the cap then stands on the plug, three blocks from the feet
 // with no sight of the bot, so a creeper there never fuses. A three-deep shaft has no
 // cell between the head and the cap and gets none. Not having one is not a failure:
-// the cap alone is verified protection.
+// the cap alone is verified protection. The plug never takes the last carried cube:
+// that one recaps a blown shaft or starts the climb out. Counting cubes is simpler and
+// surer than asking whether a carried pickaxe harvests the plug and the cap.
 async function plugShaft(bot,cap,{check,progress}){
  const plug=bot.entity.position.floored().offset(0,2,0),item=capItem(bot)
- if(!item||plug.y>=cap.y||solid(bot,bot.blockAt(plug)))return false
+ if(!item||climbBlocks(bot)<2||plug.y>=cap.y||solid(bot,bot.blockAt(plug)))return false
  const plugged=await fillCell(bot,plug,{check,progress,item})
  if(!plugged)progress('Plug under the cap unconfirmed; the cap alone holds')
  return plugged
