@@ -186,8 +186,11 @@ export async function wallIn(bot,task,{check,stage,progress}){
 // tunnel's ends, so the opened wall faced away from every blaze and the bow never
 // had a shot in fifteen minutes. Against a shooter the wall facing it opens as a
 // firing port, not a door: natural rock and a drop beyond are fine, since nobody
-// steps out of it. The head cell always, the feet cell too when the target is below
-// eye level. Lava, water or fire touching the port refuses that side.
+// steps out of it. Lava, water or fire touching the port refuses that side.
+// Against a shooter the port is the head cell only (lab run 156, 15 October: a two-high
+// port into a sealed room took four blazes' fire, 20 health to 8.7 in six seconds). A
+// blaze aims at the target's mid-height from its own feet+1.4, so through a one-high slit
+// at eye level the bot sees down into a room whose fireballs all meet the wall below it.
 // An enderman is struck through the same port (enderman-stand.js): 2.9 tall, it cannot
 // follow through a 2-high wall into the hut, and the port must face it to meet its eyes.
 const PORT_MOBS=new Set([...SHOOTERS_ONLY,'enderman'])
@@ -195,9 +198,8 @@ const LIQUID=new Set(['water','lava','bubble_column'])
 const AROUND=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]
 function firingPort(bot,feet,goal){
  const t=goal.toward,skip=goal.skip||[]
- const live=Object.values(bot.entities||{}).filter(e=>e?.name===goal.shooter&&e.position).sort((a,b)=>Math.hypot(a.position.x-t.x,a.position.z-t.z)-Math.hypot(b.position.x-t.x,b.position.z-t.z))[0]
  // An enderman's port is always two high: the pearl it drops is fetched by a step into it.
- const low=goal.shooter==='enderman'||!live||live.position.y+(live.height??1.8)/2<feet.y+(bot.entity.eyeHeight??1.62)
+ const low=goal.shooter==='enderman'
  const toward=([dx,,dz])=>dx*(t.x-feet.x)+dz*(t.z-feet.z)
  const inside=[feet,feet.offset(0,1,0)]
  for(const side of SIDES.filter(s=>toward(s)>0&&!skip.some(k=>k.dx===s[0]&&k.dz===s[2])).sort((a,b)=>toward(b)-toward(a))){

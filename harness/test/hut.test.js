@@ -278,12 +278,28 @@ test('against a shooter the hut opens a firing port in the wall facing it, rock 
  blazeAt(w.bot,13.5,63,10.5);w.dug.length=0
  const port=await unwall(w.bot,{kind:'unhut',goal:{toward:{x:13,z:10},shooter:'blaze'}},api)
  assert.deepEqual(port.side,{dx:1,dz:0})
- assert.deepEqual(w.dug.sort(),[new Vec3(11,64,10).toString(),new Vec3(11,65,10).toString()].sort(),'head and feet: the blaze is below eye level')
- // Above eye level the head cell is enough.
+ assert.deepEqual(port.opened,[{x:11,y:65,z:10}],'the head cell only, though the blaze is below eye level')
+ // Above eye level too.
  const high=tunnelHut();await executeSkill(high.bot,{kind:'hut',goal:{}},api)
  blazeAt(high.bot,13.5,66,10.5);high.dug.length=0
  assert.deepEqual((await unwall(high.bot,{kind:'unhut',goal:{toward:{x:13,z:10},shooter:'blaze'}},api)).side,{dx:1,dz:0})
  assert.deepEqual(high.dug,[new Vec3(11,65,10).toString()])
+})
+// Lab run 156, 15 October: a two-high port into a sealed room put the bot's whole body in the
+// line of four blazes at 2.6 to 4 blocks, and it went from 20 health to 8.7 in six seconds. A
+// blaze aims its fireball from its feet+1.4 at the target's mid-height, so a port at the feet
+// takes every fireball. Against a shooter only the head cell opens, wherever the shooter is;
+// an enderman still gets two, since its pearl is fetched by a step into the port.
+test('against a shooter below eye level the port is the head cell only; an enderman still gets two',async()=>{
+ const w=tunnelHut();await executeSkill(w.bot,{kind:'hut',goal:{}},api)
+ blazeAt(w.bot,13.5,61,10.5);w.dug.length=0
+ const port=await unwall(w.bot,{kind:'unhut',goal:{toward:{x:13,z:10},shooter:'blaze'}},api)
+ assert.deepEqual(port.opened,[{x:11,y:65,z:10}]);assert.deepEqual(w.dug,[new Vec3(11,65,10).toString()])
+ assert.equal(w.bot.blockAt(new Vec3(11,64,10)).name,'netherrack','the feet cell stays shut')
+ const e=tunnelHut();await executeSkill(e.bot,{kind:'hut',goal:{}},api)
+ e.bot.entities={1:{id:1,name:'enderman',type:'hostile',height:2.9,position:new Vec3(13.5,63,10.5)}};e.dug.length=0
+ const two=await unwall(e.bot,{kind:'unhut',goal:{toward:{x:13,z:10},shooter:'enderman'}},api)
+ assert.deepEqual(two.opened,[{x:11,y:65,z:10},{x:11,y:64,z:10}])
 })
 test('a firing port never opens onto lava or fire; a melee mob keeps the old exit',async()=>{
  const lava=tunnelHut();await executeSkill(lava.bot,{kind:'hut',goal:{}},api)
@@ -292,7 +308,7 @@ test('a firing port never opens onto lava or fire; a melee mob keeps the old exi
  assert.deepEqual(lava.dug,[],'nothing dug toward the lava')
  // Off the diagonal, the other wall facing it opens instead.
  const diagonal=tunnelHut();await executeSkill(diagonal.bot,{kind:'hut',goal:{}},api)
- diagonal.cells.set(new Vec3(12,64,10).toString(),'fire');blazeAt(diagonal.bot,13.5,63,12.5)
+ diagonal.cells.set(new Vec3(12,65,10).toString(),'fire');blazeAt(diagonal.bot,13.5,63,12.5)
  assert.deepEqual((await unwall(diagonal.bot,{kind:'unhut',goal:{toward:{x:13,z:12},shooter:'blaze'}},api)).side,{dx:0,dz:1})
  // A side already tried is not opened again.
  const tried=tunnelHut();await executeSkill(tried.bot,{kind:'hut',goal:{}},api);blazeAt(tried.bot,13.5,63,12.5)
