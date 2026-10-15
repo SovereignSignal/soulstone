@@ -198,8 +198,8 @@ function portWait({shot,blaze=[5.5,63,.5],health=20,hut=()=>{},limitMs=1500}){
     this.runner.task={result:{receipt:'unwalled',port:true,side:{dx:1,dz:0}}};return
    }
    if(command.action==='shoot'){held.push(this.safety?.status);return shot(bot,this)}
-   if(command.action==='hut')hut(bot,this,executed.filter(x=>x.action==='hut').length)
-   this.runner.task={result:{receipt:command.action==='hut'?'walled_in':'done'}}
+   const built=command.action==='hut'?hut(bot,this,executed.filter(x=>x.action==='hut').length):null
+   this.runner.task={result:{receipt:command.action==='hut'?'walled_in':'done',...built}}
   }}
  return {bot,c,executed,said,held}
 }
@@ -254,4 +254,11 @@ test('a port that does not close at the first try is closed at the second, and t
  const twice=portWait({shot:noShot,hut:()=>{throw new Error('Hut incomplete: 2 of 10 blocks missing')}})
  const kept=twice.c.safety;await run(twice)
  assert.equal(kept.status,'failed');assert.equal(kept.port,undefined,'no stale port once the second close fails too')
+})
+test('a bot that did not get back into the hut from the port walls in where it stands, and the shelter follows it',async()=>{
+ const w=portWait({shot:(bot,c)=>{delete bot.entities[1];bot.entity.position=new Vec3(1.5,64,.5);c.runner.task={result:{item:'blaze',receipt:'killed',count:1,shots:3,strayed:{x:1,y:64,z:0}}}},hut:()=>({surface:{x:1,y:64,z:0}})})
+ const safety=w.c.safety,actions=await run(w)
+ assert.deepEqual(actions.slice(0,3),['unhut','shoot','hut'],w.said.join(' | '))
+ assert.deepEqual(safety.retreat.surface,{x:1,y:64,z:0},'the wait watches the hut it is actually in')
+ assert.ok(w.said.some(t=>/not back in the hut/i.test(t)),w.said.join(' | '))
 })

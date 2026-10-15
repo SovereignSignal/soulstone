@@ -534,3 +534,16 @@ test('the bow steps into the port for the shot and back into the hut after',asyn
  const shut=portHut({open:false});shut.pathfinder=bot.pathfinder;walked.length=0
  await assert.rejects(shootTarget(shut,{kind:'shoot',goal:{type:'blaze',collect:false,stay:true}},api,fast),/No clear shot/);assert.deepEqual(walked,[])
 })
+test('a step back from the port that lands short is reported, not assumed home; a shot not told to stay takes no port step',async()=>{
+ const bot=portHut(),walked=[]
+ bot.pathfinder={movements:null,setMovements(){},setGoal(){},async goto(g){walked.push(`${g.x},${g.y},${g.z}`);if(walked.length===1)bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}}
+ const result=await shootTarget(bot,{kind:'shoot',goal:{type:'blaze',collect:false,stay:true}},api,fast)
+ assert.equal(result.receipt,'killed');assert.deepEqual(result.strayed,{x:1,y:64,z:0})
+ // Stepped in, then no shot left from there: the failure says where the bot is.
+ const lost=portHut(),moves=[]
+ lost.pathfinder={movements:null,setMovements(){},setGoal(){},async goto(g){moves.push(g);if(moves.length===1){lost.entity.position=new Vec3(g.x+.5,g.y,g.z+.5);lost.world.raycast=()=>({name:'netherrack'})}}}
+ await assert.rejects(shootTarget(lost,{kind:'shoot',goal:{type:'blaze',collect:false,stay:true}},api,fast),/Not back in the hut: at 1,64,0/)
+ const ordinary=portHut(),steps=[]
+ ordinary.pathfinder={movements:null,setMovements(){},setGoal(){},async goto(g){steps.push(g)}}
+ await assert.rejects(shootTarget(ordinary,{kind:'shoot',goal:{type:'blaze',collect:false}},api,fast),/No clear shot/);assert.deepEqual(steps,[],'ordinary shots keep the old reposition rules')
+})

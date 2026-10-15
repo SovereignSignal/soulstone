@@ -1101,11 +1101,15 @@ export class Teammate extends EventEmitter {
         let shot=null,missed=null
         try{await this.execute({action:'shoot',goal:{type:confront.name,collect:false,stay:true},timeoutMs:60000},signal);check();shot=structuredClone(this.runner.task.result)}
         catch(error){check();missed=error.message;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check()}
+        // The bow reports a step back from the port that did not land home; the hut then
+        // walls in where the bot stands, and the wait watches that hut from here on.
+        if(shot?.strayed||/Not back in the hut/.test(missed||''))this.say('I am not back in the hut from the port. Walling in where I stand.')
         // The hut puts back what is missing: the port, and any wall a fireball took. A
         // close the bridge drops is tried once more before the shelter counts as failed.
         try{
           try{await this.execute({action:'hut',goal:{},timeoutMs:60000},signal);check()}
           catch(error){check();this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check();await this.execute({action:'hut',goal:{},timeoutMs:60000},signal);check()}
+          const closed=this.runner.task?.result?.surface;if(closed)safety.retreat={...safety.retreat,surface:structuredClone(closed)}
         }finally{delete safety.port;this.persist()}
         // Arrows taken at the open port are not a failed shelter; from here, closed, any hit is.
         protectedHealth=bot.health

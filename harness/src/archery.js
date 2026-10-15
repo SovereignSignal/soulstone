@@ -122,7 +122,7 @@ export async function shootTarget(bot,task,{check,stage,progress,movements},opti
  let lastBlock=null
  const visibleFrom=(from,e)=>{const sight=observedSightline(bot,from,centreOf(e));if(sight.status==='blocked'){lastBlock=sight.block;return false}return aimPitch(from,centreOf(e))!==null}
  const inSight=()=>candidates().find(e=>visibleFrom(bot.entity.position.offset(0,bot.entity.eyeHeight??1.62,0),e))
- let moves=0,edgeRefusal=false,stepped=null
+ let moves=0,edgeRefusal=false,home=null,port=null,strayed=null
  const walk=async(c,why)=>{
   stage('repositioning');progress(why)
   // Security review of 35a7589: walk as attack chases, never digging, towering or
@@ -137,12 +137,14 @@ export async function shootTarget(bot,task,{check,stage,progress,movements},opti
  const takeAim=async()=>{
   // Lab run 99: knocked off the open end of the fortress bridge between shots.
   // Never draw at an open edge; step back from one first.
-  const feet=bot.entity.position.floored(),atEdge=!stepped&&edgeExposed(bot,feet)
+  // Standing in the port is exempt: only its front is open (coveredSteps).
+  const feet=bot.entity.position.floored(),atEdge=!port?.equals(feet)&&edgeExposed(bot,feet)
   const seen=atEdge?null:inSight();if(seen)return seen
-  // A step into a firing port is still cover, so it is taken even when told to stay.
-  if(!stepped&&!atEdge)for(const c of coveredSteps(bot,feet)){
+  // Shooting from the hut (stay), a step into a firing port is still cover, so it is
+  // taken; an ordinary shot keeps the reposition rules below.
+  if(task.goal?.stay&&!home&&!atEdge)for(const c of coveredSteps(bot,feet)){
    if(!candidates().some(t=>visibleFrom(eyeAt(c),t)))continue
-   stepped=feet;await walk(c,`Stepping into the port at ${c.x},${c.y},${c.z} for a clear shot at the ${goal.type}`)
+   home=feet;port=c;await walk(c,`Stepping into the port at ${c.x},${c.y},${c.z} for a clear shot at the ${goal.type}`)
    return inSight()||null
   }
   if(moves>=o.repositions)return null
@@ -160,13 +162,22 @@ export async function shootTarget(bot,task,{check,stage,progress,movements},opti
   }
   return null
  }
- // Out of the port and back into the hut, so the hut closes round the bot again.
- const back=async()=>{if(!stepped)return;const home=stepped;stepped=null;try{check();await walk(home,'Stepping back into the hut')}catch{}}
+ // Out of the port and back into the hut, so the hut closes round the bot again. A
+ // walk that ends anywhere else is reported, never assumed home: the caller walls in
+ // where the bot actually stands.
+ const back=async()=>{
+  if(!home)return
+  const cell=home;home=null;port=null
+  try{check()}catch{return}
+  try{await walk(cell,'Stepping back into the hut')}catch{}
+  const at=bot.entity.position.floored();if(!at.equals(cell))strayed={x:at.x,y:at.y,z:at.z}
+ }
+ const notHome=error=>{if(strayed)error.message+=`. Not back in the hut: at ${strayed.x},${strayed.y},${strayed.z}`;return error}
  let target
- try{target=await takeAim()}catch(error){await back();throw error}
+ try{target=await takeAim()}catch(error){await back();throw notHome(error)}
  if(!target)await back()
- if(!target&&edgeRefusal)throw new Error(`Not shooting from an open edge: no spot within ${o.reposition} blocks away from the drop has a clear shot at a ${goal.type}`)
- if(!target)throw new Error(`No clear shot at any ${goal.type} within ${o.radius} blocks, nor from a spot within ${o.reposition}: ${lastBlock||'a block'} is in the way`)
+ if(!target&&edgeRefusal)throw notHome(new Error(`Not shooting from an open edge: no spot within ${o.reposition} blocks away from the drop has a clear shot at a ${goal.type}`))
+ if(!target)throw notHome(new Error(`No clear shot at any ${goal.type} within ${o.radius} blocks, nor from a spot within ${o.reposition}: ${lastBlock||'a block'} is in the way`))
  let dead=false,shots=0,drawn=false,stopped=null,lastSeen=target.position.clone?.()??target.position
  // Lab run 101: 20 health to 5 in five seconds against a blaze at close range, still
  // drawing. In the Nether burning raises no alarm, so the duel must end itself: once
@@ -186,6 +197,7 @@ export async function shootTarget(bot,task,{check,stage,progress,movements},opti
  const holdFire=e=>new Error(`Holding fire: a ${e.type==='player'?`player (${e.username||'someone'})`:e.name} is in the line of fire`)
  // Releasing a drawn bow always looses the arrow; changing the held slot cancels the draw.
  const standDown=()=>{try{bot.setQuickBarSlot?.(((bot.quickBarSlot??0)+1)%9)}catch{}}
+ let failure=null
  try{
   stage('arming');await bot.equip(bow,'hand');check()
   for(;;){
@@ -223,17 +235,18 @@ export async function shootTarget(bot,task,{check,stage,progress,movements},opti
    const until=Date.now()+o.settleMs
    while(!dead&&Date.now()<until){check();await delay(20)}
   }
- }finally{
+ }catch(error){failure=error;throw error}finally{
   // Never leave an arrow drawn: the runner's cleanup calls deactivateItem, which would loose it.
   if(drawn)standDown()
   bot.removeListener('entityDead',killed)
   await back()
+  if(failure)notHome(failure)
  }
  const at=dead?{x:target.position.x,y:target.position.y,z:target.position.z}:null
  // The kill's drops are part of the fight (lab runs 99 to 101: rods left on the
  // bridge when a later round never came). Self-defense picks up after its area check.
  const collected=dead&&task.goal?.collect!==false?await collectKillDrops(bot,[at],{check,stage,progress,movements}):null
- return {item:goal.type,count:dead?1:0,receipt:dead?'killed':'target_survived',shots,arrowsLeft:arrows(),stopped:dead?'killed':stopped,...(at?{at}:{}),...(collected?{collected}:{})}
+ return {item:goal.type,count:dead?1:0,receipt:dead?'killed':'target_survived',shots,arrowsLeft:arrows(),stopped:dead?'killed':stopped,...(at?{at}:{}),...(collected?{collected}:{}),...(strayed?{strayed}:{})}
 }
 
 // Lab, 10 October: a blaze 18 blocks off set off the safety ladder, every shelter
