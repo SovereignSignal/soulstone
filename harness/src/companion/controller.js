@@ -367,6 +367,14 @@ export class Teammate extends EventEmitter {
       }
       if(e.type==='spawn'&&this.restoreBurrow&&runner.ready){this.restoreBurrow=false;this.phase='blocked';this.safety.status='burrowed';delete this.safety.error;this.persist();const abort=this.abort=new AbortController();this.say('Service restarted while I was dug in. Waiting for daylight before digging out.');void this.waitInBurrow(this.epoch,abort.signal,runner.bot,this.requestProgress?.status==='interrupted')}
       if(e.type==='spawn'&&this.restoreRequest&&runner.ready&&!this.snapshot().dead){this.restoreRequest=false;this.requestProgress.restartContinuations=(this.requestProgress.restartContinuations||0)+1;this.persist();this.say('Service restarted while a request was running. Continuing it automatically.');setTimeout(()=>{this.resume({automatic:true}).catch(error=>{this.requestProgress.blocker=error.message;this.persist()})},1500)}
+      // The dimension marks the trip too: the alarm can cancel a crossing that has already
+      // carried the bot over, and then no completed use_portal ever says so (lab run 147, 15
+      // October: unmarked, the walk home did not end the trip and the stall retry re-crossed).
+      if(e.type==='spawn'&&runner.ready&&this.requestProgress){
+        const request=this.requestProgress
+        if(inNether(runner.bot)&&LIVE_REQUEST.has(request.status)&&!request.kittedTrip&&!request.tripEnded&&tripKit(runner.bot).ready){request.kittedTrip={at:new Date().toISOString(),how:'crossed'};this.persist()}
+        else if(dimensionOf(runner.bot)==='overworld'&&request.kittedTrip&&request.status==='running'&&!this.respawning){delete request.kittedTrip;this.persist()}
+      }
       if(e.type==='spawn'&&this.respawning){this.respawning=false;this.safety=null;this.phase=canResume(this.requestProgress)?'blocked':'ready';if(canResume(this.requestProgress))this.requestProgress.blocker='Respawned. Review current inventory before resuming the saved task.';this.say(this.requestProgress?.tripEnded&&!canResume(this.requestProgress)?'I respawned. Ready for your next instruction.':'I respawned. Check my current inventory before resuming the saved request.')}
     })
   }

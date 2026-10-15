@@ -93,7 +93,7 @@ test('from cover, a group the fight rules engage is confronted nearest first, no
 const portal={x:0,y:64,z:-1}
 function crossTo(bot,to){const from=bot.game.dimension.replace(/^minecraft:/,'');bot.game.dimension='minecraft:'+to;return {item:'portal',count:1,receipt:'crossed',from:{dimension:from,portal},to:{dimension:to,portal,position:{x:.5,y:64,z:.5}}}}
 // fails: reasons each action fails with, in turn, before it completes.
-function tripTeammate({fails={},...opts}={}){
+function tripTeammate({fails={},cancelled=false,...opts}={}){
  const bot=netherBot(opts),r=new EventEmitter()
  Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Sov',connectionId:'20000000-0000-0000-0000-000000000003',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{}})
  r.command=c=>{r.commands.push(c);if(c.action==='stop')return
@@ -104,7 +104,10 @@ function tripTeammate({fails={},...opts}={}){
  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-trip-end-')),'state.json'))
  c.requestProgress={id:'trip',request:'shoot blazes at the spawner',status:'running',feedback:[],completed:[]}
  // Out from the Overworld through the portal, as the trip begins.
- bot.game.dimension='minecraft:overworld';r.walkThrough()
+ bot.game.dimension='minecraft:overworld'
+ // Lab run 147, 15 October: across, but the alarm cancelled the crossing before it finished.
+ if(cancelled){const task=r.task={id:'walk0',kind:'use_portal',status:'cancelled',goal:{}};bot.game.dimension='minecraft:the_nether';r.emit('event',{type:'spawn'});r.emit('event',{type:'task_finished',task})}
+ else r.walkThrough()
  return {bot,r,c}
 }
 const over=c=>c.messages.filter(m=>/The Nether trip is over/.test(m.text))
@@ -230,4 +233,17 @@ test('a portal room that fails by one cell is tried again before the portal walk
  const short=tripTeammate({hoglinAt:8,fails:{hut:['Hut incomplete: 3 of 15 blocks missing (0,65,1)']}})
  await short.c.seekSafety(THREAT_INTERRUPTION)
  const two=short.r.commands.map(x=>x.action).filter(a=>a!=='stop');assert.deepEqual(two.slice(0,2),['hut','use_portal'],two.join(' '))
+})
+// Lab run 147: the cancelled crossing left no trip mark, so the safety chain's walk home did
+// not end the trip and the stall retry crossed again into the same alarm.
+test('a crossing the alarm cancelled still marks the kitted trip by the dimension, and the walk home ends it',async()=>{
+ const {bot,r,c}=tripTeammate({cancelled:true,hoglinAt:8,fails:{hut:['Hut incomplete: 3 of 15 blocks missing (0,65,1)']}})
+ assert.ok(c.requestProgress.kittedTrip,'in the Nether with the kit: a kitted trip')
+ await c.seekSafety(THREAT_INTERRUPTION)
+ assert.ok(r.commands.some(x=>x.action==='use_portal'));assert.equal(bot.game.dimension,'minecraft:overworld')
+ assert.equal(c.requestProgress.status,'blocked');assert.equal(canResume(c.requestProgress),false)
+ assert.equal(over(c).length,1,c.messages.map(m=>m.text).join(' | '))
+ // The planner's own walk home, arriving with the request running, ends the leg only.
+ const leg=tripTeammate({cancelled:true});leg.bot.game.dimension='minecraft:overworld';leg.r.emit('event',{type:'spawn'})
+ assert.equal(leg.c.requestProgress.kittedTrip,undefined);assert.equal(leg.c.requestProgress.status,'running')
 })
