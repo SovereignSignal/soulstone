@@ -81,9 +81,13 @@ const URGENT=new Set([WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY])
 const KILL_DROP_LIFE_MS=270000
 // Walk for what the request wants where recent kills fell, once: only what it asks
 // for (lab run 103: bones at night got the bot killed), only while drops last.
-// within: which sites to walk for now; the rest stay for later.
+// A kill in the Nether is a trip's: kept until fetched or the trip ends (tripEnded), not for
+// the drop's life only, since the hut may hold quiet past it first (lab run 156, 15 October).
+const recordKill=(c,bot,at)=>(c.killSites??=[]).push({at,time:Date.now(),...(inNether(bot)?{trip:true}:{})})
+// within: which sites to walk for now; the rest stay for later. A trip's kills count only
+// while the bot is still in the Nether, where they fell.
 async function collectKillSites(c,signal,bot,request,within=()=>true){
- const sites=(c.killSites||[]).filter(k=>Date.now()-k.time<KILL_DROP_LIFE_MS)
+ const sites=(c.killSites||[]).filter(k=>k.trip?inNether(bot):Date.now()-k.time<KILL_DROP_LIFE_MS)
  c.killSites=sites
  const wanted=wantedDrops(request,bot?.registry).slice(0,8),taken=sites.filter(within)
  if(!taken.length||!wanted.length)return null
@@ -123,7 +127,7 @@ import { randomUUID } from 'node:crypto'
 import { validatePlan } from './planner.js'
 import {hutSite,portalRoomSpot} from '../hut.js'
 import {rangedDefenseDecision,bowCanAnswer} from '../archery.js'
-import {onTrip,tripKit,walkOnThreat,portReady,tripPickup} from '../nether-trip.js'
+import {onTrip,tripKit,walkOnThreat,portReady,tripPickup,PICKUP} from '../nether-trip.js'
 import {deliveredCount,satisfiedStep,currentRequestTask} from './progress.js'
 
 const designKey=design=>JSON.stringify((design||[]).map(b=>[b.x,b.y,b.z,b.block]).sort((a,b)=>a[0]-b[0]||a[1]-b[1]||a[2]-b[2]||a[3].localeCompare(b[3])))
@@ -710,7 +714,7 @@ export class Teammate extends EventEmitter {
               await this.execute({action:'shoot',goal:{type:name,collect:false},timeoutMs:60000},abort.signal)
               if(epoch!==this.epoch||abort.signal.aborted)return
               const shot=structuredClone(this.runner.task.result)
-              if(shot?.receipt==='killed'&&shot.at)(this.killSites??=[]).push({at:shot.at,time:Date.now()})
+              if(shot?.receipt==='killed'&&shot.at)recordKill(this,recoveryBot,shot.at)
               // A follow-up target that flew out of view is the area check's to judge (run 98).
               if(kill>1&&shot?.stopped==='target_lost')break
               if(shot?.receipt!=='killed')throw new Error(`the ${name} survived ${shot?.shots??0} arrows`)
@@ -1051,7 +1055,7 @@ export class Teammate extends EventEmitter {
   // leave a pit, sprint from the nearest hostile and try the ground there.
   async collectKillSites(signal,bot,request){return collectKillSites(this,signal,bot,request)}
   // A melee kill's place, for the after-fight pickup (string from a night spider).
-  noteKill(result){if(result?.at&&['x','y','z'].every(k=>Number.isFinite(result.at[k])))(this.killSites??=[]).push({at:result.at,time:Date.now()})}
+  noteKill(result){if(result?.at&&['x','y','z'].every(k=>Number.isFinite(result.at[k])))recordKill(this,this.runner?.bot,result.at)}
   async moveOutOfDanger(epoch,signal,bot) {
     const s=survivalObservation(bot),threat=(s.nearbyThreats||[]).find(t=>t.risk==='potential_hostile')
     const attempt={name:'move',status:'trying'};this.safety.attempts.push(attempt);this.persist()
@@ -1083,7 +1087,7 @@ export class Teammate extends EventEmitter {
     // the wait oscillates for ever, never accumulating the quiet period it needs.
     // A brief clear reading is still inside the quiet-area verification window.
     // Keep elapsed patience until clearance succeeds; night starts a fresh wait.
-    let protectedHealth=bot.health,portWait=null,burntAt=-Infinity
+    let protectedHealth=bot.health,portWait=null,burntAt=-Infinity,watchStart=Date.now()
     const observe=()=>{
       safety.protection=inspectEmergencyShelter(bot)
       // Lab run 156, 15 October: alight from the port, the bot closed the hut and the fire ticks
@@ -1099,6 +1103,15 @@ export class Teammate extends EventEmitter {
       // Lab run 156, 15 October: broken off at a port at 10 health and alight, the bot walled in
       // and burned to death. In the Nether no port opens toward a shooter until portReady; the
       // hut holds meanwhile, and the wait's top-up eats when it can.
+      // With kills to fetch on a trip the hut holds quiet until no shooter has been near for
+      // tripPickup's minute, so the walk for them comes before going on; never so late in a watch
+      // that the quiet the wait needs after it no longer fits (lab run 156, 15 October).
+      const since=Date.now()-(this.shooterSeenAt??-Infinity)
+      if(r.clear&&!r.confront&&!r.relocate&&since<PICKUP.quietMs&&Date.now()-watchStart<limitMs-quietMs-1000&&inNether(bot)&&canResume(request)&&this.killSites?.length&&wantedDrops(request,bot.registry).length){
+        const reason=`Holding the hut quiet before fetching what fell: a shooter was near ${Math.round(since/1000)} seconds ago`
+        if(portWait!=='pickup'){portWait='pickup';this.say(reason+'.')}
+        return {clear:false,reason}
+      }
       const port=r.confront&&safety.retreat?.shelterName==='hut'&&inNether(bot)&&SHOOTERS_ONLY.has(r.confront.name)&&bowCanAnswer(bot,r.confront.name)
       const ready=port?portReady(bot):{ready:true}
       if(ready.ready){portWait=null;return r}
@@ -1149,6 +1162,7 @@ export class Teammate extends EventEmitter {
       const tried=[]
       for(;;){
         for(let watch=1;;watch++){
+          watchStart=Date.now()
           result=await awaitClearance({check,observe,quietMs,limitMs,maintain:()=>topUpWhileSheltered(this,signal,bot),onUpdate:record=>{safety.continuation={...record,watch};this.persist();this.emit('change')}})
           check();safety.continuation={...result,watch};this.persist()
           if(result.status==='cleared'||watch>=watches)break
@@ -1189,7 +1203,7 @@ export class Teammate extends EventEmitter {
         // Arrows taken at the open port are not a failed shelter; from here, closed, any hit is.
         protectedHealth=bot.health
         if(shot?.receipt==='killed'){
-          if(shot.at)(this.killSites??=[]).push({at:shot.at,time:Date.now()})
+          if(shot.at)recordKill(this,bot,shot.at)
           this.say(`The ${name} fell to my arrows. Port closed; watching again.`);continue
         }
         if(port?.side&&/No clear shot/.test(missed||''))tried.push(port.side)
@@ -1441,7 +1455,7 @@ export class Teammate extends EventEmitter {
     if(!LIVE_REQUEST.has(request.status)){delete request.kittedTrip;this.persist();return false}
     const message=`The Nether trip is over: ${reason}. Re-kit me or give me a new instruction.`
     if(request.status==='running')this.cancel(false,'blocked')
-    delete request.kittedTrip;request.tripEnded={reason,at:new Date().toISOString()}
+    delete request.kittedTrip;request.tripEnded={reason,at:new Date().toISOString()};if(this.killSites)this.killSites=this.killSites.filter(k=>!k.trip)
     request.status='blocked';request.pending=[];request.inFlight=null;request.blocker=message;request.reviewRequired=message
     this.runner.log?.('nether_trip_ended',{requestId:request.id,reason})
     this.say(message);return true

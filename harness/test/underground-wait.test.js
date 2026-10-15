@@ -283,7 +283,7 @@ test('on a trip the wait leaves the rods while a shooter was near in the last mi
  await Teammate.prototype.waitInBurrow.call(recent.c,1,new AbortController().signal,recent.bot,false)
  assert.ok(!recent.executed.some(x=>x.action==='collect'),recent.executed.map(x=>x.action).join(' '))
  assert.ok(recent.said.some(t=>/Leaving what fell .*shooter/.test(t)),recent.said.join(' | '))
- assert.deepEqual(recent.c.killSites.map(k=>k.at),[site.at],'kept for later')
+ assert.deepEqual(recent.c.killSites.map(k=>k.at),[site.at],'kept for later');assert.equal(recent.c.killSites[0].trip,true,'a kill on the trip')
  // No shooter near for the whole wait: only the kill within eight blocks of the hut is walked for.
  const quiet=portWait({shot:kill,trip:true});delete quiet.bot.entities[1]
  quiet.c.killSites=[{at:site.at,time:Date.now()},{at:{x:14.5,y:64,z:.5},time:Date.now()}]
@@ -294,6 +294,34 @@ test('on a trip the wait leaves the rods while a shooter was near in the last mi
 
 const run=async w=>{await Teammate.prototype.waitInBurrow.call(w.c,1,new AbortController().signal,w.bot,false);return w.executed.map(x=>x.action)}
 const leaving=actions=>actions.filter(a=>['climb','flee','use_portal'].includes(a))
+// With kills to fetch on a trip, the wait holds the hut quiet until no shooter has been near
+// for a minute (or until the watch has no room left for it), then walks for them, guarded.
+// Trip kills are kept until fetched or the trip ends, not dropped after four and a half minutes.
+test('with kills to fetch on a trip the hut holds quiet a minute after the last shooter, then collects; trip kills last until the trip ends',async()=>{
+ const site={x:5.5,y:63,z:.5},far={x:14.5,y:64,z:.5}
+ const pending=({seenAgo,limitMs,age=0})=>{
+  const w=portWait({shot:noShot,trip:true,limitMs});delete w.bot.entities[1]
+  w.c.killSites=[{at:site,time:Date.now()-age,trip:true},{at:far,time:Date.now(),trip:true}];w.c.shooterSeenAt=Date.now()-seenAgo
+  const at={};const execute=w.c.execute;w.c.execute=async function(command){at[command.action]??=Date.now();return execute.call(this,command)}
+  return {...w,at}
+ }
+ // Seen twenty seconds ago, with a short watch: it holds, then gives the pickup up and says so.
+ const held=pending({seenAgo:20000,limitMs:2000}),start=Date.now()
+ await run(held)
+ assert.ok(held.said.some(t=>/Holding the hut quiet/.test(t)),held.said.join(' | '))
+ assert.ok(held.at.unhut-start>=450,'held before opening: '+(held.at.unhut-start))
+ assert.ok(!held.executed.some(x=>x.action==='collect'),held.said.join(' | '))
+ // Seen 59.4 seconds ago: it holds out the minute, then walks for the near kill only.
+ const quiet=pending({seenAgo:59400,limitMs:4000,age:400000}),seen=quiet.c.shooterSeenAt
+ await run(quiet)
+ assert.deepEqual(quiet.executed.find(x=>x.action==='collect')?.goal.at,[site],quiet.said.join(' | '))
+ assert.ok(quiet.at.unhut-seen>=60000,'opened only after a quiet minute');assert.ok(quiet.at.collect-seen>=60000)
+ assert.deepEqual(quiet.c.killSites.map(k=>k.at),[far],'the far one is kept for later')
+ // The trip ending drops its kills; a kill from before it is kept.
+ const said=[],c={requestProgress:{id:'rods',status:'interrupted',kittedTrip:{at:'t'}},killSites:[{at:site,time:Date.now(),trip:true},{at:far,time:Date.now()}],runner:{},say:t=>said.push(t),persist(){},cancel(){}}
+ assert.equal(Teammate.prototype.tripEnded.call(c,'danger sent me home through the portal'),true)
+ assert.deepEqual(c.killSites.map(k=>k.at),[far])
+})
 // Lab run 156, 15 October: broken off at 10 health and burning, the bot walled in and burned
 // to death. In the Nether the wait opens no port toward a shooter until it is ready: hurt,
 // alight or hungry it holds the hut, says why, and eats when it can.
