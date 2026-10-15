@@ -236,6 +236,23 @@ test('a portal room that fails by one cell is tried again before the portal walk
  await short.c.seekSafety(THREAT_INTERRUPTION)
  const two=short.r.commands.map(x=>x.action).filter(a=>a!=='stop');assert.deepEqual(two.slice(0,2),['hut','use_portal'],two.join(' '))
 })
+// Lab run 150, 15 October: kitted in a one-wide covered netherrack tunnel, blazes off the
+// walls, and netherrack with a pickaxe always burrows, so the bot dug in where it had no
+// port, and leaving was a climb out under four blazes. The tunnel is a hut already but for
+// its two open ends; on a trip those are walled first and the burrow is the fallback.
+async function tunnelCover(opts){
+ const {bot,r,c}=tripTeammate(opts)
+ bot.inventory.items().push({name:'iron_pickaxe',count:1,maxDurability:250,durabilityUsed:0})
+ bot.blockAt=p=>{const name=p.x===0&&(p.y===64||p.y===65)&&Math.abs(p.z)<=10?'air':'netherrack';return {name,position:p.clone(),boundingBox:registry.blocksByName[name].boundingBox,getProperties:()=>({})}}
+ bot.findBlock=()=>null
+ bot.entities={8:{id:8,uuid:'10000000-0000-0000-0000-000000000008',type:'mob',name:'blaze',position:new Vec3(4.5,64,2.5)}}
+ void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,100))
+ const acts=r.commands.map(x=>x.action).filter(a=>a==='hut'||a==='burrow');c.cancel?.(true);return {acts,said:c.messages.map(m=>m.text)}
+}
+test('on a trip in a one-wide tunnel the open ends are walled before any burrow; off a trip, the burrow first as before',async()=>{
+ const trip=await tunnelCover({});assert.equal(trip.acts[0],'hut',trip.acts.join(' ')+' :: '+trip.said.join(' | '))
+ const bare=await tunnelCover({kit:false});assert.equal(bare.acts[0],'burrow',bare.acts.join(' ')+' :: '+bare.said.join(' | '))
+})
 // Lab run 147: the cancelled crossing left no trip mark, so the safety chain's walk home did
 // not end the trip and the stall retry crossed again into the same alarm.
 test('a crossing the alarm cancelled still marks the kitted trip by the dimension, and the walk home ends it',async()=>{

@@ -849,7 +849,7 @@ export class Teammate extends EventEmitter {
           this.safety.status='retreating'
         }
       }
-      if(!this.safety.retreat)await this.lastResortShelter(epoch,abort.signal)
+      if(!this.safety.retreat)await this.lastResortShelter(epoch,abort.signal,{trip})
       if(epoch!==this.epoch||abort.signal.aborted)return
       // Cornered: every shelter refused and a mob in arm's reach. Fight the
       // nearest, up to three in turn, then try to shelter again.
@@ -861,7 +861,7 @@ export class Teammate extends EventEmitter {
         catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;attempt.status='failed';attempt.reason=error.message;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)}
         if(epoch!==this.epoch||abort.signal.aborted)return
         this.persist()
-        if(!corneredDecision(recoveryBot).engage){await this.lastResortShelter(epoch,abort.signal);if(epoch!==this.epoch||abort.signal.aborted)return}
+        if(!corneredDecision(recoveryBot).engage){await this.lastResortShelter(epoch,abort.signal,{trip});if(epoch!==this.epoch||abort.signal.aborted)return}
       }
       // In the Nether "moving away" runs into the fortress (runs 100 and 107 died that
       // way, 107 with two blaze rods). With a portal in reach, try it again instead.
@@ -885,7 +885,7 @@ export class Teammate extends EventEmitter {
       }
       else if(!this.safety.retreat&&await this.moveOutOfDanger(epoch,abort.signal,recoveryBot)){
         if(epoch!==this.epoch||abort.signal.aborted)return
-        await this.lastResortShelter(epoch,abort.signal)
+        await this.lastResortShelter(epoch,abort.signal,{trip})
         if(epoch!==this.epoch||abort.signal.aborted)return
       }
       if(!this.safety.retreat)throw new Error('No verified shelter reached. '+this.safety.attempts.map(a=>a.name+': '+a.reason).join('; '))
@@ -983,14 +983,15 @@ export class Teammate extends EventEmitter {
   }
   // Last resort with no base and no weapon: dig in, or wall in where the
   // ground cannot be dug. Returns whether a shelter was reached.
-  async lastResortShelter(epoch,signal) {
+  async lastResortShelter(epoch,signal,{trip=false}={}) {
     // Burrow and hut judge the ground under the bot; a sprint or jump leaves it airborne for a moment.
     for(let i=0;i<15&&this.runner.bot?.entity?.onGround===false;i++){await delay(100);if(epoch!==this.epoch||signal.aborted)return false}
-    if(!this.safety.retreat){
-      const attempt={name:'burrow',status:'trying'};this.safety.attempts.push(attempt);this.persist()
-      this.say('No verified shelter is reachable. I am digging in to wait out the danger.')
+    // One attempt; false when the shelter was cancelled under it.
+    const shelter=async(name,said,goal)=>{
+      const attempt={name,status:'trying'};this.safety.attempts.push(attempt);this.persist()
+      this.say(said)
       try{
-        await this.execute({action:'burrow',goal:{},timeoutMs:60000},signal)
+        await this.execute({action:name,goal,timeoutMs:60000},signal)
         if(epoch!==this.epoch||signal.aborted)return false
         this.safety.retreat=structuredClone(this.runner.task.result);attempt.status='sheltered';this.persist()
       }catch(error){
@@ -998,23 +999,20 @@ export class Teammate extends EventEmitter {
         attempt.status='rejected';attempt.reason=error.message;this.persist()
         this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal)
       }
+      return true
     }
-    // Ground that cannot be dug: wall in with carried blocks instead.
-    if(!this.safety.retreat){
-      const attempt={name:'hut',status:'trying'};this.safety.attempts.push(attempt);this.persist()
-      this.say('The ground here cannot be dug. I am walling myself in with carried blocks.')
-      // In the Nether a portal room a step away beats a plain hut on a bridge (run 107).
-      const bot=this.runner.bot,roomGoal=inNether(bot)&&((()=>{const site=hutSite(bot);return site.ok&&site.portal})()||portalRoomSpot(bot))?{portalRoom:true}:{}
-      try{
-        await this.execute({action:'hut',goal:roomGoal,timeoutMs:60000},signal)
-        if(epoch!==this.epoch||signal.aborted)return false
-        this.safety.retreat=structuredClone(this.runner.task.result);attempt.status='sheltered';this.persist()
-      }catch(error){
-        if(epoch!==this.epoch||signal.aborted)return false
-        attempt.status='rejected';attempt.reason=error.message;this.persist()
-        this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal)
-      }
-    }
+    const burrow=()=>shelter('burrow','No verified shelter is reachable. I am digging in to wait out the danger.',{})
+    // In the Nether a portal room a step away beats a plain hut on a bridge (run 107).
+    const hut=said=>{const bot=this.runner.bot,roomGoal=inNether(bot)&&((()=>{const site=hutSite(bot);return site.ok&&site.portal})()||portalRoomSpot(bot))?{portalRoom:true}:{};return shelter('hut',said,roomGoal)}
+    // Lab run 150, 15 October: kitted in a one-wide covered netherrack tunnel, the burrow came
+    // first, since netherrack and a pickaxe always dig, and a burrow has no port: leaving it was
+    // a climb out under four blazes. Such a tunnel is a hut already but for its two open ends,
+    // four blocks, so on a trip under rock those are walled first and the burrow is the fallback.
+    const site=trip&&roofed(this.runner.bot)?hutSite(this.runner.bot):null
+    const order=site?.ok&&site.needed<=4?[()=>hut('Rock on every side but two. I am walling in the open ends with carried blocks.'),burrow]
+      // Ground that cannot be dug: wall in with carried blocks instead.
+      :[burrow,()=>hut('The ground here cannot be dug. I am walling myself in with carried blocks.')]
+    for(const step of order)if(!this.safety.retreat&&!await step())return false
     return !!this.safety.retreat
   }
   // Never stand still when every shelter is refused and a threat is near:
