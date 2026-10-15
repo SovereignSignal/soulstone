@@ -269,7 +269,7 @@ export function shelterExits(retreat){
  if(retreat.shelterName==='hut')return [[1,0],[-1,0],[0,1],[0,-1]].flatMap(([dx,dz])=>[at.offset(dx*2,0,dz*2),at.offset(dx*2,1,dz*2)])
  return [at,at.offset(0,1,0),at.offset(0,2,0)]
 }
-export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_MS,relocateAfterMs=RELOCATE_PATIENCE_MS,exits=null,trip=false}={}){
+export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_MS,relocateAfterMs=RELOCATE_PATIENCE_MS,exits=null,trip=false,canPort=false}={}){
  const s=survivalObservation(bot)
  if(!Number.isFinite(s.timeOfDay))return {clear:false,reason:'Time of day is unknown'}
  // Dawn is coming whatever we do, so waiting for it is not the window's business.
@@ -301,7 +301,10 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
   // is not waiting outside (a blaze behind the fortress's nether bricks).
   const eyeAt=c=>({x:c.x+.5,y:c.y+(bot.entity?.eyeHeight??1.62),z:c.z+.5})
   const hidden=t=>!!t.position&&exits.every(c=>observedSightline(bot,eyeAt(c),{x:t.position.x,y:t.position.y+1,z:t.position.z}).status==='blocked')
-  near=near.filter(t=>!(SHOOTERS_ONLY.has(t.name)&&t.distance>4&&hidden(t)))
+  // Only a hut answers a shooter from its exits. Out of a burrow the bot climbs and walks on past
+  // where the shaft's column could see (lab run 150, 15 October: in a tunnel those eyes saw only
+  // along it, three of four blazes off its walls were "hidden", and two met the bot in clear sight).
+  if(canPort)near=near.filter(t=>!(SHOOTERS_ONLY.has(t.name)&&t.distance>4&&hidden(t)))
   // On a trip a mob the alarm walks on outside is not waiting outside either, judged by sight
   // at the exits, or the hut holds the bot over it for good (lab run 148, 15 October).
   if(trip){const seen=near.map(t=>({...t,sightline:{status:hidden(t)?'blocked':'clear'}}));near=near.filter((t,i)=>!walkOnThreat(bot,seen[i],seen))}
@@ -322,6 +325,10 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  // Several shooters are shot in turn, as the ranged chain does in the open (three blazes at
  // the wall by 18:10Z the same run).
  const shooters=near.filter(t=>SHOOTERS_ONLY.has(t.name))
+ // A burrow has no port: on a trip, confronting a shooter from one is a climb out with no shot
+ // planned (lab run 150, 15 October: a lone blaze confronted, four waiting, dead in ten seconds).
+ // Off a trip the armour and bow gates below still open a burrow to a lone skeleton.
+ const portless=!canPort&&trip&&shooters.length>0
  // At a spawner the count never falls: the bot in cover keeps the spawner active and the
  // blazes pile up at the wall (lab run 144, 14 October: six at four blocks through the
  // window). On a trip, with the kit, shooters are answered whatever their number; the
@@ -338,7 +345,7 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  // death (a blaze at the wall or a skeleton parked inside ten blocks never leaves, and
  // relocation needs ten blocks clear), so the sword confronts as it did before.
  const meleeReady=defenseDecision(bot).engage&&(!canHeal||near.every(t=>!SHOOTERS_ONLY.has(t.name)||armoured||bowCanAnswer(bot,t.name)))
- const ready=!!lone&&bowCanAnswer(bot,lone.name)||shooterAtWall||meleeReady
+ const ready=!portless&&(!!lone&&bowCanAnswer(bot,lone.name)||shooterAtWall||meleeReady)
  if(!ready){
   // Neither fight nor hide. Unarmed against numbers or a crossbow, healthy, in
   // daylight, with nothing in melee reach and the threat sat still past the
@@ -347,7 +354,7 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
   if(lingeredMs>=relocateAfterMs&&strongEnoughToLeave(bot)&&closest>=RELOCATE_STANDOFF&&near.every(t=>t.position))
    return {clear:true,relocate:{threats:near,from:centre(near)},health:s.health,timeOfDay:s.timeOfDay,scope,
     reason:`${near.length===1?`A ${near[0].name}`:`${near.length} hostiles`} held station for ${Math.round(lingeredMs/1000)} seconds and will not disperse; surfacing to move away rather than wait them out`}
-  return {clear:false,lingering:true,reason:'A potential hostile remains within 16 blocks',threats:near}
+  return {clear:false,lingering:true,reason:portless?'A shooter waits outside and a burrow has no port; holding':'A potential hostile remains within 16 blocks',threats:near}
  }
  if(lingeredMs<patienceMs)return {clear:false,lingering:true,reason:`${lone?`A lone ${lone.name} lingers`:`${near.length} hostiles I can fight linger`} within 16 blocks in daylight; confronting after ${Math.round(patienceMs/1000)} seconds`,threats:near}
  return {clear:true,confront:lone||nearest,health:s.health,timeOfDay:s.timeOfDay,reason:lone?`A lone ${lone.name} has lingered ${Math.round(lingeredMs/1000)} seconds into daylight; surfacing to confront it`:`${near.length} hostiles I can fight have lingered ${Math.round(lingeredMs/1000)} seconds; surfacing to fight them, nearest first`,scope}

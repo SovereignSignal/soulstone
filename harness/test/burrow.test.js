@@ -717,6 +717,36 @@ test('the clearance asks whether a shooter could see the bot at the shelter\'s e
  const seen=at('clear');assert.equal(seen.clear,false,'a blaze that could see the exit still holds the bot in')
 })
 
+// Lab run 150, 15 October: kitted on a trip, burrowed into the floor of a one-wide covered
+// netherrack tunnel, four blazes off the tunnel walls and one down the tunnel. From the
+// shaft's column the exits see only along the tunnel, so three were "hidden", the fourth
+// with them, and the one in the axis was confronted alone: a climb out with no shot planned,
+// two blazes at two blocks in clear sight, dead in ten seconds. A burrow has no port.
+// The tunnel runs along z at x 0, y 64 and 65; netherrack one thick on the +x side with open
+// air beyond and a window through it at z 6; the shaft is dug from (0,64,0) down to y 60.
+function burrowedInTunnel(){
+ const cells=new Map([['0,60,0','air'],['0,61,0','air'],['0,62,0','air'],['0,63,0','cobblestone'],['1,64,6','air'],['1,65,6','air']])
+ const name=p=>cells.get(`${p.x},${p.y},${p.z}`)??(p.x===0&&(p.y===64||p.y===65)&&Math.abs(p.z)<=10?'air':p.x>=2?'air':'netherrack')
+ const items=[{name:'bow',count:1,maxDurability:384,durabilityUsed:0},{name:'arrow',count:128},{name:'iron_sword',count:1,maxDurability:250,durabilityUsed:0}],slots=[]
+ for(const [i,n] of [[5,'iron_helmet'],[6,'iron_chestplate'],[7,'iron_leggings'],[8,'golden_boots']])slots[i]={name:n}
+ const blazes=[[4.5,64,2.5],[5.5,65,-3.5],[4.5,63,8.5],[6.5,64,-1.5],[.5,64,7.5]]
+ return {registry,game:{gameMode:'survival',difficulty:'normal',dimension:'minecraft:the_nether'},time:{timeOfDay:6000},health:20,food:20,players:{},
+  entity:{position:new Vec3(.5,60,.5),onGround:true,eyeHeight:1.62},inventory:{items:()=>items,slots},getEquipmentDestSlot:s=>({head:5,torso:6,legs:7,feet:8})[s],
+  entities:Object.fromEntries(blazes.map(([x,y,z],i)=>[i+1,{id:i+1,uuid:`00000000-0000-0000-0000-00000000002${i}`,type:'hostile',name:'blaze',height:1.8,position:new Vec3(x,y,z)}])),
+  blockAt:p=>{const n=name(p);return {name:n,position:p.clone(),boundingBox:registry.blocksByName[n]?.boundingBox,getProperties:()=>({})}},
+  world:{raycast:(from,dir,range)=>{for(let d=0.1;d<=range;d+=0.1){const c=from.plus(dir.scaled(d)).floored(),n=name(c);if(registry.blocksByName[n]?.boundingBox==='block')return {name:n,position:c}}return null}}}
+}
+test('a burrow holds against shooters it cannot answer from inside, and counts every one; a hut still confronts through its port',async()=>{
+ const {shelterExits}=await import('../src/burrow.js')
+ const bot=burrowedInTunnel(),surface={x:0,y:64,z:0}
+ const r=burrowClearance(bot,{exits:shelterExits({shelterName:'burrow',surface}),trip:true,lingeredMs:61000})
+ assert.equal(r.clear,false,r.reason);assert.equal(r.confront,undefined);assert.equal(r.lingering,true)
+ assert.equal(r.threats.length,5,'the blazes the shaft column cannot see are still outside');assert.match(r.reason,/no port/)
+ // The hut's port is the answer (lab runs 141 and 146): it still confronts.
+ const hut=burrowClearance(bot,{exits:shelterExits({shelterName:'hut',surface}),canPort:true,trip:true,lingeredMs:61000})
+ assert.equal(hut.clear,true,hut.reason);assert.equal(hut.confront?.name,'blaze')
+})
+
 test('in the Nether a shelter that will not clear leaves through the portal, not deeper in',async()=>{
  // Lab run 100: walled in among hoglins in the fortress, the relocate fled 32
  // blocks away from them, deeper into the fortress, and a wither skeleton killed it.
@@ -743,7 +773,7 @@ test('a shooter parked at the wall is confronted with the bow while the melee mo
  r=burrowClearance(w.bot,{lingeredMs:61000});assert.equal(r.clear,true,r.reason);assert.equal(r.confront?.name,'blaze')
  w.bot.entities[4]={id:4,name:'blaze',position:new Vec3(13.5,64,9.5)};w.bot.entities[5]={id:5,name:'blaze',position:new Vec3(12.5,64,12.5)}
  assert.equal(burrowClearance(w.bot,{lingeredMs:61000}).clear,false,'four shooters are a wait off a trip')
- const spawner=burrowClearance(w.bot,{lingeredMs:61000,trip:true});assert.equal(spawner.clear,true,'on a trip with the kit they are answered whatever their number');assert.equal(spawner.confront?.name,'blaze')
+ const spawner=burrowClearance(w.bot,{lingeredMs:61000,trip:true,canPort:true});assert.equal(spawner.clear,true,'on a trip with the kit they are answered whatever their number');assert.equal(spawner.confront?.name,'blaze')
  delete w.bot.entities[3];delete w.bot.entities[4];delete w.bot.entities[5]
  w.inventory.splice(w.inventory.findIndex(i=>i.name==='arrow'),1)
  assert.equal(burrowClearance(w.bot,{lingeredMs:61000}).clear,false,'no arrows, no answer')

@@ -203,6 +203,28 @@ function portWait({shot,blaze=[5.5,63,.5],health=20,hut=()=>{},limitMs=1500}){
   }}
  return {bot,c,executed,said,held}
 }
+// Lab run 150, 15 October: the same kit burrowed into this tunnel's floor, four blazes off
+// the walls and one down the tunnel. The wait confronted one, and a burrow confronts by
+// climbing out with no shot planned. A burrow holds while a shooter waits, then opens as before.
+test('burrowed on a trip with blazes outside, the wait holds; once they are gone it opens up as before',async()=>{
+ const shaft=new Map([[0,64,1,'air'],[0,65,1,'air'],[0,64,-1,'air'],[0,65,-1,'air'],[0,60,0,'air'],[0,61,0,'air'],[0,62,0,'air'],[0,63,0,'cobblestone'],[1,64,6,'air'],[1,65,6,'air']].map(([x,y,z,n])=>[new Vec3(x,y,z).toString(),n]))
+ const burrowWait=gone=>{
+  const {bot}=tunnel({mobs:[[4.5,64,2.5],[5.5,65,-3.5],[4.5,63,8.5],[6.5,64,-1.5],[.5,64,7.5]].map(p=>['blaze',...p]),items:[KIT[0],{name:'arrow',count:128},SWORD],cells:shaft}),executed=[],said=[]
+  bot.entity.position=new Vec3(.5,60,.5);bot.game.dimension='minecraft:the_nether'
+  bot.inventory.slots=[];bot.getEquipmentDestSlot=s=>({head:5,torso:6,legs:7,feet:8})[s]
+  for(const [i,n] of [[5,'iron_helmet'],[6,'iron_chestplate'],[7,'iron_leggings'],[8,'golden_boots']])bot.inventory.slots[i]={name:n}
+  const c={epoch:1,runner:{bot,ready:true,connectionId:'same',task:{result:{}}},safety:{status:'burrowed',retreat:{shelterName:'burrow',surface:{x:0,y:64,z:0}}},
+   requestProgress:{id:'rods',request:'blaze rods',status:'interrupted',feedback:[]},burrowWait:{quietMs:5,limitMs:1200,watches:1,patienceMs:0},
+   persist(){},emit(){},say:t=>said.push(t),dispatch(){},resume(){assert.fail('not eligible to resume')},
+   async execute(command){executed.push({action:command.action,blazes:Object.keys(bot.entities).length});this.runner.task={result:{receipt:command.action}}}}
+  if(gone)setTimeout(()=>{bot.entities={}},gone)
+  return {bot,c,executed,said}
+ }
+ const held=burrowWait();await Teammate.prototype.waitInBurrow.call(held.c,1,new AbortController().signal,held.bot,false)
+ assert.deepEqual(held.executed,[],held.said.join(' | '))
+ const left=burrowWait(300);await Teammate.prototype.waitInBurrow.call(left.c,1,new AbortController().signal,left.bot,false)
+ assert.deepEqual(left.executed,[{action:'unburrow',blazes:0}],left.said.join(' | '))
+})
 test('a shooter outside the hut is shot from a firing port while the shelter still holds, then the port closes',async()=>{
  const w=portWait({shot:(bot,c)=>{delete bot.entities[1];c.runner.task={result:{item:'blaze',receipt:'killed',count:1,shots:3,at:{x:5.5,y:63,z:.5}}}}})
  await Teammate.prototype.waitInBurrow.call(w.c,1,new AbortController().signal,w.bot,false)
