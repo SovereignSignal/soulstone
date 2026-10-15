@@ -9,3 +9,5 @@ export const sameDimension=(bot,p)=>{const here=dimensionOf(bot);return !here||h
 // The Nether has a bedrock ceiling and no sky; mineflayer still reports the
 // shared world clock there, so clock rules must not read it as night.
 export const inNether=bot=>dimensionOf(bot)==='the_nether'
+// The End has sky but no sun: the clock runs and nothing there follows it.
+export const inEnd=bot=>dimensionOf(bot)==='the_end'

@@ -1,6 +1,7 @@
 import {validateUseGoal,interactableObservation,useTargetNames,dimensionOf} from '../use-item.js'
 import {addBearing,EYE} from '../eye-of-ender.js'
-import {projectDimension,sameDimension,inNether} from '../dimension.js'
+import {projectDimension,sameDimension,inNether,inEnd} from '../dimension.js'
+import {portalRefusal} from '../portal-guard.js'
 import {updateMission,syncMissionStatus,missionFocus} from './milestones.js'
 import {SkillControl,selectSkill} from './skill-control.js'
 import {eatOnClearGround} from './food-recovery.js'
@@ -23,9 +24,17 @@ const BURROW_WATCHES=4
 // How far off the nearest hostile must be for a portal room to go up before it arrives.
 const PORTAL_ROOM_STANDOFF=6
 // How a shelter that will not clear moves away: through the portal when in the
-// Nether with one in reach, otherwise by running from the threats.
+// Nether with one in reach, toward the middle of the island in the End, where
+// every way outward ends in the void, otherwise by running from the threats.
 export function relocateWay(bot){
+ if(inEnd(bot))return 'centre'
  return inNether(bot)&&bot?.findBlock?.({matching:bot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})?'portal':'flee'
+}
+// Where a move toward 0,0 ends: up to `reach` blocks in, stopping `keep` short of
+// the exit fountain. Already that close, there is nowhere further in to go.
+export function centreward(p,reach=32,keep=6){
+ const d=Math.hypot(p.x,p.z),go=Math.min(reach,d-keep)
+ return go>0?{x:Math.round(p.x-p.x/d*go),z:Math.round(p.z-p.z/d*go)}:null
 }
 // Shooters the bow takes in one defense before the area is judged.
 const RANGED_CHAIN=4
@@ -1188,7 +1197,9 @@ export class Teammate extends EventEmitter {
       }else if(relocate&&!goOn){
         try{await this.execute({action:'climb',goal:{},timeoutMs:45000},signal);check()}
         catch(error){check();this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check()}
-        try{await this.execute({action:'flee',goal:{from:relocate.from,distance:32},timeoutMs:60000},signal);check()
+        // In the End away is toward 0,0, since the void is every other way; beside the fountain already, it stays.
+        const way=relocateWay(bot),centre=way==='centre'?centreward(bot.entity.position):null
+        if(way!=='centre'||centre)try{await this.execute(centre?{action:'travel',goal:{x:centre.x,y:Math.floor(bot.entity.position.y),z:centre.z},timeoutMs:60000}:{action:'flee',goal:{from:relocate.from,distance:32},timeoutMs:60000},signal);check()
           safety.relocated=structuredClone(this.runner.task.result);this.persist()}
         catch(error){check();this.say('I could not get clear of them: '+error.message)
           this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check()}
@@ -1455,7 +1466,7 @@ export class Teammate extends EventEmitter {
         this.verifyGoal()
         const experience=this.experience.retrieve(text,this.requestProgress.goal,b?.version||'unknown')
         this.requestProgress.retrievedExperience=experience.map(e=>e.id);this.persist()
-        const observation=expeditionObservation({...(this.threatContextMode==='legacy'?{}:{recovery:recoveryContext(this,b)}),goal:this.requestProgress.goal,verification:this.requestProgress.verification,activeMilestone:missionFocus(this.requestProgress.mission),experience,terrain:this.requestProgress.goal?terrainSummary(b,{near:ownerPosition||position,projects:this.projects}):null,connected,owner,ownerVisible,position,ownerPosition,health,survival,foraging:berryObservation(b),footing:footingObservation(b),world:worldObservation(b,{goal:this.requestProgress.goal,requestedBlocks:this.requestProgress.requestedBlocks}),interactables:interactableObservation(b,{names:useTargetNames(this.requestProgress.goal)}),localTerrain:terrainSummary(b,{projects:this.projects}),tools,inventory,places,task:currentTask,nearby,feedback:feedback.slice(-24),projects:structuredClone(this.projects),baseCondition:this.baseCondition(),portalTravel:{nether:this.runner.portalTravel?.current?.nether||'off'},existingBuild:existingTask?.kind==='build'?existingTask:null,requestProgress:structuredClone(this.requestProgress),lastDeath,conversation:this.conversation(),remainingPlanningRounds:PLANNING_ROUNDS-planningRound})
+        const observation=expeditionObservation({...(this.threatContextMode==='legacy'?{}:{recovery:recoveryContext(this,b)}),goal:this.requestProgress.goal,verification:this.requestProgress.verification,activeMilestone:missionFocus(this.requestProgress.mission),experience,terrain:this.requestProgress.goal?terrainSummary(b,{near:ownerPosition||position,projects:this.projects}):null,connected,owner,ownerVisible,position,ownerPosition,health,survival,foraging:berryObservation(b),footing:footingObservation(b),world:worldObservation(b,{goal:this.requestProgress.goal,requestedBlocks:this.requestProgress.requestedBlocks}),interactables:interactableObservation(b,{names:useTargetNames(this.requestProgress.goal)}),localTerrain:terrainSummary(b,{projects:this.projects}),tools,inventory,places,task:currentTask,nearby,feedback:feedback.slice(-24),projects:structuredClone(this.projects),baseCondition:this.baseCondition(),portalTravel:{nether:this.runner.portalTravel?.current?.nether||'off',end:this.runner.portalTravel?.current?.end||'off'},existingBuild:existingTask?.kind==='build'?existingTask:null,requestProgress:structuredClone(this.requestProgress),lastDeath,conversation:this.conversation(),remainingPlanningRounds:PLANNING_ROUNDS-planningRound})
         return observation
     }
     const activeStarted=Date.now();let stagnant=0,lastFingerprint=progressFingerprint(this.snapshot())
@@ -1607,7 +1618,7 @@ export class Teammate extends EventEmitter {
               else if(step.action==='shoot')command={action:'shoot',goal:validateAttackGoal({type:step.item}),timeoutMs:120000}
               else if(step.action==='use')command={action:'use',goal:validateUseGoal({item:step.item,count:1,expect:step.name,target:step.target,protectedSites:projectFootprints(this.projects,dimensionOf(this.runner.bot))}),timeoutMs:120000}
               else if(['descend','climb'].includes(step.action))command={action:step.action,goal:{},timeoutMs:45000}
-              else if(step.action==='use_portal'){if(dimensionOf(this.runner.bot)==='overworld'&&!this.runner.portalTravel?.allows?.('the_nether'))throw new Error('Portal travel to the Nether is off for this world; only the owner can turn it on');command={action:'use_portal',goal:{},timeoutMs:90000}}
+              else if(step.action==='use_portal'){const refused=portalRefusal(this.runner.bot,{netherAllowed:this.runner.portalTravel?.allows?.('the_nether')===true,endAllowed:this.runner.portalTravel?.allows?.('the_end')===true});if(refused)throw new Error(refused);command={action:'use_portal',goal:{},timeoutMs:90000}}
               else if(step.action==='sleep')command={action:'sleep',goal:this.projects.base?{project:structuredClone(this.projects.base)}:{},timeoutMs:180000}
               else if(step.action==='give')command={action:'give',goal:{item:step.item,count:step.count-deliveredCount(feedback,step.item),player:this.recipient()},timeoutMs:30000}
               else if([...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(step.action)){

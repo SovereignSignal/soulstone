@@ -6,6 +6,7 @@ import {dimensionOf} from './dimension.js'
 import {wearBestArmor} from './armor.js'
 import {unwall} from './hut.js'
 import {wayBack} from './trail.js'
+import {plainCube} from './scaffold.js'
 const {goals}=pathfinding
 
 // Sov's limit: never step through a portal or enter the Nether. A survival
@@ -51,19 +52,97 @@ export async function hop(bot,{check=()=>{}}={},{hopMs=500,pollMs=50}={}){
  try{await until(()=>!bot.entity.onGround,hopMs)}finally{bot.setControlState('jump',false)}
  await until(()=>bot.entity.onGround,hopMs*2)
 }
+const PORTAL_REACH=48
+const findPortal=(bot,name)=>{const id=bot.registry?.blocksByName?.[name]?.id;if(id===undefined)return null;const b=bot.findBlock?.({matching:id,maxDistance:PORTAL_REACH});return b?.name===name?b:null}
+// Which portal use_portal means. From the Overworld the nearer lit portal decides,
+// and each kind answers to its own switch; from the End there is only the End's.
+export function portalKind(bot){
+ const from=dimensionOf(bot)
+ if(from==='the_end')return 'end'
+ if(from!=='overworld')return 'nether'
+ const end=findPortal(bot,'end_portal');if(!end)return 'nether'
+ const nether=findPortal(bot,'nether_portal'),here=bot.entity.position
+ return nether&&nether.position.distanceTo(here)<end.position.distanceTo(here)?'nether':'end'
+}
+export function portalRefusal(bot,{netherAllowed=false,endAllowed=false,kind}={}){
+ if(dimensionOf(bot)!=='overworld')return null
+ return (kind??portalKind(bot))==='end'
+  ?endAllowed?null:'Portal travel to the End is off for this world; only the owner can turn it on'
+  :netherAllowed?null:'Portal travel to the Nether is off for this world; only the owner can turn it on'
+}
+// The End (workstreams/minecraft/dragon-roadmap.md, brief 3). An end portal is a
+// floor, not a doorway: stepping onto it carries a player across at once, so there
+// is no wait in the middle and no stepping out and in again. The arrival platform
+// can be buried; the bot digs out through what it may dig anywhere (end stone) and
+// never the obsidian it stands on. From the End the one way home is the exit
+// fountain's portal at 0,0, which is lit only once the dragon is dead.
+async function crossEnd(bot,{check,stage,progress},{reachMs,crossMs,hopMs,loadMs,pollMs}){
+ const xyz=p=>({x:p.x,y:p.y,z:p.z}),key=p=>`${p.x},${p.y},${p.z}`
+ const until=async(predicate,ms)=>{const end=Date.now()+ms;while(Date.now()<end){check();if(predicate())return true;await delay(pollMs)}return predicate()}
+ const from=dimensionOf(bot),named=(p,name)=>bot.blockAt(p)?.name===name
+ const block=findPortal(bot,'end_portal')
+ if(!block)throw new Error(from==='the_end'?`No lit exit portal within ${PORTAL_REACH} blocks; the fountain at 0,0 lights when the dragon dies`:`No lit end portal within ${PORTAL_REACH} blocks`)
+ if(from==='the_end'&&Math.max(Math.abs(block.position.x),Math.abs(block.position.z))>3)throw new Error(`The end portal at ${key(block.position)} is not the exit fountain at 0,0, and from the End that is the only way home`)
+ // Every cell of the portal's floor, and the standing cells around it: on the frame
+ // rim one above, or on the floor beyond the rim at the portal's level.
+ const STEPS=[[1,0],[-1,0],[0,1],[0,-1]],cells=[block.position],seen=new Set([key(block.position)])
+ for(let i=0;i<cells.length&&cells.length<25;i++)for(const [dx,dz] of STEPS){const c=cells[i].offset(dx,0,dz);if(!seen.has(key(c))&&named(c,'end_portal')){seen.add(key(c));cells.push(c)}}
+ const open=p=>[0,1].every(y=>bot.blockAt(p.offset(0,y,0))?.boundingBox==='empty'&&!named(p.offset(0,y,0),'end_portal')&&!/lava|water/.test(bot.blockAt(p.offset(0,y,0))?.name||''))
+ const stands=new Map()
+ for(const c of cells)for(const [dx,dz] of STEPS)for(const [reach,dy] of [[1,1],[1,0],[2,0]]){const p=c.offset(dx*reach,dy,dz*reach);if(!stands.has(key(p))&&open(p)&&bot.blockAt(p.offset(0,-1,0))?.boundingBox==='block')stands.set(key(p),{cell:p,into:c})}
+ const here=bot.entity.position,order=(a,b)=>(b.cell.y-a.cell.y)||a.cell.distanceTo(here)-b.cell.distanceTo(here)
+ const options=[...stands.values()].sort(order)
+ if(!options.length)throw new Error(`No standing cell beside the end portal at ${key(block.position)}`)
+ const at=()=>{const f=bot.entity.position.floored();return options.find(o=>key(o.cell)===key(f))}
+ if(!at()){
+  const stand=options[0].cell
+  stage('walking');progress(`Walking to the end portal at ${key(block.position)}`)
+  const timer=setTimeout(()=>bot.pathfinder.setGoal(null),reachMs)
+  try{await bot.pathfinder.goto(new goals.GoalBlock(stand.x,stand.y,stand.z))}catch(error){check();progress(`The walk to the end portal ended early: ${String(error.message).slice(0,60)}`)}
+  finally{clearTimeout(timer)}
+  check()
+  if(!at())throw new Error(`I did not reach a standing cell beside the end portal at ${key(block.position)}; not stepping toward it from ${key(bot.entity.position.floored())}`)
+ }
+ const portal=at().into
+ await hop(bot,{check},{hopMs,pollMs})
+ stage('entering');progress('Stepping onto the end portal')
+ // From beyond the rim the frame is a step up, taken with a jump.
+ await bot.lookAt(portal.offset(.5,0,.5),true);bot.setControlState('forward',true);if(Math.floor(bot.entity.position.y)<=portal.y)bot.setControlState('jump',true)
+ let crossed
+ try{crossed=await until(()=>dimensionOf(bot)!==from,crossMs)}finally{bot.clearControlStates()}
+ if(!crossed){
+  if(portalObservation(bot).inPortal===true)await leavePortal(bot,null,{check,stage,progress})
+  throw new Error(`The end portal at ${key(portal)} did not carry me across in ${Math.round(crossMs/1000)} seconds`)
+ }
+ const to=dimensionOf(bot)
+ await until(()=>!!bot.blockAt(bot.entity.position.floored().offset(0,-1,0)),loadMs)
+ const arrival=bot.entity.position.floored(),dug=[]
+ if(to==='the_end')for(const y of [1,0]){
+  const c=arrival.offset(0,y,0),b=bot.blockAt(c)
+  if(!b||b.boundingBox==='empty')continue
+  if(!plainCube(bot)(b))throw new Error(`Buried on the arrival platform in ${b.name} at ${key(c)}, which I never dig`)
+  check();stage('digging_out');progress(`Digging out of the ${b.name.replaceAll('_',' ')} over the arrival platform`)
+  await bot.tool?.equipForBlock?.(b,{requireHarvest:false});await bot.dig(b);dug.push({block:b.name,...xyz(c)});check()
+ }
+ stage('arrival_hop');await hop(bot,{check},{hopMs,pollMs})
+ await wearBestArmor(bot,{check,progress})
+ // The End's arrival is a platform, not a portal; it is the far end of the link all the same.
+ return {item:'portal',count:1,receipt:'crossed',from:{dimension:from,portal:xyz(portal)},to:{dimension:to,portal:to==='the_end'?xyz(arrival):null,position:xyz(arrival)},...(dug.length?{dug}:{})}
+}
 // The one deliberate way through a portal (workstreams/minecraft/nether-plan.md,
 // step 5). From the Overworld only where the world's switch allows the Nether;
 // from the Nether always, so turning the switch off never strands the bot.
 // Every walk avoids portal blocks, so the last step in is by direct control;
 // then it stands still until the dimension changes, and steps out of the
 // arrival portal with the same guard that steps it out of any other.
-export async function usePortal(bot,task,{check,stage,progress,netherAllowed=false},{reachMs=20000,enterMs=3000,crossMs=7000,attempts=3,pauseMs=1500,hopMs=500,loadMs=10000,pollMs=50,retraceMs=8000}={}){
+export async function usePortal(bot,task,{check,stage,progress,netherAllowed=false,endAllowed=false},{reachMs=20000,enterMs=3000,crossMs=7000,attempts=3,pauseMs=1500,hopMs=500,loadMs=10000,pollMs=50,retraceMs=8000}={}){
  const xyz=p=>({x:p.x,y:p.y,z:p.z}),key=p=>`${p.x},${p.y},${p.z}`
  const until=async(predicate,ms)=>{const end=Date.now()+ms;while(Date.now()<end){check();if(predicate())return true;await delay(pollMs)}return predicate()}
  const inside=()=>portalObservation(bot).inPortal===true
  check()
  const from=dimensionOf(bot)
- if(from==='overworld'&&!netherAllowed)throw new Error('Portal travel to the Nether is off for this world; only the owner can turn it on')
+ const kind=portalKind(bot),refused=portalRefusal(bot,{netherAllowed,endAllowed,kind});if(refused)throw new Error(refused)
+ if(kind==='end')return crossEnd(bot,{check,stage,progress},{reachMs,crossMs,hopMs,loadMs,pollMs})
  if(!['overworld','the_nether'].includes(from))throw new Error(`No portal travel from ${from||'an unknown dimension'}`)
  const block=bot.findBlock({matching:bot.registry.blocksByName.nether_portal.id,maxDistance:48})
  if(!block)throw new Error('No lit nether portal within 48 blocks')

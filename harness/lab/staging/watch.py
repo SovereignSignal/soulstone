@@ -4,15 +4,17 @@ Posts exactly one request to the running soulstone-agent, samples its state
 once a second, and stops the request (never the agent, bridge or server) on
 death, portal or dimension entry, disconnection, a terminal request or the cap.
 With --allow-nether (test world only) the
-run carries on through a portal and in the Nether, and stops only on the End.
+run carries on through a portal and in the Nether, and stops only on the End;
+--allow-end (test world only) lets it carry on in the End too.
 Reads the companion API only, plus read-only server receipts at the end.
 """
 from pathlib import Path
 import json,os,subprocess,importlib.util,time,signal,sys
 from datetime import datetime,timezone
 ROOT=Path(os.environ.get('SOULSTONE_ROOT',Path.home()/'soulstone'));RUN=Path(os.environ.get('SOULSTONE_RUN',ROOT/'run'))
-CONTAINER=os.environ.get('MC_CONTAINER','mc-sandbox');BOT=os.environ.get('MC_BOT','SoulStone303');ALLOW_NETHER='--allow-nether' in sys.argv;ARGS=[a for a in sys.argv[1:] if a!='--allow-nether'];
-if ALLOW_NETHER and RUN.resolve()!=(ROOT/'run').resolve():sys.exit(f'--allow-nether runs only against the test bot: set SOULSTONE_RUN={ROOT/"run"}')
+CONTAINER=os.environ.get('MC_CONTAINER','mc-sandbox');BOT=os.environ.get('MC_BOT','SoulStone303');ALLOW_NETHER='--allow-nether' in sys.argv;ALLOW_END='--allow-end' in sys.argv;ARGS=[a for a in sys.argv[1:] if a not in ('--allow-nether','--allow-end')];
+if (ALLOW_NETHER or ALLOW_END) and RUN.resolve()!=(ROOT/'run').resolve():sys.exit(f'--allow-nether and --allow-end run only against the test bot: set SOULSTONE_RUN={ROOT/"run"}')
+sys.path.insert(0,str(Path(__file__).resolve().parent));from watch_stops import dimension_stop
 OUT=Path(ARGS[0]);MINUTES=float(ARGS[1]);REQUEST=ARGS[2]
 OUT.mkdir(parents=True,exist_ok=False)
 spec=importlib.util.spec_from_file_location('score',ROOT/'harness/test/rung-score.py');score=importlib.util.module_from_spec(spec);spec.loader.exec_module(score)
@@ -28,9 +30,8 @@ try:
  s=last.get('survival')or{}
  assert last.get('connected') and last.get('modelReady') and not last.get('dead'),'agent not ready'
  assert (last.get('requestProgress')or{}).get('status')!='running' and (last.get('safety')or{}).get('status') in (None,'cancelled','sheltered','burrowed'),'agent is not idle'
- if ALLOW_NETHER:assert str(s.get('dimension')).replace('minecraft:','') in ('overworld','the_nether'),'not in the Overworld or the Nether'
- else:assert s.get('dimension') in ('overworld','minecraft:overworld') and not s.get('inPortal'),'not standing in the Overworld outside a portal'
- (OUT/'preflight.json').write_text(json.dumps({'at':now(),'state':last,'server':{c:rcon(c) for c in ['list','difficulty','gamerule minecraft:advance_time',f'data get entity {BOT} Health']},'request':REQUEST,'allowNether':ALLOW_NETHER,'limitMinutes':MINUTES},indent=1))
+ assert dimension_stop(s,allow_nether=ALLOW_NETHER,allow_end=ALLOW_END) is None,'not starting where this watch allows (the Overworld outside a portal, unless a flag allows more)'
+ (OUT/'preflight.json').write_text(json.dumps({'at':now(),'state':last,'server':{c:rcon(c) for c in ['list','difficulty','gamerule minecraft:advance_time',f'data get entity {BOT} Health']},'request':REQUEST,'allowNether':ALLOW_NETHER,'allowEnd':ALLOW_END,'limitMinutes':MINUTES},indent=1))
  previous=(last.get('requestProgress')or{}).get('id')
  deaths.observe(last);started=now();deadline=time.monotonic()+MINUTES*60;last_ok=time.monotonic()
  api.call('/message',{'text':REQUEST},retries=1);posted=True
@@ -46,9 +47,8 @@ try:
      'threats':[[t.get('name'),t.get('distance'),t.get('verticalOffset'),(t.get('sightline')or{}).get('status')] for t in (s.get('nearbyThreats')or[]) if t.get('risk')=='potential_hostile'],
      'inventory':last.get('inventory')})+'\n');log.flush()
     if deaths.deaths or last.get('dead'):reason='death';break
-    if ALLOW_NETHER:
-     if 'the_end' in str(s.get('dimension')):reason='end_stop';break
-    elif s.get('dimension') not in (None,'overworld','minecraft:overworld') or s.get('inPortal'):reason='dimension_or_portal_stop';break
+    stop=dimension_stop(s,allow_nether=ALLOW_NETHER,allow_end=ALLOW_END)
+    if stop:reason=stop;break
     if not last.get('connected'):
      if time.monotonic()-last_ok>15:reason='disconnected';break
     # The saved request from before this run is already terminal; only the new one ends the watch.

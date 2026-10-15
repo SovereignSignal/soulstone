@@ -10,15 +10,15 @@ import {Teammate} from '../src/companion/controller.js'
 // workstreams/minecraft/nether-plan.md, step 1: the per-world switch. Off is
 // the harness as it was; the family world stays off until Sov turns it on.
 test('nether travel is off unless saved on, and only off and on are accepted',()=>{
- assert.deepEqual(validatePortalTravel(),{nether:'off'})
- assert.deepEqual(validatePortalTravel({nether:'on'}),{nether:'on'})
+ assert.deepEqual(validatePortalTravel(),{nether:'off',end:'off'})
+ assert.deepEqual(validatePortalTravel({nether:'on'}),{nether:'on',end:'off'})
  assert.throws(()=>validatePortalTravel({nether:'yes'}),/off, on/)
  const path=join(mkdtempSync(join(tmpdir(),'mc-portal-travel-')),'portal-travel.json')
  const t=new PortalTravel(path)
  assert.equal(t.snapshot().nether,'off');assert.equal(t.allows('the_nether'),false)
- assert.deepEqual(t.save({nether:'on'}),{nether:'on',settings:['off','on']})
+ assert.deepEqual(t.save({nether:'on'}),{nether:'on',end:'off',settings:['off','on']})
  assert.equal(new PortalTravel(path).allows('the_nether'),true,'the setting survives a restart')
- assert.equal(t.allows('the_end'),false,'the End is not part of this switch')
+ assert.equal(t.allows('the_end'),false,'the Nether switch does not open the End')
  writeFileSync(path,'{"nether":"sideways"}');assert.equal(new PortalTravel(path).snapshot().nether,'off','a damaged file is off, not on')
 })
 
@@ -28,10 +28,10 @@ test('the planner sees the portal travel setting, and off without one',async()=>
  let observed
  const c=new Teammate(r,{model:'fake',plan:async(_,o)=>{observed=o;return {reply:'Noted.',steps:[]}}},join(mkdtempSync(join(tmpdir(),'mc-companion-')),'state.json'))
  await c.submit('where can you go')
- assert.deepEqual(observed.portalTravel,{nether:'off'},'no switch at all reads as off')
+ assert.deepEqual(observed.portalTravel,{nether:'off',end:'off'},'no switch at all reads as off')
  r.portalTravel=new PortalTravel(join(mkdtempSync(join(tmpdir(),'mc-portal-travel-')),'portal-travel.json'))
  r.portalTravel.save({nether:'on'});await c.submit('and now')
- assert.deepEqual(observed.portalTravel,{nether:'on'})
+ assert.deepEqual(observed.portalTravel,{nether:'on',end:'off'})
 })
 
 // Step 5: the controller's side of use_portal.

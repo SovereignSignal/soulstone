@@ -18,7 +18,7 @@ These set up a situation in the test world by console, post one request to the b
 - `reset-fortress.sh`: clears what earlier runs left at the lab's Nether portal: the bot's cobblestone, loose items, hoglins, magma cubes, zombies and skeletons nearby. It keeps the three blazes nearest the portal.
 - `blaze-range.sh <log> [minutes] [max] [hoglins]`: a practice range. While the bot is on the fortress bridge and no blaze is over the deck, it summons one, at most one a minute.
 - `stage-fortress.sh <run-name> [minutes]`: teleports the bot beside the Nether portal with a bow kit, then posts `REQUEST` (default: shoot blazes and bring 3 rods home) through the watcher.
-- `watch.py <out-dir> <minutes> <request> [--allow-nether]`: posts one request, samples the bot's state every second, and ends on a death, a finished request or the time limit. It writes `watch.jsonl` and a report.
+- `watch.py <out-dir> <minutes> <request> [--allow-nether] [--allow-end]`: posts one request, samples the bot's state every second, and ends on a death, a finished request or the time limit. It also ends on leaving the Overworld or standing in a portal, unless a flag allows that dimension (test bot only); entering the End without `--allow-end` always ends it. It writes `watch.jsonl` and a report.
 - `alert.py <run.out> <since-iso>`: waits for a death, a stall in shelter, a give-up or the run's end.
 - `rod-watch.sh`: logs blaze rods lying near the bridge, to tell "no drop" from "dropped and lost".
 

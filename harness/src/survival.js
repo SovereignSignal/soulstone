@@ -211,7 +211,8 @@ export function emergencyReason(observation){
  // Out in the open after dusk with no built base: dig in before the crowd arrives.
  // Under rock there is no crowd arriving: trial 42 spent fifteen minutes of a
  // thirty-minute run waiting for a sunrise thirty-six blocks above it.
- const night=observation.difficulty&&observation.difficulty!=='peaceful'&&Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500)
+ // The Nether and the End have no day and night; the world clock still runs there.
+ const night=observation.difficulty&&observation.difficulty!=='peaceful'&&!['the_nether','the_end'].includes(observation.dimension)&&Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500)
  if(night&&observation.roofed!==true&&observation.shelterAvailable===false)return NIGHT_EXPOSURE
  // With a lit base, a bot at work keeps working (the planner decides its night), but
  // one standing idle under the sky goes home. Lab run 121: home from the Nether at

@@ -7,8 +7,10 @@ import {EventEmitter} from 'node:events'
 import {Vec3} from 'vec3'
 import {projectFootprints} from '../src/site-survey.js'
 import {insideBase,inspectRetreatShelter} from '../src/retreat.js'
-import {projectDimension,sameDimension} from '../src/dimension.js'
-import {Teammate} from '../src/companion/controller.js'
+import {projectDimension,sameDimension,inEnd} from '../src/dimension.js'
+import {Teammate,relocateWay,centreward} from '../src/companion/controller.js'
+import {roofed} from '../src/observations.js'
+import {emergencyReason,NIGHT_EXPOSURE} from '../src/survival.js'
 
 // workstreams/minecraft/nether-plan.md, step 2: saved state carries the
 // dimension it was made in, and missing means the Overworld, so nothing saved
@@ -49,4 +51,24 @@ test('a shelter built in the Nether does not replace the Overworld base; a const
  assert.equal(c.projects.way_home.dimension,'the_nether')
  r.emit('event',{type:'death'})
  assert.equal(c.lastDeath.dimension,'the_nether')
+})
+
+// workstreams/minecraft/dragon-roadmap.md, brief 3: the End has no day and no
+// night, and every edge of its island is the void.
+test('the End is a dimension of its own, and its clock means nothing',()=>{
+ assert.equal(inEnd(bot('the_end')),true);assert.equal(inEnd(bot('the_nether')),false);assert.equal(inEnd({game:{}}),false)
+ const open=dimension=>({...bot(dimension,[100.5,49,.5]),blockAt:()=>({name:'air',boundingBox:'empty'})})
+ assert.equal(roofed(open('the_end')),true,'no sky to wait under');assert.equal(roofed(open('overworld')),false)
+ const night={gameMode:'survival',health:20,food:20,difficulty:'normal',headSubmerged:false,oxygen:20,nearbyThreats:[],carriedFood:[],timeOfDay:15000,shelterAvailable:false}
+ assert.equal(emergencyReason({...night,dimension:'overworld'}),NIGHT_EXPOSURE)
+ assert.equal(emergencyReason({...night,dimension:'the_end'}),null,'night exposure is not raised in the End')
+ assert.equal(emergencyReason({...night,dimension:'the_end',idle:true,shelterAvailable:true,openSky:true}),null)
+})
+
+test('in the End a shelter that will not clear moves toward the centre, never outward',()=>{
+ assert.equal(relocateWay(bot('the_end',[100.5,49,.5])),'centre')
+ assert.equal(relocateWay(bot('overworld')),'flee')
+ assert.deepEqual(centreward({x:100,z:0}),{x:68,z:0})
+ for(const p of [{x:-30,z:40},{x:12,z:-90},{x:7,z:7}]){const to=centreward(p);assert.ok(Math.hypot(to.x,to.z)<Math.hypot(p.x,p.z),JSON.stringify([p,to]))}
+ assert.equal(centreward({x:3,z:2}),null,'beside the fountain already: nowhere further in to go')
 })
