@@ -20,7 +20,8 @@ export const DEFENSE_HEALTH={zombie:12,zombie_villager:12,husk:12,drowned:14,spi
 // HEAVY_ARMOR is the Nether kit: iron helmet, chestplate and leggings with the golden boots
 // piglins demand, 14 points (lab run 133 refused one at 14 of 15).
 // Magma cubes too (lab run 134: a big one stood on the trail home and killed the bot).
-const HEAVY_MOBS=new Set(['wither_skeleton','magma_cube']),HEAVY_ARMOR=14,HEAVY_DAMAGE=6
+const HEAVY_MOBS=new Set(['wither_skeleton','magma_cube']),HEAVY_DAMAGE=6
+export const HEAVY_ARMOR=14
 // Hit, a big magma cube splits into two to four smaller ones: one fight, not a crowd.
 const SPLIT_SIZE=4
 export const ENGAGE_RANGE=10

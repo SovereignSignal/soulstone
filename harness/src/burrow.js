@@ -13,7 +13,7 @@ import {assertNoHostileOccupants,inspectEmergencyShelter} from './shelter-occupa
 import {survivalObservation,RANGED,HEALTH_EMERGENCY_LINE,breachesRock,outOfReach,SHOOTERS_ONLY,threatRadius} from './survival.js'
 import {threatReach,threatRoutes} from './threat-reach.js'
 import {roofed} from './observations.js'
-import {defenseDecision} from './combat.js'
+import {defenseDecision,armorPoints,HEAVY_ARMOR} from './combat.js'
 const {goals}=pathfinding
 // Four deep keeps a creeper standing on the rim outside its three-block
 // trigger distance; the cap goes on the top cell so nothing can drop in.
@@ -309,7 +309,15 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  // window). On a trip, with the kit, shooters are answered whatever their number; the
  // ranged chain takes four at a time and the cover is judged again between chains.
  const shooterAtWall=!lone&&shooters.length>0&&(trip||shooters.length<=SHOOTERS_AT_WALL)&&shooters.includes(nearest)&&shooters.every(t=>bowCanAnswer(bot,t.name))&&near.every(t=>SHOOTERS_ONLY.has(t.name)||t.distance>=SHOOTER_CONFRONT_STANDOFF)
- const ready=!!lone&&bowCanAnswer(bot,lone.name)||shooterAtWall||defenseDecision(bot).engage
+ // A sword answers nothing past arm's reach: every shooter waiting outside gets its arrows
+ // in while the bot climbs out and closes, and more arrive meanwhile. A measured death:
+ // iron sword, no armour, no bow, a lone skeleton at 8.9 blocks; the bot opened up, and a
+ // second skeleton and a creeper came. So a melee exit with a shooter near needs a bow that
+ // answers it or the armour the heavy fights ask for, iron with golden boots or better
+ // (14 points), which takes about half off each arrow; an iron chestplate alone, a sixth.
+ const armoured=armorPoints(bot)>=HEAVY_ARMOR
+ const meleeReady=defenseDecision(bot).engage&&near.every(t=>!SHOOTERS_ONLY.has(t.name)||armoured||bowCanAnswer(bot,t.name))
+ const ready=!!lone&&bowCanAnswer(bot,lone.name)||shooterAtWall||meleeReady
  if(!ready){
   // Neither fight nor hide. Unarmed against numbers or a crossbow, healthy, in
   // daylight, with nothing in melee reach and the threat sat still past the

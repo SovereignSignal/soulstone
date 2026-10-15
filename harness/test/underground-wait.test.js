@@ -70,6 +70,33 @@ test('hostiles the exits cannot reach do not hold a shelter closed; a route, a c
  const unloaded=deep({mobs:RECORDED});unloaded.cells.set(HUT.offset(2,0,0).toString(),null)
  assert.equal(burrowClearance(unloaded.bot,{exits}).clear,false,'an unobserved exit proves nothing')
 })
+// A measured death: dug in with an iron sword, no armour and no bow, the bot opened the
+// shaft for a lone skeleton lingering at 8.9 blocks; a second skeleton and a creeper came.
+const IRON=['iron_helmet','iron_chestplate','iron_leggings','iron_boots']
+function bareSkeleton(mobs=[['skeleton',8.5,64,.5]]){
+ const bot=shallow({mobs}),items=[{name:'iron_sword',count:1,maxDurability:250,durabilityUsed:0}],slots=[]
+ Object.values(bot.entities).forEach((e,i)=>Object.assign(e,{uuid:`00000000-0000-0000-0000-00000000000${i+1}`,type:'hostile'}))
+ bot.inventory={items:()=>items,slots};bot.getEquipmentDestSlot=slot=>({head:5,torso:6,legs:7,feet:8})[slot]
+ const wear=names=>names.forEach((name,i)=>{slots[5+i]={name}})
+ return {bot,items,wear}
+}
+test('a sword alone does not open the burrow to a shooter; worn armour or a bow that answers it does',()=>{
+ const bare=bareSkeleton()
+ const r=burrowClearance(bare.bot,{lingeredMs:61000});assert.equal(r.clear,false,'no armour, no bow: keep waiting');assert.equal(r.confront,undefined);assert.equal(r.lingering,true)
+ const chest=bareSkeleton();chest.bot.inventory.slots[6]={name:'iron_chestplate'}
+ assert.equal(burrowClearance(chest.bot,{lingeredMs:61000}).clear,false,'a chestplate alone is not enough to walk into the arrows')
+ const armoured=bareSkeleton();armoured.wear(IRON)
+ const a=burrowClearance(armoured.bot,{lingeredMs:61000});assert.equal(a.clear,true,a.reason);assert.equal(a.confront?.name,'skeleton')
+ const archer=bareSkeleton();archer.items.push({name:'bow',count:1,maxDurability:384,durabilityUsed:0},{name:'arrow',count:64})
+ const b=burrowClearance(archer.bot,{lingeredMs:61000});assert.equal(b.clear,true,b.reason);assert.equal(b.confront?.name,'skeleton')
+})
+test('melee mobs are confronted with the sword alone as before, unless a shooter waits behind them',()=>{
+ const zombie=bareSkeleton([['zombie',5.5,64,.5]])
+ const z=burrowClearance(zombie.bot,{lingeredMs:61000});assert.equal(z.clear,true,z.reason);assert.equal(z.confront?.name,'zombie')
+ const covered=bareSkeleton([['zombie',5.5,64,.5],['skeleton',16.5,64,.5]])
+ assert.equal(burrowClearance(covered.bot,{lingeredMs:61000}).clear,false,'the skeleton shoots while the sword works on the zombie')
+ covered.wear(IRON);assert.equal(burrowClearance(covered.bot,{lingeredMs:61000}).confront?.name,'zombie')
+})
 class FakeRunner extends EventEmitter{
  constructor(bot){super();this.profile='lab';this.owner='Sov';this.ready=true;this.commands=[];this.bot=bot}
  position(){const p=this.bot.entity.position;return {x:p.x,y:p.y,z:p.z}}

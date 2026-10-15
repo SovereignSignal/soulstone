@@ -336,6 +336,8 @@ test('when the pathfinder will not climb out, the exit jumps and places blocks b
 
 test('daylight judgement: a lone defendable mob that lingers is confronted after the patience window; creepers, pairs, low health and hunger keep the bot dug in',()=>{
  const w=world();w.inventory.push({name:'stone_axe',count:1,maxDurability:131,durabilityUsed:0});w.bot.time.timeOfDay=6000;w.bot.health=20;w.bot.food=20
+ // In iron: the axe alone does not answer a skeleton's arrows (underground-wait.test.js).
+ w.bot.inventory.slots=[,,,,,{name:'iron_helmet'},{name:'iron_chestplate'},{name:'iron_leggings'},{name:'iron_boots'}];w.bot.getEquipmentDestSlot=slot=>({head:5,torso:6,legs:7,feet:8})[slot]
  w.bot.entities={1:{id:1,uuid:'00000000-0000-0000-0000-000000000001',type:'hostile',name:'skeleton',position:new Vec3(14.5,64,10.5)}}
  let r=burrowClearance(w.bot);assert.equal(r.clear,false);assert.equal(r.lingering,true);assert.match(r.reason,/lone skeleton .* 60 seconds/)
  r=burrowClearance(w.bot,{lingeredMs:61000});assert.equal(r.clear,true);assert.equal(r.confront.name,'skeleton');assert.match(r.reason,/surfacing to confront/)
