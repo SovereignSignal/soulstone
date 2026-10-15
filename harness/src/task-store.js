@@ -1,5 +1,6 @@
 import {validateEmoteGoal} from './emote.js'
 import {validateTradeGoal} from './trading.js'
+import {validateThrowEyeGoal} from './eye-of-ender.js'
 import {validateTravelGoal} from './travel.js'
 import {validateGotoGoal,validateDigGoal,validateProtectedSites} from './primitives.js'
 import {validatePlaceAtGoal,validateCollectGoal,validateAttackGoal} from './primitives-world.js'
@@ -41,6 +42,7 @@ export function validateTaskGoal(kind, goal) {
   if(kind==='goto')return validateGotoGoal(goal)
   if(kind==='emote')return validateEmoteGoal(goal)
   if(kind==='trade')return validateTradeGoal(goal)
+  if(kind==='throw_eye')return validateThrowEyeGoal(goal)
   if(kind==='dig')return validateDigGoal(goal)
   if(kind==='place_at')return validatePlaceAtGoal(goal)
   if(kind==='collect')return validateCollectGoal(goal)
