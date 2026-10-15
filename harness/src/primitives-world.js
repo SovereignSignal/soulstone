@@ -358,8 +358,10 @@ export async function attackEntity(bot, task, { check, stage, progress, movement
       if (bot.entities?.[target.id] !== target) {
         // An enderman teleports, a mob despawns: re-acquire the nearest of the
         // same type near where it was last seen rather than abandoning the plan.
-        const again = nearestOfType(bot, goal.type, lastSeen, REACQUIRE_RADIUS)
-        if (!again) throw new Error(`Lost the ${goal.type}: last seen ${Math.round(lastSeen.distanceTo(bot.entity.position))} blocks away, none within ${REACQUIRE_RADIUS} blocks of there; ${swings} swings landed, no kill confirmed`)
+        // An enderman's teleport reaches 32 blocks and a provoked one comes back at the bot,
+        // so it is looked for around the bot out to the attack's own radius.
+        const again = nearestOfType(bot, goal.type, lastSeen, REACQUIRE_RADIUS) || (goal.type === 'enderman' ? nearestOfType(bot, goal.type, bot.entity.position, ATTACK_RADIUS) : null)
+        if (!again) throw new Error(`Lost the ${goal.type}: last seen ${Math.round(lastSeen.distanceTo(bot.entity.position))} blocks away, none within ${goal.type === 'enderman' ? `${ATTACK_RADIUS} blocks of me` : `${REACQUIRE_RADIUS} blocks of there`}; ${swings} swings landed, no kill confirmed`)
         target = again; reacquired++; following = false
         progress(`Re-acquired a ${goal.type} ${Math.round(target.position.distanceTo(bot.entity.position))} blocks away`)
       }

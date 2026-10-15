@@ -15,12 +15,14 @@ import {observedSightline} from './visibility.js'
 // dies with a sword in its hand (honest run 2, 14 October: a zombie villager at arm's reach
 // for thirty seconds, every shelter refused for containing it, and not one swing at 15 health).
 // The zombie and skeleton variants share their originals' floors; the poisoners a little more.
-export const DEFENDABLE_MOBS=new Set(['zombie','zombie_villager','husk','drowned','spider','cave_spider','skeleton','stray','bogged','wither_skeleton','magma_cube'])
-export const DEFENSE_HEALTH={zombie:12,zombie_villager:12,husk:12,drowned:14,spider:12,cave_spider:14,skeleton:16,stray:16,bogged:16,wither_skeleton:18,magma_cube:14}
+// A provoked enderman (dragon roadmap stage 2) has 40 health, hits for 7 and teleports to
+// whoever looked at it: sheltering from it is no answer, so it is fought in the heavy kit.
+export const DEFENDABLE_MOBS=new Set(['zombie','zombie_villager','husk','drowned','spider','cave_spider','skeleton','stray','bogged','wither_skeleton','magma_cube','enderman'])
+export const DEFENSE_HEALTH={zombie:12,zombie_villager:12,husk:12,drowned:14,spider:12,cave_spider:14,skeleton:16,stray:16,bogged:16,wither_skeleton:18,magma_cube:14,enderman:16}
 // HEAVY_ARMOR is the Nether kit: iron helmet, chestplate and leggings with the golden boots
 // piglins demand, 14 points (lab run 133 refused one at 14 of 15).
 // Magma cubes too (lab run 134: a big one stood on the trail home and killed the bot).
-const HEAVY_MOBS=new Set(['wither_skeleton','magma_cube']),HEAVY_DAMAGE=6
+const HEAVY_MOBS=new Set(['wither_skeleton','magma_cube','enderman']),HEAVY_DAMAGE=6
 export const HEAVY_ARMOR=14
 // Hit, a big magma cube splits into two to four smaller ones: one fight, not a crowd.
 const SPLIT_SIZE=4
@@ -103,7 +105,7 @@ export function corneredDecision(bot){
 // Asked by name, so the Nether trip's alarm can judge a mob still past ENGAGE_RANGE
 // (lab run 148, 15 October: a wither skeleton at 11 held a kitted bot in cover for good).
 // The default blade is one the fight rule would draw: weaponFor wants 16 uses left.
-function aloneRefusal(bot,name,{healthFloor=12,foodFloor=10,mobMargins=true,weapon=meleeWeapon(bot,16)?.name}={}){
+export function aloneRefusal(bot,name,{healthFloor=12,foodFloor=10,mobMargins=true,weapon=meleeWeapon(bot,16)?.name}={}){
  const s=survivalObservation(bot)
  if(!Number.isFinite(s.health)||s.health<healthFloor||s.food<foodFloor||!Number.isFinite(s.food))return 'Health or food is too low to engage'
  if(mobMargins&&s.health<DEFENSE_HEALTH[name])return `Health is too low to engage a ${name}`

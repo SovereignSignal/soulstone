@@ -1,6 +1,7 @@
 import {performEmote} from './emote.js'
 import {tradeWithVillager} from './trading.js'
 import {throwEye} from './eye-of-ender.js'
+import {enderStand} from './enderman-stand.js'
 import {shootTarget} from './archery.js'
 import {eatFood} from './survival.js'
 import {surfaceForAir} from './water-safety.js'
@@ -54,6 +55,7 @@ export async function executeSkill(bot, task, context) {
   if(task.kind==='emote')return performEmote(bot,task,context)
   if(task.kind==='trade')return tradeWithVillager(bot,task,context)
   if(task.kind==='throw_eye')return throwEye(bot,task,context)
+  if(task.kind==='stand')return enderStand(bot,task,context)
   if(task.kind==='dig')return digToward(bot,task,context)
   if(task.kind==='place_at')return placeAt(bot,task,context)
   if(task.kind==='collect')return collectDrops(bot,task,context)

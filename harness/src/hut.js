@@ -188,6 +188,9 @@ export async function wallIn(bot,task,{check,stage,progress}){
 // firing port, not a door: natural rock and a drop beyond are fine, since nobody
 // steps out of it. The head cell always, the feet cell too when the target is below
 // eye level. Lava, water or fire touching the port refuses that side.
+// An enderman is struck through the same port (enderman-stand.js): 2.9 tall, it cannot
+// follow through a 2-high wall into the hut, and the port must face it to meet its eyes.
+const PORT_MOBS=new Set([...SHOOTERS_ONLY,'enderman'])
 const LIQUID=new Set(['water','lava','bubble_column'])
 const AROUND=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]
 function firingPort(bot,feet,goal){
@@ -206,7 +209,7 @@ function firingPort(bot,feet,goal){
 export async function unwall(bot,task,{check,stage,progress}){
  check();const feet=bot.entity.position.floored()
  stage('surfacing');progress('Opening one wall of the hut')
- if(task.goal?.toward&&SHOOTERS_ONLY.has(task.goal.shooter)){
+ if(task.goal?.toward&&PORT_MOBS.has(task.goal.shooter)){
   const port=firingPort(bot,feet,task.goal)
   if(!port)throw new Error(`No wall facing the ${task.goal.shooter} left to open without lava, water or fire beside it`)
   const [dx,,dz]=port.side
