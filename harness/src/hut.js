@@ -7,6 +7,7 @@ import {fullCube} from './construction.js'
 import {scaffoldItems} from './scaffold.js'
 import {assertNoHostileOccupants,inspectEmergencyShelter} from './shelter-occupants.js'
 import {centreOn,DoorAwareMovements} from './navigation.js'
+import {SHOOTERS_ONLY,FIRE_BLOCKS} from './survival.js'
 import pathfinding from 'mineflayer-pathfinder'
 const {goals}=pathfinding
 import {Vec3} from 'vec3'
@@ -174,9 +175,45 @@ export async function wallIn(bot,task,{check,stage,progress}){
  const p=bot.entity.position
  return {item:'safety',count:1,receipt:'walled_in',protection,shelterName:'hut',capped:true,placed,...(site.portal?{portalRoom:true}:{}),position:{x:p.x,y:p.y,z:p.z},surface:{x:feet.x,y:feet.y,z:feet.z}}
 }
+// Lab run 146, 15 October: walled in inside a one-wide netherrack tunnel with
+// blazes outside its walls, the only sides with standable ground beyond were the
+// tunnel's ends, so the opened wall faced away from every blaze and the bow never
+// had a shot in fifteen minutes. Against a shooter the wall facing it opens as a
+// firing port, not a door: natural rock and a drop beyond are fine, since nobody
+// steps out of it. The head cell always, the feet cell too when the target is below
+// eye level. Lava, water or fire touching the port refuses that side.
+const LIQUID=new Set(['water','lava','bubble_column'])
+const AROUND=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]
+function firingPort(bot,feet,goal){
+ const t=goal.toward,skip=goal.skip||[]
+ const live=Object.values(bot.entities||{}).filter(e=>e?.name===goal.shooter&&e.position).sort((a,b)=>Math.hypot(a.position.x-t.x,a.position.z-t.z)-Math.hypot(b.position.x-t.x,b.position.z-t.z))[0]
+ const low=!live||live.position.y+(live.height??1.8)/2<feet.y+(bot.entity.eyeHeight??1.62)
+ const toward=([dx,,dz])=>dx*(t.x-feet.x)+dz*(t.z-feet.z)
+ const inside=[feet,feet.offset(0,1,0)]
+ for(const side of SIDES.filter(s=>toward(s)>0&&!skip.some(k=>k.dx===s[0]&&k.dz===s[2])).sort((a,b)=>toward(b)-toward(a))){
+  const [dx,,dz]=side,cells=low?[feet.offset(dx,1,dz),feet.offset(dx,0,dz)]:[feet.offset(dx,1,dz)]
+  const touching=cells.flatMap(c=>[c,...AROUND.map(([x,y,z])=>c.offset(x,y,z))]).filter(c=>!inside.some(i=>i.equals(c)))
+  if(touching.every(c=>{const b=bot.blockAt(c);return b&&!LIQUID.has(b.name)&&!FIRE_BLOCKS.has(b.name)}))return {side,cells}
+ }
+ return null
+}
 export async function unwall(bot,task,{check,stage,progress}){
  check();const feet=bot.entity.position.floored()
  stage('surfacing');progress('Opening one wall of the hut')
+ if(task.goal?.toward&&SHOOTERS_ONLY.has(task.goal.shooter)){
+  const port=firingPort(bot,feet,task.goal)
+  if(!port)throw new Error(`No wall facing the ${task.goal.shooter} left to open without lava, water or fire beside it`)
+  const [dx,,dz]=port.side
+  for(const c of port.cells){
+   check();const b=bot.blockAt(c)
+   if(!b||REPLACEABLE.has(b.name))continue
+   if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(b,{requireHarvest:false,getFromChest:false})
+   await bot.dig(b);check()
+  }
+  if(!port.cells.every(c=>REPLACEABLE.has(bot.blockAt(c)?.name||'air')))throw new Error(`Could not open a firing port toward the ${task.goal.shooter}`)
+  const p=bot.entity.position
+  return {item:'safety',count:1,receipt:'unwalled',port:true,side:{dx,dz},opened:port.cells.map(c=>({x:c.x,y:c.y,z:c.z})),position:{x:p.x,y:p.y,z:p.z}}
+ }
  // Prefer a side whose outside cell is standable, so stepping out is safe.
  // Asked to face a place (the way to a portal in the Nether, run 73), the side
  // toward it opens first among the sides that are safe to step out of.

@@ -4,7 +4,7 @@ import {validateTravelGoal} from './travel.js'
 import {validateGotoGoal,validateDigGoal,validateProtectedSites} from './primitives.js'
 import {validatePlaceAtGoal,validateCollectGoal,validateAttackGoal} from './primitives-world.js'
 import {validateHarvest} from './foraging.js'
-import {validateEatGoal} from './survival.js'
+import {validateEatGoal,SHOOTERS_ONLY} from './survival.js'
 import {validateDefenseGoal} from './combat.js'
 import {validateFleeGoal} from './flee.js'
 import {validateHuntGoal} from './hunt.js'
@@ -29,7 +29,12 @@ export function validateTaskGoal(kind, goal) {
   // A hut may be asked to step back to a portal first (lab run 101).
   if(kind==='hut')return goal?.portalRoom===true?{portalRoom:true}:{}
   // The hut opens the wall facing the mob it confronts (lab run 146, 15 October: dropped here, so it never did).
-  if(kind==='unhut')return Number.isInteger(goal?.toward?.x)&&Number.isInteger(goal?.toward?.z)?{toward:{x:goal.toward.x,z:goal.toward.z}}:{}
+  // Against a shooter it is a firing port (hut.js), skipping the sides that had no shot.
+  if(kind==='unhut'){
+    if(!Number.isInteger(goal?.toward?.x)||!Number.isInteger(goal?.toward?.z))return {}
+    const skip=SHOOTERS_ONLY.has(goal.shooter)&&Array.isArray(goal.skip)?goal.skip.filter(s=>[s?.dx,s?.dz].every(Number.isInteger)&&Math.abs(s.dx)+Math.abs(s.dz)===1).slice(0,4).map(s=>({dx:s.dx,dz:s.dz})):[]
+    return {toward:{x:goal.toward.x,z:goal.toward.z},...(SHOOTERS_ONLY.has(goal.shooter)?{shooter:goal.shooter}:{}),...(skip.length?{skip}:{})}
+  }
   if(['surface','douse','leave_portal','use_portal','burrow'].includes(kind))return {}
   if(kind==='travel')return validateTravelGoal(goal)
   if(kind==='goto')return validateGotoGoal(goal)

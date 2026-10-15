@@ -228,3 +228,54 @@ test('an unhut goal keeps the way it faces, and nothing else',()=>{
  assert.deepEqual(validateTaskGoal('unhut',{}),{})
  assert.deepEqual(validateTaskGoal('unhut',undefined),{})
 })
+
+// Lab run 146, 15 October: walled in inside a one-wide netherrack tunnel, blazes
+// hovering outside its walls below eye level. Only the tunnel's own ends had
+// standable ground beyond, so the opened wall faced along the tunnel, away from
+// every blaze, and the bow never had a shot. Against a shooter the wall facing it
+// opens as a firing port, natural rock and a drop beyond included.
+function tunnelHut(){
+ const w=world({logs:21})
+ for(let z=0;z<=20;z++){
+  for(const y of [63,64,65,66])w.cells.set(new Vec3(8,y,z).toString(),'netherrack'),w.cells.set(new Vec3(9,y,z).toString(),'netherrack')
+  for(const y of [64,65,66])w.cells.set(new Vec3(11,y,z).toString(),'netherrack')
+  w.cells.set(new Vec3(10,66,z).toString(),'netherrack');w.cells.set(new Vec3(10,63,z).toString(),'netherrack')
+  // Beyond the one-thick +x wall: open air and a drop.
+  for(let y=50;y<=70;y++)for(const x of [12,13,14,15])w.cells.set(new Vec3(x,y,z).toString(),'air')
+ }
+ w.bot.game.dimension='minecraft:the_nether'
+ return w
+}
+const blazeAt=(bot,x,y,z)=>{bot.entities={1:{id:1,name:'blaze',type:'hostile',height:1.8,position:new Vec3(x,y,z)}}}
+test('against a shooter the hut opens a firing port in the wall facing it, rock and a drop beyond included',async()=>{
+ const w=tunnelHut();await executeSkill(w.bot,{kind:'hut',goal:{}},api)
+ blazeAt(w.bot,13.5,63,10.5);w.dug.length=0
+ const port=await unwall(w.bot,{kind:'unhut',goal:{toward:{x:13,z:10},shooter:'blaze'}},api)
+ assert.deepEqual(port.side,{dx:1,dz:0})
+ assert.deepEqual(w.dug.sort(),[new Vec3(11,64,10).toString(),new Vec3(11,65,10).toString()].sort(),'head and feet: the blaze is below eye level')
+ // Above eye level the head cell is enough.
+ const high=tunnelHut();await executeSkill(high.bot,{kind:'hut',goal:{}},api)
+ blazeAt(high.bot,13.5,66,10.5);high.dug.length=0
+ assert.deepEqual((await unwall(high.bot,{kind:'unhut',goal:{toward:{x:13,z:10},shooter:'blaze'}},api)).side,{dx:1,dz:0})
+ assert.deepEqual(high.dug,[new Vec3(11,65,10).toString()])
+})
+test('a firing port never opens onto lava or fire; a melee mob keeps the old exit',async()=>{
+ const lava=tunnelHut();await executeSkill(lava.bot,{kind:'hut',goal:{}},api)
+ lava.cells.set(new Vec3(12,65,10).toString(),'lava');blazeAt(lava.bot,13.5,63,10.5);lava.dug.length=0
+ await assert.rejects(unwall(lava.bot,{kind:'unhut',goal:{toward:{x:13,z:10},shooter:'blaze'}},api),/No wall facing the blaze/)
+ assert.deepEqual(lava.dug,[],'nothing dug toward the lava')
+ // Off the diagonal, the other wall facing it opens instead.
+ const diagonal=tunnelHut();await executeSkill(diagonal.bot,{kind:'hut',goal:{}},api)
+ diagonal.cells.set(new Vec3(12,64,10).toString(),'fire');blazeAt(diagonal.bot,13.5,63,12.5)
+ assert.deepEqual((await unwall(diagonal.bot,{kind:'unhut',goal:{toward:{x:13,z:12},shooter:'blaze'}},api)).side,{dx:0,dz:1})
+ // A side already tried is not opened again.
+ const tried=tunnelHut();await executeSkill(tried.bot,{kind:'hut',goal:{}},api);blazeAt(tried.bot,13.5,63,12.5)
+ assert.deepEqual((await unwall(tried.bot,{kind:'unhut',goal:{toward:{x:13,z:12},shooter:'blaze',skip:[{dx:1,dz:0}]}},api)).side,{dx:0,dz:1})
+ // A zombie, or no shooter named, opens a side the bot can step out of, as before.
+ for(const goal of [{toward:{x:13,z:10}},{toward:{x:13,z:10},shooter:'zombie'}]){
+  const melee=tunnelHut();await executeSkill(melee.bot,{kind:'hut',goal:{}},api)
+  assert.deepEqual((await unwall(melee.bot,{kind:'unhut',goal},api)).side,{dx:0,dz:1},JSON.stringify(goal))
+ }
+ assert.deepEqual(validateTaskGoal('unhut',{toward:{x:13,z:12},shooter:'blaze',skip:[{dx:1,dz:0}]}),{toward:{x:13,z:12},shooter:'blaze',skip:[{dx:1,dz:0}]})
+ assert.deepEqual(validateTaskGoal('unhut',{toward:{x:13,z:12},shooter:'zombie',skip:[{dx:2,dz:0},'x']}),{toward:{x:13,z:12}})
+})
