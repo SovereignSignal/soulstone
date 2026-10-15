@@ -981,7 +981,8 @@ export class Teammate extends EventEmitter {
     const flights=this.safety.flights||[],fled=flights.some(f=>!f.failed)
     // Two ways to stay out here instead of trekking home: sprint clear of a lone
     // mob this pass, or, having already sprinted (a creeper), find nothing in range.
-    const sprint=!fled&&lone&&DEFENDABLE_MOBS.has(lone.name)&&flights.length<2?lone:null
+    // Not from an enderman: it teleports after whoever provoked it, so a sprint gains nothing.
+    const sprint=!fled&&lone&&DEFENDABLE_MOBS.has(lone.name)&&lone.name!=='enderman'&&flights.length<2?lone:null
     if(!sprint&&!(fled&&!near.length))return 'skipped'
     if(sprint){
       this.safety.status='fleeing';this.phase='retreating'

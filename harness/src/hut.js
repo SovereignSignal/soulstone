@@ -196,7 +196,8 @@ const AROUND=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]
 function firingPort(bot,feet,goal){
  const t=goal.toward,skip=goal.skip||[]
  const live=Object.values(bot.entities||{}).filter(e=>e?.name===goal.shooter&&e.position).sort((a,b)=>Math.hypot(a.position.x-t.x,a.position.z-t.z)-Math.hypot(b.position.x-t.x,b.position.z-t.z))[0]
- const low=!live||live.position.y+(live.height??1.8)/2<feet.y+(bot.entity.eyeHeight??1.62)
+ // An enderman's port is always two high: the pearl it drops is fetched by a step into it.
+ const low=goal.shooter==='enderman'||!live||live.position.y+(live.height??1.8)/2<feet.y+(bot.entity.eyeHeight??1.62)
  const toward=([dx,,dz])=>dx*(t.x-feet.x)+dz*(t.z-feet.z)
  const inside=[feet,feet.offset(0,1,0)]
  for(const side of SIDES.filter(s=>toward(s)>0&&!skip.some(k=>k.dx===s[0]&&k.dz===s[2])).sort((a,b)=>toward(b)-toward(a))){

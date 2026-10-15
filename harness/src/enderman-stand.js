@@ -10,7 +10,8 @@ import pathfinding from 'mineflayer-pathfinder'
 import {inNether} from './dimension.js'
 import {tripKit,TRIP_HEALTH} from './nether-trip.js'
 import {hutSite,wallIn,unwall} from './hut.js'
-import {aloneRefusal,weaponFor,meleeWeapon,clearStrike} from './combat.js'
+import {aloneRefusal,weaponFor,meleeWeapon,clearStrike,DEFENSE_HEALTH} from './combat.js'
+import {survivalObservation,threatRadius} from './survival.js'
 import {killDrops,ATTACK_REACH,KILL_DROPS} from './primitives-world.js'
 import {DoorAwareMovements} from './navigation.js'
 import {inventoryCounts,inventoryDelta} from './primitives.js'
@@ -21,10 +22,13 @@ const {goals}=pathfinding
 // crowd: another enderman this close, or one screaming anywhere in the radius, shuts the
 // port. healMs: waiting shut for the fight rule's health before provoking the next.
 // settleMs: a drop's fall. stepReach: a pearl this close to the port's floor cell is picked
-// up by one step into it and back.
-export const STAND={item:'ender_pearl',max:8,radius:24,limitMs:600000,timeoutMs:600000,provokeMs:20000,crowd:6,crowdPollMs:500,healMs:60000,settleMs:1500,stepReach:1.5,stepMs:4000,poll:50}
+// up by one step into it and back. closeWaitMs, closeTries: a mob in the port's cell.
+// The step's timeout is the runner's idle window, which every stage and progress slides
+// forward, so the close at the limit is not cut off; the runner takes no more than 600000.
+export const STAND={item:'ender_pearl',max:8,radius:24,limitMs:600000,timeoutMs:600000,provokeMs:20000,crowd:6,crowdPollMs:500,healMs:60000,settleMs:1500,stepReach:1.5,stepMs:4000,closeWaitMs:10000,closeTries:3,poll:50}
 const round=p=>({x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,z:Math.round(p.z*10)/10})
 const cell=p=>`${p.x},${p.y},${p.z}`
+const a=name=>{const n=name.replaceAll('_',' ');return `${/^[aeiou]/.test(n)?'an':'a'} ${n}`}
 
 export function validateStandGoal(goal){
  if(goal?.item!==STAND.item)throw new Error('stand takes item ender_pearl: it is fought for endermen only')
@@ -57,16 +61,32 @@ export async function enderStand(bot,task,{check,stage,progress,persist=()=>{},m
  const o={...STAND,...options},goal=validateStandGoal(task.goal)
  const refused=standRefusal(bot,o);if(refused)throw new Error(refused)
  const before=inventoryCounts(bot),started=Date.now(),context={check,stage,progress,persist,movements}
- const record={kills:0,ports:0,crowds:0,missed:[]},tried=new Set()
+ const record={kills:0,ports:0,crowds:0,missed:[],unclosed:null},tried=new Set()
  const pearls=()=>inventoryDelta(before,inventoryCounts(bot))[o.item]||0
  const left=()=>o.limitMs-(Date.now()-started)
  const ranOut=()=>`the stand's ${Math.round(o.limitMs/60000)} minutes ran out`
+ const floor=DEFENSE_HEALTH.enderman
  let port=null,stopped=null
- // wallIn puts back whatever of the hut is missing, which is the port.
- const close=async()=>{if(!port)return;port=null;stage('walling');await wallIn(bot,{kind:'hut',goal:{}},context);check()}
  const here=()=>bot.entity.position.floored()
- // One step into the port's floor cell and back, walked as the bow's covered step is:
- // no digging, towering or placing, and the runner's movement profile restored.
+ // Whatever living stands in the port's cells: the server will not place a block in it.
+ const inPort=()=>Object.values(bot.entities||{}).filter(e=>e&&e!==bot.entity&&e.position&&!e.getDroppedItem?.()&&!['item','experience_orb'].includes(e.name)&&e.type!=='projectile'&&
+  (port?.opened||[]).some(c=>Math.abs(e.position.x-(c.x+.5))<.5+(e.width??.6)/2&&Math.abs(e.position.z-(c.z+.5))<.5+(e.width??.6)/2&&e.position.y<c.y+1&&e.position.y+(e.height??1.8)>c.y))
+ // wallIn puts back whatever of the hut is missing, which is the port. A mob in the port
+ // refuses the blocks, so the close waits for it to clear and tries again, a bounded number
+ // of times; one that cannot close says why rather than failing the pearls already won.
+ const close=async()=>{
+  if(!port)return true
+  stage('walling');let why=''
+  for(let attempt=0;attempt<o.closeTries;attempt++){
+   for(const end=Date.now()+o.closeWaitMs;Date.now()<end&&inPort().length;){check();await delay(o.poll)}
+   const blocking=inPort()[0];if(blocking){why=`${a(blocking.name)} stands in it`;continue}
+   try{await wallIn(bot,{kind:'hut',goal:{}},context);check();port=null;return true}
+   catch(error){check();why=error.message}
+  }
+  record.unclosed=why;return false
+ }
+ // One step, walked as the bow's covered step is: no digging, towering or placing, and the
+ // runner's movement profile restored. Never throws but for a cancellation.
  const step=async(c,why)=>{
   progress(why)
   const previous=bot.pathfinder.movements,movement=new DoorAwareMovements(bot)
@@ -77,23 +97,39 @@ export async function enderStand(bot,task,{check,stage,progress,persist=()=>{},m
   check()
  }
  const settled=async had=>{for(const end=Date.now()+o.settleMs;Date.now()<end&&pearls()===had;){check();await delay(o.poll)}}
+ // Out of the hut for a pearl only when nothing else can be at the bot there: the fight
+ // rule's health, no other enderman near, no other hostile within its own alarm radius.
+ const stepRisk=()=>{
+  if(!(bot.health>=floor))return `health ${Math.round(bot.health)} is under ${floor}`
+  const other=crowding(bot,null,o)[0];if(other)return `an enderman ${Math.round(other.position.distanceTo(bot.entity.position))} blocks off`
+  const hostile=survivalObservation(bot).nearbyThreats.find(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name))
+  return hostile?`${a(hostile.name)} ${Math.round(hostile.distance)} blocks off`:''
+ }
  // The pearl falls where the enderman died, usually just outside the port: within pickup
- // reach it comes in by itself, one cell out it takes a step, and further it is named.
+ // reach it comes in by itself, one cell out it takes a step and back, and further it is
+ // named. A step back that does not land home ends the stand walled in where the bot
+ // stands, as the firing port's stray does. 'strayed' when it did.
  const collect=async(where,feet)=>{
   stage('collecting')
   const had=pearls(),lying=()=>killDrops(bot,where,{...KILL_DROPS,items:[o.item]})
+  const miss=why=>{for(const d of lying())record.missed.push(`${d.count} ${d.name} at ${cell(d.position.floored())} (${why})`)}
   await settled(had)
-  if(pearls()>had||!lying().length)return
-  const floor=port?.opened?.find(c=>c.y===feet.y),door=floor&&feet.offset(floor.x-feet.x,0,floor.z-feet.z)
-  if(!door||!lying().some(d=>Math.hypot(d.position.x-(door.x+.5),d.position.z-(door.z+.5))<=o.stepReach)){for(const d of lying())record.missed.push(`${d.count} ${d.name} at ${cell(d.position.floored())} (past the port)`);return}
+  if(pearls()>had||!lying().length)return null
+  const ground=port?.opened?.find(c=>c.y===feet.y),door=ground&&feet.offset(ground.x-feet.x,0,ground.z-feet.z)
+  if(!door||!lying().some(d=>Math.hypot(d.position.x-(door.x+.5),d.position.z-(door.z+.5))<=o.stepReach)){miss('past the port');return null}
+  const risk=stepRisk();if(risk){miss(`not stepping out: ${risk}`);return null}
   await step(door,`Stepping into the port at ${cell(door)} for the pearl`)
   await settled(had)
-  await step(feet,'Stepping back into the hut')
-  if(!here().equals(feet))throw new Error(`Not back in the hut after the pearl: at ${cell(here())}`)
-  if(pearls()===had)for(const d of lying())record.missed.push(`${d.count} ${d.name} at ${cell(d.position.floored())} (not picked up)`)
+  for(let attempt=0;attempt<2&&!here().equals(feet);attempt++)await step(feet,'Stepping back into the hut')
+  if(pearls()===had)miss('not picked up')
+  if(here().equals(feet))return null
+  const at=here();port=null
+  try{stage('walling');await wallIn(bot,{kind:'hut',goal:{}},context);check()}
+  catch(error){check();record.unclosed=`walling in at ${cell(at)}: ${error.message}`}
+  return `Not back in the hut after the pearl: at ${cell(at)}; walled in where I stand`
  }
  // Provoke the target through the open port and strike it there. Ends 'killed', 'crowd',
- // 'no_show' (never came, or went for good), 'health' or 'time'.
+ // 'no_show' (never came, or went for good), 'hurt' (under the fight rule's floor) or 'time'.
  const duel=async target=>{
   const weapon=weaponFor(bot,target)||meleeWeapon(bot,16)
   if(!weapon)throw new Error('No melee weapon with 16 uses left for the enderman')
@@ -107,7 +143,8 @@ export async function enderStand(bot,task,{check,stage,progress,persist=()=>{},m
    for(;;){
     check()
     if(dead)return {end:'killed',where:dead}
-    if(!(bot.health>=TRIP_HEALTH))return {end:'health'}
+    // Under the floor it took to start, the port shuts and the bot heals before another round.
+    if(!(bot.health>=floor))return {end:'hurt'}
     if(left()<=0)return {end:'time'}
     if(crowding(bot,target,o).length)return {end:'crowd'}
     if(bot.entities?.[target.id]!==target){
@@ -149,18 +186,20 @@ export async function enderStand(bot,task,{check,stage,progress,persist=()=>{},m
    port=await unwall(bot,{kind:'unhut',goal:{toward:{x:Math.floor(target.position.x),z:Math.floor(target.position.z)},shooter:'enderman'}},context);check()
    record.ports++;persist()
    const r=await duel(target)
-   if(r.end==='killed'){record.kills++;persist();await collect(r.where,feet)}
-   await close()
+   if(r.end==='killed'){record.kills++;persist();const strayed=await collect(r.where,feet);if(strayed){stopped=strayed;break}}
+   if(!await close()){stopped=`could not close the port: ${record.unclosed}`;break}
    if(r.end==='crowd'){record.crowds++;progress('A second enderman came near: port closed')}
    if(r.end==='no_show')tried.add(target.id)
-   if(r.end==='health'){stopped=`health ${Math.round(bot.health)} is under ${TRIP_HEALTH}`;break}
    if(r.end==='time'){stopped=ranOut();break}
   }
+ }catch(error){
+  // A cancellation is the safety's to answer; any other failure still reports the pearls won.
+  check();stopped=error.message
  }finally{
-  // A failure with the port open still shuts it; a cancellation leaves it to the safety that cancelled.
-  if(port)try{await close()}catch{}
+  if(port&&!record.unclosed)try{await close()}catch{}
  }
  const gained=pearls(),tally=`${record.kills} ${record.kills===1?'enderman':'endermen'} killed, ${record.ports} ${record.ports===1?'port':'ports'} opened`
- if(!gained)throw new Error(`No ender pearl gained: ${tally}; ${stopped}${record.missed.length?`; left behind: ${record.missed.join('; ')}`:''}`)
- return {receipt:'stand',item:o.item,count:gained,requested:goal.count,pearls:gained,kills:record.kills,ports:record.ports,crowds:record.crowds,partial:gained<goal.count,stopped,position:round(bot.entity.position),...(record.missed.length?{missed:record.missed}:{})}
+ const open=port?{portOpen:port.opened,unclosed:record.unclosed}:record.unclosed?{unclosed:record.unclosed}:{}
+ if(!gained)throw new Error(`No ender pearl gained: ${tally}; ${stopped}${record.missed.length?`; left behind: ${record.missed.join('; ')}`:''}${port?'; the port is still open':''}`)
+ return {receipt:'stand',item:o.item,count:gained,requested:goal.count,pearls:gained,kills:record.kills,ports:record.ports,crowds:record.crowds,partial:gained<goal.count,stopped,closed:!port&&!record.unclosed,position:round(bot.entity.position),...open,...(record.missed.length?{missed:record.missed}:{})}
 }

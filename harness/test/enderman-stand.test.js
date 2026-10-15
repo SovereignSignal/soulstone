@@ -40,20 +40,23 @@ function fixture({dimension='the_nether',kit=true,health=20,endermen=[{at:[10.5,
   inventory:{items:()=>inv.filter(i=>i.count>0).map(i=>({...i,type:registry.itemsByName[i.name].id})),slots},getEquipmentDestSlot:s=>({head:5,torso:6,legs:7,feet:8})[s],
   blockAt(p){const c=p.floored(),name=cells.get(key(c))??(c.y<64?'netherrack':'air');return {name,position:c,boundingBox:registry.blocksByName[name]?.boundingBox}},
   async equip(item){bot.heldItem=item},
-  async placeBlock(ref,face){const p=ref.position.plus(face);log.placed.push(key(p));cells.set(key(p),'netherrack');inv[0].count--},
+  // The server refuses a block inside a mob, as inside a player.
+  async placeBlock(ref,face){const p=ref.position.plus(face)
+   if(Object.values(bot.entities).some(e=>e.name!=='item'&&Math.abs(e.position.x-(p.x+.5))<.8&&Math.abs(e.position.z-(p.z+.5))<.8&&e.position.y<p.y+1&&e.position.y+(e.height||1.8)>p.y))throw new Error('Block placement rejected: entity in the way')
+   log.placed.push(key(p));cells.set(key(p),'netherrack');inv[0].count--},
   async dig(block){log.dug.push(key(block.position));cells.set(key(block.position),'air')},
   tool:{async equipForBlock(){}},setControlState(){},clearControlStates(){},activateItem(){},deactivateItem(){},
   // Endermen aggro on eye contact: a look at the head of a calm one provokes it.
   async lookAt(p){for(const e of Object.values(bot.entities))if(e.name==='enderman'&&!e.metadata[CREEPY]&&p.distanceTo(e.position.offset(0,2.55,0))<.4){e.metadata[CREEPY]=true;log.provoked.push(e.id);if(e.arrive)setTimeout(()=>{e.position=e.arrive.clone()},20)}},
   attack(t){log.swings++;t.hits=(t.hits||0)+1;log.onSwing?.(t);if(t.hits>=hits){delete bot.entities[t.id];bot.emit('entityDead',t)
    if(drops)add({name:'item',type:'object',position:t.position.clone(),getDroppedItem:()=>({name:'ender_pearl',count:1})})}},
-  pathfinder:{movements:null,setMovements(m){this.movements=m},setGoal(){},async goto(g){log.steps.push(key(g));bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5);pickUp()}}})
+  pathfinder:{movements:null,setMovements(m){this.movements=m},setGoal(){},async goto(g){log.steps.push(key(g));if(log.stuck?.has(key(g)))return;bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5);pickUp()}}})
  for(const e of endermen)enderman(e)
  const timer=setInterval(pickUp,5)
  const api={check(){},stage(){},progress(){},persist(){},movements:null}
  return {bot,cells,inv,log,api,add,enderman,stop:()=>clearInterval(timer)}
 }
-const fast={provokeMs:400,settleMs:60,poll:5,cooldownMs:5,crowdPollMs:20,limitMs:4000,healMs:50}
+const fast={provokeMs:400,settleMs:60,poll:5,cooldownMs:5,crowdPollMs:20,limitMs:4000,healMs:50,closeWaitMs:100,closeTries:2}
 const stand=async(f,count=1,options=fast)=>{try{return await enderStand(f.bot,{kind:'stand',goal:validateStandGoal({item:'ender_pearl',count})},f.api,options)}finally{f.stop()}}
 const pearls=f=>f.inv.find(i=>i.name==='ender_pearl')?.count||0
 
@@ -163,4 +166,64 @@ test('a provoked enderman at the port does not interrupt a stand; it still inter
  assert.equal(await tick(),undefined,'the stand carries on')
  assert.equal(await tick({kind:'goto'}),THREAT_INTERRUPTION)
  assert.equal(await tick({mob:'hoglin'}),THREAT_INTERRUPTION)
+})
+
+// Review of 3aa7808: a mob in the port's cell refuses the close, and a failed close must not
+// lose the pearls already in the inventory.
+test('a close waits for the port to clear; one that never clears is reported, and the pearls are still the receipt',async()=>{
+ const run=async leaves=>{
+  const f=fixture({endermen:[{at:[10.5,64,.5],arrive:[1.8,64,.5]}]})
+  let blocker=null
+  f.log.onSwing=t=>{if(t.hits===3){blocker=f.enderman({at:[1.5,64,.5]});if(leaves)setTimeout(()=>{delete f.bot.entities[blocker.id]},60)}}
+  try{return {f,r:await enderStand(f.bot,{kind:'stand',goal:{item:'ender_pearl',count:2}},f.api,{...fast,limitMs:600})}}finally{f.stop()}
+ }
+ const cleared=await run(true)
+ assert.equal(cleared.r.pearls,1);assert.equal(cleared.r.closed,true)
+ for(const c of ['1,64,0','1,65,0'])assert.equal(cleared.f.cells.get(c),'netherrack')
+ const stuck=await run(false)
+ assert.equal(stuck.r.pearls,1,'the pearl is kept');assert.equal(stuck.r.closed,false);assert.match(stuck.r.stopped,/could not close the port: an enderman stands in it/)
+})
+
+test('the pearl step waits for safety, and a step back that fails walls in where the bot stands',async()=>{
+ const risky=fixture()
+ risky.log.onSwing=t=>{if(t.hits===3)risky.add({name:'hoglin',type:'hostile',height:1.4,position:new Vec3(.5,64,8.5),metadata:[]})}
+ await assert.rejects(stand(risky),/No ender pearl gained: 1 enderman killed.*left behind: 1 ender_pearl at 2,64,0 \(not stepping out: a hoglin 8 blocks off\)/)
+ assert.deepEqual(risky.log.steps,[],'never left the hut')
+ const hurt=fixture();hurt.log.onSwing=t=>{if(t.hits===3)hurt.bot.health=15}
+ await assert.rejects(stand(hurt),/not stepping out: health 15 is under 16/)
+ const strays=fixture();strays.log.stuck=new Set(['0,64,0'])
+ const r=await stand(strays,2)
+ assert.equal(r.pearls,1);assert.match(r.stopped,/Not back in the hut after the pearl: at 1,64,0; walled in where I stand/)
+ assert.deepEqual(strays.log.steps,['1,64,0','0,64,0','0,64,0'],'one step out, two tries back')
+ for(const c of ['2,64,0','2,65,0','1,66,0'])assert.equal(strays.cells.get(c),'netherrack','a hut round the port cell')
+})
+
+test('hurt under 16 in a duel, the port closes and the bot heals before going on',async()=>{
+ const f=fixture({hits:4})
+ let closedHurt=false
+ f.log.onSwing=t=>{if(t.hits===2){f.bot.health=14;setTimeout(()=>{f.bot.health=20},80)}}
+ const place=f.bot.placeBlock;f.bot.placeBlock=async(ref,face)=>{await place(ref,face);if(f.bot.health===14&&['1,64,0','1,65,0'].every(c=>f.cells.get(c)==='netherrack'))closedHurt=true}
+ const r=await stand(f,1,{...fast,healMs:500})
+ assert.ok(closedHurt,'port shut at 14 health');assert.equal(r.ports,2);assert.equal(r.kills,1);assert.equal(r.pearls,1)
+})
+
+test('an enderman above eye level still gets a two-high port, so its pearl can be stepped for',async()=>{
+ const f=fixture({endermen:[{at:[10.5,67,.5],arrive:[2.5,64,.5]}]})
+ const r=await stand(f);assert.equal(r.pearls,1)
+ assert.deepEqual(f.log.dug.sort(),['1,64,0','1,65,0'])
+})
+
+// Review of 3aa7808: now that the fight tables name the enderman, a lone provoked one in
+// Overworld daylight must not send the bot on a 24-block sprint: it teleports after anyone.
+test('a lone screaming enderman in daylight is no reason to sprint to open ground; a lone zombie still is',async()=>{
+ const run=name=>{
+  const f=fixture({dimension:'overworld'});f.stop()
+  const e=Object.values(f.bot.entities)[0];e.name=name;e.position=new Vec3(8.5,64,.5);e.metadata[CREEPY]=true
+  const commands=[]
+  const c={safety:{},epoch:1,runner:{ready:true,bot:f.bot,connectionId:'one'},say(){},persist(){},
+   async execute(cmd){commands.push(cmd.action);throw new Error('stop here')}}
+  return Teammate.prototype.leaveOnOpenGround.call(c,1,new AbortController().signal,f.bot,false).then(r=>({r,commands}))
+ }
+ const ender=await run('enderman');assert.equal(ender.r,'skipped');assert.deepEqual(ender.commands,[])
+ const zombie=await run('zombie');assert.deepEqual(zombie.commands,['flee'])
 })
