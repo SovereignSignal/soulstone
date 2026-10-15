@@ -20,8 +20,9 @@ export const RANGED=new Set(['skeleton','stray','bogged','wither_skeleton','pill
 export const threatRadius=name=>name==='creeper'||RANGED.has(name)?16:10
 // What is never a judgement call: a hostile in arm's reach, a creeper in fuse range.
 export const CLOSE_FLOORS={melee:6,creeper:10}
-// Rock does not stop these: a warden's boom and a vex pass through it, the rest break it.
-const WALL_BREACHING=new Set(['warden','vex','wither','ender_dragon','ghast'])
+// Rock does not stop these: a warden's boom and a vex pass through it, the rest break it,
+// and an angry enderman teleports, so the length of a walking route means nothing to it.
+const WALL_BREACHING=new Set(['warden','vex','wither','ender_dragon','ghast','enderman'])
 // A hostile the tick found sealed off from the bot's own space, with the ray to
 // it blocked as well, cannot path, see or shoot in. Distance through stone is
 // not danger, so only these floors still count for it: a melee mob within

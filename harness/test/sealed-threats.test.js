@@ -238,6 +238,8 @@ test('an unknown route the flood has followed past one and a half alarm radii is
  assert.equal(emergencyReason({...o,nearbyThreats:[t('creeper',3.5,40)]}),THREAT_INTERRUPTION,'a creeper inside the rock floor')
  assert.equal(emergencyReason({...o,nearbyThreats:[t('zombie',2.5,40)]}),THREAT_INTERRUPTION,'a melee mob inside the rock floor')
  assert.equal(emergencyReason({...o,nearbyThreats:[t('warden',9,60)]}),THREAT_INTERRUPTION,'a warden always counts')
+ assert.equal(outOfReach(t('enderman',9,60)),false,'an angry enderman teleports, so no route is long for it')
+ assert.equal(outOfReach({risk:'potential_hostile',name:'enderman',distance:9,reach:'open',routeSteps:60,sightline:{status:'blocked'}}),false)
 })
 test('the threat journal says how far the flood got for a hostile it never met',()=>{
  const bot=Object.assign(netherField(),{time:{timeOfDay:6000},health:20,food:20,oxygenLevel:20,players:{},inventory:{items:()=>[]},world:{raycast:()=>({name:'netherrack'})},
