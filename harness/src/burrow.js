@@ -1,6 +1,6 @@
 import {bowCanAnswer} from './bow-readiness.js'
 import {observedSightline} from './visibility.js'
-import {scaffoldItems} from './scaffold.js'
+import {scaffoldItems,fillCell} from './scaffold.js'
 // Emergency burrow: the shelter of last resort for a spawn with no base and no
 // weapon. Seal the verified shaft as soon as three cells give headroom,
 // deepen under the cap, then watch protection and surface clearance.
@@ -75,8 +75,26 @@ export function findBurrowColumn(bot){
  return {site:null,reasons}
 }
 export const climbBlocks=bot=>scaffoldItems(bot).reduce((n,i)=>n+i.count,0)
+// The cap is the carried cube that best survives a blast. A creeper's blast in a cave
+// passage took a dirt cap while the bot carried thirty cobblestone, and the next creeper
+// dropped down the open shaft onto it. At three to five blocks a blast breaks dirt (0.5)
+// for about half its rays, wood (2 to 3) for some and stone-class blocks (6) for none.
+// Only the cap and its plug are chosen by strength; the climb out takes inventory order.
+const resistance=(bot,item)=>bot.registry.blocksByName[item.name]?.resistance??0
 function capItem(bot){
- return scaffoldItems(bot)[0]||null
+ return scaffoldItems(bot).reduce((best,i)=>!best||resistance(bot,i)>resistance(bot,best)?i:best,null)
+}
+// A plug in the cell under the cap leaves the bot its feet and head cells and nothing
+// more. A mob that clears the cap then stands on the plug, three blocks from the feet
+// with no sight of the bot, so a creeper there never fuses. A three-deep shaft has no
+// cell between the head and the cap and gets none. Not having one is not a failure:
+// the cap alone is verified protection.
+async function plugShaft(bot,cap,{check,progress}){
+ const plug=bot.entity.position.floored().offset(0,2,0),item=capItem(bot)
+ if(!item||plug.y>=cap.y||solid(bot,bot.blockAt(plug)))return false
+ const plugged=await fillCell(bot,plug,{check,progress,item})
+ if(!plugged)progress('Plug under the cap unconfirmed; the cap alone holds')
+ return plugged
 }
 async function settle(predicate,message,{check,ms=3000,poll=50}){
  const end=Date.now()+ms
@@ -113,6 +131,7 @@ async function reuseShaft(bot,{check,progress}){
  const cells=[];for(let y=shaft.cap.y;y>=feet.y;y--)cells.push(new Vec3(feet.x,y,feet.z))
  const open=!solid(bot,bot.blockAt(shaft.cap))
  if(open&&!await placeCap(bot,shaft.cap,cells,{check,progress}))return null
+ await plugShaft(bot,shaft.cap,{check,progress})
  let protection
  try{protection=inspectEmergencyShelter(bot)}catch{return null}
  progress(open?'Put the cap back on my shaft; closed burrow verified':'Still in my capped shaft; closed burrow verified')
@@ -189,6 +208,7 @@ export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
  }
  if(!sealed)sealed=await seal()
  if(!sealed)throw new Error('Burrow cap could not be verified; protection is not established')
+ await plugShaft(bot,site.cap,{check,progress})
  const protection=inspectEmergencyShelter(bot),receipt='burrowed_capped'
  shafts.set(bot,{cap:site.cap.clone(),surface:site.surface.clone(),bottom:site.cells.at(-1).y})
  progress('Closed, unoccupied burrow verified; watching protection and the surface')

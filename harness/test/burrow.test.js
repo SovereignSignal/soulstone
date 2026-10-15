@@ -10,6 +10,7 @@ import {executeSkill} from '../src/skills.js'
 import {validateTaskGoal} from '../src/task-store.js'
 import {Teammate} from '../src/companion/controller.js'
 import {canResume} from '../src/companion/continuity.js'
+import {inspectEmergencyShelter} from '../src/shelter-occupants.js'
 import {THREAT_INTERRUPTION,NIGHT_EXPOSURE,emergencyReason,survivalObservation} from '../src/survival.js'
 const registry=minecraftData('1.21.4')
 function world(ground='dirt'){
@@ -20,7 +21,7 @@ function world(ground='dirt'){
   pathfinder:{setGoal(){},setMovements(){},async goto(){}},clearControlStates(){},
   async equip(item){equipped.push(item.name)},
   async dig(block){dug.push(block.position.toString());cells.set(block.position.toString(),'air');const drop=block.name==='grass_block'?'dirt':block.name;const slot=inventory.find(i=>i.name===drop);slot?slot.count++:inventory.push({name:drop,count:1});bot.entity.position=block.position.offset(.5,0,.5)},
-  async placeBlock(ref,face){const p=ref.position.plus(face);placed.push(p.toString());cells.set(p.toString(),equipped.at(-1));const slot=inventory.find(i=>i.name===equipped.at(-1));if(slot)slot.count--}}
+  async placeBlock(ref,face){const p=ref.position.plus(face);placed.push(p.toString());cells.set(p.toString(),equipped.at(-1));const slot=inventory.find(i=>i.name===equipped.at(-1));if(slot&&--slot.count<=0)inventory.splice(inventory.indexOf(slot),1)}}
  return {bot,cells,inventory,placed,dug,equipped}
 }
 const api={check(){},stage(){},progress(){},persist(){},movements:{}}
@@ -49,9 +50,36 @@ test('digging in goes four deep, caps the shaft with dug earth and reports the s
  const result=await executeSkill(w.bot,{kind:'burrow',goal:{}},api)
  assert.deepEqual(w.dug,[new Vec3(10,63,10).toString(),new Vec3(10,62,10).toString(),new Vec3(10,61,10).toString(),new Vec3(10,60,10).toString()])
  assert.equal(w.bot.entity.position.y,60)
- assert.deepEqual(w.placed,[new Vec3(10,63,10).toString()]);assert.equal(w.cells.get(new Vec3(10,63,10).toString()),'dirt')
+ // The cap, then the plug under it: four dug blocks pay for both.
+ assert.deepEqual(w.placed,[new Vec3(10,63,10).toString(),new Vec3(10,62,10).toString()]);assert.equal(w.cells.get(new Vec3(10,63,10).toString()),'dirt')
  assert.equal(result.receipt,'burrowed_capped');assert.equal(result.shelterName,'burrow');assert.deepEqual(result.surface,{x:10,y:64,z:10})
- assert.equal(w.inventory.find(i=>i.name==='dirt').count,3)
+ assert.equal(w.inventory.find(i=>i.name==='dirt').count,2)
+})
+// A measured death: a creeper's blast in the cave passage took a dirt cap while the bot
+// carried thirty cobblestone, and the next creeper dropped down the open shaft onto it.
+// At three to five blocks a blast breaks dirt for about half its rays and cobblestone for none.
+test('the cap is the most blast-resistant cube carried, whatever comes first in the inventory',async()=>{
+ const w=world();w.inventory.push({name:'dirt',count:13},{name:'cobblestone',count:30})
+ const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ assert.equal(result.receipt,'burrowed_capped');assert.equal(w.cells.get(new Vec3(10,63,10).toString()),'cobblestone')
+})
+// With the cap gone, a mob standing on the plug is three blocks from the feet with no
+// sight of the bot, so a creeper there never fuses; the feet and head cells stay open.
+test('a second carried cube plugs the cell under the cap, leaving the bot its two cells',async()=>{
+ const w=world();w.inventory.push({name:'dirt',count:13},{name:'cobblestone',count:30})
+ await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ assert.deepEqual(w.placed,[new Vec3(10,63,10).toString(),new Vec3(10,62,10).toString()])
+ assert.equal(w.cells.get(new Vec3(10,62,10).toString()),'cobblestone')
+ assert.equal(w.bot.entity.position.y,60);assert.equal(inspectEmergencyShelter(w.bot).cells,2)
+})
+test('with one cube carried the cap takes it and there is no plug',async()=>{
+ // Nothing drops from the dig and rock walls give no spare block, so the single
+ // carried cobblestone is the whole supply.
+ const w=world('stone');w.inventory.push({name:'wooden_pickaxe',count:1},{name:'cobblestone',count:1});const dig=w.bot.dig
+ w.bot.dig=async block=>{const n=w.inventory.length;await dig(block);w.inventory.length=n}
+ const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ assert.equal(result.receipt,'burrowed_capped');assert.deepEqual(w.placed,[new Vec3(10,63,10).toString()])
+ assert.equal(w.cells.get(new Vec3(10,63,10).toString()),'cobblestone');assert.equal(inspectEmergencyShelter(w.bot).cells,3)
 })
 test('a hit that knocks the bot off the shaft is answered by stepping back over it',async()=>{
  const w=world();let knocked=false,walked=[]
@@ -145,6 +173,13 @@ test('the burrow nudges itself onto the column centre before the first dig, with
 // Lab run 57, 5 October: a mob came back while the bot was digging out, and
 // each fresh burrow started at the bottom of the last one, four deeper every
 // time (y 55 to y 28 in twenty minutes, below the lava it was working toward).
+test('a recapped shaft takes the most blast-resistant cube carried',async()=>{
+ const w=world();await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ assert.equal(w.cells.get(new Vec3(10,63,10).toString()),'dirt','dug earth only, the first time')
+ w.inventory.push({name:'cobblestone',count:30});w.cells.set(new Vec3(10,63,10).toString(),'air')
+ const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ assert.equal(result.receipt,'burrow_recapped');assert.equal(w.cells.get(new Vec3(10,63,10).toString()),'cobblestone')
+})
 test('a bot still standing in its own shaft puts the cap back instead of digging under it',async()=>{
  const w=world();await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
  const cap=new Vec3(10,63,10).toString()
@@ -231,7 +266,8 @@ test('a restart after a failed burrow exit still resumes the exit on spawn',asyn
 
 test('a missed block-update event does not fail a cap that is actually there',async()=>{
  const w=world();const place=w.bot.placeBlock;let attempts=0
- w.bot.placeBlock=async(ref,face)=>{attempts++;await place(ref,face);throw new Error('Event blockUpdate:(10, 63, 10) did not fire within timeout of 5000ms')}
+ // Counts the cap only; the plug under it is a placement of its own.
+ w.bot.placeBlock=async(ref,face)=>{if(ref.position.plus(face).y===63)attempts++;await place(ref,face);throw new Error('Event blockUpdate:(10, 63, 10) did not fire within timeout of 5000ms')}
  const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
  assert.equal(result.receipt,'burrowed_capped');assert.equal(attempts,1)
  const v=world();let tries=0;v.bot.placeBlock=async()=>{tries++;throw new Error('rejected')}
@@ -604,7 +640,7 @@ test('burrow seals after three digs before deepening, and rejects an intruder be
  const w=world(),dig=w.bot.dig,capAt=[]
  const place=w.bot.placeBlock;w.bot.placeBlock=async(...args)=>{capAt.push(w.dug.length);await place(...args)}
  await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
- assert.deepEqual(capAt,[3])
+ assert.deepEqual(capAt,[3,4],'the cap after three digs, the plug under it at full depth')
  const v=world(),dig2=v.bot.dig
  v.bot.dig=async b=>{await dig2(b);if(v.dug.length===2)v.bot.entities={1:{name:'zombie',position:v.bot.entity.position.clone()}}}
  await assert.rejects(burrowIn(v.bot,{kind:'burrow',goal:{}},api),/contains a potential hostile/)

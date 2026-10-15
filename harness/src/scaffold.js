@@ -12,9 +12,9 @@ const key=p=>`${p.x},${p.y},${p.z}`
 // Close one air cell with a carried cube, placed against any solid neighbour,
 // and judge it by the block being there (the burrow's cap rule: the block
 // update can be missed through the version bridge). False when nothing is
-// carried or no neighbour stands.
-export async function fillCell(bot,cell,{check,progress=()=>{}}){
- const item=scaffoldItems(bot)[0];if(!item)return false
+// carried or no neighbour stands. The caller may name the cube to use.
+export async function fillCell(bot,cell,{check,progress=()=>{},item=scaffoldItems(bot)[0]}){
+ if(!item)return false
  await bot.equip(item,'hand');check()
  const closed=()=>solidCube(bot,bot.blockAt(cell))
  for(const [dx,dy,dz] of SIDES){
