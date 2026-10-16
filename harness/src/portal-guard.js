@@ -5,7 +5,7 @@ import pathfinding from 'mineflayer-pathfinder'
 import {dimensionOf} from './dimension.js'
 import {wearBestArmor} from './armor.js'
 import {unwall,coveredColumn} from './hut.js'
-import {wayBack} from './trail.js'
+import {wayBack,standingGround} from './trail.js'
 import {plainCube} from './scaffold.js'
 const {goals}=pathfinding
 
@@ -194,15 +194,22 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
   // A side is a way out when its feet and head cells are both open (run 74: a
   // half-opened wall left none, and the pathfinder's empty path read as done).
   // The direct walk failed: go back the way it came, crumb by crumb (trail.js), then
-  // try the last few blocks again. Three missed hops in a row end it.
-  const retrace=async stand=>{
+  // try the last few blocks again. Three missed hops in a row end it. The way back ends
+  // beside this portal, the short way along the trail (rehearsal, 16 October 23:12Z: a
+  // trip that doubled back was replayed in reverse, out to the blaze spawner); a trail
+  // that does not lead here, or crosses ground that is gone, is refused with the reason.
+  const retrace=async()=>{
    if(bot.trail?.dimension!==from)return
-   const crumbs=wayBack(bot.trail,bot.entity.position.floored())
+   let crumbs
+   try{crumbs=wayBack(bot.trail,bot.entity.position.floored(),{to:stands,reach:3,usable:c=>standingGround(bot,c)})}
+   catch(error){throw new Error(`I did not reach a standing cell beside the portal at ${key(portal)}, and I will not retrace my steps: ${error.message}`)}
    if(!crumbs.length)return
+   const last=crumbs.find(c=>stands.some(s=>c.distanceTo(s)<=3))??crumbs.at(-1)
+   const stand=stands.reduce((a,b)=>b.distanceTo(last)<a.distanceTo(last)?b:a)
    stage('retracing');progress(`Retracing my steps to the portal (${crumbs.length} steps back)`)
    let misses=0
    for(const c of crumbs){
-    if(c.distanceTo(stand)<=3)break
+    if(c===last)break
     const timer=setTimeout(()=>bot.pathfinder.setGoal(null),retraceMs)
     try{await bot.pathfinder.goto(new goals.GoalNear(c.x,c.y,c.z,1));misses=0}catch{check();if(++misses>=3)break}
     finally{clearTimeout(timer)}
@@ -222,7 +229,7 @@ export async function usePortal(bot,task,{check,stage,progress,netherAllowed=fal
    try{await bot.pathfinder.goto(new goals.GoalBlock(stands[0].x,stands[0].y,stands[0].z))}catch(error){check();progress(`The walk to the portal ended early: ${String(error.message).slice(0,60)}`)}
    finally{clearTimeout(timer)}
    check()
-   if(!beside())await retrace(stands[0])
+   if(!beside())await retrace()
    if(!beside())throw new Error(`I did not reach a standing cell beside the portal at ${key(portal)}; not stepping toward it from ${key(bot.entity.position.floored())}`)
   }
   {const f=bot.entity.position.floored(),at=stands.find(p=>p.x===f.x&&p.y===f.y&&p.z===f.z);if(at)portal=faces.get(key(at))?.into??portal}
