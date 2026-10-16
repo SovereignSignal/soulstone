@@ -766,7 +766,10 @@ function bayHut({blazes=[[7,63.2,1.6],[7.5,63.2,-.3],[7.9,63,3.7]],cells=new Map
   return 'netherrack'}
  const items=[{name:'bow',count:1,maxDurability:384,durabilityUsed:0},{name:'arrow',count:96},{name:'iron_sword',count:1,maxDurability:250,durabilityUsed:0}],slots=[]
  for(const [i,n] of [[5,'iron_helmet'],[6,'iron_chestplate'],[7,'iron_leggings'],[8,'golden_boots']])slots[i]={name:n}
- return {registry,game:{gameMode:'survival',difficulty:'normal',dimension:'minecraft:the_nether'},time:{timeOfDay:16916},health:20,food:19,players:{},
+ // The hut's own cobblestone walls, as the runner records them when the hut places them.
+ const ownBlocks=new OwnBlocks(null)
+ for(const [x,z] of [[1,0],[-1,0],[0,1],[0,-1]])for(const y of [64,65])if(!cells.has(`${x},${y},${z}`))ownBlocks.add(new Vec3(x,y,z),'cobblestone','the_nether')
+ return {ownBlocks,registry,game:{gameMode:'survival',difficulty:'normal',dimension:'minecraft:the_nether'},time:{timeOfDay:16916},health:20,food:19,players:{},
   entity:{position:new Vec3(.5,64,.5),onGround:true,eyeHeight:1.62},inventory:{items:()=>items,slots},getEquipmentDestSlot:s=>({head:5,torso:6,legs:7,feet:8})[s],
   entities:Object.fromEntries(blazes.map(([x,y,z],i)=>[i+1,{id:i+1,uuid:`00000000-0000-0000-0000-00000000003${i}`,type:'hostile',name:'blaze',height:1.8,position:new Vec3(x,y,z)}])),
   blockAt:p=>{const n=name(p);return {name:n,position:p.clone(),boundingBox:registry.blocksByName[n]?.boundingBox,getProperties:()=>({})}},

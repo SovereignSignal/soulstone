@@ -10,7 +10,7 @@ import {centreOn,DoorAwareMovements} from './navigation.js'
 import {SHOOTERS_ONLY,FIRE_BLOCKS} from './survival.js'
 import {hop} from './portal-guard.js'
 import {inNether} from './dimension.js'
-import {claimPlaced} from './natural.js'
+import {claimPlaced,breakable} from './natural.js'
 import {plainFirst,holdToPlace} from './placement.js'
 import pathfinding from 'mineflayer-pathfinder'
 const {goals}=pathfinding
@@ -207,9 +207,13 @@ export async function wallIn(bot,task,{check,stage,progress}){
 // at eye level the bot sees down into a room whose fireballs all meet the wall below it.
 // An enderman is struck through the same port (enderman-stand.js): 2.9 tall, it cannot
 // follow through a 2-high wall into the hut, and the port must face it to meet its eyes.
+// 16 October: a hut leans on any wall already standing, and in the family world that can be a
+// player's. A side opens only through what the bot may break (natural.js): natural ground, or
+// a block it placed itself; a player's wall refuses that side, for a port and the plain exit.
 const PORT_MOBS=new Set([...SHOOTERS_ONLY,'enderman'])
 const LIQUID=new Set(['water','lava','bubble_column'])
 const AROUND=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]
+const opens=(bot,b)=>!b||REPLACEABLE.has(b.name)||breakable(bot,b)
 // Exported for the hut's watch (burrow.js portSightline), so it judges a shot only through the
 // side unhut will open (lab run 166, 16 October).
 export function firingPort(bot,feet,goal){
@@ -221,7 +225,7 @@ export function firingPort(bot,feet,goal){
  for(const side of SIDES.filter(s=>toward(s)>0&&!skip.some(k=>k.dx===s[0]&&k.dz===s[2])).sort((a,b)=>toward(b)-toward(a))){
   const [dx,,dz]=side,cells=low?[feet.offset(dx,1,dz),feet.offset(dx,0,dz)]:[feet.offset(dx,1,dz)]
   const touching=cells.flatMap(c=>[c,...AROUND.map(([x,y,z])=>c.offset(x,y,z))]).filter(c=>!inside.some(i=>i.equals(c)))
-  if(touching.every(c=>{const b=bot.blockAt(c);return b&&!LIQUID.has(b.name)&&!FIRE_BLOCKS.has(b.name)}))return {side,cells}
+  if(touching.every(c=>{const b=bot.blockAt(c);return b&&!LIQUID.has(b.name)&&!FIRE_BLOCKS.has(b.name)})&&cells.every(c=>opens(bot,bot.blockAt(c))))return {side,cells}
  }
  return null
 }
@@ -230,7 +234,7 @@ export async function unwall(bot,task,{check,stage,progress}){
  stage('surfacing');progress('Opening one wall of the hut')
  if(task.goal?.toward&&PORT_MOBS.has(task.goal.shooter)){
   const port=firingPort(bot,feet,task.goal)
-  if(!port)throw new Error(`No wall facing the ${task.goal.shooter} left to open without lava, water or fire beside it`)
+  if(!port)throw new Error(`No wall facing the ${task.goal.shooter} left to open without lava, water or fire beside it or a block I did not place`)
   const [dx,,dz]=port.side
   for(const c of port.cells){
    check();const b=bot.blockAt(c)
@@ -256,8 +260,10 @@ export async function unwall(bot,task,{check,stage,progress}){
  const sides=from.length?SIDES.filter(away):SIDES
  if(!sides.length)throw new Error('No wall to open away from the mobs without lava, fire, water or the portal beyond')
  const order=[...sides].sort((a,b)=>{const score=([dx,,dz])=>{const o=feet.offset(dx*2,0,dz*2);return (REPLACEABLE.has(bot.blockAt(o)?.name)&&REPLACEABLE.has(bot.blockAt(o.offset(0,1,0))?.name)&&solid(bot,bot.blockAt(o.offset(0,-1,0))))?0:1};return score(a)-score(b)||facing(a)-facing(b)})
+ let refused=0
  for(const [dx,dy,dz] of order){
   const cells=[feet.offset(dx,1,dz),feet.offset(dx,0,dz)]
+  if(!cells.every(c=>opens(bot,bot.blockAt(c)))){refused++;continue}
   let opened=true
   for(const c of cells){
    check();const b=bot.blockAt(c)
@@ -267,5 +273,5 @@ export async function unwall(bot,task,{check,stage,progress}){
   }
   if(opened&&cells.every(c=>REPLACEABLE.has(bot.blockAt(c)?.name||'air')))return {item:'safety',count:1,receipt:'unwalled',side:{dx,dz},position:{x:bot.entity.position.x,y:bot.entity.position.y,z:bot.entity.position.z}}
  }
- throw new Error('Could not open a wall of the hut')
+ throw new Error(`Could not open a wall of the hut${refused?`: ${refused===order.length?'every':refused} side${refused===1?' is':'s are'} not natural ground and not placed by me`:''}`)
 }

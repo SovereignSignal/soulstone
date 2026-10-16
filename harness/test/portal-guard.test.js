@@ -6,6 +6,9 @@ import {Vec3} from 'vec3'
 import {DoorAwareMovements} from '../src/navigation.js'
 import {survivalObservation,emergencyReason,PORTAL_EMERGENCY,FIRE_EMERGENCY} from '../src/survival.js'
 import {leavePortal,usePortal} from '../src/portal-guard.js'
+import {OwnBlocks} from '../src/natural.js'
+// The hut's cobblestone walls, placed by the bot: its own to open (natural.js).
+const ownHut=(bot,cells)=>{const own=new OwnBlocks(null);for(const c of cells)own.add(new Vec3(...c.split(',').map(Number)),'cobblestone','overworld');bot.ownBlocks=own}
 const registry=minecraftData('1.21.4'),Block=blockLoader(registry)
 const key=p=>`${p.x},${p.y},${p.z}`
 
@@ -200,6 +203,7 @@ test('use_portal from inside a hut opens the wall facing the portal, then walks'
  for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]])for(const y of [64,65])walls[`${-3+dx},${y},${0+dz}`]='cobblestone'
  walls['-3,66,0']='cobblestone'
  const f=crossing('overworld');for(const [k,v] of Object.entries(walls))f.world.set(k,v)
+ ownHut(f.bot,Object.keys(walls))
  f.bot.entity.position=new Vec3(-2.5,64,0.5)
  f.bot.dig=async b=>{f.log.push('dig '+key(b.position));f.world.set(key(b.position),'air')}
  f.bot.equip=async()=>{};f.bot.tool={async equipForBlock(){}}
@@ -215,6 +219,7 @@ test('a hut left half open is opened the rest of the way toward the portal',asyn
  const f=crossing('overworld')
  for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]])for(const y of [64,65])f.world.set(`${-3+dx},${y},${0+dz}`,'cobblestone')
  f.world.set('-3,66,0','cobblestone');f.world.set('-2,64,0','air')
+ ownHut(f.bot,[...f.world.keys()].filter(k=>f.world.get(k)==='cobblestone'))
  f.bot.entity.position=new Vec3(-2.5,64,0.5)
  f.bot.dig=async b=>{f.log.push('dig '+key(b.position));f.world.set(key(b.position),'air')}
  f.bot.equip=async()=>{};f.bot.tool={async equipForBlock(){}}

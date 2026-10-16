@@ -11,7 +11,7 @@ import {executeSkill} from '../src/skills.js'
 import {Teammate} from '../src/companion/controller.js'
 import {THREAT_INTERRUPTION} from '../src/survival.js'
 const registry=minecraftData('1.21.4')
-function world({logs=21,stoneFrom=60}={}){
+function world({logs=21,stoneFrom=60,own=true}={}){
  const cells=new Map(),inventory=logs?[{name:'oak_log',count:logs}]:[],placed=[],dug=[],equipped=[],hand={name:null}
  const bot={registry,game:{gameMode:'survival',difficulty:'normal'},time:{timeOfDay:15000},health:20,food:18,entities:{},players:{},
   entity:{position:new Vec3(10.5,64,10.5),onGround:true},inventory:{items:()=>inventory},
@@ -22,6 +22,8 @@ function world({logs=21,stoneFrom=60}={}){
   async equip(item){equipped.push(item.name);hand.name=item.name},
   async placeBlock(ref,face){const p=ref.position.plus(face);placed.push(p.toString());cells.set(p.toString(),equipped.at(-1));const slot=inventory.find(i=>i.name===equipped.at(-1));if(slot&&--slot.count<=0)inventory.splice(inventory.indexOf(slot),1)},
   async dig(block){dug.push(block.position.toString());cells.set(block.position.toString(),'air')}}
+ // As the runner does on spawn: the hut's walls are its own to open again (16 October).
+ if(own)trackOwnPlacements(bot,new OwnBlocks(null))
  return {bot,cells,inventory,placed,dug,hand}
 }
 const api={check(){},stage(){},progress(){},persist(){},movements:{}}
@@ -263,8 +265,8 @@ test('an unhut goal keeps the way it faces, and nothing else',()=>{
 // standable ground beyond, so the opened wall faced along the tunnel, away from
 // every blaze, and the bow never had a shot. Against a shooter the wall facing it
 // opens as a firing port, natural rock and a drop beyond included.
-function tunnelHut(){
- const w=world({logs:21})
+function tunnelHut({own}={}){
+ const w=world({logs:21,own})
  for(let z=0;z<=20;z++){
   for(const y of [63,64,65,66])w.cells.set(new Vec3(8,y,z).toString(),'netherrack'),w.cells.set(new Vec3(9,y,z).toString(),'netherrack')
   for(const y of [64,65,66])w.cells.set(new Vec3(11,y,z).toString(),'netherrack')
@@ -287,6 +289,45 @@ test('against a shooter the hut opens a firing port in the wall facing it, rock 
  blazeAt(high.bot,13.5,66,10.5);high.dug.length=0
  assert.deepEqual((await unwall(high.bot,{kind:'unhut',goal:{toward:{x:13,z:10},shooter:'blaze'}},api)).side,{dx:1,dz:0})
  assert.deepEqual(high.dug,[new Vec3(11,65,10).toString()])
+})
+// 16 October: the hut leans on any wall already standing, and in the family world that can be
+// a player's. A port, or the plain exit, opens only what the bot may break: natural ground, or a
+// block it placed itself. The bot stands at 10,64,10; a wall at x 11 is the east side.
+function besideWall(name,{own=false}={}){
+ const w=world({logs:0});w.inventory.push({name:'cobblestone',count:20})
+ for(let z=8;z<=12;z++)for(const y of [64,65,66])w.cells.set(new Vec3(11,y,z).toString(),name)
+ if(own)for(const y of [64,65])w.bot.ownBlocks.add(new Vec3(11,y,10),name,null)
+ return w
+}
+const skeletonAt=(bot,x,y,z)=>{bot.entities={1:{id:1,name:'skeleton',type:'hostile',height:1.99,position:new Vec3(x,y,z)}}}
+test('a firing port never opens through a player\'s wall: it takes another side facing the shooter, or there is none',async()=>{
+ const w=besideWall('oak_planks');await executeSkill(w.bot,{kind:'hut',goal:{}},api);w.dug.length=0
+ skeletonAt(w.bot,15.5,64,10.5)
+ await assert.rejects(unwall(w.bot,{kind:'unhut',goal:{toward:{x:15,z:10},shooter:'skeleton'}},api),/No wall facing the skeleton/)
+ assert.deepEqual(w.dug,[],'the planks stay');assert.equal(w.bot.blockAt(new Vec3(11,65,10)).name,'oak_planks')
+ const d=besideWall('oak_planks');await executeSkill(d.bot,{kind:'hut',goal:{}},api);d.dug.length=0
+ skeletonAt(d.bot,15.5,64,13.5)
+ const port=await unwall(d.bot,{kind:'unhut',goal:{toward:{x:15,z:13},shooter:'skeleton'}},api)
+ assert.deepEqual(port.side,{dx:0,dz:1},'its own cobblestone side');assert.deepEqual(d.dug,[new Vec3(10,65,11).toString()])
+})
+test('a firing port still opens the bot\'s own cobblestone and natural stone',async()=>{
+ for(const [name,own] of [['cobblestone',true],['stone',false]]){
+  const w=besideWall(name,{own});await executeSkill(w.bot,{kind:'hut',goal:{}},api);w.dug.length=0
+  skeletonAt(w.bot,15.5,64,10.5)
+  const port=await unwall(w.bot,{kind:'unhut',goal:{toward:{x:15,z:10},shooter:'skeleton'}},api)
+  assert.deepEqual(port.opened,[{x:11,y:65,z:10}],name);assert.deepEqual(w.dug,[new Vec3(11,65,10).toString()],name)
+ }
+})
+test('the plain exit opens only a side it may break, and with none it fails without digging',async()=>{
+ const w=besideWall('oak_planks');await executeSkill(w.bot,{kind:'hut',goal:{}},api);w.dug.length=0
+ const out=await unwall(w.bot,{kind:'unhut',goal:{toward:{x:40,z:10}}},api)
+ assert.notDeepEqual(out.side,{dx:1,dz:0},'not through the planks, though that side faces the place');assert.ok(!w.dug.some(c=>c.startsWith('(11,')),w.dug.join(' '))
+ // A player's room: planks on all four sides, the hut only roofs it.
+ const room=world({logs:0});room.inventory.push({name:'cobblestone',count:20})
+ for(const [x,z] of [[11,10],[9,10],[10,11],[10,9]])for(const y of [64,65])room.cells.set(new Vec3(x,y,z).toString(),'oak_planks')
+ await executeSkill(room.bot,{kind:'hut',goal:{}},api);room.dug.length=0
+ await assert.rejects(unwall(room.bot,{kind:'unhut',goal:{}},api),/Could not open a wall of the hut: .*not natural ground and not placed by me/)
+ assert.deepEqual(room.dug,[],'the room is kept')
 })
 // Lab run 156, 15 October: a two-high port into a sealed room put the bot's whole body in the
 // line of four blazes at 2.6 to 4 blocks, and it went from 20 health to 8.7 in six seconds. A
@@ -392,7 +433,7 @@ function bridged(w,own){
  return {set late(v){late=v}}
 }
 test('a hut whose placements land late still records its cobblestone walls as its own to dig',async()=>{
- const w=world({logs:0});w.inventory.push({name:'cobblestone',count:20})
+ const w=world({logs:0,own:false});w.inventory.push({name:'cobblestone',count:20})
  const own=new OwnBlocks(null);bridged(w,own)
  assert.equal((await wallIn(w.bot,{kind:'hut',goal:{}},api)).receipt,'walled_in')
  assert.equal(w.placed.length,10)
@@ -402,7 +443,7 @@ test('a hut whose placements land late still records its cobblestone walls as it
  assert.match(refuseDigCell(w.bot,new Vec3(14,64,10)),/cobblestone at 14,64,10 is not natural ground/,'a player\'s cobblestone stays refused')
 })
 test('a firing port closed again with cobblestone is the bot\'s own to dig, across a restart too',async()=>{
- const w=tunnelHut();w.inventory.splice(0,w.inventory.length,{name:'cobblestone',count:21})
+ const w=tunnelHut({own:false});w.inventory.splice(0,w.inventory.length,{name:'cobblestone',count:21})
  const path=join(mkdtempSync(join(tmpdir(),'mc-port-')),'own-blocks.json'),own=new OwnBlocks(path),bridge=bridged(w,own)
  bridge.late=false;await executeSkill(w.bot,{kind:'hut',goal:{}},api)
  blazeAt(w.bot,13.5,63,10.5)
