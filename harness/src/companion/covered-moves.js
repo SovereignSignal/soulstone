@@ -13,9 +13,9 @@ import {fullCube} from '../construction.js'
 import {survivalObservation,fireObservation,FIRE_BLOCKS} from '../survival.js'
 import {inNether,dimensionOf} from '../dimension.js'
 import {onTrip,TRIP_HEALTH} from '../nether-trip.js'
-import {refuseDigCell,validateDigGoal,LIQUID,GRAVITY,key} from '../primitives.js'
+import {refuseDigCell,validateDigGoal,LIQUID,GRAVITY,AIR,key} from '../primitives.js'
 import {validateBoreGoal,borePath,columnCells,BORE_TIMEOUT_MS} from '../bore.js'
-import {isNatural,NETHER_NATURAL} from '../natural.js'
+import {isNatural,NETHER_NATURAL,mayDig} from '../natural.js'
 import {projectFootprints} from '../site-survey.js'
 import {recoveryContext,recoveryState,recordRecovery} from './recovery-context.js'
 export const SHAFT_MAX=4
@@ -63,11 +63,20 @@ function admit(c,bot,v,sites){
   return {command:{action:'dig',goal:validateDigGoal({...v.target,count:v.count,protectedSites:sites}),timeoutMs:120000}}
  }
  let goal;try{goal=validateBoreGoal({...v.target,count:v.count,protectedSites:sites})}catch(error){return {reason:error.message}}
- // From the hut's own level the first column is the hut wall: the shaft comes first.
- if(f.y>=c.safety.retreat.surface.y)return {reason:'shaft first: bore only from the foot of a shaft, so the hut walls stay shut'}
  const path=borePath(f,goal)
  if(!path.length)return {reason:`${key(goal)} is straight above or below; dig a shaft with dig`}
- for(const p of columnCells(f,path[0])){const b=bot.blockAt(p);if(!rock(bot,b))return {reason:`${b?.name??'unloaded ground'} at ${key(p)} is not natural rock; shaft first, then bore from rock`}}
+ // Live, 16 October: the family seed's Nether arrival is a fortress bridge of nether bricks the
+ // family rule never digs. The first column is rock or the bot's own block (its hut wall), or open
+ // air over a solid floor that is not hot; bore seals what it uncovers and stops short of open space.
+ const cells=columnCells(f,path[0]),open=cells.some(p=>AIR.has(bot.blockAt(p)?.name))
+ for(const p of cells){
+  const b=bot.blockAt(p)
+  if(!b)return {reason:`${key(p)} is not loaded`}
+  if(!AIR.has(b.name)&&(!fullCube(bot.registry,b.name)||hot(b)||GRAVITY.has(b.name)||!mayDig(bot,b)))return {reason:`${b.name} at ${key(p)} is neither natural rock nor my own block; on rock dig a shaft first, then bore from its foot`}
+  for(const [dx,dy,dz] of [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0]]){const q=p.offset(dx,dy,dz),n=bot.blockAt(q);if(!cells.some(o=>o.equals(q))&&hot(n))return {reason:`${n?.name??'unloaded ground'} beside the first column at ${key(q)}`}}
+ }
+ const under=path[0].offset(0,-1,0),floor=bot.blockAt(under)
+ if(open&&(!floor||!fullCube(bot.registry,floor.name)||hot(floor)))return {reason:`${floor?.name??'unloaded ground'} under ${key(path[0])}; bore crosses open air only over a solid floor that is not hot`}
  return {command:{action:'bore',goal,timeoutMs:BORE_TIMEOUT_MS}}
 }
 // The request goes back to the planner from inside the cover, as the departed branch does, and

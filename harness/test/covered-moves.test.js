@@ -81,6 +81,23 @@ test('bore from the hut is refused as shaft first; from the shaft foot in rock i
  const sent=shaft.commands.find(x=>x.action==='bore');assert.ok(sent,acts(shaft).join(' '))
  assert.deepEqual([sent.goal.x,sent.goal.y,sent.goal.z,sent.goal.count],[20,61,0,6]);assert.ok(Array.isArray(sent.goal.protectedSites)&&sent.goal.protectedSites.length,JSON.stringify(sent.goal))
 })
+// Live, 16 October: the family seed's Nether arrival is on a fortress bridge of nether bricks, which
+// the family rule never digs, so the shaft is refused there. From the hut a bore is admitted when its
+// first column is the bot's own wall or rock, or open air over a solid floor that is not hot.
+test('from a hut on a bridge, a bore through its own wall or across air over a cool floor is admitted; over magma or beside lava it is not',async()=>{
+ const bore={action:'bore',target:{x:20,y:64,z:0},count:6,expectation:'Along the bridge'}
+ const bridge=f=>{for(const [k,v] of [['0,63,0','nether_bricks'],['1,63,0','nether_bricks']])f.cells.set(k,v)}
+ const own=fixture(once(bore,wait),{act:()=>({receipt:'bored',columns:1,slit:null})});bridge(own)
+ own.bot.ownBlocks={has:()=>false,entry:p=>p.x===1&&p.z===0&&(p.y===64||p.y===65)?{name:'cobblestone'}:null}
+ await own.run({budgetMs:60});assert.ok(own.commands.some(x=>x.action==='bore'),'own wall: '+JSON.stringify(own.c.recoveryHistory))
+ const air=fixture(once(bore,wait),{act:()=>({receipt:'bored',columns:1,slit:null})});bridge(air);air.cells.set('1,64,0','air');air.cells.set('1,65,0','air')
+ await air.run({budgetMs:60});assert.ok(air.commands.some(x=>x.action==='bore'),'air over bricks: '+JSON.stringify(air.c.recoveryHistory))
+ for(const [name,set,re] of [['magma floor',f=>f.cells.set('1,63,0','magma_block'),/magma_block/],['lava beside',f=>f.cells.set('1,64,1','lava'),/lava/]]){
+  // Lava beside is judged at the bot's own wall: beside an open column it would already be inside the hut's flood.
+  const f=fixture(once(bore,wait));bridge(f);if(name==='magma floor'){f.cells.set('1,64,0','air');f.cells.set('1,65,0','air')}else f.bot.ownBlocks={has:()=>false,entry:p=>p.x===1&&p.z===0?{name:'cobblestone'}:null};set(f)
+  await f.run({budgetMs:60});assert.deepEqual(acts(f),[],name);assert.ok(f.c.recoveryHistory.some(a=>a.status==='rejected'&&re.test(a.reason)),name+': '+JSON.stringify(f.c.recoveryHistory))
+ }
+})
 test('a bore receipt with a slit hands the request back: safety cleared, one automatic resume, a covered_route continuation, never unhut',async()=>{
  const f=fixture(once({action:'bore',target:{x:20,y:61,z:0},count:6,expectation:'To the bay'}),{act:()=>({receipt:'bored',columns:5,slit:[{x:6,y:62,z:0}]})})
  for(let y=61;y<64;y++)f.cells.set(`0,${y},0`,'air');f.bot.entity.position=new Vec3(.5,61,.5)
