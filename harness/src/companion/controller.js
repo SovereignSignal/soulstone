@@ -726,7 +726,21 @@ export class Teammate extends EventEmitter {
         // open twice (9 and 11 arrows, no kill) down to health 9. On a trip, on the episode's first try,
         // with blocks and ground for a hut, cover comes first and the bow answers from its port (runs
         // 146, 156, 166). A retry after a failed hut still shoots, the 10 October case below.
-        coverFirst=!decision.engage&&retries===0&&inNether(recoveryBot)&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))&&hutSite(recoveryBot).ok
+        // Live rehearsal, 16 October (18:21Z): in a bore column on the fortress bridge the alarm defended against a
+        // wither skeleton at the open front, the follow took the bot out and off the edge into the lava sea. On a
+        // trip in a covered column nothing paths: a melee mob in reach is struck in place, then the column is closed.
+        const inColumn=inNether(recoveryBot)&&!!coveredColumn(recoveryBot)&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))
+        if(inColumn){
+          const strike=decision.engage?decision:corneredDecision(recoveryBot),mob=strike.engage?recoveryBot.entities?.[strike.target.targetId]:null
+          if(mob?.position&&recoveryBot.entity.position.distanceTo(mob.position)<=2.9){
+            this.say(`A ${strike.target.targetName.replaceAll('_',' ')} is at the tunnel's open end. Striking from where I stand, then walling in.`)
+            try{await this.execute({action:'defend',goal:{...strike.target,connectionId:this.runner.connectionId,inPlace:true,...(strike.cornered?{cornered:true}:{})},timeoutMs:35000},abort.signal);this.noteKill(this.runner.task?.result)}
+            catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)}
+            if(epoch!==this.epoch||abort.signal.aborted)return
+          }
+          decision={...decision,engage:false,reason:'In a covered column on the bridge: walling in where I stand'}
+        }
+        coverFirst=inColumn||!decision.engage&&retries===0&&inNether(recoveryBot)&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))&&hutSite(recoveryBot).ok
         if(coverFirst)sayEvery(this,'cover_first','Cover first, the bow from the port.')
         // The bow answers what melee declines, unless a judge has chosen shelter.
         const ranged=!decision.engage&&!coverFirst&&(!this.threatJudge?.control||chosen!=='shelter')?rangedDefenseDecision(recoveryBot):null
@@ -824,7 +838,8 @@ export class Teammate extends EventEmitter {
         // starts swelling within three blocks. Sprint out of its reach first.
         // Behind its own walls the answer to anything outside is to stay behind
         // them and close up: no sprint past the door, no detour over open ground.
-        const indoors=insideBase(recoveryBot,this.projects.base)||!!occupiedAlternative(recoveryBot,this.projects)
+        // A covered column on a trip is indoors too: no sprint out of it onto the bridge (18:21Z, above).
+        const indoors=insideBase(recoveryBot,this.projects.base)||!!occupiedAlternative(recoveryBot,this.projects)||inColumn
         for(let attempt=0;attempt<2;attempt++){
           const creeper=survivalObservation(recoveryBot).nearbyThreats.find(t=>t.name==='creeper'&&t.risk==='potential_hostile'&&t.distance<=16)
           if(!creeper||indoors)break
@@ -963,7 +978,7 @@ export class Teammate extends EventEmitter {
       // two zombies took sixteen health while the burrow was being dug. Put
       // distance behind first, the way a creeper is handled, then dig. Melee reach
       // is the same floor the threat rule never negotiates.
-      if(!this.safety.retreat&&!insideBase(recoveryBot,this.projects.base)&&!occupiedAlternative(recoveryBot,this.projects)){
+      if(!this.safety.retreat&&!tunnelled&&!insideBase(recoveryBot,this.projects.base)&&!occupiedAlternative(recoveryBot,this.projects)){
         // A shooter in arm's reach is no closer for being near: distance gains nothing
         // against it, and the sprint is where the Nether kills (lab run 141, 14 October:
         // kitted, a blaze at three blocks, "sprinting clear", off the fortress edge, lava).

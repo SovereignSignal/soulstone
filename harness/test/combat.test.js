@@ -274,3 +274,27 @@ test('fightableAlone asks the fight rule\'s floors by name: for a wither skeleto
  assert.equal(fightableAlone(f.bot,'husk'),true);f.bot.health=11;assert.equal(fightableAlone(f.bot,'husk'),false,'under twelve');f.bot.health=20
  for(const name of ['hoglin','creeper','blaze'])assert.equal(fightableAlone(f.bot,name),false,name+' is no mob the rule fights')
 })
+
+// Live rehearsal, 16 October (18:21Z): a wither skeleton at the open front of a bore column on the fortress
+// bridge; defend's follow took the bot out of the column and off the bridge into the lava sea.
+function edge(){
+ const f=fixture(),goals=[];let movements=null
+ f.bot.game.dimension='minecraft:the_nether';f.target.position=new Vec3(4,64,0)
+ f.bot.blockAt=p=>{const solid=p.y<64&&p.x<=0;return {name:solid?'nether_bricks':'air',position:p.clone?.()??p,boundingBox:solid?'block':'empty'}}
+ f.bot.pathfinder={setGoal:g=>{if(g)goals.push(g)},setMovements:m=>{movements=m},goal:null}
+ return {...f,goals,movements:()=>movements}
+}
+test('in the Nether defend never steps toward a target across a cell with no floor',async()=>{
+ const f=edge()
+ await assert.rejects(defendAgainstMob(f.bot,f.task,f.context),/No floor/)
+ assert.equal(f.goals.length,0,'no follow goal over the edge')
+ const m=f.movements();assert.ok(m.exclusionAreasStep.some(x=>x({position:new Vec3(1,64,0)})>=100),'the pathfinder refuses a cell with nothing under it')
+})
+test('defend in place strikes only within reach and never sets a path goal',async()=>{
+ const f=edge();f.task.goal.inPlace=true
+ await assert.rejects(defendAgainstMob(f.bot,f.task,f.context),/in place/)
+ assert.equal(f.goals.length,0)
+ const near=edge();near.task.goal.inPlace=true;near.target.position=new Vec3(1.5,64,0)
+ let hits=0;near.bot.attack=e=>{hits++;near.bot.emit('entityDead',e)}
+ const r=await defendAgainstMob(near.bot,near.task,near.context);assert.equal(r.receipt,'target_death_observed');assert.equal(hits,1);assert.equal(near.goals.length,0)
+})

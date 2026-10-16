@@ -5,6 +5,14 @@ import {DoorAwareMovements} from './navigation.js'
 import {remainingDurability} from './supplies.js'
 import {survivalObservation,cannotShootYet} from './survival.js'
 import {observedSightline} from './visibility.js'
+import {inNether} from './dimension.js'
+// Live rehearsal, 16 October (18:21Z): following a wither skeleton out of a bore column on the fortress
+// bridge, defend walked off the edge into the lava sea. In the Nether no step goes to a cell with nothing under it.
+const floored=(bot,c)=>bot.blockAt(c.offset(0,-1,0))?.boundingBox==='block'
+function edgeToward(bot,to){
+ const p=bot.entity.position,dx=to.x-p.x,dz=to.z-p.z,next=p.floored().plus(Math.abs(dx)>=Math.abs(dz)?new Vec3(Math.sign(dx),0,0):new Vec3(0,0,Math.sign(dz)))
+ return floored(bot,next)?null:next
+}
 
 // Melee-defendable mobs and the health margin each demands. Skeletons shoot
 // while the bot closes in, so they need more headroom. A wither skeleton guards
@@ -140,7 +148,7 @@ export function defenseDecision(bot,{healthFloor=12,foodFloor=10,mobMargins=true
 }
 export function validateDefenseGoal(g){
  if(!g||!Number.isInteger(g.targetId)||g.targetId<0||typeof g.targetUuid!=='string'||!/^[\da-f-]{36}$/i.test(g.targetUuid)||!DEFENDABLE_MOBS.has(g.targetName)||typeof g.connectionId!=='string'||!/^[\da-f-]{36}$/i.test(g.connectionId))throw new Error('Defense requires an observed mob identity and current connection')
- return {targetId:g.targetId,targetUuid:g.targetUuid,targetName:g.targetName,connectionId:g.connectionId,...(g.cornered===true?{cornered:true}:{})}
+ return {targetId:g.targetId,targetUuid:g.targetUuid,targetName:g.targetName,connectionId:g.connectionId,...(g.cornered===true?{cornered:true}:{}),...(g.inPlace===true?{inPlace:true}:{})}
 }
 export function combatClearance(bot){
  const s=survivalObservation(bot),p=bot?.entity?.position
@@ -193,6 +201,7 @@ export async function defendAgainstMob(bot,task,{check,stage,progress,persist,mo
   combatMovement.canDig=false;combatMovement.allow1by1towers=false;combatMovement.scafoldingBlocks=[]
   combatMovement.allowParkour=false;combatMovement.allowFreeMotion=false;combatMovement.allowSprinting=true;combatMovement.maxDropDown=1
   combatMovement.exclusionAreasStep.push(b=>!knownPoint(b.position)||distance(b.position,anchor)>ENGAGE_RANGE-1?100:0)
+  if(inNether(bot))combatMovement.exclusionAreasStep.push(b=>floored(bot,b.position)?0:100)
   bot.pathfinder.setMovements(combatMovement)
   stage('defending');progress('Defending against '+goal.targetName+' with '+weapon.name.replaceAll('_',' '));persist()
   while(true){
@@ -217,6 +226,9 @@ export async function defendAgainstMob(bot,task,{check,stage,progress,persist,mo
     }else if(record.shield&&bot.inventory.slots?.[offHand]?.name==='shield')blockingState(true)
    }else{
     blockingState(false)
+    // In place (a bore column's open front, controller.js): strike while it is in reach, never follow.
+    if(goal.inPlace)throw new Error(`The ${goal.targetName} is out of reach; I strike only in place here`)
+    if(inNether(bot)){const drop=edgeToward(bot,target.position);if(drop)throw new Error(`No floor under ${drop.x},${drop.y},${drop.z} toward the ${goal.targetName}; I do not step off an edge to fight`)}
     // A dropped follow goal (no path inside the bubble, target moved) leaves the
     // bot standing; re-issue it rather than waiting out the contact window.
     if(!following||!bot.pathfinder.goal){bot.pathfinder.setGoal(new pathfinding.goals.GoalFollow(target,2),true);following=true}

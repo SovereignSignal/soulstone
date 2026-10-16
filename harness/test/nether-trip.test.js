@@ -594,3 +594,14 @@ test('on a trip in a covered bore column, the alarm walls in where the bot stand
 test('off a covered column, the portal step-back is unchanged',()=>{
  const bot=netherBot({});assert.equal(coveredColumn(bot),null)
 })
+test('a wither skeleton in the open front of a covered column is struck in place, then the column is closed where the bot stands',async()=>{
+ const {r,c,bot}=bridgeTunnel()
+ bot.entities={9:{id:9,uuid:'10000000-0000-0000-0000-000000000009',type:'mob',name:'wither_skeleton',height:2.4,position:new Vec3(1.5,64,3.5),velocity:new Vec3(0,0,0)}}
+ r.command=x=>{r.commands.push(x);if(x.action==='stop')return;const task=r.task={id:String(r.commands.length),kind:x.action,status:'running',goal:x.goal}
+  setTimeout(()=>{if(r.task!==task)return;if(x.action==='defend')delete bot.entities[9];task.status='completed';task.result={receipt:x.action};r.emit('event',{type:'task_finished',task})},1)}
+ void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,120))
+ const acts=r.commands.filter(x=>x.action!=='stop');c.cancel?.(true)
+ assert.equal(acts[0]?.action,'defend',acts.map(x=>x.action).join(' '));assert.equal(acts[0].goal.inPlace,true)
+ const hut=acts.find(x=>x.action==='hut');assert.ok(hut,acts.map(x=>x.action).join(' '));assert.ok(!hut.goal?.portalRoom)
+ assert.ok(!acts.some(x=>['use_portal','flee','shoot'].includes(x.action)),acts.map(x=>x.action).join(' '))
+})
