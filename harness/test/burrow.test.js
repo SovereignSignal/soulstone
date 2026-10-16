@@ -749,6 +749,52 @@ test('a burrow holds against shooters it cannot answer from inside, and counts e
  assert.equal(hut.clear,true,hut.reason);assert.equal(hut.confront?.name,'blaze')
 })
 
+// Lab run 166, 16 October: a bay hut beside a blaze spawner room, the port shut, seven blazes
+// six to ten blocks off for more than ten minutes and no port opened. The east exits, two cells
+// out, stood under the room's roof edge and saw none of them; the bot's own eye through the
+// port, a block and a half further back, sees under that edge. The hut's feet are (0,64,0) in a
+// corridor along z; its wall x=1 holds the port cell (1,65,0); the room is x 2 to 9, y 63 and 64
+// open with y 65 open only over x 2 and 3, its roof from x 4. Blazes at the 07:11:54 positions.
+function bayHut({blazes=[[7,63.2,1.6],[7.5,63.2,-.3],[7.9,63,3.7]],cells=new Map()}={}){
+ const name=p=>{const c=cells.get(`${p.x},${p.y},${p.z}`);if(c)return c
+  if(p.x===0&&p.z===0&&(p.y===64||p.y===65))return 'air'
+  if((Math.abs(p.x)===1&&p.z===0||p.x===0&&Math.abs(p.z)===1)&&(p.y===64||p.y===65))return 'cobblestone'
+  if(p.x===0&&(p.y===64||p.y===65)&&Math.abs(p.z)<=9)return 'air'
+  if(p.x>=2&&p.x<=9&&Math.abs(p.z)<=5&&(p.y===63||p.y===64||p.y===65&&p.x<=3))return 'air'
+  return 'netherrack'}
+ const items=[{name:'bow',count:1,maxDurability:384,durabilityUsed:0},{name:'arrow',count:96},{name:'iron_sword',count:1,maxDurability:250,durabilityUsed:0}],slots=[]
+ for(const [i,n] of [[5,'iron_helmet'],[6,'iron_chestplate'],[7,'iron_leggings'],[8,'golden_boots']])slots[i]={name:n}
+ return {registry,game:{gameMode:'survival',difficulty:'normal',dimension:'minecraft:the_nether'},time:{timeOfDay:16916},health:20,food:19,players:{},
+  entity:{position:new Vec3(.5,64,.5),onGround:true,eyeHeight:1.62},inventory:{items:()=>items,slots},getEquipmentDestSlot:s=>({head:5,torso:6,legs:7,feet:8})[s],
+  entities:Object.fromEntries(blazes.map(([x,y,z],i)=>[i+1,{id:i+1,uuid:`00000000-0000-0000-0000-00000000003${i}`,type:'hostile',name:'blaze',height:1.8,position:new Vec3(x,y,z)}])),
+  blockAt:p=>{const n=name(p);return {name:n,position:p.clone(),boundingBox:registry.blocksByName[n]?.boundingBox,getProperties:()=>({})}},
+  world:{raycast:(from,dir,range)=>{for(let d=0.1;d<=range;d+=0.1){const c=from.plus(dir.scaled(d)).floored(),n=name(c);if(registry.blocksByName[n]?.boundingBox==='block')return {name:n,position:c}}return null}}}
+}
+test('on a trip a hut confronts blazes its exits cannot see but its own eye sees through the port',async()=>{
+ const {shelterExits}=await import('../src/burrow.js')
+ const bot=bayHut(),surface={x:0,y:64,z:0},exits=shelterExits({shelterName:'hut',surface}),opts={exits,canPort:true,trip:true,lingeredMs:61000}
+ // The run 166 reading: judged at the exits alone every blaze is hidden and the room reads empty.
+ const exitsOnly=burrowClearance(bot,opts);assert.equal(exitsOnly.clear,true,exitsOnly.reason);assert.equal(exitsOnly.confront,undefined)
+ const port=burrowClearance(bot,{...opts,feet:surface});assert.equal(port.clear,true,port.reason);assert.equal(port.confront?.name,'blaze')
+ // Off a trip (the family bot's Overworld hut) nothing changes.
+ const off=burrowClearance(bot,{...opts,trip:false,feet:surface});assert.equal(off.clear,true,off.reason);assert.equal(off.confront,undefined)
+ // Rock in the line beyond the port still hides a blaze.
+ const rock=bayHut({blazes:[[7.5,63.2,.5]],cells:new Map([['3,65,0','netherrack']])})
+ const behind=burrowClearance(rock,{...opts,feet:surface});assert.equal(behind.clear,true,behind.reason);assert.equal(behind.confront,undefined)
+ // A burrow has no port: feet change nothing there, and burrowedInTunnel's hold still stands.
+ const burrow={exits:shelterExits({shelterName:'burrow',surface}),trip:true,lingeredMs:61000}
+ assert.deepEqual(burrowClearance(bot,{...burrow,feet:surface}),burrowClearance(bot,burrow))
+ const tunnel=burrowClearance(burrowedInTunnel(),{...burrow,feet:surface});assert.equal(tunnel.lingering,true,tunnel.reason);assert.match(tunnel.reason,/no port/)
+})
+test('the port sightline leaves through the head cell of the wall facing the mob, never through the feet cell',async()=>{
+ const {portSightline}=await import('../src/burrow.js')
+ const bot=bayHut(),feet={x:0,y:64,z:0},at=(x,y,z)=>({position:{x,y,z}})
+ assert.equal(portSightline(bot,feet,at(7.5,63.2,-.3)).status,'clear','east, under the roof edge')
+ assert.equal(portSightline(bot,feet,at(.5,64,-6.5)).status,'clear','north, along the corridor through the north port cell')
+ assert.equal(portSightline(bot,feet,at(-6.5,64,.5)).status,'blocked','west is rock')
+ assert.equal(portSightline(bot,feet,at(2.5,63,.5)).status,'blocked','low and close, the line drops into the wall\'s feet cell')
+})
+
 test('in the Nether a shelter that will not clear leaves through the portal, not deeper in',async()=>{
  // Lab run 100: walled in among hoglins in the fortress, the relocate fled 32
  // blocks away from them, deeper into the fortress, and a wither skeleton killed it.

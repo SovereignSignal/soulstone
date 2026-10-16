@@ -272,7 +272,30 @@ export function shelterExits(retreat){
  if(retreat.shelterName==='hut')return [[1,0],[-1,0],[0,1],[0,-1]].flatMap(([dx,dz])=>[at.offset(dx*2,0,dz*2),at.offset(dx*2,1,dz*2)])
  return [at,at.offset(0,1,0),at.offset(0,2,0)]
 }
-export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_MS,relocateAfterMs=RELOCATE_PATIENCE_MS,exits=null,trip=false,canPort=false}={}){
+// Lab run 166, 16 October: a bay hut beside a blaze spawner room, a port shot through twice,
+// then more than ten minutes shut with blazes six to ten blocks off. The exits two cells out
+// stood under the room's roof edge and saw none of them; the bot's own eye through the port, a
+// block and a half back, saw most. A hut answers a shooter from the head cell of the wall facing
+// it (hut.js firingPort), so this is the bot's eye along the line to the mob, judged from where
+// the line leaves that cell: the closed port block is not counted, everything beyond it is.
+// feet: the hut's feet cell. A line that leaves the bot's head cell anywhere but into a wall's
+// head cell (the roof, the floor) has no port: blocked.
+export function portSightline(bot,feet,t){
+ const blocked={status:'blocked'}
+ if(!feet||!t?.position)return blocked
+ const eye={x:feet.x+.5,y:feet.y+(bot.entity?.eyeHeight??1.62),z:feet.z+.5},to={x:t.position.x,y:t.position.y+1,z:t.position.z}
+ const d={x:to.x-eye.x,y:to.y-eye.y,z:to.z-eye.z},axes=['x','y','z'],along=k=>({x:eye.x+k*d.x,y:eye.y+k*d.y,z:eye.z+k*d.z})
+ // How far along the line it leaves a cell, as a fraction of the way to the mob.
+ const leave=c=>Math.min(...axes.map(a=>d[a]>0?(c[a]+1-eye[a])/d[a]:d[a]<0?(c[a]-eye[a])/d[a]:Infinity))
+ const into=k=>{const p=along(k+1e-6);return {x:Math.floor(p.x),y:Math.floor(p.y),z:Math.floor(p.z)}}
+ const port=into(leave({x:feet.x,y:feet.y+1,z:feet.z}))
+ if(port.y!==feet.y+1||Math.abs(port.x-feet.x)+Math.abs(port.z-feet.z)!==1)return blocked
+ const out=leave(port)
+ if(!(out<1))return blocked
+ const len=Math.hypot(d.x,d.y,d.z),from=along(out+.01/len)
+ return observedSightline(bot,from,to)
+}
+export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_MS,relocateAfterMs=RELOCATE_PATIENCE_MS,exits=null,trip=false,canPort=false,feet=null}={}){
  const s=survivalObservation(bot)
  if(!Number.isFinite(s.timeOfDay))return {clear:false,reason:'Time of day is unknown'}
  // Dawn is coming whatever we do, so waiting for it is not the window's business.
@@ -307,7 +330,9 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
   // Only a hut answers a shooter from its exits. Out of a burrow the bot climbs and walks on past
   // where the shaft's column could see (lab run 150, 15 October: in a tunnel those eyes saw only
   // along it, three of four blazes off its walls were "hidden", and two met the bot in clear sight).
-  if(canPort)near=near.filter(t=>!(SHOOTERS_ONLY.has(t.name)&&t.distance>4&&hidden(t)))
+  // On a trip a shooter the bot's own eye sees through a port is not hidden (lab run 166, 16 October).
+  const throughPort=t=>canPort&&trip&&!!feet&&portSightline(bot,feet,t).status==='clear'
+  if(canPort)near=near.filter(t=>!(SHOOTERS_ONLY.has(t.name)&&t.distance>4&&hidden(t)&&!throughPort(t)))
   // On a trip a mob the alarm walks on outside is not waiting outside either, judged by sight
   // at the exits, or the hut holds the bot over it for good (lab run 148, 15 October).
   if(trip){const seen=near.map(t=>({...t,sightline:{status:hidden(t)?'blocked':'clear'}}));near=near.filter((t,i)=>!walkOnThreat(bot,seen[i],seen))}

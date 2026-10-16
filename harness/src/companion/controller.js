@@ -1136,7 +1136,7 @@ export class Teammate extends EventEmitter {
       protectedHealth=bot.health
       // Any shooter loaded within its alarm radius, seen or behind rock, for the rod pickup's quiet minute.
       if(Object.values(bot.entities||{}).some(e=>SHOOTERS_ONLY.has(e?.name)&&e.position&&e.position.distanceTo(bot.entity.position)<=threatRadius(e.name)))this.shooterSeenAt=Date.now()
-      const r=burrowClearance(bot,{lingeredMs:lingerSince?Date.now()-lingerSince:0,patienceMs,relocateAfterMs,exits:shelterExits(safety.retreat),canPort:safety.retreat?.shelterName==='hut',trip:onTrip(bot,canResume(request))});if(r.lingering||r.confront||r.relocate)lingerSince??=Date.now();else if(r.holding)lingerSince=null
+      const r=burrowClearance(bot,{lingeredMs:lingerSince?Date.now()-lingerSince:0,patienceMs,relocateAfterMs,exits:shelterExits(safety.retreat),canPort:safety.retreat?.shelterName==='hut',trip:onTrip(bot,canResume(request)),feet:safety.retreat?.surface});if(r.lingering||r.confront||r.relocate)lingerSince??=Date.now();else if(r.holding)lingerSince=null
       // With kills near the hut to fetch on a trip, the hut holds quiet until no shooter has been
       // near for tripPickup's minute, so the walk for them comes before going on; never so late in
       // a watch that the quiet the wait needs after it no longer fits (lab run 156, 15 October).

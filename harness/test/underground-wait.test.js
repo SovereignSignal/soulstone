@@ -225,8 +225,8 @@ test('the hut opened to confront carries the way it faces through the runner to 
 // seconds, which judged the shot through its own remaining wall and walled in again,
 // every ninety seconds for fifteen minutes, without one arrow loosed.
 const KIT=[{name:'bow',count:1,maxDurability:384,durabilityUsed:0},{name:'arrow',count:122},SWORD]
-function portWait({shot,blaze=[5.5,63,.5],health=20,hut=()=>{},limitMs=1500,trip=false,food=20,items=[]}){
- const {bot}=tunnel({mobs:[['blaze',...blaze]],items:[...KIT,...items]}),executed=[],said=[],held=[]
+function portWait({shot,blaze=[5.5,63,.5],health=20,hut=()=>{},limitMs=1500,trip=false,food=20,items=[],cells}){
+ const {bot}=tunnel({mobs:[['blaze',...blaze]],items:[...KIT,...items],cells}),executed=[],said=[],held=[]
  bot.health=health;bot.food=food
  // A kitted trip: a live request and iron armour with golden boots (nether-trip.js).
  if(trip){bot.getEquipmentDestSlot=s=>({head:5,torso:6,legs:7,feet:8})[s];for(const [i,n] of [[5,'iron_helmet'],[6,'iron_chestplate'],[7,'iron_leggings'],[8,'golden_boots']])bot.inventory.slots[i]={name:n}}
@@ -278,6 +278,21 @@ test('a shooter outside the hut is shot from a firing port while the shelter sti
  assert.equal(w.executed[3].goal.shooter,undefined,'with the blaze dead the hut opens as it always has')
  assert.deepEqual(w.c.killSites?.map(k=>k.at),[{x:5.5,y:63,z:.5}],'the rod is picked up when the wait ends')
  assert.equal(w.c.safety,null)
+})
+// Lab run 166, 16 October: a bay hut beside a blaze spawner room, the port shut and blazes six
+// to ten blocks off for more than ten minutes. The room's roof (y 65 from x 4, solid from y 66
+// over it all) hid them from the exits two cells out; the bot's eye through the port saw under
+// it. On a trip such a blaze is shot through the port, as the two ports before it were.
+test('on a trip a blaze the hut\'s exits cannot see but its port can is shot through the port',async()=>{
+ const cells=new Map()
+ for(let x=2;x<=12;x++)for(let z=-6;z<=6;z++){cells.set(new Vec3(x,66,z).toString(),'netherrack');if(x>=4)cells.set(new Vec3(x,65,z).toString(),'netherrack')}
+ const kill=(bot,c)=>{delete bot.entities[1];c.runner.task={result:{item:'blaze',receipt:'killed',count:1,shots:6,at:{x:7.5,y:63.2,z:-.3}}}}
+ const w=portWait({shot:kill,trip:true,blaze:[7.5,63.2,-.3],cells})
+ await run(w)
+ assert.deepEqual(w.executed.slice(0,3).map(x=>x.action),['unhut','shoot','hut'],w.said.join(' | '))
+ assert.deepEqual(w.executed[0].goal,{toward:{x:7,z:-1},shooter:'blaze'})
+ assert.equal(w.executed[1].goal.stay,true)
+ assert.ok(w.said.some(t=>/fell to my arrows\. Port closed/.test(t)),w.said.join(' | '))
 })
 // Lab run 156, 15 October: at a firing port into a sealed room of blazes the bot lost 11
 // health in six seconds before the duel's own half-health line stopped it. On a kitted trip
