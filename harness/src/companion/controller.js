@@ -13,7 +13,7 @@ import {validateBoreGoal,BORE_TIMEOUT_MS} from '../bore.js'
 import {validatePlaceAtGoal,validateCollectGoal,validateAttackGoal,liveSites} from '../primitives-world.js'
 import {berryObservation} from '../foraging.js'
 import {shelteredPlanning} from './sheltered-planning.js'
-import {coveredMoves} from './covered-moves.js'
+import {coveredMoves,coveredHandBack} from './covered-moves.js'
 import {adaptiveRecovery} from './adaptive-recovery.js'
 import {recoveryContext,recoveryState,recentRecovery,recordRecovery} from './recovery-context.js'
 import {THREAT_INTERRUPTION,clearanceObservation,awaitClearance,openGroundClearance} from './hazard-clearance.js'
@@ -168,7 +168,7 @@ import {projectFootprints} from '../site-survey.js'
 import {reviseArchitecture} from '../construction.js'
 import {evaluateGoal,enforceProjectIntent,validateContract,constructionLimits,vacuousContract} from './goal-contract.js'
 import {ExperienceStore,experienceEvidence} from './experience.js'
-import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,withinBuildReach,AUTO_RESPAWN_LIMIT,STALL_CONTINUATIONS,STALL_RETRY_MS,shouldContinueAfterBudget,canContinueAfterSafety,canContinueAfterCombat,continuationMark,noteAdvance,notePortKill,wantedItems,wantedDrops,shouldRetryPlanning,noteCriterionStall} from './continuity.js'
+import {COVERED_CELLS,PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,withinBuildReach,AUTO_RESPAWN_LIMIT,STALL_CONTINUATIONS,STALL_RETRY_MS,shouldContinueAfterBudget,canContinueAfterSafety,canContinueAfterCombat,continuationMark,noteAdvance,notePortKill,wantedItems,wantedDrops,shouldRetryPlanning,noteCriterionStall} from './continuity.js'
 import {PREPARE_ACTIONS} from '../supplies.js'
 import {OBSIDIAN_ACTIONS,validateObsidianGoal} from '../obsidian.js'
 import {EXPEDITION_ACTIONS,remainingDurability,expeditionObservation} from '../prospecting.js'
@@ -1187,7 +1187,8 @@ export class Teammate extends EventEmitter {
     // Keep elapsed patience until clearance succeeds; night starts a fresh wait.
     let protectedHealth=bot.health,portWait=null,burntAt=-Infinity,fireSince=null,doused=false,watchStart=Date.now()
     const observe=()=>{
-      safety.protection=inspectEmergencyShelter(bot)
+      // A covered route (covered-moves.js) is one cavity from the hut to the tunnel's end.
+      safety.protection=inspectEmergencyShelter(bot,safety.covered?{limit:COVERED_CELLS}:undefined)
       // Lab run 156, 15 October: alight from the port, the bot closed the hut and the fire ticks
       // read as a breach. A drop while burning, or within BURN_MS of it (the last tick can land
       // after the flag clears), is a burn: the hut is kept and the wait goes on. The inspection
@@ -1304,7 +1305,7 @@ export class Teammate extends EventEmitter {
           const below=result.observation.sealed.every(t=>t.verticalOffset<0)
           if(sealedLap===1)this.say(`The mobs are ${below?'in a sealed cave under me':'walled off behind rock'} and cannot reach me.`)
         }
-        if(!(safety.retreat.shelterName==='hut'&&confront?.position&&SHOOTERS_ONLY.has(confront.name)&&bowCanAnswer(bot,confront.name)))break
+        if(safety.covered||!(safety.retreat.shelterName==='hut'&&confront?.position&&SHOOTERS_ONLY.has(confront.name)&&bowCanAnswer(bot,confront.name)))break
         // Out of ports, leaving takes the same health and standoff as the wait's own
         // relocation; short of them the hut holds, and the next watch's gates decide
         // (hurt, the bow no longer answers and the bot heals). The patience runs again.
@@ -1347,6 +1348,12 @@ export class Teammate extends EventEmitter {
         if(port?.side&&/No clear shot/.test(missed||''))tried.push(port.side)
         this.say(`${missed?`No luck through that port: ${missed}`:`The ${name} survived ${shot?.shots??0} arrows`}. Port closed.`)
         if(++attempts>=PORT_ATTEMPTS&&leave())break
+      }
+      // After covered moves the bot is in its own tunnel, not at the hut's door: no port, no unhut. Cleared
+      // or moving on, the request goes back to the planner from where it stands, the alarm guarding it.
+      if(safety.covered){
+        if((eligible||safety.resumeRequested)&&canResume(request)&&(safety.resumeRequested||canContinueAfterSafety(request))){await coveredHandBack(this,bot,null);return}
+        this.say('I am staying under cover in my tunnel. Resume is required to carry on from here.');return
       }
       // Lab run 147, 15 October: kitted, health 20, 128 arrows, a wither skeleton lingering
       // thirteen blocks off held the hut four minutes, and "leaving the area" took the portal

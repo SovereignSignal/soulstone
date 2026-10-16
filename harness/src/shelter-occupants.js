@@ -14,7 +14,8 @@ export function assertNoHostileOccupants(bot,cells){
 // Emergency shelters are small closed cavities. Follow their actual connected
 // air volume, including any alcove dug for material, instead of trusting a cap
 // receipt. Unknown blocks, liquids, fire and open space cannot establish protection.
-export function inspectEmergencyShelter(bot){
+// limit: the cavity's cells; a covered route (covered-moves.js) passes COVERED_CELLS.
+export function inspectEmergencyShelter(bot,{limit=32}={}){
  const p=bot.entity?.position
  if(!p||!bot.blockAt)throw new Error('Emergency shelter position or blocks unavailable')
  const feet=p.floored(),solid=b=>!!b&&fullCube(bot.registry,b.name)
@@ -34,7 +35,7 @@ export function inspectEmergencyShelter(bot){
   // A fireball can light the floor inside (review of lab run 156, 15 October): fire is no shelter.
   if(FIRE_BLOCKS.has(b.name))throw new Error('Emergency shelter contains fire')
   inside.push(c)
-  if(inside.length>32)throw new Error('Emergency shelter is open or exceeds the verified cavity limit')
+  if(inside.length>limit)throw new Error('Emergency shelter is open or exceeds the verified cavity limit')
   for(const [x,y,z] of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]])queue.push(c.offset(x,y,z))
  }
  if(!inside.some(c=>c.equals(feet.offset(0,1,0))))throw new Error('Emergency shelter has no headroom')

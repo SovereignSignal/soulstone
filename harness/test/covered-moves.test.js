@@ -125,9 +125,36 @@ test('the covered provider returns the validated decision and respects late canc
 })
 
 import {Teammate} from '../src/companion/controller.js'
+import {inspectEmergencyShelter} from '../src/shelter-occupants.js'
 const inWait=(f,extra={})=>Object.assign(f.c,{coveredMoves:true,coveredLimits:limits,shelterPlanning:false,burrowWait:{quietMs:50,limitMs:1500,watches:1},emit(){},killSites:[],...extra})
 test('the shelter wait runs the covered phase first and returns once it hands the request back',async()=>{
  const f=fixture(once({action:'done',target:null,count:0,expectation:'The planner bores'}));inWait(f)
  await Teammate.prototype.waitInBurrow.call(f.c,1,f.abort.signal,f.bot,true)
  assert.equal(f.resumed.length,1);assert.equal(f.resumed[0].automatic,true);assert.equal(f.c.safety,null);assert.deepEqual(acts(f),[])
+})
+// A shaft from the hut to y 61 and a bore tunnel 19 columns east of its foot: 43 closed cells.
+function tunnelled(f){for(let y=61;y<64;y++)f.cells.set(`0,${y},0`,'air');for(let x=1;x<20;x++)for(const y of [61,62])f.cells.set(`${x},${y},0`,'air');f.bot.entity.position=new Vec3(.5,61,.5)}
+test('a long covered route is still a closed cavity at the covered limit, and still open at the default',()=>{
+ const f=fixture(async()=>wait);tunnelled(f)
+ assert.equal(inspectEmergencyShelter(f.bot,{limit:256}).cells,43)
+ assert.throws(()=>inspectEmergencyShelter(f.bot),/open or exceeds/)
+ f.cells.set('10,61,0','lava');assert.throws(()=>inspectEmergencyShelter(f.bot,{limit:256}),/liquid/)
+ f.cells.set('10,61,0','fire');assert.throws(()=>inspectEmergencyShelter(f.bot,{limit:256}),/fire/)
+})
+test('after covered moves the wait watches the whole route, and a cleared watch hands back without unhut',async()=>{
+ const f=fixture(async()=>wait);tunnelled(f);inWait(f,{coveredMoves:false})
+ f.c.safety.covered={from:{x:0,y:64,z:0},at:{x:0,y:61,z:0},moves:[{action:'dig',target:{x:0,y:61,z:0},count:3,receipt:{receipt:'dug'}}]}
+ await Teammate.prototype.waitInBurrow.call(f.c,1,f.abort.signal,f.bot,true)
+ assert.equal(f.c.safety,null,JSON.stringify(f.said));assert.equal(f.resumed.length,1,f.said.join(' | '))
+ assert.ok(!f.commands.some(x=>['unhut','unburrow','hut'].includes(x.action)),acts(f).join(' '))
+ assert.equal(f.c.requestProgress.safetyContinuations.at(-1).shelter,'covered_route')
+})
+test('restarted with a covered route saved, the wait is re-armed in it',async()=>{
+ const {mkdtempSync,writeFileSync}=await import('node:fs'),{tmpdir}=await import('node:os'),{join}=await import('node:path'),{EventEmitter}=await import('node:events')
+ const path=join(mkdtempSync(join(tmpdir(),'mc-covered-')),'state.json')
+ const covered={from:{x:0,y:64,z:0},at:{x:0,y:61,z:0},moves:[]}
+ writeFileSync(path,JSON.stringify({profile:'covered-test',places:{},messages:[],projects:{},requestProgress:{id:'r',request:'blaze rods',status:'interrupted',feedback:[]},safety:{status:'burrowed',reason:'threat',retries:0,retreat:{shelterName:'hut',surface:{x:0,y:64,z:0}},covered}}))
+ const r=new EventEmitter();Object.assign(r,{ready:false,profile:'covered-test',owner:'Sov',commands:[],command(c){this.commands.push(c)},position:()=>null})
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},path)
+ assert.equal(c.restoreBurrow,true);assert.deepEqual(c.safety.covered,covered)
 })
