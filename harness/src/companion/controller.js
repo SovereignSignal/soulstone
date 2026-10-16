@@ -892,7 +892,8 @@ export class Teammate extends EventEmitter {
       const stepsBack=roomSpot?recoveryBot.entity.position.distanceTo(roomSpot.offset(.5,0,.5)):0
       // On a trip with the portal within three blocks and a wither skeleton in reach, getting out beats holding (19:08Z).
       const portalId=recoveryBot.registry?.blocksByName?.nether_portal?.id
-      const exitNow=tripNow&&survivalObservation(recoveryBot).nearbyThreats.some(t=>t.name==='wither_skeleton'&&t.risk==='potential_hostile'&&t.distance<=3.5)&&!!recoveryBot.findBlock?.({matching:portalId,maxDistance:3})
+      // Not under the port's health line: about four seconds in the portal beside one nearly killed lab run 142 (review of 21a1cdc).
+      const exitNow=tripNow&&recoveryBot.health>=PORT_HEALTH&&survivalObservation(recoveryBot).nearbyThreats.some(t=>t.name==='wither_skeleton'&&t.risk==='potential_hostile'&&t.distance<=3.5)&&!!recoveryBot.findBlock?.({matching:portalId,maxDistance:3})
       const wallInFirst=!exitNow&&!lastResort&&(portalRoom||!!roomSpot)&&nearest>=PORTAL_ROOM_STANDOFF+Math.ceil(stepsBack)
       // Why the room was or was not chosen (run 106: hurt beside the portal, it went home and the journal could not say why).
       if(inNether(recoveryBot))this.runner.log?.('nether_shelter',{reason,wallInFirst,portalRoom,site:roomSite?.ok?(roomSite.portal?'portal_room':'plain_hut'):roomSite?.reason,roomSpot:roomSpot?`${roomSpot.x},${roomSpot.y},${roomSpot.z}`:null,stepsBack:Math.round(stepsBack*10)/10,nearestMelee:Number.isFinite(nearest)?nearest:null,position:(p=>p&&{x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,z:Math.round(p.z*10)/10})(recoveryBot.entity?.position)})
@@ -1027,7 +1028,8 @@ export class Teammate extends EventEmitter {
       // refused by a dropper floor, this walk took the bot home with one rod. On a trip the
       // portal is for an ended trip or a hurt bot (the first walk above), or for the last of
       // the bounded retries: cover that cannot be built here is not held for ever.
-      if(!this.safety.retreat&&(!trip||this.safety.retries>=SAFETY_RETRIES)&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})){
+      // On a trip the last retry's walk is to a portal within twelve blocks: farther it is the corridor run (review of 21a1cdc).
+      if(!this.safety.retreat&&(!trip||this.safety.retries>=SAFETY_RETRIES)&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:trip?12:48})){
         const attempt={name:'portal_home',status:'trying'};this.safety.attempts.push(attempt);this.persist()
         this.say('Nowhere to wall in here. Trying the portal again.')
         try{

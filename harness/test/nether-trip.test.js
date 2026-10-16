@@ -637,8 +637,8 @@ test('off a trip a spent shelter watch never leaves "I have stopped" as the last
 // where it withered away. On a trip nothing flees: cover where the bot stands, and the portal only when no cover is
 // possible, or first when it is within three blocks with a wither skeleton in reach (getting out beats holding).
 const RUNS=['flee','climb','descend','travel']
-async function witherBridge({portal='near',kit=true,dimension='the_nether',fails={}}={}){
- const {bot,r,c}=tripTeammate({kit,fails})
+async function witherBridge({portal='near',kit=true,dimension='the_nether',fails={},health=20}={}){
+ const {bot,r,c}=tripTeammate({kit,fails});bot.health=health
  if(dimension!=='the_nether')bot.game.dimension='minecraft:'+dimension
  const w=(id,z)=>({id,uuid:`10000000-0000-0000-0000-00000000000${id}`,type:'mob',name:'wither_skeleton',height:2.4,position:new Vec3(0.5,64,0.5+z),velocity:new Vec3(0,0,0)})
  bot.entities={8:w(8,3),9:w(9,6)}
@@ -657,4 +657,21 @@ test('on a trip with no portal at hand, cover where it stands and never a flee, 
 })
 test('off a trip the Nether chain is unchanged: the portal walk first',async()=>{
  const bare=await witherBridge({kit:false});assert.equal(bare.acts[0],'use_portal',bare.acts.join(' '))
+})
+// Review of 21a1cdc, 16 October: standing about four seconds in the portal beside a wither skeleton nearly killed lab
+// run 142. Under the port's health line the bot walls in rather than stepping into the portal beside one.
+test('on a trip beside the portal with a wither skeleton in reach, under 16 health the bot walls in instead of crossing',async()=>{
+ const hurt=await witherBridge({health:15});assert.ok(!hurt.acts.includes('use_portal'),hurt.acts.join(' '));assert.equal(hurt.acts[0],'hut',hurt.acts.join(' '))
+ assert.ok(!hurt.acts.some(a=>RUNS.includes(a)),hurt.acts.join(' '))
+})
+// And the last retry's walk home on a trip is for a portal within twelve blocks, not the 48 the first walk uses: farther,
+// the walk is the corridor run that killed the bot; the spent-retries path (lastResort, then unsafe) owns it instead.
+test('on a trip the last retry walks to the portal only within twelve blocks',async()=>{
+ const {r,c,bot}=tunnelTeammate({portalNear:true,fails:failing(4)})
+ bot.findBlock=({matching,maxDistance})=>matching===registry.blocksByName.nether_portal.id&&maxDistance>=20?{name:'nether_portal',position:new Vec3(0,64,-20)}:null
+ c.threatJudge={control:false,judge:async()=>null}
+ await c.seekSafety(THREAT_INTERRUPTION)
+ for(const n of [1,2])await tickRetry(r,c)
+ const last=await tickRetry(r,c);c.cancel?.(true)
+ assert.deepEqual(last,['hut','burrow'],'twenty blocks off, no walk: '+chain(r).join(' '))
 })
