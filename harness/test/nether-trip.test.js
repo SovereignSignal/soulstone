@@ -675,3 +675,32 @@ test('on a trip the last retry walks to the portal only within twelve blocks',as
  const last=await tickRetry(r,c);c.cancel?.(true)
  assert.deepEqual(last,['hut','burrow'],'twenty blocks off, no walk: '+chain(r).join(' '))
 })
+// Live, 16 October 19:50Z: the portal's faces sealed, a wither skeleton shut inside the bot's own tunnel two columns
+// from the portal, and on every arrival exitNow took the bot home: the mob never leaves. On a trip, with the bot and a
+// lone melee mob it can fight in one sealed cavity and health 16 or more, it holds its ground and strikes in place.
+// Hurt, or with a second mob, getting out still beats holding.
+async function shutIn({health=20,second=false}={}){
+ const t=bridgeTunnel(),{bot,r,c,placed}=t
+ bot.health=health
+ // The tunnel's east end closed: the tunnel is one sealed cavity from x -4 to 0.
+ placed.add('1,64,3');placed.add('1,65,3')
+ const w=(id,x)=>({id,uuid:`10000000-0000-0000-0000-00000000001${id}`,type:'mob',name:'wither_skeleton',height:2.4,width:.7,position:new Vec3(x,64,3.5),velocity:new Vec3(0,0,0)})
+ bot.entities={1:w(1,-2)};if(second)bot.entities[2]=w(2,-3.5)
+ r.command=x=>{r.commands.push(x);if(x.action==='stop')return;const task=r.task={id:String(r.commands.length),kind:x.action,status:'running',goal:x.goal}
+  setTimeout(()=>{if(r.task!==task)return;if(x.action==='defend')delete bot.entities[x.goal.targetId];task.status='completed';task.result=x.action==='use_portal'?crossTo(bot,'overworld'):{receipt:x.action};r.emit('event',{type:'task_finished',task})},5)}
+ c.tunnelFight={pollMs:10,limitMs:500}
+ let resumed=0;c.resume=async()=>{resumed++}
+ void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,200))
+ const acts=r.commands.filter(x=>x.action!=='stop');c.cancel?.(true)
+ return {acts,names:acts.map(x=>x.action),said:c.messages.map(m=>m.text),resumed}
+}
+test('shut in its sealed tunnel with a lone wither skeleton at full health, the bot strikes in place and does not go home',async()=>{
+ const t=await shutIn()
+ assert.ok(!t.names.includes('use_portal'),t.names.join(' ')+' :: '+t.said.join(' | '))
+ const d=t.acts.find(x=>x.action==='defend');assert.ok(d,t.names.join(' '));assert.equal(d.goal.inPlace,true)
+ assert.ok(!t.names.includes('shoot')&&!t.names.includes('unhut'),t.names.join(' '));assert.equal(t.resumed,1)
+})
+test('shut in with the mob but hurt, or with a second one, getting out still beats holding',async()=>{
+ const hurt=await shutIn({health:14});assert.equal(hurt.names[0],'use_portal',hurt.names.join(' ')+' :: '+hurt.said.join(' | '))
+ const two=await shutIn({second:true});assert.equal(two.names[0],'use_portal',two.names.join(' ')+' :: '+two.said.join(' | '))
+})

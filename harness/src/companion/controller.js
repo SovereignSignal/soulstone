@@ -160,9 +160,9 @@ export function clearSealedHolds(c){
 export const STOP_HOLD_MS=60000
 import {burrowClearance,shelterExits,strongEnoughToLeave,RELOCATE_STANDOFF} from '../burrow.js'
 import {roofed} from '../observations.js'
-import {inspectEmergencyShelter} from '../shelter-occupants.js'
+import {inspectEmergencyShelter,cavityCells} from '../shelter-occupants.js'
 import {threatReach,threatRoutes} from '../threat-reach.js'
-import {defenseDecision,combatClearance,DEFENDABLE_MOBS,meleeWeapon,corneredDecision} from '../combat.js'
+import {defenseDecision,combatClearance,DEFENDABLE_MOBS,meleeWeapon,corneredDecision,fightableAlone} from '../combat.js'
 import {ThreatJudge,harnessVerdict,wornArmour,forcedInterruption,gateVerdict,chooseResponse} from '../threat-judgement.js'
 import {projectFootprints} from '../site-survey.js'
 import {reviseArchitecture} from '../construction.js'
@@ -716,6 +716,20 @@ export class Teammate extends EventEmitter {
       // fled 25 blocks into the fortress corridors, "taking damage while running (20 to 1)", and withered away. On a
       // trip nothing flees or detours: cover where the bot stands, and the portal when no cover can be had.
       const tripNow=!lastResort&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))
+      // Live, 16 October 19:50Z: a wither skeleton shut inside the bot's own sealed tunnel sent it home on every
+      // arrival. Melee mobs in one sealed cavity with the bot (the covered limit, so nothing else can join): one it can
+      // fight alone, on the port's health, is fought where the bot stands; hurt or outnumbered, the portal (shutIn).
+      let forceExit=false
+      const shutIn=(()=>{
+        if(!tripNow||!inNether(recoveryBot))return null
+        const melee=survivalObservation(recoveryBot).nearbyThreats.filter(t=>t.risk==='potential_hostile'&&t.position&&!SHOOTERS_ONLY.has(t.name)&&t.distance<=threatRadius(t.name))
+        if(!melee.length)return null
+        let cells;try{cells=new Set(cavityCells(recoveryBot,{limit:COVERED_CELLS}).map(c=>c.toString()))}catch{return null}
+        const inside=t=>cells.has(new Vec3(Math.floor(t.position.x),Math.floor(t.position.y),Math.floor(t.position.z)).toString())
+        if(!melee.some(inside))return null
+        const lone=melee.length===1&&fightableAlone(recoveryBot,melee[0].name)&&recoveryBot.health>=PORT_HEALTH
+        return {mob:melee[0],fight:lone}
+      })()
       if(reason===THREAT_INTERRUPTION&&adaptive!=='shelter'){
         let decision=defenseDecision(recoveryBot)
         // Landing from a jump or closing a window takes a moment; re-judge briefly before choosing shelter.
@@ -738,10 +752,33 @@ export class Teammate extends EventEmitter {
         // open twice (9 and 11 arrows, no kill) down to health 9. On a trip, on the episode's first try,
         // with blocks and ground for a hut, cover comes first and the bow answers from its port (runs
         // 146, 156, 166). A retry after a failed hut still shoots, the 10 October case below.
+        if(shutIn?.fight){
+          const mob=Object.values(recoveryBot.entities||{}).find(e=>e?.name===shutIn.mob.name&&e.position&&e.position.distanceTo(shutIn.mob.position)<.01),name=shutIn.mob.name.replaceAll('_',' ')
+          const {pollMs=250,limitMs=120000}=this.tunnelFight||{},until=Date.now()+limitMs
+          this.safety.status='defending';this.phase='defending';this.persist()
+          this.say(`A ${name} is shut in my tunnel with me. Holding my ground and striking when it comes close.`)
+          while(mob&&recoveryBot.entities?.[mob.id]===mob&&Date.now()<until){
+            if(recoveryBot.health<TRIP_HEALTH){forceExit=true;break}
+            if(recoveryBot.entity.position.distanceTo(mob.position)<=2.9){
+              const d=defenseDecision(recoveryBot),strike=d.engage?d:corneredDecision(recoveryBot)
+              if(strike.engage)try{await this.execute({action:'defend',goal:{...strike.target,connectionId:this.runner.connectionId,inPlace:true,...(strike.cornered?{cornered:true}:{})},timeoutMs:35000},abort.signal);this.noteKill(this.runner.task?.result)}
+              catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)}
+            }else await delay(pollMs)
+            if(epoch!==this.epoch||abort.signal.aborted)return
+          }
+          if(!forceExit&&!(mob&&recoveryBot.entities?.[mob.id]===mob)){
+            this.say(`The ${name} in my tunnel is gone. Carrying on.`)
+            this.activity='';this.safety=null;this.phase=interruptedActiveRequest?'blocked':'ready';this.persist()
+            if(interruptedActiveRequest&&canResume(this.requestProgress))await this.resume({automatic:true})
+            return
+          }
+          if(recoveryBot.health<TRIP_HEALTH)forceExit=true
+          decision={...decision,engage:false,reason:forceExit?'Hurt in my tunnel with it: going home':'It would not come close'}
+        }else if(shutIn)forceExit=!!recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:3})
         // Live rehearsal, 16 October (18:21Z): in a bore column on the fortress bridge the alarm defended against a
         // wither skeleton at the open front, the follow took the bot out and off the edge into the lava sea. On a
         // trip in a covered column nothing paths: a melee mob in reach is struck in place, then the column is closed.
-        const inColumn=!lastResort&&inNether(recoveryBot)&&!!coveredColumn(recoveryBot)&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))
+        const inColumn=!forceExit&&!lastResort&&inNether(recoveryBot)&&!!coveredColumn(recoveryBot)&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))
         if(inColumn){
           const strike=decision.engage?decision:corneredDecision(recoveryBot),mob=strike.engage?recoveryBot.entities?.[strike.target.targetId]:null
           if(mob?.position&&recoveryBot.entity.position.distanceTo(mob.position)<=2.9){
@@ -893,7 +930,7 @@ export class Teammate extends EventEmitter {
       // On a trip with the portal within three blocks and a wither skeleton in reach, getting out beats holding (19:08Z).
       const portalId=recoveryBot.registry?.blocksByName?.nether_portal?.id
       // Not under the port's health line: about four seconds in the portal beside one nearly killed lab run 142 (review of 21a1cdc).
-      const exitNow=tripNow&&recoveryBot.health>=PORT_HEALTH&&survivalObservation(recoveryBot).nearbyThreats.some(t=>t.name==='wither_skeleton'&&t.risk==='potential_hostile'&&t.distance<=3.5)&&!!recoveryBot.findBlock?.({matching:portalId,maxDistance:3})
+      const exitNow=forceExit||tripNow&&recoveryBot.health>=PORT_HEALTH&&survivalObservation(recoveryBot).nearbyThreats.some(t=>t.name==='wither_skeleton'&&t.risk==='potential_hostile'&&t.distance<=3.5)&&!!recoveryBot.findBlock?.({matching:portalId,maxDistance:3})
       const wallInFirst=!exitNow&&!lastResort&&(portalRoom||!!roomSpot)&&nearest>=PORTAL_ROOM_STANDOFF+Math.ceil(stepsBack)
       // Why the room was or was not chosen (run 106: hurt beside the portal, it went home and the journal could not say why).
       if(inNether(recoveryBot))this.runner.log?.('nether_shelter',{reason,wallInFirst,portalRoom,facesOpen:(f=>f.ok?f.needed:null)(hutSite(recoveryBot,{facesOnly:true})),site:roomSite?.ok?(roomSite.portal?'portal_room':'plain_hut'):roomSite?.reason,roomSpot:roomSpot?`${roomSpot.x},${roomSpot.y},${roomSpot.z}`:null,stepsBack:Math.round(stepsBack*10)/10,nearestMelee:Number.isFinite(nearest)?nearest:null,position:(p=>p&&{x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,z:Math.round(p.z*10)/10})(recoveryBot.entity?.position)})
