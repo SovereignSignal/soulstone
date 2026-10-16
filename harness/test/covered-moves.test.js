@@ -94,13 +94,46 @@ test('a bore whose first column faces open air is refused before dispatch: the r
  const own=fixture(once(bore,wait),{act:()=>({receipt:'bored',columns:1,slit:null})});bridge(own);ownWall(own)
  await own.run({budgetMs:60});assert.ok(own.commands.some(x=>x.action==='bore'),'own wall into rock: '+JSON.stringify(own.c.recoveryHistory))
  const seen=[];const beyond=fixture(async o=>{seen.push(o);return seen.length===1?bore:wait});bridge(beyond);ownWall(beyond)
- for(let x=2;x<9;x++)for(const y of [64,65])beyond.cells.set(`${x},${y},0`,'air')
+ // Open bridge beyond: no sides or roof over the column (a covered column there is the bot's own tunnel, below).
+ for(let x=2;x<9;x++){for(const y of [64,65])for(const z of [-1,0,1])beyond.cells.set(`${x},${y},${z}`,'air');beyond.cells.set(`${x},66,0`,'air')}
  await beyond.run({budgetMs:60});assert.deepEqual(acts(beyond),[])
  assert.ok(seen[1]?.recovery.recentAttempts.some(a=>a.status==='rejected'&&/open ground beyond the wall at 1,64,0/.test(a.reason)),JSON.stringify(seen[1]?.recovery.recentAttempts))
  const air=fixture(once(bore,wait));bridge(air);air.cells.set('1,64,0','air');air.cells.set('1,65,0','air')
  await air.run({budgetMs:60});assert.deepEqual(acts(air),[],'an open first column');assert.ok(air.c.recoveryHistory.some(a=>a.status==='rejected'&&/rock only/.test(a.reason)),JSON.stringify(air.c.recoveryHistory))
  const lava=fixture(once(bore,wait));bridge(lava);ownWall(lava);lava.cells.set('1,64,1','lava')
  await lava.run({budgetMs:60});assert.deepEqual(acts(lava),[]);assert.ok(lava.c.recoveryHistory.some(a=>a.status==='rejected'&&/lava/.test(a.reason)))
+})
+// Live rehearsal, 16 October 22:13Z: walking its own covered tunnel east along the fortress bridge, a hoglin on
+// the roof raised the alarm and the bot walled in inside the tunnel, plugging it one column ahead. The bore along
+// its own sealed tunnel was refused as "open ground beyond the wall", done handed back into the same alarm, and
+// the bot walled in again: it could never move on from cover. A column beyond the wall that is covered (air at
+// feet and head; floor, both sides and roof full cubes; only the faces to the wall and to the next column open)
+// is the bot's own tunnel, and a bore into it is admitted; a partly open column, or one a mob stands in, is not.
+const ownTunnel=f=>{
+ for(const [k,v] of [['0,63,0','nether_bricks'],['1,63,0','nether_bricks']])f.cells.set(k,v)
+ f.bot.ownBlocks={has:()=>false,entry:p=>p.x===1&&p.z===0&&(p.y===64||p.y===65)?{name:'cobblestone'}:null}
+ for(let x=2;x<9;x++){
+  for(const y of [64,65]){f.cells.set(`${x},${y},0`,'air');for(const z of [-1,1]){f.cells.set(`${x},${y},${z}`,'cobblestone');f.cells.set(`${x},${y},${2*z}`,'air')}}
+  f.cells.set(`${x},63,0`,'nether_bricks');f.cells.set(`${x},66,0`,'cobblestone');f.cells.set(`${x},67,0`,'air')
+ }
+}
+const alongTunnel={action:'bore',target:{x:12,y:64,z:0},count:6,expectation:'On along my own tunnel'}
+test('walled in inside its own covered tunnel, a covered bore on along the tunnel is admitted and dispatched',async()=>{
+ const f=fixture(once(alongTunnel,wait),{act:()=>({receipt:'bored',columns:6,slit:null})});ownTunnel(f)
+ await f.run({budgetMs:60})
+ const sent=f.commands.find(x=>x.action==='bore');assert.ok(sent,JSON.stringify(f.c.recoveryHistory))
+ assert.deepEqual([sent.goal.x,sent.goal.y,sent.goal.z,sent.goal.count],[12,64,0,6])
+})
+test('a tunnel column beyond the wall missing one skin cell is still open ground, refused as before',async()=>{
+ const f=fixture(once(alongTunnel,wait));ownTunnel(f);f.cells.set('2,65,1','air')
+ await f.run({budgetMs:60});assert.deepEqual(acts(f),[])
+ assert.ok(f.c.recoveryHistory.some(a=>a.status==='rejected'&&/open ground beyond the wall at 1,64,0.*rock only/.test(a.reason)),JSON.stringify(f.c.recoveryHistory))
+})
+test('a mob standing in the covered tunnel column beyond the wall refuses the bore, and the reason names it',async()=>{
+ const f=fixture(once(alongTunnel,wait));ownTunnel(f)
+ f.bot.entities={7:{id:7,type:'mob',name:'hoglin',height:1.4,position:new Vec3(2.5,64,.5),velocity:new Vec3(0,0,0)}}
+ await f.run({budgetMs:60});assert.deepEqual(acts(f),[])
+ assert.ok(f.c.recoveryHistory.some(a=>a.status==='rejected'&&/hoglin in 2,64,0/.test(a.reason)),JSON.stringify(f.c.recoveryHistory))
 })
 test('the covered prompt does not offer bores across open air',async()=>{
  const p=new LocalPlanner();let prompt='';p.structured=async m=>{prompt=m[0].content;return wait}

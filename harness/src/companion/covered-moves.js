@@ -14,7 +14,7 @@ import {survivalObservation,fireObservation,FIRE_BLOCKS} from '../survival.js'
 import {inNether,dimensionOf} from '../dimension.js'
 import {onTrip,TRIP_HEALTH} from '../nether-trip.js'
 import {refuseDigCell,validateDigGoal,LIQUID,GRAVITY,AIR,key} from '../primitives.js'
-import {validateBoreGoal,borePath,columnCells,BORE_TIMEOUT_MS} from '../bore.js'
+import {validateBoreGoal,borePath,columnCells,living,BORE_TIMEOUT_MS} from '../bore.js'
 import {isNatural,NETHER_NATURAL,mayDig} from '../natural.js'
 import {projectFootprints} from '../site-survey.js'
 import {recoveryContext,recoveryState,recordRecovery} from './recovery-context.js'
@@ -23,6 +23,7 @@ import {bowCanAnswer} from '../archery.js'
 import {portSightline} from '../burrow.js'
 export const SHAFT_MAX=4
 const SIDES=[[1,0],[-1,0],[0,1],[0,-1]]
+const AROUND=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0],[0,-1,0]]
 const xyz=p=>({x:p.x,y:p.y,z:p.z})
 const hot=b=>!b||LIQUID.has(b.name)||FIRE_BLOCKS.has(b.name)||b.name==='magma_block'
 // Natural rock only: a covered move never breaks a block a player placed, nor its own hut walls.
@@ -81,7 +82,22 @@ function admit(c,bot,v,sites){
   if(!fullCube(bot.registry,b.name)||hot(b)||GRAVITY.has(b.name)||!mayDig(bot,b))return {reason:`${b.name} at ${key(p)} is neither natural rock nor my own block; on rock dig a shaft first, then bore from its foot`}
   for(const [dx,dy,dz] of [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0]]){const q=p.offset(dx,dy,dz),n=bot.blockAt(q);if(!cells.some(o=>o.equals(q))&&hot(n))return {reason:`${n?.name??'unloaded ground'} beside the first column at ${key(q)}`}}
  }
- if(path[1])for(const p of columnCells(path[0],path[1]).filter(q=>!cells.some(o=>o.equals(q)))){const b=bot.blockAt(p);if(!b||!fullCube(bot.registry,b.name))return {reason:`open ground beyond the wall at ${key(cells.at(-1))} (${b?.name??'unloaded'} at ${key(p)}); under cover I bore through rock only. Done hands the bore to the planner, guarded by the alarm`}}
+ // Live rehearsal, 16 October 22:13Z: walking its own tunnel east along the fortress bridge, a hoglin on the roof
+ // raised the alarm and the bot walled in at -64,61,-41, plugging the tunnel ahead; the bore on along its own sealed
+ // tunnel was refused as open ground, done handed back into the same alarm, and it walled in again, never moving on.
+ // The column beyond the wall may be a covered one as well as rock: air at feet and head, every skin cell a full cube
+ // but the faces to the wall and to the next column (what bore would plug), nothing hot beside it, no mob in it.
+ // hut.js coveredColumn reads one standing cell on either axis and gives null for a closed pocket, so the skin is read here.
+ // A partly open column is still open ground.
+ const beyond=path[1]?columnCells(path[0],path[1]).filter(q=>!cells.some(o=>o.equals(q))):[]
+ const front=path[2]?columnCells(path[1],path[2]).filter(q=>q.x!==path[1].x||q.z!==path[1].z):[]
+ const around=beyond.flatMap(p=>AROUND.map(d=>p.offset(...d))).filter(q=>!beyond.some(o=>o.equals(q)))
+ const skin=around.filter(q=>![...cells,...front].some(o=>o.equals(q)))
+ if(beyond.length&&beyond.every(p=>AIR.has(bot.blockAt(p)?.name))&&skin.every(q=>{const b=bot.blockAt(q);return !!b&&fullCube(bot.registry,b.name)})){
+  const burn=around.find(q=>hot(bot.blockAt(q)));if(burn)return {reason:`${bot.blockAt(burn)?.name??'unloaded ground'} beside my tunnel at ${key(burn)}; under cover I bore through rock only`}
+  const mob=Object.values(bot.entities||{}).find(e=>e!==bot.entity&&living(e)&&e?.position&&beyond.some(q=>q.equals(e.position.floored())))
+  if(mob)return {reason:`${mob.name||mob.type||'an entity'} in ${key(mob.position.floored())} beyond the wall at ${key(cells.at(-1))}; under cover I bore on once it leaves my tunnel`}
+ }else for(const p of beyond){const b=bot.blockAt(p);if(!b||!fullCube(bot.registry,b.name))return {reason:`open ground beyond the wall at ${key(cells.at(-1))} (${b?.name??'unloaded'} at ${key(p)}); under cover I bore through rock only. Done hands the bore to the planner, guarded by the alarm`}}
  return {command:{action:'bore',goal,timeoutMs:BORE_TIMEOUT_MS}}
 }
 // The request goes back to the planner from inside the cover, as the departed branch does, and

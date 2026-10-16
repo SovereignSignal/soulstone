@@ -31,7 +31,7 @@ const xyz=p=>({x:p.x,y:p.y,z:p.z})
 // mobs block a column; items, orbs and projectiles do not, and a block may be placed over them.
 const NOT_LIVING=new Set(['object','orb','projectile','global','other'])
 const LOOSE=new Set(['item','experience_orb','arrow','spectral_arrow','trident','small_fireball','fireball','wither_skull','snowball','egg','ender_pearl'])
-const living=e=>!!e&&!NOT_LIVING.has(e.type)&&!LOOSE.has(e.name)
+export const living=e=>!!e&&!NOT_LIVING.has(e.type)&&!LOOSE.has(e.name)
 // Magma is a full cube and natural ground, and it burns whoever stands on it (review of 9d2770d).
 const hot=b=>!b||LIQUID.has(b.name)||FIRE_BLOCKS.has(b.name)||b.name==='magma_block'
 export function validateBoreGoal(goal){
