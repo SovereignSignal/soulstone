@@ -298,3 +298,11 @@ test('defend in place strikes only within reach and never sets a path goal',asyn
  let hits=0;near.bot.attack=e=>{hits++;near.bot.emit('entityDead',e)}
  const r=await defendAgainstMob(near.bot,near.task,near.context);assert.equal(r.receipt,'target_death_observed');assert.equal(hits,1);assert.equal(near.goals.length,0)
 })
+test('defend in place with a health floor stops striking at that floor',async()=>{
+ const f=edge();f.task.goal.inPlace=true;f.task.goal.healthFloor=12;f.target.position=new Vec3(1.5,64,0)
+ let hits=0;f.bot.attack=()=>{hits++;f.bot.health=12}
+ await assert.rejects(defendAgainstMob(f.bot,f.task,f.context),/12/)
+ assert.equal(hits,1)
+ const {validateDefenseGoal}=await import('../src/combat.js')
+ assert.equal(validateDefenseGoal({...f.task.goal}).healthFloor,12);assert.equal(validateDefenseGoal({...f.task.goal,inPlace:false,healthFloor:12}).healthFloor,undefined)
+})

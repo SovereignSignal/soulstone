@@ -679,13 +679,15 @@ test('on a trip the last retry walks to the portal only within twelve blocks',as
 // from the portal, and on every arrival exitNow took the bot home: the mob never leaves. On a trip, with the bot and a
 // lone melee mob it can fight in one sealed cavity and health 16 or more, it holds its ground and strikes in place.
 // Hurt, or with a second mob, getting out still beats holding.
-async function shutIn({health=20,second=false}={}){
+async function shutIn({health=20,second=false,portalAt=0,at=-2,setup=()=>{}}={}){
  const t=bridgeTunnel(),{bot,r,c,placed}=t
  bot.health=health
+ if(portalAt)bot.findBlock=({matching,maxDistance})=>matching===registry.blocksByName.nether_portal.id&&maxDistance>=portalAt?{name:'nether_portal',position:new Vec3(0,64,3-portalAt)}:null
  // The tunnel's east end closed: the tunnel is one sealed cavity from x -4 to 0.
  placed.add('1,64,3');placed.add('1,65,3')
  const w=(id,x)=>({id,uuid:`10000000-0000-0000-0000-00000000001${id}`,type:'mob',name:'wither_skeleton',height:2.4,width:.7,position:new Vec3(x,64,3.5),velocity:new Vec3(0,0,0)})
- bot.entities={1:w(1,-2)};if(second)bot.entities[2]=w(2,-3.5)
+ bot.entities={1:w(1,at)};if(second)bot.entities[2]=w(2,-3.5)
+ setup(bot,w)
  r.command=x=>{r.commands.push(x);if(x.action==='stop')return;const task=r.task={id:String(r.commands.length),kind:x.action,status:'running',goal:x.goal}
   setTimeout(()=>{if(r.task!==task)return;if(x.action==='defend')delete bot.entities[x.goal.targetId];task.status='completed';task.result=x.action==='use_portal'?crossTo(bot,'overworld'):{receipt:x.action};r.emit('event',{type:'task_finished',task})},5)}
  c.tunnelFight={pollMs:10,limitMs:500}
@@ -703,4 +705,14 @@ test('shut in its sealed tunnel with a lone wither skeleton at full health, the 
 test('shut in with the mob but hurt, or with a second one, getting out still beats holding',async()=>{
  const hurt=await shutIn({health:14});assert.equal(hurt.names[0],'use_portal',hurt.names.join(' ')+' :: '+hurt.said.join(' | '))
  const two=await shutIn({second:true});assert.equal(two.names[0],'use_portal',two.names.join(' ')+' :: '+two.said.join(' | '))
+})
+// Review of f79950b, 16 October: the exit from the tunnel fight keeps its three-block portal limit, the shut-in mob is
+// tracked by entity id, and the strike in place stops at the trip's exit line, not at combat's own floor.
+test('hurt in the sealed tunnel with the portal ten blocks off, the bot walls in rather than walking past the mob',async()=>{
+ const t=await shutIn({health:14,portalAt:10})
+ assert.ok(!t.names.includes('use_portal'),t.names.join(' '));assert.ok(t.names.includes('hut'),t.names.join(' ')+' :: '+t.said.join(' | '))
+})
+test('the shut-in mob is followed by its entity id: a replaced entity object is not taken for the mob gone',async()=>{
+ const t=await shutIn({at:-2.7,setup:(bot,w)=>setTimeout(()=>{bot.entities[1]=w(1,-2)},30)})
+ assert.ok(t.acts.some(x=>x.action==='defend'&&x.goal.inPlace),t.names.join(' ')+' :: '+t.said.join(' | '))
 })

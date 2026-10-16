@@ -148,7 +148,7 @@ export function defenseDecision(bot,{healthFloor=12,foodFloor=10,mobMargins=true
 }
 export function validateDefenseGoal(g){
  if(!g||!Number.isInteger(g.targetId)||g.targetId<0||typeof g.targetUuid!=='string'||!/^[\da-f-]{36}$/i.test(g.targetUuid)||!DEFENDABLE_MOBS.has(g.targetName)||typeof g.connectionId!=='string'||!/^[\da-f-]{36}$/i.test(g.connectionId))throw new Error('Defense requires an observed mob identity and current connection')
- return {targetId:g.targetId,targetUuid:g.targetUuid,targetName:g.targetName,connectionId:g.connectionId,...(g.cornered===true?{cornered:true}:{}),...(g.inPlace===true?{inPlace:true}:{})}
+ return {targetId:g.targetId,targetUuid:g.targetUuid,targetName:g.targetName,connectionId:g.connectionId,...(g.cornered===true?{cornered:true}:{}),...(g.inPlace===true?{inPlace:true,...(Number.isInteger(g.healthFloor)&&g.healthFloor>0&&g.healthFloor<20?{healthFloor:g.healthFloor}:{})}:{})}
 }
 export function combatClearance(bot){
  const s=survivalObservation(bot),p=bot?.entity?.position
@@ -185,6 +185,8 @@ export async function defendAgainstMob(bot,task,{check,stage,progress,persist,mo
   if(Date.now()>=task.deadline||Date.now()-record.startedAt>=30000)throw new Error('Combat time limit reached')
   if(bot.game?.gameMode!=='survival'||!['easy','normal','hard'].includes(bot.game?.difficulty))throw new Error('Combat difficulty or game mode changed')
   if(goal.cornered?!(bot.health>CORNER_HEALTH):!(bot.health>10)||!(bot.food>6))throw new Error('Health or food requires retreat')
+  // In place its caller's exit line holds (the trip's 12, review of f79950b), above combat's own floors.
+  if(goal.healthFloor&&!(bot.health>goal.healthFloor))throw new Error(`Health ${bot.health} is at my ${goal.healthFloor} line; I stop striking here`)
   record.minimumHealth=Math.min(record.minimumHealth,bot.health)
   if(!knownPoint(bot.entity.position)||distance(anchor,bot.entity.position)>ENGAGE_RANGE||bot.entity.isInLava||bot.entity.isInWater)throw new Error('Combat left its safe movement boundary')
   const threats=dangerNearby(bot)

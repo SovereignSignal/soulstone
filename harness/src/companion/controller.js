@@ -727,8 +727,11 @@ export class Teammate extends EventEmitter {
         let cells;try{cells=new Set(cavityCells(recoveryBot,{limit:COVERED_CELLS}).map(c=>c.toString()))}catch{return null}
         const inside=t=>cells.has(new Vec3(Math.floor(t.position.x),Math.floor(t.position.y),Math.floor(t.position.z)).toString())
         if(!melee.some(inside))return null
-        const lone=melee.length===1&&fightableAlone(recoveryBot,melee[0].name)&&recoveryBot.health>=PORT_HEALTH
-        return {mob:melee[0],fight:lone}
+        // Followed by entity id (review of f79950b): a lookup that finds nothing is no fight, never a mob gone.
+        const entity=Object.values(recoveryBot.entities||{}).find(e=>e?.name===melee[0].name&&e.position&&Number.isInteger(e.id)&&Math.hypot(e.position.x-melee[0].position.x,e.position.y-melee[0].position.y,e.position.z-melee[0].position.z)<.01)
+        const portalNear=!!recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:3})
+        const lone=!!entity&&melee.length===1&&fightableAlone(recoveryBot,melee[0].name)&&recoveryBot.health>=PORT_HEALTH
+        return {mob:melee[0],id:entity?.id,fight:lone,portalNear}
       })()
       if(reason===THREAT_INTERRUPTION&&adaptive!=='shelter'){
         let decision=defenseDecision(recoveryBot)
@@ -753,28 +756,30 @@ export class Teammate extends EventEmitter {
         // with blocks and ground for a hut, cover comes first and the bow answers from its port (runs
         // 146, 156, 166). A retry after a failed hut still shoots, the 10 October case below.
         if(shutIn?.fight){
-          const mob=Object.values(recoveryBot.entities||{}).find(e=>e?.name===shutIn.mob.name&&e.position&&e.position.distanceTo(shutIn.mob.position)<.01),name=shutIn.mob.name.replaceAll('_',' ')
+          const mob=()=>recoveryBot.entities?.[shutIn.id],name=shutIn.mob.name.replaceAll('_',' ')
           const {pollMs=250,limitMs=120000}=this.tunnelFight||{},until=Date.now()+limitMs
           this.safety.status='defending';this.phase='defending';this.persist()
           this.say(`A ${name} is shut in my tunnel with me. Holding my ground and striking when it comes close.`)
-          while(mob&&recoveryBot.entities?.[mob.id]===mob&&Date.now()<until){
-            if(recoveryBot.health<TRIP_HEALTH){forceExit=true;break}
-            if(recoveryBot.entity.position.distanceTo(mob.position)<=2.9){
+          // The exit line is the trip's: at 12 or under the fight ends, and the portal only within three blocks.
+          while(mob()&&Date.now()<until){
+            if(recoveryBot.health<=TRIP_HEALTH)break
+            if(mob().position&&recoveryBot.entity.position.distanceTo(mob().position)<=2.9){
               const d=defenseDecision(recoveryBot),strike=d.engage?d:corneredDecision(recoveryBot)
-              if(strike.engage)try{await this.execute({action:'defend',goal:{...strike.target,connectionId:this.runner.connectionId,inPlace:true,...(strike.cornered?{cornered:true}:{})},timeoutMs:35000},abort.signal);this.noteKill(this.runner.task?.result)}
-              catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)}
+              if(strike.engage)try{await this.execute({action:'defend',goal:{...strike.target,connectionId:this.runner.connectionId,inPlace:true,healthFloor:TRIP_HEALTH,...(strike.cornered?{cornered:true}:{})},timeoutMs:35000},abort.signal);this.noteKill(this.runner.task?.result)}
+              catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal);await delay(pollMs)}
+              else await delay(pollMs)
             }else await delay(pollMs)
             if(epoch!==this.epoch||abort.signal.aborted)return
           }
-          if(!forceExit&&!(mob&&recoveryBot.entities?.[mob.id]===mob)){
+          if(!mob()){
             this.say(`The ${name} in my tunnel is gone. Carrying on.`)
             this.activity='';this.safety=null;this.phase=interruptedActiveRequest?'blocked':'ready';this.persist()
             if(interruptedActiveRequest&&canResume(this.requestProgress))await this.resume({automatic:true})
             return
           }
-          if(recoveryBot.health<TRIP_HEALTH)forceExit=true
-          decision={...decision,engage:false,reason:forceExit?'Hurt in my tunnel with it: going home':'It would not come close'}
-        }else if(shutIn)forceExit=!!recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:3})
+          const hurt=recoveryBot.health<=TRIP_HEALTH;forceExit=hurt&&shutIn.portalNear
+          decision={...decision,engage:false,reason:hurt?(forceExit?'Hurt in my tunnel with it: going home':'Hurt in my tunnel with it and the portal out of reach: walling in where I stand'):'It would not come close'}
+        }else if(shutIn)forceExit=shutIn.portalNear
         // Live rehearsal, 16 October (18:21Z): in a bore column on the fortress bridge the alarm defended against a
         // wither skeleton at the open front, the follow took the bot out and off the edge into the lava sea. On a
         // trip in a covered column nothing paths: a melee mob in reach is struck in place, then the column is closed.
@@ -783,7 +788,7 @@ export class Teammate extends EventEmitter {
           const strike=decision.engage?decision:corneredDecision(recoveryBot),mob=strike.engage?recoveryBot.entities?.[strike.target.targetId]:null
           if(mob?.position&&recoveryBot.entity.position.distanceTo(mob.position)<=2.9){
             this.say(`A ${strike.target.targetName.replaceAll('_',' ')} is at the tunnel's open end. Striking from where I stand, then walling in.`)
-            try{await this.execute({action:'defend',goal:{...strike.target,connectionId:this.runner.connectionId,inPlace:true,...(strike.cornered?{cornered:true}:{})},timeoutMs:35000},abort.signal);this.noteKill(this.runner.task?.result)}
+            try{await this.execute({action:'defend',goal:{...strike.target,connectionId:this.runner.connectionId,inPlace:true,healthFloor:TRIP_HEALTH,...(strike.cornered?{cornered:true}:{})},timeoutMs:35000},abort.signal);this.noteKill(this.runner.task?.result)}
             catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)}
             if(epoch!==this.epoch||abort.signal.aborted)return
           }
