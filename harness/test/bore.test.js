@@ -18,7 +18,7 @@ function world({fills=[],items,health=20,food=20,drops=true}={}){
  const cells=new Map([[k(0,64,0),'air'],[k(0,65,0),'air'],...fills.map(([x,y,z,n])=>[k(x,y,z),n])]),log=[],hand={name:null}
  const inventory=items??[{name:'iron_pickaxe',count:1,type:registry.itemsByName.iron_pickaxe.id},{name:'cobblestone',count:32}]
  const blockAt=p=>{const at=p.floored(),name=cells.get(at.toString())??'netherrack',e=registry.blocksByName[name];return {name,position:at,boundingBox:e.boundingBox,diggable:e.diggable,harvestTools:e.harvestTools}}
- const bot={registry,game:{dimension:'the_nether',gameMode:'survival'},health,food,entity:{position:new Vec3(.5,64,.5),onGround:true},inventory:{items:()=>inventory},blockAt,
+ const bot={registry,game:{dimension:'the_nether',gameMode:'survival'},health,food,entities:{},entity:{position:new Vec3(.5,64,.5),onGround:true},inventory:{items:()=>inventory},blockAt,
   // mineflayer 4.38's own rule: breakable, and the block centre within 5.1 of the eyes.
   canDigBlock:b=>!!b?.diggable&&b.position.offset(.5,.5,.5).distanceTo(bot.entity.position.offset(0,1.62,0))<=5.1,
   pathfinder:{profiles:[],setGoal(){},setMovements(m){this.profiles.push(m)},async goto(g){const cell=new Vec3(g.x,g.y,g.z);log.push(['step',cell.toString(),blockAt(cell.offset(0,-1,0)).name]);bot.entity.position=cell.offset(.5,0,.5)}},
@@ -171,7 +171,7 @@ test('bore refuses without a pickaxe, and stops before the step when the plugs r
  const holes=[2,3].flatMap(x=>[[x,64,1,'air'],[x,64,-1,'air'],[x,65,1,'air'],[x,65,-1,'air'],[x,66,0,'air']])
  const w=world({fills:holes,drops:false,items:[{name:'iron_pickaxe',count:1,type:registry.itemsByName.iron_pickaxe.id},{name:'cobblestone',count:8}]})
  const r=await bore(w,{})
- assert.equal(r.columns,2);assert.match(r.reason,/could not close 3,/);assert.deepEqual(w.at(),new Vec3(2,64,0))
+ assert.equal(r.columns,2);assert.match(r.reason,/out of blocks to cover 3,/);assert.deepEqual(w.at(),new Vec3(2,64,0))
 })
 // The alarm cancels between any two awaits. The skin is closed before the dig, so a cancel after it
 // leaves a closed pocket ahead, and the bore issued again from the same cell carries on through it.
@@ -184,7 +184,7 @@ test('a cancel after the dig of column 4 leaves the bot in column 3 with column 
  const r=await bore(w,{count:2});assert.equal(r.columns,2);assert.deepEqual(w.at(),new Vec3(5,64,0))
 })
 test('a column open onto a cavern stops the bore before it; a pocket closed inside the column does not',async()=>{
- await assert.rejects(bore(world({fills:[[1,65,0,'air'],[1,64,0,'air'],[1,65,1,'air'],[1,64,1,'air'],[1,64,2,'air']]}),{}),/open space at 1,65,0/)
+ await assert.rejects(bore(world({fills:[[1,65,0,'air'],[1,64,0,'air'],[1,63,0,'air'],[1,65,1,'air'],[1,64,1,'air'],[1,64,2,'air']]}),{}),/open space at 1,65,0/)
  const pocket=world({fills:[[2,65,0,'cave_air']]});assert.equal((await bore(pocket,{count:3})).columns,3)
  const w=world({fills:[[3,64,0,'air'],[3,65,0,'air'],[4,64,0,'air']]});const r=await bore(w,{x:6})
  assert.equal(r.columns,1);assert.equal(r.slit.length,3);assert.deepEqual(r.beyond,{x:3,y:64,z:0,name:'air'})
@@ -197,7 +197,7 @@ test('a magma floor under the next column stops the bore before it, and magma be
  assert.deepEqual(a.slit,[{x:4,y:65,z:0},{x:4,y:65,z:1}])
 })
 test('plugs alone are no progress: zero columns and no slit fail with the reason and name the plugs',async()=>{
- const w=world({fills:[[0,66,0,'air'],[1,64,0,'air'],[1,65,0,'air'],[1,64,1,'air'],[1,65,1,'air'],[1,64,2,'air']]})
+ const w=world({fills:[[0,66,0,'air'],[1,64,0,'air'],[1,65,0,'air'],[1,63,0,'air'],[1,64,1,'air'],[1,65,1,'air'],[1,64,2,'air']]})
  await assert.rejects(bore(w,{}),/open space at 1,65,0.*plugged 0,66,0/)
 })
 test('bore refuses outside the Nether, and stops rather than build inside a saved footprint',async()=>{
@@ -221,11 +221,41 @@ test('a bore cut short by its time budget says so in the receipt',async()=>{
 // slit from the safe room into it. The slit is for the firing position at the end of the route only.
 test('open space beyond a wall far from the target stops the bore with the wall intact; near the target the slit opens',async()=>{
  const hub=[];for(let x=-2;x<=2;x++)for(let y=64;y<=66;y++)for(let z=-5;z<=-2;z++)hub.push([x,y,z,'air'])
- const far=world({fills:hub})
- await assert.rejects(executeSkill(far.bot,{kind:'bore',goal:{x:0,y:64,z:-27,count:27}},api),/open space at 0,64,-2, 26 blocks short of the target; bore around it.*another wall.*re-aim/)
+ const far=world({fills:[...hub,...hub.filter(([,y])=>y===64).map(([x,,z])=>[x,63,z,'air'])]})
+ await assert.rejects(executeSkill(far.bot,{kind:'bore',goal:{x:0,y:64,z:-27,count:27}},api),/open space at 0,64,-2 with no floor under it, 26 blocks short of the target; bore around it.*another wall.*re-aim/)
  assert.deepEqual(far.of('dig'),[]);for(const c of [k(0,64,-1),k(0,65,-1),k(-1,65,-1),k(1,65,-1)])assert.equal(far.cells.get(c),undefined,`${c} still netherrack`)
- const later=world({fills:ROOM});const r=await bore(later,{x:20})
- assert.equal(r.columns,3);assert.equal(r.slit,null);assert.match(r.reason,/open space at 5,64,0, 16 blocks short of the target; bore around it/);assert.equal(later.cells.get(k(4,65,0)),undefined)
+ const later=world({fills:[...ROOM,[5,63,0,'air']]});const r=await bore(later,{x:20})
+ assert.equal(r.columns,3);assert.equal(r.slit,null);assert.match(r.reason,/open space at 5,64,0 with no floor under it, 16 blocks short of the target; bore around it/);assert.equal(later.cells.get(k(4,65,0)),undefined)
  const near=world({fills:hub});const n=await executeSkill(near.bot,{kind:'bore',goal:{x:0,y:64,z:-6,count:6}},api)
  assert.equal(n.columns,0);assert.deepEqual(n.slit,[{x:0,y:65,z:-1},{x:-1,y:65,z:-1},{x:1,y:65,z:-1}])
+})
+// Family rehearsal, 16 October: the arrival portal stands on a fortress bridge of nether bricks
+// over a lava sea, twenty-odd blocks of it before the netherrack. Bricks cannot be dug, so the
+// tunnel is built instead: walls and roof from carried blocks, the bridge as its floor.
+// A bridge of air columns x 1 to 5 over a brick floor, lava under its sides, rock again from x 6.
+const BRIDGE=[];for(let x=1;x<=5;x++){BRIDGE.push([x,63,0,'nether_bricks'],[x,63,1,'lava'],[x,63,-1,'lava'],[x,66,0,'air']);for(const y of [64,65])for(const z of [-1,0,1])BRIDGE.push([x,y,z,'air'])}
+const sealedAt=(w,cell)=>[[0,0,1],[0,0,-1],[0,1,1],[0,1,-1],[0,2,0]].every(([dx,dy,dz])=>{const b=w.bot.blockAt(cell.offset(dx,dy,dz));return b.boundingBox==='block'})
+const cobble=n=>[{name:'iron_pickaxe',count:1,type:registry.itemsByName.iron_pickaxe.id},{name:'cobblestone',count:n}]
+test('across a fortress bridge bore builds walls and a roof before each step and never stands in an open-sided column',async()=>{
+ const w=world({fills:BRIDGE,items:cobble(64)});const goto=w.bot.pathfinder.goto
+ w.bot.pathfinder.goto=async g=>{assert.ok(sealedAt(w,new Vec3(g.x,g.y,g.z)),`sides and roof of ${g.x},${g.y},${g.z} closed before the step`);return goto.call(w.bot.pathfinder,g)}
+ const r=await bore(w,{x:20,count:5})
+ assert.equal(r.columns,5);assert.equal(r.covered,5);assert.equal(r.reason,null);assert.deepEqual(w.at(),new Vec3(5,64,0))
+ assert.equal(w.of('dig').length,0,'nothing on the bridge is dug');assert.equal(w.log.filter(e=>e[0]==='place').length,25)
+ assert.equal(w.cells.get(k(3,63,0)),'nether_bricks')
+})
+test('on the bridge, lava beside a column, a missing floor, an empty hand or a mob in the column stops before the step',async()=>{
+ const lava=world({fills:[...BRIDGE,[3,64,1,'lava']],items:cobble(64)});const a=await bore(lava,{x:20,count:5})
+ assert.equal(a.columns,2);assert.match(a.reason,/lava at 3,64,1/);assert.deepEqual(lava.at(),new Vec3(2,64,0))
+ assert.equal(lava.cells.get(k(3,64,0)),'cobblestone','the open column ahead is closed off where it stopped')
+ const gap=world({fills:[...BRIDGE,[3,63,0,'air']],items:cobble(64)});const b=await bore(gap,{x:20,count:5})
+ assert.match(b.reason,/no floor under it/);assert.ok(gap.at().x<3)
+ const short=world({fills:BRIDGE,items:cobble(8),drops:false});const c=await bore(short,{x:20,count:5})
+ assert.equal(c.columns,1);assert.match(c.reason,/out of blocks to cover 2,/);assert.deepEqual(short.at(),new Vec3(1,64,0))
+ const mob=world({fills:BRIDGE,items:cobble(64)});mob.bot.entities={7:{id:7,name:'zombified_piglin',position:new Vec3(3.5,64,.5)}}
+ const d=await bore(mob,{x:20,count:5});assert.equal(d.columns,2);assert.match(d.reason,/zombified_piglin in 3,64,0/)
+})
+test('near the target open ground over a floor still ends the bore at the last wall with the slit',async()=>{
+ const w=world({fills:BRIDGE.filter(([x])=>x>=3),items:cobble(64)});const r=await bore(w,{x:6,count:6})
+ assert.equal(r.covered,0);assert.equal(r.columns,1);assert.equal(r.slit.length,3)
 })
