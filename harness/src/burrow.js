@@ -304,7 +304,8 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  if(!Number.isFinite(s.timeOfDay))return {clear:false,reason:'Time of day is unknown'}
  // Dawn is coming whatever we do, so waiting for it is not the window's business.
  // Daylight is a surface matter: under rock there is no sunrise to wait for.
- if((s.timeOfDay<1000||s.timeOfDay>=12000)&&!roofed(bot))return {clear:false,holding:true,reason:'Waiting for daylight'}
+ const daylight=s.timeOfDay>=1000&&s.timeOfDay<12000
+ if(!daylight&&!roofed(bot))return {clear:false,holding:true,reason:'Waiting for daylight'}
  // The floor only helps if waiting can actually heal: regeneration needs hunger
  // eighteen or carried food. Hurt, hungry and empty-handed, staying under the
  // cap is a slower death than surfacing in daylight with nothing in sight.
@@ -389,11 +390,18 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
   // Neither fight nor hide. Unarmed against numbers or a crossbow, healthy, in
   // daylight, with nothing in melee reach and the threat sat still past the
   // patience window: the judgement a player makes here is to leave.
-  const closest=near.reduce((m,t)=>Math.min(m,t.distance),Infinity)
+  // Lab run 166, 16 October: dug in at dusk and held underground through the next daylight by a
+  // phantom hanging 4.5 blocks off the shaft that never moved or burned; the cave mobs below were
+  // already dropped by the exits flood. A phantom is in no fight list, so the only answers are to
+  // outlast it or leave, and inside the standoff it allowed neither. The standoff keeps the bot
+  // from climbing into a fuse or a sword's reach, and a phantom in daylight is neither, so it
+  // does not hold the standoff then. It stays in near: the patience still runs, and the walk
+  // away is away from it too.
+  const closest=near.filter(t=>!(daylight&&t.name==='phantom')).reduce((m,t)=>Math.min(m,t.distance),Infinity)
   if(lingeredMs>=relocateAfterMs&&strongEnoughToLeave(bot)&&closest>=RELOCATE_STANDOFF&&near.every(t=>t.position))
    return {clear:true,relocate:{threats:near,from:centre(near)},health:s.health,timeOfDay:s.timeOfDay,scope,
     reason:`${near.length===1?`A ${near[0].name}`:`${near.length} hostiles`} held station for ${Math.round(lingeredMs/1000)} seconds and will not disperse; surfacing to move away rather than wait them out`}
-  return {clear:false,lingering:true,reason:portless?'A shooter waits outside and a burrow has no port; holding':unseen?`A ${lone.name} waits out of sight of the shaft; holding`:'A potential hostile remains within 16 blocks',threats:near}
+  return {clear:false,lingering:true,reason:portless?'A shooter waits outside and a burrow has no port; holding':unseen?`A ${lone.name} waits out of sight of the shaft; holding`:`A potential hostile remains within 16 blocks: ${[...new Set(near.map(t=>t.name))].sort().join(', ')}`,threats:near}
  }
  if(lingeredMs<patienceMs)return {clear:false,lingering:true,reason:`${lone?`A lone ${lone.name} lingers`:`${near.length} hostiles I can fight linger`} within 16 blocks in daylight; confronting after ${Math.round(patienceMs/1000)} seconds`,threats:near}
  return {clear:true,confront:lone||nearest,health:s.health,timeOfDay:s.timeOfDay,reason:lone?`A lone ${lone.name} has lingered ${Math.round(lingeredMs/1000)} seconds into daylight; surfacing to confront it`:`${near.length} hostiles I can fight have lingered ${Math.round(lingeredMs/1000)} seconds; surfacing to fight them, nearest first`,scope}

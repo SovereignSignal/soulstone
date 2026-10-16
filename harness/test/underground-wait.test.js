@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import minecraftData from 'minecraft-data'
 import {Vec3} from 'vec3'
-import {burrowClearance,shelterExits} from '../src/burrow.js'
+import {burrowClearance,shelterExits,RELOCATE_PATIENCE_MS} from '../src/burrow.js'
 import {roofed} from '../src/observations.js'
 import {emergencyReason,NIGHT_EXPOSURE} from '../src/survival.js'
 import {Teammate} from '../src/companion/controller.js'
@@ -143,6 +143,43 @@ test('a hidden shooter within four blocks is confronted from a hut and held by a
  assert.equal(burrow.clear,false,burrow.reason);assert.match(burrow.reason,/out of sight/)
  const hut=burrowClearance(scene(),{lingeredMs:61000,exits:shaftExits,canPort:true})
  assert.equal(hut.clear,true,hut.reason);assert.equal(hut.confront?.name,'skeleton')
+})
+// Lab run 166, 16 October: home at dusk, dug in, and held underground through the next
+// daylight by a phantom hanging 4.5 blocks off the shaft. A skeleton and a creeper in caves
+// below were already dropped by the exits flood; the phantom alone held the standoff. The same
+// capped shaft; pockets are 3x3x2 cave rooms sealed in stone, the wall the archer test's column.
+function run166({mobs,pockets=[],wall=false,timeOfDay=6000}){
+ const inPocket=p=>pockets.some(([x,y,z])=>Math.abs(p.x-x)<=1&&Math.abs(p.z-z)<=1&&p.y>=y&&p.y<=y+1)
+ const bot=base(new Vec3(.5,60,.5),p=>wall&&p.x===5&&p.z===0&&p.y>=64&&p.y<=69?'stone':p.y>=64?'air':p.x===0&&p.z===0&&p.y>=60&&p.y<=62?'air':inPocket(p)?'air':'stone',{mobs,timeOfDay})
+ bot.food=20
+ return bot
+}
+const PHANTOM=['phantom',-2.1,64,.4]
+const CAVE=[['skeleton',-3,54,6.5],['creeper',-7,50,9.5]],POCKETS=[[-3,54,6],[-7,50,9]]
+test('a phantom hanging at the shaft in daylight runs the patience, then does not hold the relocation',()=>{
+ const early=burrowClearance(run166({mobs:[PHANTOM]}),{lingeredMs:1000,exits:shaftExits})
+ assert.equal(early.clear,false,early.reason);assert.equal(early.lingering,true)
+ const r=burrowClearance(run166({mobs:[PHANTOM]}),{lingeredMs:RELOCATE_PATIENCE_MS,exits:shaftExits})
+ assert.equal(r.clear,true,r.reason);assert.equal(r.relocate?.threats?.[0]?.name,'phantom');assert.equal(r.confront,undefined)
+})
+test('run 166: the phantom at the exit with a skeleton and a creeper sealed in caves below relocates, leaving only the phantom',()=>{
+ const r=burrowClearance(run166({mobs:[PHANTOM,...CAVE],pockets:POCKETS}),{lingeredMs:RELOCATE_PATIENCE_MS,exits:shaftExits})
+ assert.equal(r.clear,true,r.reason);assert.deepEqual(r.relocate?.threats?.map(t=>t.name),['phantom'])
+})
+test('mobs sealed in caves below the burrow never held it: the exits flood drops them',()=>{
+ const r=burrowClearance(run166({mobs:CAVE,pockets:POCKETS}),{lingeredMs:1000,exits:shaftExits})
+ assert.equal(r.clear,true,r.reason);assert.equal(r.relocate,undefined)
+})
+test('beside the phantom, a creeper at the rim or a hidden shooter inside ten blocks still holds the burrow',()=>{
+ const creeper=burrowClearance(run166({mobs:[PHANTOM,['creeper',4.5,64,.5]]}),{lingeredMs:RELOCATE_PATIENCE_MS,exits:shaftExits})
+ assert.equal(creeper.clear,false,creeper.reason);assert.equal(creeper.relocate,undefined)
+ assert.match(creeper.reason,/potential hostile remains within 16 blocks: creeper, phantom$/,'the hold names what holds it')
+ const archer=burrowClearance(run166({mobs:[PHANTOM,['skeleton',8.5,64,.5]],wall:true}),{lingeredMs:RELOCATE_PATIENCE_MS,exits:shaftExits})
+ assert.equal(archer.clear,false,archer.reason);assert.equal(archer.relocate,undefined)
+})
+test('at night under the sky a phantom at the shaft changes nothing: the burrow holds for daylight',()=>{
+ const r=burrowClearance(run166({mobs:[PHANTOM],timeOfDay:15000}),{lingeredMs:RELOCATE_PATIENCE_MS,exits:shaftExits})
+ assert.equal(r.clear,false,r.reason);assert.equal(r.holding,true)
 })
 class FakeRunner extends EventEmitter{
  constructor(bot){super();this.profile='lab';this.owner='Sov';this.ready=true;this.commands=[];this.bot=bot}
