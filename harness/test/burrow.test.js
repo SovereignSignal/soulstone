@@ -755,10 +755,12 @@ test('a burrow holds against shooters it cannot answer from inside, and counts e
 // port, a block and a half further back, sees under that edge. The hut's feet are (0,64,0) in a
 // corridor along z; its wall x=1 holds the port cell (1,65,0); the room is x 2 to 9, y 63 and 64
 // open with y 65 open only over x 2 and 3, its roof from x 4. Blazes at the 07:11:54 positions.
-function bayHut({blazes=[[7,63.2,1.6],[7.5,63.2,-.3],[7.9,63,3.7]],cells=new Map()}={}){
+// open: no corridor, room or roof, only the hut on a floor, open air all round.
+function bayHut({blazes=[[7,63.2,1.6],[7.5,63.2,-.3],[7.9,63,3.7]],cells=new Map(),open=false}={}){
  const name=p=>{const c=cells.get(`${p.x},${p.y},${p.z}`);if(c)return c
   if(p.x===0&&p.z===0&&(p.y===64||p.y===65))return 'air'
   if((Math.abs(p.x)===1&&p.z===0||p.x===0&&Math.abs(p.z)===1)&&(p.y===64||p.y===65))return 'cobblestone'
+  if(open)return p.y<=62?'netherrack':'air'
   if(p.x===0&&(p.y===64||p.y===65)&&Math.abs(p.z)<=9)return 'air'
   if(p.x>=2&&p.x<=9&&Math.abs(p.z)<=5&&(p.y===63||p.y===64||p.y===65&&p.x<=3))return 'air'
   return 'netherrack'}
@@ -793,6 +795,23 @@ test('the port sightline leaves through the head cell of the wall facing the mob
  assert.equal(portSightline(bot,feet,at(.5,64,-6.5)).status,'clear','north, along the corridor through the north port cell')
  assert.equal(portSightline(bot,feet,at(-6.5,64,.5)).status,'blocked','west is rock')
  assert.equal(portSightline(bot,feet,at(2.5,63,.5)).status,'blocked','low and close, the line drops into the wall\'s feet cell')
+})
+
+// Review of lab run 166's port sightline: the hut opens the side firingPort picks (hut.js), by the
+// floored mob cell, ties going east first, and never a side with lava, water or fire at the port.
+// A line the bot's eye has only through another side's port is no shot: unhut would open the
+// wrong wall, the shot would be refused, and that side marked tried.
+test('the port sightline judges only through the side the hut would open',async()=>{
+ const {portSightline,shelterExits}=await import('../src/burrow.js')
+ const feet={x:0,y:64,z:0},at=(x,y,z)=>({name:'blaze',position:{x,y,z}})
+ const open=bayHut({open:true})
+ assert.equal(portSightline(open,feet,at(7.5,63.2,-.3)).status,'clear','straight east, through the east port')
+ assert.equal(portSightline(open,feet,at(8.1,63,8.9)).status,'blocked','near the diagonal: the line leaves south, the hut opens east')
+ // Lava above the east port cell: the hut opens north instead, and from there no line east.
+ const lava=bayHut({cells:new Map([['1,66,0','lava']])}),surface={x:0,y:64,z:0}
+ assert.equal(portSightline(lava,feet,at(7.5,63.2,-.3)).status,'blocked')
+ const r=burrowClearance(lava,{exits:shelterExits({shelterName:'hut',surface}),canPort:true,trip:true,lingeredMs:61000,feet:surface})
+ assert.equal(r.clear,true,r.reason);assert.equal(r.confront,undefined)
 })
 
 test('in the Nether a shelter that will not clear leaves through the portal, not deeper in',async()=>{

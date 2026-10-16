@@ -17,6 +17,7 @@ import {threatReach,threatRoutes} from './threat-reach.js'
 import {roofed} from './observations.js'
 import {defenseDecision,armorPoints,HEAVY_ARMOR} from './combat.js'
 import {walkOnThreat} from './nether-trip.js'
+import {firingPort} from './hut.js'
 const {goals}=pathfinding
 // Four deep keeps a creeper standing on the rim outside its three-block
 // trigger distance; the cap goes on the top cell so nothing can drop in.
@@ -278,18 +279,21 @@ export function shelterExits(retreat){
 // block and a half back, saw most. A hut answers a shooter from the head cell of the wall facing
 // it (hut.js firingPort), so this is the bot's eye along the line to the mob, judged from where
 // the line leaves that cell: the closed port block is not counted, everything beyond it is.
-// feet: the hut's feet cell. A line that leaves the bot's head cell anywhere but into a wall's
-// head cell (the roof, the floor) has no port: blocked.
+// feet: the hut's feet cell. Only the side unhut opens toward the mob counts (firingPort: by its
+// floored cell, ties east first, never beside lava, water or fire); a line that leaves the bot's
+// head cell anywhere but into that side's head cell has no port: blocked.
 export function portSightline(bot,feet,t){
  const blocked={status:'blocked'}
  if(!feet||!t?.position)return blocked
+ const opens=firingPort(bot,new Vec3(feet.x,feet.y,feet.z),{toward:{x:Math.floor(t.position.x),z:Math.floor(t.position.z)},shooter:t.name})
+ if(!opens)return blocked
  const eye={x:feet.x+.5,y:feet.y+(bot.entity?.eyeHeight??1.62),z:feet.z+.5},to={x:t.position.x,y:t.position.y+1,z:t.position.z}
  const d={x:to.x-eye.x,y:to.y-eye.y,z:to.z-eye.z},axes=['x','y','z'],along=k=>({x:eye.x+k*d.x,y:eye.y+k*d.y,z:eye.z+k*d.z})
  // How far along the line it leaves a cell, as a fraction of the way to the mob.
  const leave=c=>Math.min(...axes.map(a=>d[a]>0?(c[a]+1-eye[a])/d[a]:d[a]<0?(c[a]-eye[a])/d[a]:Infinity))
  const into=k=>{const p=along(k+1e-6);return {x:Math.floor(p.x),y:Math.floor(p.y),z:Math.floor(p.z)}}
  const port=into(leave({x:feet.x,y:feet.y+1,z:feet.z}))
- if(port.y!==feet.y+1||Math.abs(port.x-feet.x)+Math.abs(port.z-feet.z)!==1)return blocked
+ if(port.y!==feet.y+1||port.x-feet.x!==opens.side[0]||port.z-feet.z!==opens.side[2])return blocked
  const out=leave(port)
  if(!(out<1))return blocked
  const len=Math.hypot(d.x,d.y,d.z),from=along(out+.01/len)

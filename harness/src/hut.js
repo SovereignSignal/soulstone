@@ -210,7 +210,9 @@ export async function wallIn(bot,task,{check,stage,progress}){
 const PORT_MOBS=new Set([...SHOOTERS_ONLY,'enderman'])
 const LIQUID=new Set(['water','lava','bubble_column'])
 const AROUND=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]
-function firingPort(bot,feet,goal){
+// Exported for the hut's watch (burrow.js portSightline), so it judges a shot only through the
+// side unhut will open (lab run 166, 16 October).
+export function firingPort(bot,feet,goal){
  const t=goal.toward,skip=goal.skip||[]
  // An enderman's port is always two high: the pearl it drops is fetched by a step into it.
  const low=goal.shooter==='enderman'
