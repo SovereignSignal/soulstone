@@ -326,7 +326,7 @@ test('the plain exit opens only a side it may break, and with none it fails with
  const room=world({logs:0});room.inventory.push({name:'cobblestone',count:20})
  for(const [x,z] of [[11,10],[9,10],[10,11],[10,9]])for(const y of [64,65])room.cells.set(new Vec3(x,y,z).toString(),'oak_planks')
  await executeSkill(room.bot,{kind:'hut',goal:{}},api);room.dug.length=0
- await assert.rejects(unwall(room.bot,{kind:'unhut',goal:{}},api),/Could not open a wall of the hut: .*not natural ground and not placed by me/)
+ await assert.rejects(unwall(room.bot,{kind:'unhut',goal:{}},api),/Could not open a wall of the hut: all 4 sides are not natural ground and not placed by me$/)
  assert.deepEqual(room.dug,[],'the room is kept')
 })
 // Review of 16 October: the own-block record lapses after two hours for digging, but a hut held

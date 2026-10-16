@@ -129,7 +129,7 @@ import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { dirname,join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { validatePlan } from './planner.js'
-import {hutSite,portalRoomSpot} from '../hut.js'
+import {hutSite,portalRoomSpot,WALLS_NOT_MINE} from '../hut.js'
 import {rangedDefenseDecision,bowCanAnswer} from '../archery.js'
 import {onTrip,tripKit,walkOnThreat,portReady,tripPickup,sitesNearHut,PICKUP,PORT_HEALTH,PORT_FOOD,TRIP_HEALTH} from '../nether-trip.js'
 import {deliveredCount,satisfiedStep,currentRequestTask} from './progress.js'
@@ -1340,7 +1340,10 @@ export class Teammate extends EventEmitter {
       if(epoch!==this.epoch)return
       safety.status='failed';safety.error=error.message;safety.failedAt=Date.now();safety.protection={verified:false,reason:error.message};this.phase='blocked';this.activity='';this.persist()
       if(!signal.aborted&&this.runner.ready&&this.runner.bot===bot&&this.runner.connectionId===connection)recordRecovery(this,{at:new Date().toISOString(),connectionId:connection,requestId:request?.id||null,action:'shelter_watch',status:'failed',error:error.message,after:recoveryState(bot)})
-      this.say('Burrow recovery failed: '+error.message+'. I have stopped; safety is not established.')
+      // 16 October: walled in by a player's walls on every side. The family world's players are
+      // children, so chat asks for help plainly and the detail stays in the log and the record.
+      if(error.message.includes(WALLS_NOT_MINE)){this.runner.log?.('hut_walls_not_mine',{reason:error.message});this.say('I\'m stuck inside walls I didn\'t build. Please open one side for me.')}
+      else this.say('Burrow recovery failed: '+error.message+'. I have stopped; safety is not established.')
     }finally{if(epoch===this.epoch){this.abort=null;this.persist();this.emit('change')}}
   }
   async continueAfterClearance(epoch,signal,bot,recovery={}) {

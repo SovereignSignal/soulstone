@@ -235,6 +235,17 @@ test('walled in under rock at night with a cave below, the wait clears and opens
  await Teammate.prototype.waitInBurrow.call(c,1,new AbortController().signal,bot,false)
  assert.deepEqual(executed,['unhut']);assert.equal(c.safety,null)
 })
+// Review of 16 October: a hut that leaned on a player's walls on every side cannot open. The
+// family world's players are children: chat asks plainly for help, and the detail stays in the log.
+test('a hut that cannot open through walls it did not build asks for help in plain words',async()=>{
+ const {bot}=deep({timeOfDay:15000,mobs:RECORDED}),said=[],logged=[],detail='Could not open a wall of the hut: all 4 sides are not natural ground and not placed by me'
+ const c={epoch:1,runner:{bot,ready:true,connectionId:'same',task:{result:{}},log(type,data){logged.push([type,data])}},safety:{status:'burrowed',retreat:hut},requestProgress:null,burrowWait:{quietMs:5,limitMs:1500,watches:1},
+  persist(){},emit(){},say(m){said.push(m)},dispatch(){},async execute(){throw new Error(detail)},resume(){assert.fail('no request to resume')}}
+ await Teammate.prototype.waitInBurrow.call(c,1,new AbortController().signal,bot,false)
+ assert.ok(said.includes('I\'m stuck inside walls I didn\'t build. Please open one side for me.'),said.join(' | '))
+ assert.ok(!said.some(m=>/natural ground/.test(m)),'the detail is not chat');assert.equal(c.safety.error,detail)
+ assert.ok(logged.some(([type,data])=>type==='hut_walls_not_mine'&&data.reason===detail),JSON.stringify(logged))
+})
 test('a shelter still watching for clearance is not a stall; one whose watch has ended is',async()=>{
  // Lab run 8, 2 October: sheltered in the lit base at night, the bot was sent
  // back out after ninety seconds by the stall retry, three times, into creepers.

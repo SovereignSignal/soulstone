@@ -213,6 +213,8 @@ export async function wallIn(bot,task,{check,stage,progress}){
 const PORT_MOBS=new Set([...SHOOTERS_ONLY,'enderman'])
 const LIQUID=new Set(['water','lava','bubble_column'])
 const AROUND=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]
+// The controller tells a stuck hut by these words (waitInBurrow), so they are kept in one place.
+export const WALLS_NOT_MINE='not natural ground and not placed by me'
 const opens=(bot,b)=>!b||REPLACEABLE.has(b.name)||breakable(bot,b)||ownedNow(bot,b)
 // Exported for the hut's watch (burrow.js portSightline), so it judges a shot only through the
 // side unhut will open (lab run 166, 16 October).
@@ -273,5 +275,5 @@ export async function unwall(bot,task,{check,stage,progress}){
   }
   if(opened&&cells.every(c=>REPLACEABLE.has(bot.blockAt(c)?.name||'air')))return {item:'safety',count:1,receipt:'unwalled',side:{dx,dz},position:{x:bot.entity.position.x,y:bot.entity.position.y,z:bot.entity.position.z}}
  }
- throw new Error(`Could not open a wall of the hut${refused?`: ${refused===order.length?'every':refused} side${refused===1?' is':'s are'} not natural ground and not placed by me`:''}`)
+ throw new Error(`Could not open a wall of the hut${refused?`: ${refused===order.length?`all ${refused} sides are`:refused===1?'one side is':`${refused} sides are`} ${WALLS_NOT_MINE}`:''}`)
 }
