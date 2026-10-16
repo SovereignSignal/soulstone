@@ -312,6 +312,23 @@ test('on a trip a kill through the port counts as progress, so the request conti
  await Teammate.prototype.waitInBurrow.call(none.c,1,new AbortController().signal,none.bot,true)
  assert.equal(again,0,none.said.join(' | '));assert.ok(none.said.some(t=>/Resume is available/.test(t)),none.said.join(' | '))
 })
+// Review of lab run 166: a side refused for no clear shot is skipped only until a port kill.
+// The next mob may stand where that side is the shot, so after a kill every side is offered again.
+test('after a kill through the port the sides tried before are offered again',async()=>{
+ let n=0,again=null
+ const w=portWait({limitMs:1500,shot:(bot,c)=>{
+  if(++n===1)return noShot()
+  const blaze=bot.entities[1];delete bot.entities[1];if(n===2)again=()=>{bot.entities[1]=blaze}
+  c.runner.task={result:{item:'blaze',receipt:'killed',count:1,shots:3}}}})
+ const execute=w.c.execute
+ w.c.execute=async function(command){
+  if(command.action==='unhut'&&command.goal?.shooter){w.executed.push(command);this.runner.task={result:{receipt:'unwalled',port:true,side:{dx:1,dz:0}}};return}
+  await execute.call(this,command);if(command.action==='hut'&&again){again();again=null}
+ }
+ await run(w)
+ const ports=w.executed.filter(x=>x.action==='unhut'&&x.goal?.shooter).map(x=>x.goal.skip)
+ assert.deepEqual(ports,[undefined,[{dx:1,dz:0}],undefined],w.said.join(' | '))
+})
 // Lab run 156, 15 October: at a firing port into a sealed room of blazes the bot lost 11
 // health in six seconds before the duel's own half-health line stopped it. On a kitted trip
 // the port's shot breaks off at the first hit.

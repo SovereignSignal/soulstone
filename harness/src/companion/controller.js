@@ -1261,6 +1261,8 @@ export class Teammate extends EventEmitter {
           if(shot.at)recordKill(this,bot,shot.at)
           // In the Nether a kill through the port resets the idle allowance, not the six-episode cap (lab run 166, 16 October).
           if(inNether(bot)&&canResume(request)&&notePortKill(request))this.persist()
+          // The next mob may stand where a side refused before is the shot: offer every side again.
+          tried.length=0
           this.say(`The ${name} fell to my arrows. Port closed; watching again.`);continue
         }
         if(port?.side&&/No clear shot/.test(missed||''))tried.push(port.side)
