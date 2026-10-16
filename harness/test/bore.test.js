@@ -261,6 +261,12 @@ test('on the bridge, lava beside or under a column, an empty hand or a mob stops
  assert.equal(c.columns,1);assert.match(c.reason,/out of blocks to cover 2,/);assert.deepEqual(short.at(),new Vec3(1,64,0))
  const mob=world({ground:VOID,fills:span(-3,8),items:cobble(64)});mob.bot.entities={7:{id:7,name:'zombified_piglin',position:new Vec3(3.5,64,.5)}}
  const d=await bore(mob,{x:20,count:6});assert.equal(d.columns,2);assert.match(d.reason,/zombified_piglin in 3,64,0/)
+ // Live, 16 October: a dropped item in the next column stopped the walk. Only living things block.
+ const loot=world({ground:VOID,fills:span(-3,8),items:cobble(64)})
+ loot.bot.entities={9:{id:9,name:'item',type:'object',position:new Vec3(3.5,64,.5)},10:{id:10,name:'arrow',type:'projectile',position:new Vec3(4.5,64,1.5)},11:{id:11,name:'experience_orb',type:'orb',position:new Vec3(2.5,65,-.5)}}
+ const f=await bore(loot,{x:20,count:6});assert.equal(f.covered,6);assert.equal(f.reason,null)
+ const player=world({ground:VOID,fills:span(-3,8),items:cobble(64)});player.bot.entities={12:{id:12,name:'player',type:'player',username:'someone',position:new Vec3(3.5,64,.5)}}
+ assert.match((await bore(player,{x:20,count:6})).reason,/player in 3,64,0/)
  const wall=world({ground:VOID,fills:span(-3,8),items:cobble(64)});wall.bot.entities={8:{id:8,name:'magma_cube',position:new Vec3(3.5,64,1.5)}}
  const e=await bore(wall,{x:20,count:6});assert.equal(e.columns,2);assert.match(e.reason,/magma_cube in 3,64,1/)
 })

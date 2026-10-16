@@ -27,6 +27,11 @@ export const BORE_MAX=64,BORE_PLUGS=8,BORE_TIMEOUT_MS=600000
 export const SLIT_REACH=6
 const AROUND=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0],[0,-1,0]].map(([x,y,z])=>new Vec3(x,y,z))
 const xyz=p=>({x:p.x,y:p.y,z:p.z})
+// Live, 16 October: a dropped item stopped the covered walk ("item in -81,61,-41"). Only players and
+// mobs block a column; items, orbs and projectiles do not, and a block may be placed over them.
+const NOT_LIVING=new Set(['object','orb','projectile','global','other'])
+const LOOSE=new Set(['item','experience_orb','arrow','spectral_arrow','trident','small_fireball','fireball','wither_skull','snowball','egg','ender_pearl'])
+const living=e=>!!e&&!NOT_LIVING.has(e.type)&&!LOOSE.has(e.name)
 // Magma is a full cube and natural ground, and it burns whoever stands on it (review of 9d2770d).
 const hot=b=>!b||LIQUID.has(b.name)||FIRE_BLOCKS.has(b.name)||b.name==='magma_block'
 export function validateBoreGoal(goal){
@@ -131,7 +136,7 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
   const cover=c.y<=prev.y&&airy(cells)&&far(c)&&floored(c)
   if(!cover&&airy(cells)&&far(c)&&hot(bot.blockAt(c.offset(0,-1,0)))){stop(`${named(c.offset(0,-1,0)).replace(' at ',' under '+key(c)+' at ')}; bore again toward a point three blocks to the side`,c);break}
   if(cover){
-   const mob=Object.values(bot.entities||{}).find(e=>e!==bot.entity&&e?.position&&[...cells,...skin()].some(q=>q.equals(e.position.floored())))
+   const mob=Object.values(bot.entities||{}).find(e=>e!==bot.entity&&living(e)&&e?.position&&[...cells,...skin()].some(q=>q.equals(e.position.floored())))
    if(mob){stop(`${mob.name||mob.type||'an entity'} in ${key(mob.position.floored())}; the covered walk waits for it`,c);break}
    const burn=skin().find(q=>hot(bot.blockAt(q)))
    if(burn){stop(`${named(burn)} beside ${key(c)}; bore again toward a point three blocks to the side`,c);break}
