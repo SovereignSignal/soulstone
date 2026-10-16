@@ -71,6 +71,15 @@ export function noteAdvance(request,inventory,registry){
  if(!(gain>(request.gainHigh||0)))return false
  request.gainHigh=gain;request.advances=(request.advances||0)+1;return true
 }
+// Lab run 166, 16 October: at a blaze bay the fight is the work, and the rods a port's kills drop
+// fall outside the hut (or a hopper floor takes them), so none is in hand when the hut opens. A
+// hut that killed through its port came out idle, and the third would have stopped the request.
+// noteAdvance only counts an item in hand, and the tick already calls it each second, so a kill
+// through the port counts here, beside the completed steps, as an item won does.
+export function notePortKill(request){
+ if(!request)return false
+ request.advances=(request.advances||0)+1;return true
+}
 export const progressCount=request=>(request?.completed?.length||0)+(request?.advances||0)
 export const continuationMark=request=>({completedAt:progressCount(request),advancedAt:request?.advances||0})
 // Fights continue the request on their own three times with nothing gained;

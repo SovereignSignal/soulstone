@@ -116,7 +116,7 @@ import {projectFootprints} from '../site-survey.js'
 import {reviseArchitecture} from '../construction.js'
 import {evaluateGoal,enforceProjectIntent,validateContract,constructionLimits,vacuousContract} from './goal-contract.js'
 import {ExperienceStore,experienceEvidence} from './experience.js'
-import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,withinBuildReach,AUTO_RESPAWN_LIMIT,STALL_CONTINUATIONS,STALL_RETRY_MS,shouldContinueAfterBudget,canContinueAfterSafety,canContinueAfterCombat,continuationMark,noteAdvance,wantedItems,wantedDrops,shouldRetryPlanning,noteCriterionStall} from './continuity.js'
+import {PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,withinBuildReach,AUTO_RESPAWN_LIMIT,STALL_CONTINUATIONS,STALL_RETRY_MS,shouldContinueAfterBudget,canContinueAfterSafety,canContinueAfterCombat,continuationMark,noteAdvance,notePortKill,wantedItems,wantedDrops,shouldRetryPlanning,noteCriterionStall} from './continuity.js'
 import {PREPARE_ACTIONS} from '../supplies.js'
 import {OBSIDIAN_ACTIONS,validateObsidianGoal} from '../obsidian.js'
 import {EXPEDITION_ACTIONS,remainingDurability,expeditionObservation} from '../prospecting.js'
@@ -1259,6 +1259,8 @@ export class Teammate extends EventEmitter {
         protectedHealth=bot.health
         if(shot?.receipt==='killed'){
           if(shot.at)recordKill(this,bot,shot.at)
+          // On a trip a kill through the port is the request moving (lab run 166, 16 October).
+          if(inNether(bot)&&canResume(request)&&notePortKill(request))this.persist()
           this.say(`The ${name} fell to my arrows. Port closed; watching again.`);continue
         }
         if(port?.side&&/No clear shot/.test(missed||''))tried.push(port.side)

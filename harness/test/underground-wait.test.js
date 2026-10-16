@@ -294,6 +294,24 @@ test('on a trip a blaze the hut\'s exits cannot see but its port can is shot thr
  assert.equal(w.executed[1].goal.stay,true)
  assert.ok(w.said.some(t=>/fell to my arrows\. Port closed/.test(t)),w.said.join(' | '))
 })
+// Lab run 166, 16 October: at a blaze bay the fight is the work. A hut that kills through its port
+// and comes out with no step completed and no rod in hand counted as idle, and the third such hut
+// would have stopped the request at "Resume is available". A kill through the port is progress.
+test('on a trip a kill through the port counts as progress, so the request continues past the idle cap',async()=>{
+ const kill=(bot,c)=>{delete bot.entities[1];c.runner.task={result:{item:'blaze',receipt:'killed',count:1,shots:3,at:{x:5.5,y:63,z:.5}}}}
+ const idle=()=>[{completedAt:0,advancedAt:0,resumeSerial:0},{completedAt:0,advancedAt:0,resumeSerial:0}]
+ const w=portWait({shot:kill,trip:true});Object.assign(w.c.requestProgress,{completed:[],safetyContinuations:idle()})
+ let resumed=0;w.c.resume=async()=>{resumed++}
+ await Teammate.prototype.waitInBurrow.call(w.c,1,new AbortController().signal,w.bot,true)
+ assert.ok(w.said.some(t=>/fell to my arrows\. Port closed/.test(t)),w.said.join(' | '))
+ assert.equal(w.c.requestProgress.advances,1,'the port kill is an advance')
+ assert.equal(resumed,1,w.said.join(' | '))
+ // With no kill, two idle continuations still stop it.
+ const none=portWait({shot:noShot,trip:true,limitMs:800});Object.assign(none.c.requestProgress,{completed:[],safetyContinuations:idle()})
+ let again=0;none.c.resume=async()=>{again++};delete none.bot.entities[1]
+ await Teammate.prototype.waitInBurrow.call(none.c,1,new AbortController().signal,none.bot,true)
+ assert.equal(again,0,none.said.join(' | '));assert.ok(none.said.some(t=>/Resume is available/.test(t)),none.said.join(' | '))
+})
 // Lab run 156, 15 October: at a firing port into a sealed room of blazes the bot lost 11
 // health in six seconds before the duel's own half-health line stopped it. On a kitted trip
 // the port's shot breaks off at the first hit.
