@@ -281,3 +281,14 @@ test('near the target open ground over a floor still ends the bore at the last w
  const w=world({fills:BRIDGE.filter(([x])=>x>=3),items:cobble(64)});const r=await bore(w,{x:6,count:6})
  assert.equal(r.covered,0);assert.equal(r.columns,1);assert.equal(r.slit.length,3)
 })
+// Live, 16 October: walled in on the bridge in its own cobblestone hut, the bot bored east and the
+// next column was half its own wall and half air: neither all air (cover) nor all rock (tunnel),
+// so it read as open space. Far from the target such a column is closed first, then dug, then entered.
+test('a column half air and half diggable over a floor is closed, dug and entered; half bricks still stops',async()=>{
+ const own=world({ground:VOID,fills:[...span(-3,8),[3,64,0,'cobblestone']],items:cobble(64)});own.bot.ownBlocks.add(new Vec3(3,64,0),'cobblestone','the_nether');guard(own)
+ const a=await bore(own,{x:20,count:6});assert.equal(a.reason,null);assert.equal(a.columns,6);assert.ok(own.of('dig').includes(k(3,64,0)))
+ const rock=world({ground:VOID,fills:[...span(-3,8),[3,65,0,'netherrack']],items:cobble(64)});guard(rock)
+ const b=await bore(rock,{x:20,count:6});assert.equal(b.reason,null);assert.equal(b.columns,6);assert.ok(rock.of('dig').includes(k(3,65,0)))
+ const bricks=world({ground:VOID,fills:[...span(-3,8),[3,64,0,'nether_bricks']],items:cobble(64)});const c=await bore(bricks,{x:20,count:6})
+ assert.ok(c.columns<3);assert.match(c.reason,/open space|not natural ground/);assert.equal(bricks.cells.get(k(3,64,0)),'nether_bricks')
+})

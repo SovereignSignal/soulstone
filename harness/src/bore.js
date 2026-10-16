@@ -122,7 +122,11 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
  // far from the target, level or going down, is crossed under cover instead: the floor laid where
  // there is none, then walls and roof, all from carried blocks before the step. Walking on bricks
  // breaks nothing; lava far below the floor is no matter.
- const airy=cells=>cells.every(q=>AIR.has(bot.blockAt(q)?.name))
+ // Live, 16 October: the bot's own hut on the bridge leaves columns half wall, half air. A column
+ // with some air whose other cells bore may dig (natural, or its own, refuseDigCell clean) is
+ // covered too: closed first, then dug, then entered. Bricks in it still stop.
+ const diggable=q=>{const b=bot.blockAt(q);return !!b&&solid(b)&&mayDig(bot,b)&&!refuseDigCell(bot,q,{protectedSites:sites,role:'head'})}
+ const passable=cells=>cells.some(q=>AIR.has(bot.blockAt(q)?.name))&&cells.every(q=>AIR.has(bot.blockAt(q)?.name)||diggable(q))
  const limit=Math.min(goal.count,path.length)
  const named=p=>{const b=bot.blockAt(p);return !b?`unloaded ground at ${key(p)}`:AIR.has(b.name)?`open space at ${key(p)}`:`${b.name} at ${key(p)}`}
  for(let i=0;i<limit;i++){
@@ -133,8 +137,8 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
   const front=next&&i+1<limit?columnCells(c,next).filter(q=>q.x!==c.x||q.z!==c.z):[]
   const skin=()=>cells.flatMap(p=>AROUND.map(d=>p.plus(d))).filter(q=>!cells.some(p=>p.equals(q))&&!front.some(p=>p.equals(q)))
   stage('digging');progress(`Boring column ${i+1}/${goal.count} at ${key(c)}`)
-  const cover=c.y<=prev.y&&airy(cells)&&far(c)&&floored(c)
-  if(!cover&&airy(cells)&&far(c)&&hot(bot.blockAt(c.offset(0,-1,0)))){stop(`${named(c.offset(0,-1,0)).replace(' at ',' under '+key(c)+' at ')}; bore again toward a point three blocks to the side`,c);break}
+  const cover=c.y<=prev.y&&passable(cells)&&far(c)&&floored(c)
+  if(!cover&&passable(cells)&&far(c)&&hot(bot.blockAt(c.offset(0,-1,0)))){stop(`${named(c.offset(0,-1,0)).replace(' at ',' under '+key(c)+' at ')}; bore again toward a point three blocks to the side`,c);break}
   if(cover){
    const mob=Object.values(bot.entities||{}).find(e=>e!==bot.entity&&living(e)&&e?.position&&[...cells,...skin()].some(q=>q.equals(e.position.floored())))
    if(mob){stop(`${mob.name||mob.type||'an entity'} in ${key(mob.position.floored())}; the covered walk waits for it`,c);break}
@@ -151,13 +155,19 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
    if(hot(b)){stop(`${named(ahead)} beyond ${key(c)}; bore again toward a point three blocks to the side`,c);break}
    const short=Math.abs(goal.x-c.x)+Math.abs(goal.z-c.z),walk=columnCells(c,next).filter(q=>q.x!==c.x||q.z!==c.z)
    // Far from the target, open air over a floor ahead is the next covered column, not a stop.
-   if(short>SLIT_REACH&&airy(walk)&&floored(next)&&next.y<=c.y)beyond=null
-   else if(short>SLIT_REACH){stop(`${named(ahead)}${airy(walk)?` over ${bot.blockAt(next.offset(0,-1,0))?.name??'unloaded ground'}`:''}, ${short} blocks short of the target; bore around it${columns?'':'. This wall is the first one: step to another wall or re-aim the bore'}`,c);break}
+   if(short>SLIT_REACH&&passable(walk)&&floored(next)&&next.y<=c.y)beyond=null
+   else if(short>SLIT_REACH){stop(`${named(ahead)}${passable(walk)?` over ${bot.blockAt(next.offset(0,-1,0))?.name??'unloaded ground'}`:''}, ${short} blocks short of the target; bore around it${columns?'':'. This wall is the first one: step to another wall or re-aim the bore'}`,c);break}
    else{stop(`${named(ahead)} beyond the wall at ${key(c)}`,c);await openSlit(c);break}
   }
   if(cover){
    stage('walling');const why=await seal(skin(),{cover:true})
    if(why){stop(`${why}; the covered walk stops before ${key(c)}`,c);break}
+   for(const p of cells){
+    const b=bot.blockAt(p);if(AIR.has(b.name))continue
+    if(typeof bot.canDigBlock==='function'&&!bot.canDigBlock(b)){stop(`Cannot reach ${b.name} at ${key(p)} to dig it`,c);break}
+    try{await digOne(bot,b,check)}catch(error){if(error?.code!=='DIG_REFUSED')throw error;stop(error.message,c);break}
+   }
+   if(reason)break
    try{await walkNear(bot,c,{dig:false,protectedSites:sites,check,stage,progress,movements,exact:true,timeoutMs:20000})}
    catch(error){check();stop(`did not step into ${key(c)}: ${error.message}`,c);break}
    for(const p of cells)open.add(key(p))
