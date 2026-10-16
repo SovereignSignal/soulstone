@@ -301,7 +301,9 @@ function tunnel({mobs=[],items=[],timeOfDay=6000,cells=new Map()}={}){
  const bot=base(new Vec3(.5,64,.5),name,{timeOfDay,mobs})
  bot.game.dimension='the_nether'
  Object.values(bot.entities).forEach((e,i)=>Object.assign(e,{uuid:`00000000-0000-0000-0000-00000000001${i}`,type:'hostile',height:e.name==='blaze'?1.8:1.95,velocity:new Vec3(0,0,0)}))
- bot.food=20;bot.inventory={items:()=>items,slots:[]}
+ // The blocks to close a port again (review of 875042a, 16 October); a test of the shortfall passes its own.
+ const blocks=items.some(i=>i.name==='cobblestone')?[]:[{name:'cobblestone',count:16}]
+ bot.food=20;bot.inventory={items:()=>[...items,...blocks],slots:[]}
  return {bot,cells}
 }
 const SWORD={name:'iron_sword',count:1,maxDurability:250,durabilityUsed:0}

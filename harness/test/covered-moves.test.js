@@ -233,3 +233,17 @@ test('with a covered route, a blaze in sight through the side port is shot from 
  const order=acts(f);assert.deepEqual(order.slice(0,3),['unhut','shoot','hut'],order.join(' ')+' :: '+f.said.join(' | '))
  assert.equal(f.commands.find(x=>x.action==='unhut').goal.shooter,'blaze')
 })
+// Review of 875042a, 16 October: a bore that used its plugs could open the port and then fail to close it with
+// blazes near. The port opens only with blocks to close it again and one to spare.
+test('on a covered route with too few blocks to close the port again, the port stays shut and the reason is said',async()=>{
+ const f=fixture(async()=>wait,{act:()=>({receipt:'unwalled'})})
+ shooterEast(f);inWait(f,{coveredMoves:false,burrowWait:{quietMs:50,limitMs:1500,patienceMs:50,relocateAfterMs:60000,watches:1}})
+ // The bot stands in its route: the west side is the tunnel behind it.
+ for(let x=-3;x<0;x++)for(const y of [64,65])f.cells.set(`${x},${y},0`,'air')
+ f.bot.inventory.items().find(i=>i.name==='cobblestone').count=2
+ f.c.safety.covered={from:{x:0,y:64,z:0},at:{x:0,y:64,z:0},moves:[]}
+ await Teammate.prototype.waitInBurrow.call(f.c,1,f.abort.signal,f.bot,true)
+ assert.ok(!f.commands.some(x=>['unhut','shoot'].includes(x.action)),acts(f).join(' '))
+ assert.equal(f.said.filter(t=>/not enough blocks to close the port again/i.test(t)).length,1,f.said.join(' | '))
+ assert.notEqual(f.c.safety,null)
+})
