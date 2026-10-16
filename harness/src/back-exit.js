@@ -1,6 +1,6 @@
 // The back exit: one reserved interior floor cell a shaft goes down through,
 // so a camping creeper or the night does not hold the bot behind its one door.
-// Step 1 of workstreams/minecraft/back-exit-plan.md. The dig and the cap come next.
+// Step 1 of the back-exit plan. The dig and the cap come next.
 import {shelterLayout} from './shelter.js'
 // The interior cell farthest from the door that no station stands on. Once
 // chosen it is kept, so the shaft is always the same hole.

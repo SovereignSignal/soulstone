@@ -10,7 +10,7 @@ import {sleepThroughNight} from '../src/sleep.js'
 import {makeObsidian} from '../src/obsidian.js'
 import {Teammate} from '../src/companion/controller.js'
 
-// workstreams/minecraft/nether-plan.md, step 3. The Nether has a bedrock
+// The Nether plan, step 3. The Nether has a bedrock
 // ceiling and no sky, and mineflayer still reports the shared world clock, so
 // the night rules must stand down there: they already do under rock.
 const bot=dimension=>({game:{dimension:`minecraft:${dimension}`,gameMode:'survival',difficulty:'normal'},time:{timeOfDay:14000},health:20,food:20,entities:{},players:{},

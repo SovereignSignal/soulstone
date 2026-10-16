@@ -65,7 +65,7 @@ test('the brief tells the planner to bank what it earns, since death drops every
  assert.match(brief,/deposit spare tools, ores, food and torches before any risky trip/)
 })
 
-// workstreams/minecraft/nether-plan.md, step 6: piglins attack anyone without
+// The Nether plan, step 6: piglins attack anyone without
 // a gold armour piece. In the Nether golden boots take the feet slot; back in
 // the Overworld the ordinary ranking puts the iron ones back on.
 test('in the Nether carried golden boots are worn over iron, and in the Overworld iron wins again',()=>{

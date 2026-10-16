@@ -288,7 +288,7 @@ test('obsidian is taken from flat pool layers and ruined portals, never from a b
  assert.equal(takeableObsidian(bot,v(20,73,0)),true,'a ruined portal: netherrack below the frame')
 })
 
-// workstreams/minecraft/nether-plan.md, step 4: the way home is never mined.
+// The Nether plan, step 4: the way home is never mined.
 // The arrival portal in the Nether stands on netherrack, which the rule above
 // reads as a ruined portal, so in the Nether no obsidian is taken at all, and
 // anywhere obsidian within two blocks of a portal block stays.

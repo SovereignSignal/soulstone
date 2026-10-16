@@ -1,5 +1,5 @@
 // Which dimensions the bot may enter through a portal, per world
-// (workstreams/minecraft/nether-plan.md). Off is the harness as it was: never
+// (the Nether plan). Off is the harness as it was: never
 // through a portal, anywhere. The admin turns the Nether on for a world; Sov's
 // family world stays off until he says. The End has its own switch beside it
 // (dragon-roadmap.md, brief 3), off in the same way until the owner says on.

@@ -58,7 +58,7 @@ test('a portal it cannot get out of is a failure, never a success',async()=>{
  await assert.rejects(leavePortal(f.bot,{},f.api,{pollMs:1,stepMs:20}),/Still in the portal/)
 })
 
-// workstreams/minecraft/nether-plan.md, step 5: use_portal, the one deliberate
+// The Nether plan, step 5: use_portal, the one deliberate
 // way through, only where the world's switch allows the Nether. Coming home
 // from the Nether is always allowed: turning the switch off never strands it.
 function crossing(dimension,{carries=true}={}){

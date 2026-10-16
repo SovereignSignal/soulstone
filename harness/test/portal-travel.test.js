@@ -7,7 +7,7 @@ import {EventEmitter} from 'node:events'
 import {PortalTravel,validatePortalTravel} from '../src/portal-travel.js'
 import {Teammate} from '../src/companion/controller.js'
 
-// workstreams/minecraft/nether-plan.md, step 1: the per-world switch. Off is
+// The Nether plan, step 1: the per-world switch. Off is
 // the harness as it was; the family world stays off until Sov turns it on.
 test('nether travel is off unless saved on, and only off and on are accepted',()=>{
  assert.deepEqual(validatePortalTravel(),{nether:'off',end:'off'})

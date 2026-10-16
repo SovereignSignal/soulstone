@@ -16,7 +16,7 @@ import {Teammate} from '../src/companion/controller.js'
 const registry=minecraftData('1.21.4'),Block=blockLoader(registry)
 const key=p=>`${p.x},${p.y},${p.z}`
 
-// workstreams/minecraft/dragon-roadmap.md, brief 3: the End gate. The End has
+// The dragon roadmap, brief 3: the End gate. The End has
 // its own switch beside the Nether's, off unless the file says on.
 test('the End is its own switch: off unless saved on, and a damaged file is all off',()=>{
  const dir=mkdtempSync(join(tmpdir(),'mc-end-travel-')),path=join(dir,'portal-travel.json')

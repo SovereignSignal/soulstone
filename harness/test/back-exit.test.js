@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {Vec3} from 'vec3'
 import {shaftCell} from '../src/back-exit.js'
 import {insideBase} from '../src/retreat.js'
-// Step 1 of workstreams/minecraft/back-exit-plan.md: the reserved interior
+// Step 1 of the back-exit plan: the reserved interior
 // floor cell a back exit goes down through, and the base still counting the
 // bot as inside while it is in that shaft.
 const design=[]

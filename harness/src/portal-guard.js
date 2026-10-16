@@ -72,7 +72,7 @@ export function portalRefusal(bot,{netherAllowed=false,endAllowed=false,kind}={}
   ?endAllowed?null:'Portal travel to the End is off for this world; only the owner can turn it on'
   :netherAllowed?null:'Portal travel to the Nether is off for this world; only the owner can turn it on'
 }
-// The End (workstreams/minecraft/dragon-roadmap.md, brief 3). An end portal is a
+// The End (the dragon roadmap, brief 3). An end portal is a
 // floor, not a doorway: stepping onto it carries a player across at once, so there
 // is no wait in the middle and no stepping out and in again. The arrival platform
 // can be buried; the bot digs out through what it may dig anywhere (end stone) and
@@ -131,7 +131,7 @@ async function crossEnd(bot,{check,stage,progress},{reachMs,crossMs,hopMs,loadMs
  // The End's arrival is a platform, not a portal; it is the far end of the link all the same.
  return {item:'portal',count:1,receipt:'crossed',from:{dimension:from,portal:xyz(portal)},to:{dimension:to,portal:to==='the_end'?xyz(arrival):null,position:xyz(arrival)},...(dug.length?{dug}:{})}
 }
-// The one deliberate way through a portal (workstreams/minecraft/nether-plan.md,
+// The one deliberate way through a portal (the Nether plan,
 // step 5). From the Overworld only where the world's switch allows the Nether;
 // from the Nether always, so turning the switch off never strands the bot.
 // Every walk avoids portal blocks, so the last step in is by direct control;

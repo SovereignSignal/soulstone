@@ -13,7 +13,7 @@ import {Teammate,relocateWay,centreward} from '../src/companion/controller.js'
 import {roofed} from '../src/observations.js'
 import {emergencyReason,NIGHT_EXPOSURE} from '../src/survival.js'
 
-// workstreams/minecraft/nether-plan.md, step 2: saved state carries the
+// The Nether plan, step 2: saved state carries the
 // dimension it was made in, and missing means the Overworld, so nothing saved
 // before today changes. In the Nether the Overworld base is not home.
 const design=[]
@@ -54,7 +54,7 @@ test('a shelter built in the Nether does not replace the Overworld base; a const
  assert.equal(c.lastDeath.dimension,'the_nether')
 })
 
-// workstreams/minecraft/dragon-roadmap.md, brief 3: the End has no day and no
+// The dragon roadmap, brief 3: the End has no day and no
 // night, and every edge of its island is the void.
 test('the End is a dimension of its own, and its clock means nothing',()=>{
  assert.equal(inEnd(bot('the_end')),true);assert.equal(inEnd(bot('the_nether')),false);assert.equal(inEnd({game:{}}),false)

@@ -309,7 +309,7 @@ test('an inventory criterion counts armour the agent is wearing', () => {
   assert.equal(evaluateGoal(contract, { ...snap, inventory: { iron_helmet: 1 } }, bare, []).verdict, 'passed')
 })
 
-// workstreams/minecraft/nether-plan.md, step 7: the brief describes the switch,
+// The Nether plan, step 7: the brief describes the switch,
 // use_portal and the Nether's rules, and keeps the End behind its own switch.
 test('the brief allows a portal only through use_portal behind the switch, and states the Nether rules',()=>{
  const brief=readFileSync(new URL('../src/companion/survival-capabilities.txt',import.meta.url),'utf8')
