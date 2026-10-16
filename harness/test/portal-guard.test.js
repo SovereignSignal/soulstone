@@ -266,3 +266,22 @@ test('use_portal steps in at whichever column of a wide portal has room in front
  assert.equal(result.receipt,'crossed')
  assert.equal(walkedTo,'3,64,1','the open cell in front of the other column');assert.equal(entered,'3,64,0','into the column it stood beside')
 })
+
+// Rehearsal, 16 October 19:25Z: out of the portal the bot stepped west onto the open bridge among the mobs, not east
+// into its own tunnel: both were one block off and the first listed won. A covered standing cell comes first.
+import {leavePortal as leaveCovered} from '../src/portal-guard.js'
+test('out of the portal the bot steps into a covered column beside it before open ground',async()=>{
+ const reg=(await import('minecraft-data')).default('1.21.4'),{Vec3:V}=await import('vec3')
+ const looked=[],cells=new Map()
+ // Portal cell at 0,64,0; open bridge west at x -1; a tunnel east at x 1 with walls z ±1 and a roof at y 66.
+ for(const y of [64,65,66])for(const z of [-1,1])cells.set(`1,${y},${z}`,'stone');cells.set('1,66,0','stone')
+ const name=p=>cells.get(`${p.x},${p.y},${p.z}`)??(p.y<=63?'nether_bricks':p.x===0&&p.z===0&&p.y>=64&&p.y<=66?'nether_portal':'air')
+ let inPortal=true
+ const bot={registry:reg,entity:{position:new V(.5,64,.5),onGround:true},blockAt:p=>{const n=name(p);return {name:n,position:p.clone(),boundingBox:reg.blocksByName[n].boundingBox}},
+  lookAt:async t=>{looked.push(t);inPortal=false},setControlState(){},clearControlStates(){}}
+ const {portalObservation}=await import('../src/survival.js')
+ bot.blockAt.inPortal=()=>inPortal
+ const original=bot.blockAt;bot.blockAt=p=>{const b=original(p);if(!inPortal&&b.name==='nether_portal')return {...b,name:'air',boundingBox:'empty'};return b}
+ const r=await leaveCovered(bot,{kind:'leave_portal'},{check(){},stage(){},progress(){}},{pollMs:1,stepMs:20})
+ assert.equal(r.receipt,'out_of_portal');assert.equal(Math.floor(looked[0].x),1,'east, into the covered column: '+JSON.stringify(looked[0]))
+})

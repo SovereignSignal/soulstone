@@ -166,8 +166,8 @@ test('a hut opened toward a place opens the wall facing it',async()=>{
 // shelter was going home, and the room it was asked to build never started.
 // Beside a portal the hut becomes a portal room: the portal's far side and its
 // other column are sealed too, so nothing reaches the bot through the portal.
-function besidePortal(){
- const w=world({logs:64})
+function besidePortal(opts={}){
+ const w=world({logs:64,...opts})
  // Frame in the z=9 plane: obsidian x 9..12, y 63..67; portal x 10..11, y 64..66.
  for(let x=9;x<=12;x++)for(let y=63;y<=67;y++)w.cells.set(new Vec3(x,y,9).toString(),(x===9||x===12||y===63||y===67)?'obsidian':'nether_portal')
  w.bot.game.dimension='minecraft:the_nether'
@@ -629,4 +629,53 @@ test('the hut walls in with plain ground blocks before anything built or bought:
  assert.equal((await wallIn(w.bot,{kind:'hut',goal:{}},api)).receipt,'walled_in')
  assert.deepEqual([...new Set(clicks.map(c=>c.held))],['cobblestone'])
  assert.deepEqual(['oak_planks','iron_block'].map(n=>w.inventory.find(i=>i.name===n)?.count),[64,9])
+})
+
+// Rehearsal, 16 October 19:25Z: arriving at the mouth of its own tunnel beside the portal, a wither skeleton came
+// through the portal's open far side and the bot went home. Sealing the portal's faces from the near side, with the
+// tunnel left open behind, makes the tunnel and the portal one closed cavity (seal_portal; design-portal-room).
+import {sealPortal} from '../src/hut.js'
+import {COVERED_CELLS} from '../src/companion/continuity.js'
+const FACES_FAR=['10,64,8','10,65,8','10,66,8','11,64,8','11,65,8','11,66,8'],FACES_NEAR=['11,64,10','11,65,10','11,66,10']
+// The bot at the mouth of a tunnel running +z from the portal: walls x 9 and 11, roof y 66, closed at z 15.
+function tunnelMouth(opts){
+ const w=besidePortal(opts)
+ for(let z=10;z<=14;z++){for(const y of [64,65,66])for(const x of [9,11])w.cells.set(new Vec3(x,y,z).toString(),'stone');w.cells.set(new Vec3(10,66,z).toString(),'stone')}
+ for(const y of [64,65])w.cells.set(new Vec3(10,y,15).toString(),'stone')
+ return w
+}
+test('the portal faces alone: six on the far side and three beside the other column, none of the bot\'s own walls',()=>{
+ const w=besidePortal(),site=hutSite(w.bot,{facesOnly:true})
+ assert.equal(site.ok,true,site.reason);assert.equal(site.needed,9)
+ assert.deepEqual(site.cells.map(c=>`${c.x},${c.y},${c.z}`).sort(),[...FACES_FAR,...FACES_NEAR].sort())
+ assert.equal(hutSite(tunnelMouth().bot,{facesOnly:true}).needed,6,'the other column\'s near side already stands')
+})
+test('seal_portal places the faces with cobblestone first, claims them, digs nothing and leaves the portal and frame alone',async()=>{
+ const w=tunnelMouth();w.inventory.push({name:'cobblestone',count:16});w.inventory.push({name:'dirt',count:16})
+ const result=await executeSkill(w.bot,{kind:'seal_portal',goal:{}},api)
+ assert.equal(result.receipt,'portal_sealed');assert.equal(result.placed,6);assert.equal(result.alreadySealed,false)
+ for(const c of FACES_FAR)assert.equal(w.cells.get(new Vec3(...c.split(',').map(Number)).toString()),'cobblestone',c)
+ assert.equal(w.dug.length,0)
+ for(let y=64;y<=66;y++)for(const x of [10,11])assert.equal(w.cells.get(new Vec3(x,y,9).toString()),'nether_portal')
+ assert.ok(FACES_FAR.every(c=>w.bot.ownBlocks.has(new Vec3(...c.split(',').map(Number)),'cobblestone','the_nether')),'the seal is the bot\'s own')
+ const again=await executeSkill(w.bot,{kind:'seal_portal',goal:{}},api)
+ assert.equal(again.placed,0);assert.equal(again.alreadySealed,true);assert.equal(w.placed.length,6,'no click the second time')
+})
+test('seal_portal refuses the Overworld, no portal beside, a hostile in a face cell, and too few blocks',async()=>{
+ const over=tunnelMouth();over.bot.game.dimension='minecraft:overworld';await assert.rejects(executeSkill(over.bot,{kind:'seal_portal',goal:{}},api),/Nether/)
+ const away=world();away.bot.game.dimension='minecraft:the_nether';await assert.rejects(executeSkill(away.bot,{kind:'seal_portal',goal:{}},api),/beside the portal/)
+ const mob=tunnelMouth();mob.bot.entities={5:{id:5,name:'wither_skeleton',position:new Vec3(10.5,64,8.5),width:.7,height:2.4}}
+ await assert.rejects(executeSkill(mob.bot,{kind:'seal_portal',goal:{}},api),/wither_skeleton/)
+ const short=tunnelMouth({logs:5});await assert.rejects(executeSkill(short.bot,{kind:'seal_portal',goal:{}},api),/6 blocks needed/)
+})
+test('one cavity: the tunnel and portal fail the covered inspection open, and pass it once the portal is sealed',async()=>{
+ const w=tunnelMouth()
+ assert.throws(()=>inspectEmergencyShelter(w.bot,{limit:COVERED_CELLS}),/open or exceeds/)
+ await executeSkill(w.bot,{kind:'seal_portal',goal:{}},api)
+ assert.equal(inspectEmergencyShelter(w.bot,{limit:COVERED_CELLS}).verified,true)
+})
+test('a seal broken off part way places only the faces still open the next time',async()=>{
+ const w=tunnelMouth();for(const c of FACES_FAR.slice(0,3))w.cells.set(new Vec3(...c.split(',').map(Number)).toString(),'cobblestone')
+ const result=await executeSkill(w.bot,{kind:'seal_portal',goal:{}},api)
+ assert.equal(result.placed,3);assert.equal(w.placed.length,3);assert.equal(result.alreadySealed,false)
 })

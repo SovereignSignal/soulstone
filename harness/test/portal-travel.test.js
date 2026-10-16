@@ -338,3 +338,36 @@ test('the brief keeps a blaze hunt beside the arrival portal',()=>{
  assert.match(line,/blaze spawner[^.]*(named|known)[^.]*\./i,'a known spawner may be walked to')
  assert.match(line,/trail/i,'the way back is the trail it walked')
 })
+
+// Rehearsal, 16 October 19:25Z: the arrival at the mouth of the bot's own tunnel left the portal's far side open,
+// and the next mob through it made every arrival an emergency. A planner crossing that lands in a covered column
+// beside the portal with open faces seals them before the next plan, and the planner reads the receipt.
+class ArrivalRunner extends PortalRunner{
+ constructor(covered){super();this.covered=covered;const items=[{name:'cobblestone',count:16}];this.bot.inventory={items:()=>items}
+  this.portalTravel={allows:d=>d==='the_nether',snapshot:()=>({nether:'on',end:'off'})}}
+ nether(p){
+  // Portal x 0..1, y 64..66 in the z=-1 plane (obsidian frame); a tunnel +z from the bot at 0,64,0 when covered.
+  const frame=p.z===-1&&p.x>=-1&&p.x<=2&&p.y>=63&&p.y<=67
+  if(frame)return (p.x===-1||p.x===2||p.y===63||p.y===67)?'obsidian':'nether_portal'
+  if(p.y<=63)return 'nether_bricks'
+  if(this.covered&&p.z>=0&&p.z<=5&&((p.x===-1||p.x===1)&&p.y<=66||p.x===0&&(p.y===66||p.z===5)))return 'nether_bricks'
+  return 'air'
+ }
+ command(c){super.command(c);const task=this.task;if(c.action==='stop')return
+  queueMicrotask(()=>{
+   if(c.action==='use_portal'){this.bot.game.dimension='minecraft:the_nether';this.bot.blockAt=p=>{const name=this.nether(p);return {name,position:p.clone(),boundingBox:registry.blocksByName[name].boundingBox}};task.result={receipt:'crossed',from:{dimension:'overworld',portal:{x:0,y:64,z:-1}},to:{dimension:'the_nether',portal:{x:0,y:64,z:-1},position:{x:.5,y:64,z:.5}}}}
+   else task.result={receipt:c.action==='seal_portal'?'portal_sealed':c.action,placed:6}
+   task.status='completed';this.emit('event',{type:'task_finished',task})})}
+}
+async function arrive(covered){
+ const r=new ArrivalRunner(covered),plans=[];let n=0
+ const c=new Teammate(r,{model:'fake',plan:async(_,o)=>{plans.push(o);return n++?{reply:'',steps:[]}:{reply:'Going through.',steps:[{action:'use_portal',name:'',count:0,item:''}]}}},join(mkdtempSync(join(tmpdir(),'mc-arrival-')),'state.json'))
+ void c.submit('go through the portal');await new Promise(res=>setTimeout(res,150));c.cancel?.(true)
+ return {acts:r.commands.map(x=>x.action).filter(a=>a!=='stop'),c,plans}
+}
+test('a planner crossing that lands in a covered column beside the portal seals the portal before the next plan',async()=>{
+ const covered=await arrive(true)
+ assert.deepEqual(covered.acts.slice(0,2),['use_portal','seal_portal'],covered.acts.join(' '))
+ assert.ok(covered.c.requestProgress?.feedback?.some(f=>f.action==='seal_portal'&&f.status==='completed'&&f.result?.receipt==='portal_sealed'),JSON.stringify(covered.c.requestProgress?.feedback?.map(f=>f.action)))
+ const open=await arrive(false);assert.ok(!open.acts.includes('seal_portal'),open.acts.join(' '))
+})

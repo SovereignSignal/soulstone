@@ -8,7 +8,7 @@ import {surfaceForAir} from './water-safety.js'
 import {douseFire} from './fire-safety.js'
 import {leavePortal,usePortal} from './portal-guard.js'
 import {burrowIn,unburrow} from './burrow.js'
-import {wallIn,unwall} from './hut.js'
+import {wallIn,unwall,sealPortal} from './hut.js'
 import {fleeFrom} from './flee.js'
 import {descendFromCanopy} from './canopy.js'
 import {climbSkill} from './route-recovery.js'
@@ -47,6 +47,7 @@ export async function executeSkill(bot, task, context) {
   if(task.kind==='unburrow')return unburrow(bot,task,context)
   if(task.kind==='hut')return wallIn(bot,task,context)
   if(task.kind==='unhut')return unwall(bot,task,context)
+  if(task.kind==='seal_portal')return sealPortal(bot,task,context)
   if(task.kind==='flee')return fleeFrom(bot,task,context)
   if(task.kind==='descend')return descendFromCanopy(bot,task,context)
   if(task.kind==='climb')return climbSkill(bot,task,context)

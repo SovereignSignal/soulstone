@@ -896,7 +896,7 @@ export class Teammate extends EventEmitter {
       const exitNow=tripNow&&recoveryBot.health>=PORT_HEALTH&&survivalObservation(recoveryBot).nearbyThreats.some(t=>t.name==='wither_skeleton'&&t.risk==='potential_hostile'&&t.distance<=3.5)&&!!recoveryBot.findBlock?.({matching:portalId,maxDistance:3})
       const wallInFirst=!exitNow&&!lastResort&&(portalRoom||!!roomSpot)&&nearest>=PORTAL_ROOM_STANDOFF+Math.ceil(stepsBack)
       // Why the room was or was not chosen (run 106: hurt beside the portal, it went home and the journal could not say why).
-      if(inNether(recoveryBot))this.runner.log?.('nether_shelter',{reason,wallInFirst,portalRoom,site:roomSite?.ok?(roomSite.portal?'portal_room':'plain_hut'):roomSite?.reason,roomSpot:roomSpot?`${roomSpot.x},${roomSpot.y},${roomSpot.z}`:null,stepsBack:Math.round(stepsBack*10)/10,nearestMelee:Number.isFinite(nearest)?nearest:null,position:(p=>p&&{x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,z:Math.round(p.z*10)/10})(recoveryBot.entity?.position)})
+      if(inNether(recoveryBot))this.runner.log?.('nether_shelter',{reason,wallInFirst,portalRoom,facesOpen:(f=>f.ok?f.needed:null)(hutSite(recoveryBot,{facesOnly:true})),site:roomSite?.ok?(roomSite.portal?'portal_room':'plain_hut'):roomSite?.reason,roomSpot:roomSpot?`${roomSpot.x},${roomSpot.y},${roomSpot.z}`:null,stepsBack:Math.round(stepsBack*10)/10,nearestMelee:Number.isFinite(nearest)?nearest:null,position:(p=>p&&{x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,z:Math.round(p.z*10)/10})(recoveryBot.entity?.position)})
       // On a trip with the kit and health, the portal is not the answer to a hostile:
       // cover is built where the bot stands, and what the rules fight is fought (lab runs
       // 129 to 137: every walk home through the corridors was the walk that killed it).
@@ -1967,6 +1967,15 @@ export class Teammate extends EventEmitter {
             feedback.push({action:step.action,step,taskId:this.requestProgress.inFlight?.taskId,status:'completed',result,inventory:this.snapshot().inventory,...(['build','construct','revise'].includes(step.action)?{task:structuredClone(this.runner.task)}:{})})
             this.requestProgress.completed.push({step,result,taskId:this.requestProgress.inFlight?.taskId});clearSealedHolds(this);this.requestProgress.inFlight=null;this.requestProgress.pending=plan.steps.slice(i+1);this.requestProgress.blocker=null;this.verifyGoal();this.persist()
             episode?.write('action_result', { round, stepIndex: i, step, outcome: feedback.at(-1), evidence: step.action==='follow'?'Follow started; continued proximity is not independently verified.':'Executor/client observation; no independent server verification.' })
+            // Rehearsal, 16 October 19:25Z: the arrival at the mouth of its own tunnel left the portal's far side open and
+            // the next mob through made every arrival an emergency. Landed in a covered column beside the portal with
+            // faces open, the bot seals them (seal_portal, its own task: an alarm during it runs the chain as ever) and
+            // the planner reads the receipt.
+            if(step.action==='use_portal'&&result?.to?.dimension==='the_nether'&&inNether(this.runner.bot)&&coveredColumn(this.runner.bot)&&hutSite(this.runner.bot,{facesOnly:true}).needed>0){
+              try{await this.execute({action:'seal_portal',goal:{},timeoutMs:60000},abort.signal);if(epoch!==this.epoch)return;feedback.push({action:'seal_portal',status:'completed',automatic:true,result:structuredClone(this.runner.task?.result??null)})}
+              catch(error){if(epoch!==this.epoch)return;feedback.push({action:'seal_portal',status:'failed',automatic:true,reason:error.message})}
+              this.persist()
+            }
             // A returned expedition may have only part of its resource target.
             // Let the planner repair prerequisites before dependent steps run.
             if(result?.partial)break

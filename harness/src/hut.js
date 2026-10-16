@@ -20,6 +20,7 @@ const REPLACEABLE=new Set(['air','cave_air','short_grass','tall_grass','fern','l
 const SIDES=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]
 const solid=(bot,b)=>!!b&&fullCube(bot.registry,b.name)
 const key=p=>`${p.x},${p.y},${p.z}`
+const xyz=p=>({x:p.x,y:p.y,z:p.z})
 // The same blocks the burrow caps with and the pathfinder climbs on: never
 // obsidian (lab run 57: the hut walled in with it and one wall's worth stayed
 // behind in the cave when it opened a side to leave).
@@ -38,7 +39,8 @@ export const hutMaterials=bot=>scaffoldItems(bot).sort((a,b)=>PLAIN.has(b.name)-
 // the portal's far side and its other columns are sealed as well as the bot's
 // own walls, so nothing reaches the bot through the portal. The cavity is the
 // bot's two cells and the portal's own, which the shelter inspection floods.
-function portalRoom(bot,feet){
+// facesOnly: only the portal's own faces, the far side of every column and the near side of the others (seal_portal).
+function portalRoom(bot,feet,{facesOnly=false}={}){
  for(const [dx,,dz] of SIDES){
   const n=new Vec3(dx,0,dz),front=feet.plus(n)
   if(bot.blockAt(front)?.name!=='nether_portal')continue
@@ -50,24 +52,26 @@ function portalRoom(bot,feet){
   const cells=[],add=c=>{if(!cells.some(x=>x.equals(c)))cells.push(c)}
   for(const c of cols)for(let y=0;y<h;y++)add(c.plus(n).offset(0,y,0))
   for(const c of cols)if(!c.equals(front))for(let y=0;y<h;y++)add(c.minus(n).offset(0,y,0))
+  if(facesOnly)return cells.sort((a,b)=>a.y-b.y)
   for(const side of [lateral,lateral.scaled(-1),n.scaled(-1)])for(const y of [0,1])add(feet.plus(side).offset(0,y,0))
   add(feet.minus(n).offset(0,2,0));add(feet.offset(0,2,0))
   return cells.sort((a,b)=>a.y-b.y)
  }
  return null
 }
-export function hutSite(bot){
+export function hutSite(bot,opts={}){
  const p=bot.entity?.position
  if(!p||!bot.entity.onGround)return {ok:false,reason:'Not standing on solid ground'}
- return hutSiteAt(bot,p.floored())
+ return hutSiteAt(bot,p.floored(),opts)
 }
 // Live rehearsal, 16 October (18:18Z): an alarm in the fifth bore column along the fortress bridge stepped
 // back to the portal to wall in, leaving the tunnel's far end open on the bridge. A bot standing in a
 // covered column (floor, roof and both sides at feet and head full cubes, only its front and back open)
 // walls in where it stands. The open cells it would close, or null.
-export function coveredColumn(bot){
- const p=bot.entity?.position;if(!p)return null
- const feet=p.floored(),at=c=>bot.blockAt(feet.offset(...c))
+// cell: judge that standing cell instead of the bot's own (leavePortal, 19:25Z).
+export function coveredColumn(bot,cell=null){
+ const p=bot.entity?.position;if(!p&&!cell)return null
+ const feet=cell??p.floored(),at=c=>bot.blockAt(feet.offset(...c))
  if(!solid(bot,at([0,-1,0]))||!solid(bot,at([0,2,0])))return null
  for(const [ax,az] of [[1,0],[0,1]]){
   if(![1,-1].every(s=>[0,1].every(y=>solid(bot,at([s*az,y,s*ax])))))continue
@@ -76,9 +80,10 @@ export function coveredColumn(bot){
  }
  return null
 }
-function hutSiteAt(bot,feet){
+function hutSiteAt(bot,feet,{facesOnly=false}={}){
  if(!solid(bot,bot.blockAt(feet.offset(0,-1,0))))return {ok:false,reason:'No solid floor under the bot'}
- const room=portalRoom(bot,feet)
+ const room=portalRoom(bot,feet,{facesOnly})
+ if(facesOnly&&!room)return {ok:false,reason:"Stand beside the portal's bottom row to seal it"}
  if(room){
   for(const c of room){const b=bot.blockAt(c);if(!b)return {ok:false,reason:`Cell ${key(c)} is not observed`};if(!REPLACEABLE.has(b.name)&&!solid(bot,b))return {ok:false,reason:`Cannot wall through ${b.name} at ${key(c)}`}}
   // Every wall stands on the ground at foot level; the cells above hang off the ones below, and the roof off the helper.
@@ -151,6 +156,38 @@ async function settle(predicate,{check,ms=1500,poll=50}){
  while(Date.now()<end){check();if(predicate())return true;await delay(poll)}
  return predicate()
 }
+// Place each target from carried blocks: the planned reference or any solid neighbour, two clicks a cell, one hop when
+// the Nether ignores a placement, each placed block claimed as the bot's own. Shared by the hut and seal_portal.
+// Returns how many targets stand solid.
+async function placeCells(bot,placements,{check,progress,feet,materials=()=>hutMaterials(bot)}){
+ // A portal room's cells take whichever solid neighbour stands when their turn comes, lowest first.
+ const around=target=>[[0,-1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0]].map(([x,y,z])=>target.offset(x,y,z))
+ let placed=0,hopped=false
+ for(const {target,ref} of placements){
+  check();assertNoHostileOccupants(bot,[feet,feet.offset(0,1,0)])
+  if(solid(bot,bot.blockAt(target))){placed++;continue}
+  if(!materials().length)break
+  // A planned reference that is gone (a fireball, a mob) gives way to any solid neighbour,
+  // and one with a use (a chest, a dropper) to a plain one (lab run 163, placement.js).
+  const reference=plainFirst([...(ref?[ref]:[]),...around(target)].map(c=>bot.blockAt(c)).filter(b=>solid(bot,b)))[0],at=reference?.position
+  if(!reference){progress(`Nothing solid to place against at ${key(target)}`);continue}
+  // The bridge can drop a placement or its update: try each block twice.
+  // Lab run 165, 15 October: the block update lands before the inventory update, so a
+  // stack the last click emptied still reads one; the material is picked right before
+  // each click, and a kind found gone gives way to the next.
+  for(let attempt=0;attempt<2&&!solid(bot,bot.blockAt(target));attempt++){
+   const material=materials()[0]
+   if(!material)break
+   try{await holdToPlace(bot,material.name,check);await bot.placeBlock(reference,target.minus(at))}catch(error){check();progress(`Placement at ${key(target)} unconfirmed: ${String(error.message).slice(0,60)}`)}
+   await settle(()=>solid(bot,bot.blockAt(target)),{check})
+   // Lab run 147, 15 October: the alarm cancelled a crossing before its arrival hop, and
+   // until the bot jumps the server ignores its placements. One hop, then the retry.
+   if(!hopped&&inNether(bot)&&!solid(bot,bot.blockAt(target))){hopped=true;await hop(bot,{check});check()}
+  }
+  if(solid(bot,bot.blockAt(target))){placed++;claimPlaced(bot,target)}
+ }
+ return placed
+}
 export async function wallIn(bot,task,{check,stage,progress}){
  check()
  if(task.goal?.portalRoom&&!hutSite(bot).portal){stage('walking');await stepToPortalRoom(bot,check,progress)}
@@ -177,32 +214,7 @@ export async function wallIn(bot,task,{check,stage,progress}){
   placements.push({target:feet.offset(1,2,0),ref:feet.offset(1,1,0)})
   placements.push({target:feet.offset(0,2,0),ref:feet.offset(1,2,0)})
  }
- // A portal room's cells take whichever solid neighbour stands when their turn comes, lowest first.
- const around=target=>[[0,-1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0]].map(([x,y,z])=>target.offset(x,y,z))
- let placed=0,hopped=false
- for(const {target,ref} of placements){
-  check();assertNoHostileOccupants(bot,[feet,feet.offset(0,1,0)])
-  if(solid(bot,bot.blockAt(target))){placed++;continue}
-  if(!hutMaterials(bot).length)break
-  // A planned reference that is gone (a fireball, a mob) gives way to any solid neighbour,
-  // and one with a use (a chest, a dropper) to a plain one (lab run 163, placement.js).
-  const reference=plainFirst([...(ref?[ref]:[]),...around(target)].map(c=>bot.blockAt(c)).filter(b=>solid(bot,b)))[0],at=reference?.position
-  if(!reference){progress(`Nothing solid to place against at ${key(target)}`);continue}
-  // The bridge can drop a placement or its update: try each block twice.
-  // Lab run 165, 15 October: the block update lands before the inventory update, so a
-  // stack the last click emptied still reads one; the material is picked right before
-  // each click, and a kind found gone gives way to the next.
-  for(let attempt=0;attempt<2&&!solid(bot,bot.blockAt(target));attempt++){
-   const material=hutMaterials(bot)[0]
-   if(!material)break
-   try{await holdToPlace(bot,material.name,check);await bot.placeBlock(reference,target.minus(at))}catch(error){check();progress(`Placement at ${key(target)} unconfirmed: ${String(error.message).slice(0,60)}`)}
-   await settle(()=>solid(bot,bot.blockAt(target)),{check})
-   // Lab run 147, 15 October: the alarm cancelled a crossing before its arrival hop, and
-   // until the bot jumps the server ignores its placements. One hop, then the retry.
-   if(!hopped&&inNether(bot)&&!solid(bot,bot.blockAt(target))){hopped=true;await hop(bot,{check});check()}
-  }
-  if(solid(bot,bot.blockAt(target))){placed++;claimPlaced(bot,target)}
- }
+ const placed=await placeCells(bot,placements,{check,progress,feet})
  const missing=placements.filter(({target})=>!solid(bot,bot.blockAt(target))).map(({target})=>key(target))
  if(missing.length)throw new Error(`Hut incomplete: ${missing.length} of ${placements.length} blocks missing (${missing.slice(0,3).join('; ')})${centred?'':'; could not stand clear of the wall line'}`)
  const protection=inspectEmergencyShelter(bot)
@@ -291,4 +303,29 @@ export async function unwall(bot,task,{check,stage,progress}){
   if(opened&&cells.every(c=>REPLACEABLE.has(bot.blockAt(c)?.name||'air')))return {item:'safety',count:1,receipt:'unwalled',side:{dx,dz},position:{x:bot.entity.position.x,y:bot.entity.position.y,z:bot.entity.position.z}}
  }
  throw new Error(`Could not open a wall of the hut${refused?`: ${refused===order.length?`all ${refused} sides are`:refused===1?'one side is':`${refused} sides are`} ${WALLS_NOT_MINE}`:''}`)
+}
+// Rehearsal, 16 October 19:25Z: at the mouth of its own tunnel beside the arrival portal, a wither skeleton came through
+// the portal's open far side and the bot went home. From the covered cell beside the portal the bot places the portal's
+// faces (the far side of every column, the near side of the others) through the portal plane, which only the reach
+// limits (run 84's portal room does the same). Nothing is dug and the bot never steps into the portal; cobblestone first,
+// since a ghast's fireball breaks netherrack. The tunnel behind stays open: tunnel and portal become one cavity, which
+// is the bore's to vouch for, so no cavity inspection here. Idempotent: what stands is skipped.
+export async function sealPortal(bot,task,{check,stage,progress}){
+ check()
+ if(!inNether(bot))throw new Error('seal_portal is for the arrival portal in the Nether')
+ if(!bot.entity.onGround)await settle(()=>bot.entity.onGround,{check})
+ const site=hutSite(bot,{facesOnly:true})
+ if(!site.ok)throw new Error('Cannot seal the portal here: '+site.reason)
+ const {feet,cells}=site,side=SIDES.find(([dx,,dz])=>bot.blockAt(feet.offset(dx,0,dz))?.name==='nether_portal')
+ const receipt=placed=>({item:'safety',count:placed,receipt:'portal_sealed',portal:xyz(feet.offset(side[0],0,side[2])),side:{dx:side[0],dz:side[2]},cells:cells.map(xyz),placed,alreadySealed:placed===0&&site.needed===0})
+ if(!site.needed)return receipt(0)
+ assertNoHostileOccupants(bot,[feet,feet.offset(0,1,0),...cells])
+ await centreOn(bot,feet,check)
+ stage('walling');progress(`Sealing the portal's ${site.needed} open face cells`)
+ const cobble=()=>{const m=hutMaterials(bot);return [...m.filter(i=>i.name==='cobblestone'),...m.filter(i=>i.name!=='cobblestone')]}
+ const before=cells.filter(c=>!solid(bot,bot.blockAt(c))).length
+ await placeCells(bot,cells.map(target=>({target,ref:null})),{check,progress,feet,materials:cobble})
+ const missing=cells.filter(c=>!solid(bot,bot.blockAt(c))).map(key)
+ if(missing.length)throw new Error(`Portal seal incomplete: ${missing.length} of ${cells.length} face cells open (${missing.slice(0,3).join('; ')})`)
+ return receipt(before)
 }

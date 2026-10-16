@@ -223,7 +223,7 @@ export class Runner extends EventEmitter {
       this.runSkill();return
     }
     if (this.task.kind === 'follow') { this.applyFollow(); return }
-    if (['gather', 'craft','acquire','build','construct','give','eat','harvest','use','surface','douse','leave_portal','use_portal','burrow','unburrow','hut','unhut','flee','hunt','climb','descend','sleep','travel','goto','dig','bore','place_at','collect','attack','shoot','emote','trade','throw_eye','stand',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(this.task.kind)) { this.runSkill(); return }
+    if (['gather', 'craft','acquire','build','construct','give','eat','harvest','use','surface','douse','leave_portal','use_portal','burrow','unburrow','hut','unhut','seal_portal','flee','hunt','climb','descend','sleep','travel','goto','dig','bore','place_at','collect','attack','shoot','emote','trade','throw_eye','stand',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(this.task.kind)) { this.runSkill(); return }
     const g = this.task.goal
     this.bot.pathfinder.setGoal(new goals.GoalNear(g.x, g.y, g.z, 1))
     this.log('navigating', { task: this.task })
@@ -396,6 +396,7 @@ export class Runner extends EventEmitter {
       case 'burrow': this.skill('burrow',{},command.timeoutMs); break
       case 'unburrow': this.skill('unburrow',command.goal,command.timeoutMs); break
       case 'hut': this.skill('hut',command.goal||{},command.timeoutMs); break
+      case 'seal_portal': this.skill('seal_portal',{},command.timeoutMs); break
       case 'unhut': this.skill('unhut',command.goal||{},command.timeoutMs); break
       case 'flee': this.skill('flee',command.goal,command.timeoutMs); break
       case 'descend': this.skill('descend',command.goal,command.timeoutMs); break

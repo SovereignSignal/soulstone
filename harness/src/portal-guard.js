@@ -4,7 +4,7 @@ import {standable} from './fire-safety.js'
 import pathfinding from 'mineflayer-pathfinder'
 import {dimensionOf} from './dimension.js'
 import {wearBestArmor} from './armor.js'
-import {unwall} from './hut.js'
+import {unwall,coveredColumn} from './hut.js'
 import {wayBack} from './trail.js'
 import {plainCube} from './scaffold.js'
 const {goals}=pathfinding
@@ -24,7 +24,9 @@ export async function leavePortal(bot,task,{check,stage,progress},{pollMs=50,ste
   const p=center.offset(dx,dy,dz)
   if((dx||dz)&&standable(bot,p)&&![0,1].some(y=>/portal/.test(bot.blockAt(p.offset(0,y,0))?.name||'')))out.push(p)
  }
- out.sort((a,b)=>a.distanceTo(center)-b.distanceTo(center))
+ // Rehearsal, 16 October 19:25Z: both sides one block off, the first listed won and the bot stepped west onto the
+ // open bridge among the mobs instead of east into its own tunnel. A covered standing cell comes first.
+ out.sort((a,b)=>!!coveredColumn(bot,b)-!!coveredColumn(bot,a)||a.distanceTo(center)-b.distanceTo(center))
  try{
   for(const target of out.slice(0,3)){
    check()
