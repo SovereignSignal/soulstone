@@ -20,6 +20,11 @@ import {FIRE_BLOCKS} from './survival.js'
 import {centreOn} from './navigation.js'
 import {inNether} from './dimension.js'
 export const BORE_MAX=64,BORE_PLUGS=8,BORE_TIMEOUT_MS=600000
+// Live canary on the test world, 16 October (4e95192): boring from a closed portal room toward a
+// target 27 blocks off, open space behind the room's wall drew a slit from the safe room into the
+// open hub. A slit opens only within this many blocks of the target (the spawner room is its
+// neighbourhood); open space farther off stops the bore with the wall left whole.
+export const SLIT_REACH=6
 const AROUND=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0],[0,-1,0]].map(([x,y,z])=>new Vec3(x,y,z))
 const xyz=p=>({x:p.x,y:p.y,z:p.z})
 // Magma is a full cube and natural ground, and it burns whoever stands on it (review of 9d2770d).
@@ -102,6 +107,8 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
   if(ahead){
    const b=bot.blockAt(ahead);beyond=b?{...xyz(ahead),name:b.name}:null
    if(hot(b)){stop(`${named(ahead)} beyond ${key(c)}; bore again toward a point three blocks to the side`,c);break}
+   const short=Math.abs(goal.x-c.x)+Math.abs(goal.z-c.z)
+   if(short>SLIT_REACH){stop(`${named(ahead)}, ${short} blocks short of the target; bore around it${columns?'':'. This wall is the first one: step to another wall or re-aim the bore'}`,c);break}
    stop(`${named(ahead)} beyond the wall at ${key(c)}`,c);await openSlit(c);break
   }
   // The family rule, lava beside, over or under, falling blocks overhead: refuseDigCell as dig judges them.

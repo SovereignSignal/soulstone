@@ -57,7 +57,7 @@ test('bore validates its goal and step and is registered as a skill, a label and
  Runner.prototype.applyGoal.call({ready:true,connectionId:'c1',task:{kind:'bore',status:'running',goal:{x:1,y:64,z:1,count:2},deadline:Date.now()+10000},bot:{pathfinder:{setGoal:g=>calls.push(['navigate',g])}},log:t=>calls.push([t]),finish:(s,r)=>calls.push(['finish',s,r]),runSkill:()=>calls.push(['runSkill'])})
  assert.deepEqual(calls,[['runSkill']])
  const controller=readFileSync(new URL('../src/companion/controller.js',import.meta.url),'utf8')
- assert.match(controller.split('\n').find(l=>l.includes('const labels={')),/bore:s=>`Boring a covered tunnel \$\{s\.count\} columns toward/)
+ assert.match(controller.split('\n').find(l=>l.includes('const labels={')),/bore:s=>`bore a covered tunnel \$\{s\.count\} columns toward \$\{s\.target\.x\}, /)
  assert.match(readFileSync(new URL('../src/companion/survival-capabilities.txt',import.meta.url),'utf8'),/^Action bore: name="", item="", count=1–64/m)
 })
 test('bore admits through intent and skill control',async()=>{
@@ -186,7 +186,7 @@ test('a cancel after the dig of column 4 leaves the bot in column 3 with column 
 test('a column open onto a cavern stops the bore before it; a pocket closed inside the column does not',async()=>{
  await assert.rejects(bore(world({fills:[[1,65,0,'air'],[1,64,0,'air'],[1,65,1,'air'],[1,64,1,'air'],[1,64,2,'air']]}),{}),/open space at 1,65,0/)
  const pocket=world({fills:[[2,65,0,'cave_air']]});assert.equal((await bore(pocket,{count:3})).columns,3)
- const w=world({fills:[[3,64,0,'air'],[3,65,0,'air'],[4,64,0,'air']]});const r=await bore(w,{})
+ const w=world({fills:[[3,64,0,'air'],[3,65,0,'air'],[4,64,0,'air']]});const r=await bore(w,{x:6})
  assert.equal(r.columns,1);assert.equal(r.slit.length,3);assert.deepEqual(r.beyond,{x:3,y:64,z:0,name:'air'})
 })
 // Review of 9d2770d, 16 October: magma, receipts with nothing done, the Overworld, footprints, a raised wall, the clock.
@@ -215,4 +215,17 @@ test('a wall one step above the bot gets no slit: the reason says to bore level 
 test('a bore cut short by its time budget says so in the receipt',async()=>{
  const w=world();const r=await bore(w,{},{...api,budgetMs:400})
  assert.ok(r.columns>=1&&r.columns<10,`${r.columns} columns`);assert.equal(r.reason,`timed out after ${r.columns} columns`)
+})
+// Live canary on the test world, 16 October (4e95192): in a closed portal room against its north
+// wall, a bore toward a target 27 blocks off found the open arrival hub behind the wall and cut a
+// slit from the safe room into it. The slit is for the firing position at the end of the route only.
+test('open space beyond a wall far from the target stops the bore with the wall intact; near the target the slit opens',async()=>{
+ const hub=[];for(let x=-2;x<=2;x++)for(let y=64;y<=66;y++)for(let z=-5;z<=-2;z++)hub.push([x,y,z,'air'])
+ const far=world({fills:hub})
+ await assert.rejects(executeSkill(far.bot,{kind:'bore',goal:{x:0,y:64,z:-27,count:27}},api),/open space at 0,64,-2, 26 blocks short of the target; bore around it.*another wall.*re-aim/)
+ assert.deepEqual(far.of('dig'),[]);for(const c of [k(0,64,-1),k(0,65,-1),k(-1,65,-1),k(1,65,-1)])assert.equal(far.cells.get(c),undefined,`${c} still netherrack`)
+ const later=world({fills:ROOM});const r=await bore(later,{x:20})
+ assert.equal(r.columns,3);assert.equal(r.slit,null);assert.match(r.reason,/open space at 5,64,0, 16 blocks short of the target; bore around it/);assert.equal(later.cells.get(k(4,65,0)),undefined)
+ const near=world({fills:hub});const n=await executeSkill(near.bot,{kind:'bore',goal:{x:0,y:64,z:-6,count:6}},api)
+ assert.equal(n.columns,0);assert.deepEqual(n.slit,[{x:0,y:65,z:-1},{x:-1,y:65,z:-1},{x:1,y:65,z:-1}])
 })
