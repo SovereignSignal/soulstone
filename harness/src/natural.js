@@ -81,4 +81,8 @@ export function trackOwnPlacements(bot,own){
 // placeBlock's answer, calls this once it sees the block: the hut's walls and
 // re-closed port, fillCell's scaffolding and plugs, the burrow's cap and climb.
 export const claimPlaced=(bot,cell)=>!!bot?.ownBlocks?.claim&&!!cell&&bot.ownBlocks.claim(cell,bot.blockAt?.(cell),dimensionOf(bot))
+// The hut's own walls, whatever their age: a hut can be held past OWN_TTL_MS (four watches and
+// a Resume) and must still open (review of 16 October). A cell whose block changes is forgotten
+// on its blockUpdate, so a player's replacement is not taken for the bot's.
+export const ownedNow=(bot,block)=>{const e=block?.position&&block?.name?bot?.ownBlocks?.entry?.(block.position,dimensionOf(bot)):null;return !!e&&e.name===block.name}
 export const breakable=(bot,block)=>isNatural(block?.name)||inNether(bot)&&NETHER_NATURAL.has(block?.name)||!!bot?.ownBlocks?.has(block?.position,block?.name,dimensionOf(bot))

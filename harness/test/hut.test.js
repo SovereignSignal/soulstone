@@ -329,6 +329,21 @@ test('the plain exit opens only a side it may break, and with none it fails with
  await assert.rejects(unwall(room.bot,{kind:'unhut',goal:{}},api),/Could not open a wall of the hut: .*not natural ground and not placed by me/)
  assert.deepEqual(room.dug,[],'the room is kept')
 })
+// Review of 16 October: the own-block record lapses after two hours for digging, but a hut held
+// longer (four watches and a Resume) is still the bot's own to open while its walls stand.
+test('a hut held past the own-block lapse still opens its own cobblestone, and still refuses the planks',async()=>{
+ const realNow=Date.now
+ try{
+  const w=besideWall('oak_planks');await executeSkill(w.bot,{kind:'hut',goal:{}},api);w.dug.length=0
+  const d=besideWall('oak_planks');await executeSkill(d.bot,{kind:'hut',goal:{}},api);d.dug.length=0
+  const later=realNow()+3*3600*1000;Date.now=()=>later
+  const out=await unwall(w.bot,{kind:'unhut',goal:{toward:{x:40,z:10}}},api)
+  assert.notDeepEqual(out.side,{dx:1,dz:0});assert.ok(!w.dug.some(c=>c.startsWith('(11,')),w.dug.join(' '))
+  skeletonAt(d.bot,15.5,64,13.5)
+  const port=await unwall(d.bot,{kind:'unhut',goal:{toward:{x:15,z:13},shooter:'skeleton'}},api)
+  assert.deepEqual(port.side,{dx:0,dz:1});assert.deepEqual(d.dug,[new Vec3(10,65,11).toString()])
+ }finally{Date.now=realNow}
+})
 // Lab run 156, 15 October: a two-high port into a sealed room put the bot's whole body in the
 // line of four blazes at 2.6 to 4 blocks, and it went from 20 health to 8.7 in six seconds. A
 // blaze aims its fireball from its feet+1.4 at the target's mid-height, so a port at the feet

@@ -10,7 +10,7 @@ import {centreOn,DoorAwareMovements} from './navigation.js'
 import {SHOOTERS_ONLY,FIRE_BLOCKS} from './survival.js'
 import {hop} from './portal-guard.js'
 import {inNether} from './dimension.js'
-import {claimPlaced,breakable} from './natural.js'
+import {claimPlaced,breakable,ownedNow} from './natural.js'
 import {plainFirst,holdToPlace} from './placement.js'
 import pathfinding from 'mineflayer-pathfinder'
 const {goals}=pathfinding
@@ -213,7 +213,7 @@ export async function wallIn(bot,task,{check,stage,progress}){
 const PORT_MOBS=new Set([...SHOOTERS_ONLY,'enderman'])
 const LIQUID=new Set(['water','lava','bubble_column'])
 const AROUND=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]
-const opens=(bot,b)=>!b||REPLACEABLE.has(b.name)||breakable(bot,b)
+const opens=(bot,b)=>!b||REPLACEABLE.has(b.name)||breakable(bot,b)||ownedNow(bot,b)
 // Exported for the hut's watch (burrow.js portSightline), so it judges a shot only through the
 // side unhut will open (lab run 166, 16 October).
 export function firingPort(bot,feet,goal){
