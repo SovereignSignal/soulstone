@@ -295,26 +295,36 @@ test('on a trip in a one-wide tunnel the open ends are walled before any burrow;
 // burrow refused by a dropper floor, "Nowhere to wall in here. Trying the portal again." took
 // the bot home with one rod. On a trip the portal is for an ended trip or a hurt bot.
 const SPRINTS=['use_portal','flee','climb','descend']
-test('on a kitted trip whose hut and burrow both fail, the portal is not tried again: a hut one block short is walled once more',async()=>{
- const short=await tunnelCover({portalNear:true,fails:{hut:['Hut incomplete: 1 of 10 blocks missing (0,65,1)'],burrow:['No safe burrow here']}})
- assert.deepEqual(short.all.slice(0,3),['hut','burrow','hut'],short.all.join(' ')+' :: '+short.said.join(' | '))
- assert.deepEqual(short.all.filter(a=>SPRINTS.includes(a)),[],short.all.join(' '))
- assert.ok(!short.said.some(t=>/Trying the portal again/.test(t)),short.said.join(' | '))
-})
-test('a trip bot that cannot shelter where it stands never runs: no portal, no flee, no climb or descent, and the episode fails for its retries',async()=>{
- const {r,c}=tunnelTeammate({portalNear:true,fails:{hut:['Hut incomplete: 3 of 10 blocks missing (0,65,1)'],burrow:['No safe burrow here']}})
+// The tick's own retry: the episode failed, a retry is due, the danger is still there.
+async function tickRetry(r,c){
+ const n=r.commands.length;c.safety.failedAt=0;r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,80))
+ return chain({commands:r.commands.slice(n)})
+}
+test('on a kitted trip whose hut and burrow both fail, the portal is not tried again: the episode fails and its retry walls in again',async()=>{
+ const {r,c}=tunnelTeammate({portalNear:true,fails:{hut:['Hut incomplete: 1 of 10 blocks missing (0,65,1)'],burrow:['No safe burrow here']}})
+ c.threatJudge={control:false,judge:async()=>null}
  await c.seekSafety(THREAT_INTERRUPTION)
- const acts=chain(r)
- assert.deepEqual(acts,['hut','burrow'],acts.join(' '))
+ const said=()=>c.messages.map(m=>m.text).join(' | ')
+ assert.deepEqual(chain(r),['hut','burrow'],chain(r).join(' ')+' :: '+said())
+ assert.equal(c.safety.status,'failed');assert.match(c.safety.error,/No verified shelter reached/)
+ assert.ok(!/Trying the portal again/.test(said()),said())
+ assert.deepEqual(await tickRetry(r,c),['hut'],chain(r).join(' '))
+ assert.equal(c.safety.retreat?.receipt,'hut');assert.deepEqual(chain(r).filter(a=>SPRINTS.includes(a)),[])
+ c.cancel?.(true)
+})
+// The trip arm is a guard that does nothing: moving away is climb, descend and a 24-block
+// flee, the Nether sprint that killed lab run 141 (14 October).
+test('a kitted trip with no portal in reach whose hut and burrow fail never runs: no flee, no climb or descent, and the episode fails for its retries',async()=>{
+ const {r,c}=tunnelTeammate({fails:{hut:['Hut incomplete: 3 of 10 blocks missing (0,65,1)'],burrow:['No safe burrow here']}})
+ await c.seekSafety(THREAT_INTERRUPTION)
+ assert.deepEqual(chain(r),['hut','burrow'],chain(r).join(' '))
  assert.equal(c.safety.status,'failed');assert.match(c.safety.error,/No verified shelter reached/)
  c.cancel?.(true)
 })
 test('a trip whose cover fails retries it while strong, and once hurt below the trip line the retry goes home through the portal',async()=>{
  const {bot,r,c}=tunnelTeammate({portalNear:true,fails:{hut:Array(4).fill('Hut incomplete: 3 of 10 blocks missing (0,65,1)'),burrow:Array(4).fill('No safe burrow here')}})
  c.threatJudge={control:false,judge:async()=>null}
- const acts=()=>chain(r).join(' ')
- // The tick's own retry: the episode failed, a retry is due, the danger is still there.
- const retry=async()=>{const n=r.commands.length;c.safety.failedAt=0;r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,80));return chain({commands:r.commands.slice(n)})}
+ const acts=()=>chain(r).join(' '),retry=()=>tickRetry(r,c)
  await c.seekSafety(THREAT_INTERRUPTION);assert.equal(c.safety.status,'failed')
  assert.deepEqual(await retry(),['hut','burrow'],'strong: cover again, '+acts())
  assert.equal(c.safety.retries,1)

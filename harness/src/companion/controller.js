@@ -923,10 +923,7 @@ export class Teammate extends EventEmitter {
       // way, 107 with two blaze rods). With a portal in reach, try it again instead.
       // Lab run 165, 15 October: kitted, health 20, the hut one block short and the burrow
       // refused by a dropper floor, this walk took the bot home with one rod. On a trip the
-      // portal is for an ended trip or a hurt bot (the first walk above), and moving away is
-      // the sprint that killed lab run 141: a hut one block short is walled once more, as the
-      // portal room is, and otherwise the episode fails. Its retries try cover again, and
-      // below the trip's health the trip is over and the first walk takes the bot home.
+      // portal is for an ended trip or a hurt bot (the first walk above).
       if(!this.safety.retreat&&!trip&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})){
         const attempt={name:'portal_home',status:'trying'};this.safety.attempts.push(attempt);this.persist()
         this.say('Nowhere to wall in here. Trying the portal again.')
@@ -945,13 +942,11 @@ export class Teammate extends EventEmitter {
           this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)
         }
       }
-      else if(!this.safety.retreat&&trip&&inNether(recoveryBot)){
-        const huts=this.safety.attempts.filter(a=>a.name==='hut')
-        if(huts.length===1&&/^Hut incomplete: 1 of /.test(huts[0].reason||'')){
-          await this.lastResortShelter(epoch,abort.signal,{trip,hutAgain:true})
-          if(epoch!==this.epoch||abort.signal.aborted)return
-        }
-      }
+      // On a trip this arm does nothing, on purpose: moving away below is climb, descend and a
+      // 24-block flee, the Nether sprint that killed lab run 141 (14 October). The episode
+      // fails, and its bounded retry tries cover again three seconds later on a fresh read of
+      // the health; below the trip's health the trip is over and the first walk goes home.
+      else if(!this.safety.retreat&&trip&&inNether(recoveryBot)){}
       else if(!this.safety.retreat&&await this.moveOutOfDanger(epoch,abort.signal,recoveryBot)){
         if(epoch!==this.epoch||abort.signal.aborted)return
         await this.lastResortShelter(epoch,abort.signal,{trip})
@@ -1053,7 +1048,7 @@ export class Teammate extends EventEmitter {
   }
   // Last resort with no base and no weapon: dig in, or wall in where the
   // ground cannot be dug. Returns whether a shelter was reached.
-  async lastResortShelter(epoch,signal,{trip=false,hutAgain=false}={}) {
+  async lastResortShelter(epoch,signal,{trip=false}={}) {
     // Burrow and hut judge the ground under the bot; a sprint or jump leaves it airborne for a moment.
     for(let i=0;i<15&&this.runner.bot?.entity?.onGround===false;i++){await delay(100);if(epoch!==this.epoch||signal.aborted)return false}
     // One attempt; false when the shelter was cancelled under it.
@@ -1079,8 +1074,7 @@ export class Teammate extends EventEmitter {
     // a climb out under four blazes. Such a tunnel is a hut already but for its two open ends,
     // four blocks, so on a trip under rock those are walled first and the burrow is the fallback.
     const site=trip&&roofed(this.runner.bot)?hutSite(this.runner.bot):null
-    const order=hutAgain?[()=>hut('My wall is one block short. I am walling in again here.')]
-      :site?.ok&&site.needed<=4?[()=>hut('Rock on every side but two. I am walling in the open ends with carried blocks.'),burrow]
+    const order=site?.ok&&site.needed<=4?[()=>hut('Rock on every side but two. I am walling in the open ends with carried blocks.'),burrow]
       // Ground that cannot be dug: wall in with carried blocks instead.
       :[burrow,()=>hut('The ground here cannot be dug. I am walling myself in with carried blocks.')]
     for(const step of order)if(!this.safety.retreat&&!await step())return false
