@@ -4,6 +4,7 @@ import {validateThrowEyeGoal} from './eye-of-ender.js'
 import {validateStandGoal} from './enderman-stand.js'
 import {validateTravelGoal} from './travel.js'
 import {validateGotoGoal,validateDigGoal,validateProtectedSites} from './primitives.js'
+import {validateBoreGoal} from './bore.js'
 import {validatePlaceAtGoal,validateCollectGoal,validateAttackGoal} from './primitives-world.js'
 import {validateHarvest} from './foraging.js'
 import {validateEatGoal,SHOOTERS_ONLY} from './survival.js'
@@ -46,6 +47,7 @@ export function validateTaskGoal(kind, goal) {
   if(kind==='throw_eye')return validateThrowEyeGoal(goal)
   if(kind==='stand')return validateStandGoal(goal)
   if(kind==='dig')return validateDigGoal(goal)
+  if(kind==='bore')return validateBoreGoal(goal)
   if(kind==='place_at')return validatePlaceAtGoal(goal)
   if(kind==='collect')return validateCollectGoal(goal)
   // Self-defense shoots with collect:false and picks up after its area check.

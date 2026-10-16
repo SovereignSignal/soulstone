@@ -1,0 +1,143 @@
+// Bore: a covered one-wide, two-high tunnel toward a target, the route to a blaze
+// spawner when hostiles hold the open ground at the arrival portal. Nether trip
+// lessons, 13 to 14 October: ten deaths, never at the stand, always on the walk.
+// dig's straight line rounds each axis, so consecutive columns meet at a corner and
+// the step between them cuts a third; it never closes the air pockets it uncovers,
+// and it walks into open space at its own level. bore takes Manhattan columns,
+// plugs every face a column uncovers before stepping in, stops one column short of
+// open space and keeps that column as the wall, with a three-cell slit at head
+// height (lab run 166, 16 October: the bay at -42,59,-8 had exactly that shape and
+// held twenty minutes). Lava and the family rule stop it with a named reason;
+// nothing is left half done, so the next bore from where it stands carries on.
+import {Vec3} from 'vec3'
+import {refuseDigCell,digOne,walkNear,inventoryCounts,inventoryDelta,validateProtectedSites,LIQUID,AIR,key} from './primitives.js'
+import {fullCube} from './construction.js'
+import {hutMaterials} from './hut.js'
+import {fillCell} from './scaffold.js'
+import {mayDig} from './natural.js'
+import {portReady} from './nether-trip.js'
+import {FIRE_BLOCKS} from './survival.js'
+import {centreOn} from './navigation.js'
+export const BORE_MAX=64,BORE_PLUGS=8,BORE_TIMEOUT_MS=600000
+const AROUND=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0],[0,-1,0]].map(([x,y,z])=>new Vec3(x,y,z))
+const xyz=p=>({x:p.x,y:p.y,z:p.z})
+const hot=b=>!b||LIQUID.has(b.name)||FIRE_BLOCKS.has(b.name)
+export function validateBoreGoal(goal){
+ if(!goal||!['x','y','z'].every(k=>Number.isSafeInteger(goal[k])))throw new Error('Bore needs a target with integer x, y and z')
+ if(!Number.isInteger(goal.count)||goal.count<1||goal.count>BORE_MAX)throw new Error(`Bore count must be 1–${BORE_MAX} columns`)
+ validateProtectedSites(goal.protectedSites)
+ return {x:goal.x,y:goal.y,z:goal.z,count:goal.count,...(goal.protectedSites?.length?{protectedSites:goal.protectedSites}:{})}
+}
+export function validateBoreStep(s){
+ if(s.name!==''||(s.item??'')!==''||(s.design!==undefined&&(!Array.isArray(s.design)||s.design.length)))throw new Error('Bore requires empty name, item and design')
+ if(!s.target||Object.keys(s.target).length!==3)throw new Error('Bore needs a target with integer x, y and z')
+ validateBoreGoal({...s.target,count:s.count})
+}
+// The longer horizontal axis in full, then the other: one corner, never a diagonal pair.
+// A height change is spread one step per floor(H/|dy|) columns, never two in one column.
+export function borePath(from,to){
+ const dx=to.x-from.x,dz=to.z-from.z,dy=to.y-from.y,every=Math.max(1,Math.floor((Math.abs(dx)+Math.abs(dz))/Math.max(1,Math.abs(dy)))),path=[]
+ let at=new Vec3(from.x,from.y,from.z)
+ for(const [axis,d] of Math.abs(dx)>=Math.abs(dz)?[['x',dx],['z',dz]]:[['z',dz],['x',dx]])for(let n=0;n<Math.abs(d);n++){
+  at=at.clone();at[axis]+=Math.sign(d)
+  if((path.length+1)%every===0&&Math.abs(at.y-from.y)<Math.abs(dy))at.y+=Math.sign(dy)
+  path.push(at)
+ }
+ return path
+}
+// The cells a column opens, top first. A step down opens the lower column's third cell, the
+// one the body passes through as it drops; a step up the one over the head it jumps from:
+// mineflayer-pathfinder's drop-down and jump-up moves need both, and a player does too.
+const columnCells=(prev,c)=>[...(c.y<prev.y?[c.offset(0,2,0)]:c.y>prev.y?[prev.offset(0,2,0)]:[]),c.offset(0,1,0),c]
+export async function boreToward(bot,task,{check,stage,progress,movements}){
+ const goal=validateBoreGoal(task.goal),sites=goal.protectedSites||[],solid=b=>!!b&&fullCube(bot.registry,b.name)
+ const here=()=>{const p=bot.entity.position;return new Vec3(Math.floor(p.x),Math.floor(p.y+.2),Math.floor(p.z))}
+ check()
+ if(!bot.inventory.items().some(i=>/_pickaxe$/.test(i.name)))throw new Error('Boring needs a pickaxe')
+ const carried=hutMaterials(bot).reduce((n,i)=>n+i.count,0)
+ if(carried<BORE_PLUGS)throw new Error(`Boring needs ${BORE_PLUGS} blocks to close what it uncovers; carrying ${carried}`)
+ const before=inventoryCounts(bot),from=here(),path=borePath(from,goal)
+ if(!path.length)throw new Error(`Bore runs sideways and ${key(goal)} is straight above or below; dig a shaft with dig`)
+ const open=new Set([from,from.offset(0,1,0)].map(key)),plugged=[]
+ let columns=0,reason=null,stoppedAt=null,slit=null,beyond=null,wall=null
+ const stop=(why,at,b)=>{reason=why;stoppedAt=xyz(at);if(b?.boundingBox==='block'&&!mayDig(bot,b))wall=`${b.name} at ${key(b.position)}`}
+ // Close each of these cells that is not a full cube and not the tunnel itself, standing
+ // centred first (a player is 0.6 wide). Returns the first cell it could not close.
+ const seal=async cells=>{
+  let centred=false
+  for(const n of cells){
+   if(open.has(key(n))||solid(bot.blockAt(n)))continue
+   if(!centred){centred=true;await centreOn(bot,here(),check)}
+   const item=hutMaterials(bot)[0]
+   if(!item||!await fillCell(bot,n,{check,progress,item}))return n
+   plugged.push(xyz(n));progress(`Plugged ${key(n)}`)
+  }
+  return null
+ }
+ // The burrow's lid: at the foot of a shaft the cell two above the feet is open.
+ stage('walling');const lid=await seal([from.offset(0,2,0)])
+ if(lid)throw new Error(`Boring could not close ${key(lid)} over the start`)
+ // Open space: a cell that is not a full cube, unless it is air closed in by rock and the tunnel.
+ // That is a pocket inside the column, or a column an alarm left dug and closed: a bore issued
+ // again from the column behind it carries on through it.
+ const exposed=(p,own)=>{const b=bot.blockAt(p);return !b||!solid(b)&&(!AIR.has(b.name)||AROUND.some(d=>{const q=p.plus(d);return !open.has(key(q))&&!own.some(o=>o.equals(q))&&!solid(bot.blockAt(q))}))}
+ const named=p=>{const b=bot.blockAt(p);return !b?`unloaded ground at ${key(p)}`:AIR.has(b.name)?`open space at ${key(p)}`:`${b.name} at ${key(p)}`}
+ for(let i=0;i<Math.min(goal.count,path.length);i++){
+  check()
+  const c=path[i],prev=i?path[i-1]:from,next=path[i+1],cells=columnCells(prev,c)
+  const skin=()=>cells.flatMap(p=>AROUND.map(d=>p.plus(d))).filter(q=>!cells.some(p=>p.equals(q)))
+  stage('digging');progress(`Boring column ${i+1}/${goal.count} at ${key(c)}`)
+  const gap=cells.find(p=>exposed(p,cells))
+  if(gap){stop(`${named(gap)}; the tunnel stops before it`,c);break}
+  // Two ahead: open space there makes this column the last wall.
+  const ahead=next&&[next,next.offset(0,1,0)].find((p,_,own)=>exposed(p,own))
+  if(ahead){
+   const b=bot.blockAt(ahead);beyond=b?{...xyz(ahead),name:b.name}:null
+   if(hot(b)){stop(`${named(ahead)} beyond ${key(c)}; bore again toward a point three blocks to the side`,c);break}
+   stop(`${named(ahead)} beyond the wall at ${key(c)}`,c);await openSlit(c);break
+  }
+  // The family rule, lava beside, over or under, falling blocks overhead: refuseDigCell as dig judges them.
+  let refused=null
+  for(const p of cells){const why=refuseDigCell(bot,p,{protectedSites:sites,role:'head'});if(why){refused=[why,p];break}}
+  const f=c.offset(0,-1,0),floor=bot.blockAt(f)
+  if(!refused&&hot(floor))refused=[`${key(c)} has ${floor?.name??'unloaded ground'} under it at ${key(f)}; bore again toward a point three blocks to the side`,f]
+  if(refused){stop(refused[0],c,bot.blockAt(refused[1]));break}
+  // The skin is closed against the column's own rock before it is dug, so no opening is ever
+  // uncovered, and read again after the dig.
+  stage('walling');const early=await seal(skin())
+  if(early){stop(`could not close ${key(early)}; the tunnel stops before ${key(c)}`,c);break}
+  stage('digging')
+  for(const p of cells){
+   const b=bot.blockAt(p)
+   if(!AIR.has(b.name)){
+    if(typeof bot.canDigBlock==='function'&&!bot.canDigBlock(b)){stop(`Cannot reach ${b.name} at ${key(p)} to dig it`,c);break}
+    try{await digOne(bot,b,check)}catch(error){if(error?.code!=='DIG_REFUSED')throw error;stop(error.message,c);break}
+   }
+   open.add(key(p))
+  }
+  stage('walling');const leak=await seal(skin())
+  if(leak&&!reason)stop(`could not close ${key(leak)}; the tunnel stops before ${key(c)}`,c)
+  if(reason)break
+  try{await walkNear(bot,c,{dig:false,protectedSites:sites,check,stage,progress,movements,exact:true,timeoutMs:20000})}
+  catch(error){check();stop(`did not step into ${key(c)}: ${error.message}`,c);break}
+  columns++
+ }
+ // Three cells at head height in the wall column, centre first; its feet cell stays, so nothing
+ // walks in or out. Gated as the hut's port is (portReady), and skipping what the port skips.
+ async function openSlit(w){
+  const feet=here(),ready=portReady(bot),s0=new Vec3(w.x,feet.y+1,w.z),lateral=new Vec3(Math.abs(w.z-feet.z),0,Math.abs(w.x-feet.x))
+  if(!ready.ready){reason=`${ready.reason}: the slit at ${key(s0)} waits; rest, then bore again from here`;return}
+  const inside=[feet,feet.offset(0,1,0)].map(key)
+  const fit=p=>{const b=bot.blockAt(p);return !!b&&(AIR.has(b.name)||mayDig(bot,b))&&![p,...AROUND.map(d=>p.plus(d))].some(q=>!inside.includes(key(q))&&hot(bot.blockAt(q)))}
+  if(!fit(s0)){const b=bot.blockAt(s0);reason=`no slit at ${key(s0)}: ${b&&!AIR.has(b.name)&&!mayDig(bot,b)?`${b.name} is not natural ground`:'lava, fire or unloaded ground touches it'}`;if(b&&!AIR.has(b.name)&&!mayDig(bot,b))wall=`${b.name} at ${key(s0)}`;return}
+  stage('digging');slit=[]
+  for(const p of [s0,s0.minus(lateral),s0.plus(lateral)]){
+   check();if(!fit(p)){progress(`Slit cell ${key(p)} stays shut`);continue}
+   try{await digOne(bot,bot.blockAt(p),check);slit.push(xyz(p))}
+   catch(error){if(error?.code!=='DIG_REFUSED')throw error;progress(`Slit cell ${key(p)} stays shut: ${error.message}`)}
+   if(!slit.length){reason=`no slit at ${key(s0)}: the centre would not open`;slit=null;return}
+  }
+ }
+ if(!columns&&!slit&&!plugged.length)throw new Error(reason||`Bore opened nothing toward ${key(goal)}`)
+ return {receipt:'bored',columns,requested:goal.count,from:xyz(from),to:xyz(here()),stoppedAt,reason,plugged,slit,beyond,wall,drops:inventoryDelta(before,inventoryCounts(bot))}
+}

@@ -1,7 +1,7 @@
 import {JUDGEMENT_URL,DEFAULT_MODEL} from '../threat-judgement.js'
 import {validatePlan} from './planner.js'
 
-export const SKILL_ACTIONS=new Set(['use','inspect','gather','acquire','prepare','eat','harvest','hunt','sleep','build','construct','place','smelt','check_base','retreat','leave_base','travel','goto','emote','trade','throw_eye','stand','dig','place_at','collect','attack','shoot','descend','climb','prospect','return_base','make_obsidian'])
+export const SKILL_ACTIONS=new Set(['use','inspect','gather','acquire','prepare','eat','harvest','hunt','sleep','build','construct','place','smelt','check_base','retreat','leave_base','travel','goto','emote','trade','throw_eye','stand','dig','bore','place_at','collect','attack','shoot','descend','climb','prospect','return_base','make_obsidian'])
 
 
 // Bound even a provider adapter which fails to honour its AbortSignal.

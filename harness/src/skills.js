@@ -15,6 +15,7 @@ import {climbSkill} from './route-recovery.js'
 import {sleepThroughNight} from './sleep.js'
 import {travelTo} from './travel.js'
 import {gotoPosition,digToward,watchPathfinder,walkNear} from './primitives.js'
+import {boreToward} from './bore.js'
 import {placeAt,collectDrops,attackEntity} from './primitives-world.js'
 import {huntFor} from './hunt.js'
 import {defendAgainstMob} from './combat.js'
@@ -57,6 +58,7 @@ export async function executeSkill(bot, task, context) {
   if(task.kind==='throw_eye')return throwEye(bot,task,context)
   if(task.kind==='stand')return enderStand(bot,task,context)
   if(task.kind==='dig')return digToward(bot,task,context)
+  if(task.kind==='bore')return boreToward(bot,task,context)
   if(task.kind==='place_at')return placeAt(bot,task,context)
   if(task.kind==='collect')return collectDrops(bot,task,context)
   if(task.kind==='attack')return attackEntity(bot,task,context)

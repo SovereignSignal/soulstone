@@ -2,6 +2,7 @@ import {EMOTES} from '../emote.js'
 import {recoverySchema,recoveryInstructions,validateRecovery} from './adaptive-recovery.js'
 import {validateUseStep} from '../use-item.js'
 import {validateGotoStep,validateDigStep} from '../primitives.js'
+import {validateBoreStep} from '../bore.js'
 import {validatePlaceAtStep,validateCollectStep,validateAttackStep} from '../primitives-world.js'
 import {inspectBlockNames} from '../observations.js'
 import {validateHarvest} from '../foraging.js'
@@ -25,14 +26,14 @@ const SKILL_INSTRUCTIONS='The steps in this response are INDEPENDENT alternative
 
 export const schema = { type: 'object', additionalProperties: false, required: ['reply', 'steps'], properties: {
   reply: { type: 'string' }, steps: { type: 'array', maxItems: 8, items: { type: 'object', additionalProperties: false,
-    required: ['action', 'name', 'count', 'item','design','target'], properties: { action: { type: 'string', enum: ['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest','hunt','sleep','descend','climb','use_portal','travel','goto','emote','trade','throw_eye','stand','dig','place_at','collect','attack','shoot','use',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS] },
+    required: ['action', 'name', 'count', 'item','design','target'], properties: { action: { type: 'string', enum: ['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest','hunt','sleep','descend','climb','use_portal','travel','goto','emote','trade','throw_eye','stand','dig','bore','place_at','collect','attack','shoot','use',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS] },
       target:{anyOf:[{type:'null'},{type:'object',additionalProperties:false,required:['x','y','z'],properties:{x:{type:'integer'},y:{type:'integer'},z:{type:'integer'}}},{type:'object',additionalProperties:false,required:['x','y','z','dig'],properties:{x:{type:'integer'},y:{type:'integer'},z:{type:'integer'},dig:{type:'boolean'}}},{type:'object',additionalProperties:false,required:['x','y','z','dig','exact'],properties:{x:{type:'integer'},y:{type:'integer'},z:{type:'integer'},dig:{type:'boolean'},exact:{type:'boolean'}}},{type:'object',additionalProperties:false,required:['x','y','z','how','dimension'],properties:{x:{type:'integer'},y:{type:'integer'},z:{type:'integer'},how:{type:'string',enum:['click','point']},dimension:{type:'string',enum:['overworld','the_nether','the_end']}}}]},
       name: { type: 'string' }, count: { type: 'integer' }, item: { type: 'string' }, design:{type:'array',items:{type:'object',additionalProperties:false,required:['x','y','z','x2','y2','z2','block'],properties:{x:{type:'integer'},y:{type:'integer'},z:{type:'integer'},x2:{type:'integer'},y2:{type:'integer'},z2:{type:'integer'},block:{type:'string'}}}} } } }
 } }
 export function validatePlan(value) {
   if (!value || typeof value.reply !== 'string' || value.reply.length > 1000 || !Array.isArray(value.steps) || value.steps.length > 8) throw new Error('Model returned an invalid plan')
   const steps = value.steps.flatMap((s, i) => {
-    if (!s || !['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest','hunt','sleep','descend','climb','use_portal','travel','goto','emote','trade','throw_eye','stand','dig','place_at','collect','attack','shoot','use',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action)) throw new Error('Unsupported model action')
+    if (!s || !['remember', 'return', 'come', 'follow', 'gather', 'gather_and_return','inspect','acquire','build','construct','revise','give','eat','harvest','hunt','sleep','descend','climb','use_portal','travel','goto','emote','trade','throw_eye','stand','dig','bore','place_at','collect','attack','shoot','use',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(s.action)) throw new Error('Unsupported model action')
     if(['descend','climb','travel','goto'].includes(s.action)&&(s.count!==0||s.name!==''||(s.item??'')!==''||s.design!==undefined&&(!Array.isArray(s.design)||s.design.length)))throw new Error('Terrain recovery requires empty name, item, design and count zero')
     if(s.action==='travel'&&(!s.target||Object.keys(s.target).length!==3||!['x','y','z'].every(k=>Number.isSafeInteger(s.target[k]))))throw new Error('Travel needs a target with integer x, y and z')
     if(s.action==='goto')validateGotoStep(s)
@@ -41,10 +42,11 @@ export function validatePlan(value) {
     if(s.action==='throw_eye'&&(s.name!==''||s.count!==1||!['','ender_eye'].includes(s.item??'')))throw new Error('throw_eye needs an empty name, item ender_eye and count 1: One eye per step')
     if(s.action==='emote'&&(!EMOTES.includes(s.item)||!Number.isInteger(s.count)||s.count<1||s.count>5||s.name!==''))throw new Error('Emote needs item one of '+EMOTES.join(', ')+', count 1 to 5 and an empty name')
     if(s.action==='dig')validateDigStep(s)
+    if(s.action==='bore')validateBoreStep(s)
     if(s.action==='place_at')validatePlaceAtStep(s)
     if(s.action==='collect')validateCollectStep(s)
     if(s.action==='attack'||s.action==='shoot')validateAttackStep(s)
-    if(!['travel','use','goto','dig','place_at'].includes(s.action)&&s.target!=null)throw new Error('Only travel, use, goto, dig and place_at accept a target')
+    if(!['travel','use','goto','dig','bore','place_at'].includes(s.action)&&s.target!=null)throw new Error('Only travel, use, goto, dig, bore and place_at accept a target')
     if(s.action==='use')validateUseStep(s)
     if(s.action==='inspect'&&s.item)inspectBlockNames(s.item)
     if(s.action==='harvest')validateHarvest(s)
@@ -74,7 +76,7 @@ export function validatePlan(value) {
       if (typeof name !== 'string' || !/^[a-zA-Z0-9 _-]{1,40}$/.test(name)) throw new Error('Invalid meeting location name')
       return [{ action: 'remember', name: name.toLowerCase().trim(), count: 0 }, { action: 'gather', name: '', count: s.count, ...(s.item ? {item:s.item} : {}) }, { action: 'return', name: name.toLowerCase().trim(), count: 0 }]
     }
-    return { action: s.action, name: typeof s.name === 'string' ? s.name.toLowerCase().trim() : '', count: s.count || 0, ...(s.action==='travel'?{target:{...s.target}}:{}),...(s.action==='goto'?{target:{x:s.target.x,y:s.target.y,z:s.target.z,dig:!!s.target.dig,...(s.target.exact?{exact:true}:{})}}:{}),...(s.action==='dig'||s.action==='place_at'?{target:{x:s.target.x,y:s.target.y,z:s.target.z}}:{}),...(s.action==='use'?{target:{x:s.target.x,y:s.target.y,z:s.target.z,how:s.target.how,dimension:s.target.dimension}}:{}), ...(s.item ? { item: s.item } : {}),...(['build','construct','revise'].includes(s.action)?{design:s.action==='construct'&&s.design.length?compileArchitecture(s.design).design:s.design}:{}) }
+    return { action: s.action, name: typeof s.name === 'string' ? s.name.toLowerCase().trim() : '', count: s.count || 0, ...(s.action==='travel'?{target:{...s.target}}:{}),...(s.action==='goto'?{target:{x:s.target.x,y:s.target.y,z:s.target.z,dig:!!s.target.dig,...(s.target.exact?{exact:true}:{})}}:{}),...(['dig','bore','place_at'].includes(s.action)?{target:{x:s.target.x,y:s.target.y,z:s.target.z}}:{}),...(s.action==='use'?{target:{x:s.target.x,y:s.target.y,z:s.target.z,how:s.target.how,dimension:s.target.dimension}}:{}), ...(s.item ? { item: s.item } : {}),...(['build','construct','revise'].includes(s.action)?{design:s.action==='construct'&&s.design.length?compileArchitecture(s.design).design:s.design}:{}) }
   })
   if (steps.length > 8) throw new Error('Plan exceeds eight executable steps')
   // A clarification question cannot simultaneously authorize a proposed action.
