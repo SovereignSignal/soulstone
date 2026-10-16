@@ -5,13 +5,15 @@
 // its kin, soil, sand and gravel, ores, leaves, snow, and the Nether's and
 // End's ground. Planks, logs, cobblestone, glass, wool, bricks and every other
 // building block are routed around or refused, even when that costs a detour.
+// 16 October: so are coloured terracotta, amethyst and moss, which generate too
+// but are what children decorate with; plain terracotta stays.
 export const NATURAL=new Set([
  'stone','deepslate','tuff','granite','diorite','andesite','calcite','dripstone_block','basalt','smooth_basalt','blackstone',
- 'dirt','grass_block','coarse_dirt','podzol','rooted_dirt','mud','clay','mycelium','moss_block',
+ 'dirt','grass_block','coarse_dirt','podzol','rooted_dirt','mud','clay','mycelium',
  'sand','red_sand','gravel','sandstone','red_sandstone','terracotta','snow','snow_block','powder_snow',
- 'netherrack','soul_sand','soul_soil','magma_block','end_stone','sculk','ancient_debris','amethyst_block','budding_amethyst',
+ 'netherrack','soul_sand','soul_soil','magma_block','end_stone','sculk','ancient_debris',
 ])
-export const isNatural=name=>!!name&&(NATURAL.has(name)||/_ore$/.test(name)||/_leaves$/.test(name)||/_terracotta$/.test(name)&&!/glazed/.test(name))
+export const isNatural=name=>!!name&&(NATURAL.has(name)||/_ore$/.test(name)||/_leaves$/.test(name))
 // The Nether's forest floor and growth (lab run 152, 15 October: a dig toward the blaze
 // spawner stopped at crimson nylium as if a player had built it). 16 October: ground only
 // in the Nether; in the Overworld glowstone is a lamp and a wart block a decoration.

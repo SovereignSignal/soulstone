@@ -792,8 +792,9 @@ test('dig never breaks a building block: it says to go around', async () => {
   await assert.rejects(() => digToward(planks, { kind: 'dig', goal: validateDigGoal({ x: 1, y: 64, z: 0, count: 1 }) }, deps()), /oak_planks at 1,64,0 is not natural ground.*Go around it/)
   assert.equal(planks._dug || 0, 0)
   const { isNatural } = await import('../src/natural.js')
-  for (const n of ['stone', 'deepslate', 'grass_block', 'gravel', 'iron_ore', 'deepslate_diamond_ore', 'oak_leaves', 'netherrack', 'orange_terracotta', 'nether_gold_ore']) assert.equal(isNatural(n), true, n)
-  for (const n of ['oak_planks', 'oak_log', 'cobblestone', 'glass', 'white_wool', 'bricks', 'obsidian', 'chest', 'orange_glazed_terracotta', '', undefined]) assert.equal(isNatural(n), false, String(n))
+  for (const n of ['stone', 'deepslate', 'grass_block', 'gravel', 'iron_ore', 'deepslate_diamond_ore', 'oak_leaves', 'netherrack', 'terracotta', 'nether_gold_ore']) assert.equal(isNatural(n), true, n)
+  // 16 October: coloured terracotta, amethyst and moss are what children decorate with.
+  for (const n of ['oak_planks', 'oak_log', 'cobblestone', 'glass', 'white_wool', 'bricks', 'obsidian', 'chest', 'orange_glazed_terracotta', 'orange_terracotta', 'amethyst_block', 'budding_amethyst', 'moss_block', '', undefined]) assert.equal(isNatural(n), false, String(n))
 })
 
 // 16 October: glowstone and the wart blocks are ground in the Nether and a lamp or a decoration
