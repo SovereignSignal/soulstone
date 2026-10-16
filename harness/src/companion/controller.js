@@ -13,7 +13,7 @@ import {validateBoreGoal,BORE_TIMEOUT_MS} from '../bore.js'
 import {validatePlaceAtGoal,validateCollectGoal,validateAttackGoal,liveSites} from '../primitives-world.js'
 import {berryObservation} from '../foraging.js'
 import {shelteredPlanning} from './sheltered-planning.js'
-import {coveredMoves,coveredHandBack} from './covered-moves.js'
+import {coveredMoves,coveredHandBack,sayEvery} from './covered-moves.js'
 import {adaptiveRecovery} from './adaptive-recovery.js'
 import {recoveryContext,recoveryState,recentRecovery,recordRecovery} from './recovery-context.js'
 import {THREAT_INTERRUPTION,clearanceObservation,awaitClearance,openGroundClearance} from './hazard-clearance.js'
@@ -56,7 +56,7 @@ export function centreward(bot,{reach=32,keep=6,main=80,climb=4}={}){
 const RANGED_CHAIN=4
 // Firing ports a shelter wait opens without a kill before it moves away (lab run 146).
 const PORT_ATTEMPTS=4
-const BURN_MS=6000,BURN_CAP_MS=10000
+const BURN_CAP_MS=10000
 // Melee kills in a row before the area is judged: a big magma cube splits into up to four.
 const MELEE_CHAIN=5
 // A hostile inside its own interruption radius while the bot is indoors: the
@@ -168,7 +168,7 @@ import {projectFootprints} from '../site-survey.js'
 import {reviseArchitecture} from '../construction.js'
 import {evaluateGoal,enforceProjectIntent,validateContract,constructionLimits,vacuousContract} from './goal-contract.js'
 import {ExperienceStore,experienceEvidence} from './experience.js'
-import {COVERED_CELLS,PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,withinBuildReach,AUTO_RESPAWN_LIMIT,STALL_CONTINUATIONS,STALL_RETRY_MS,shouldContinueAfterBudget,canContinueAfterSafety,canContinueAfterCombat,continuationMark,noteAdvance,notePortKill,wantedItems,wantedDrops,shouldRetryPlanning,noteCriterionStall} from './continuity.js'
+import {COVERED_CELLS,BURN_MS,PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,withinBuildReach,AUTO_RESPAWN_LIMIT,STALL_CONTINUATIONS,STALL_RETRY_MS,shouldContinueAfterBudget,canContinueAfterSafety,canContinueAfterCombat,continuationMark,noteAdvance,notePortKill,wantedItems,wantedDrops,shouldRetryPlanning,noteCriterionStall} from './continuity.js'
 import {PREPARE_ACTIONS} from '../supplies.js'
 import {OBSIDIAN_ACTIONS,validateObsidianGoal} from '../obsidian.js'
 import {EXPEDITION_ACTIONS,remainingDurability,expeditionObservation} from '../prospecting.js'
@@ -727,7 +727,7 @@ export class Teammate extends EventEmitter {
         // with blocks and ground for a hut, cover comes first and the bow answers from its port (runs
         // 146, 156, 166). A retry after a failed hut still shoots, the 10 October case below.
         coverFirst=!decision.engage&&retries===0&&inNether(recoveryBot)&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))&&hutSite(recoveryBot).ok
-        if(coverFirst)this.say('Cover first, the bow from the port.')
+        if(coverFirst)sayEvery(this,'cover_first','Cover first, the bow from the port.')
         // The bow answers what melee declines, unless a judge has chosen shelter.
         const ranged=!decision.engage&&!coverFirst&&(!this.threatJudge?.control||chosen!=='shelter')?rangedDefenseDecision(recoveryBot):null
         // After a kill by either weapon: confirm the area is clear, then resume or report.
@@ -1485,6 +1485,8 @@ export class Teammate extends EventEmitter {
     // Dug in or walled in: the shelter wait continues the request at daylight
     // with a clear area. An explicit Resume makes that continuation eligible,
     // or re-arms a wait that timed out, instead of planning from underground.
+    // The person re-engaged: the covered phase gets its moves and model calls back (covered-moves.js).
+    if(!automatic){delete this.requestProgress.coveredMoves;delete this.requestProgress.coveredCalls}
     if(!automatic&&['burrow','hut'].includes(this.safety?.retreat?.shelterName)&&!this.safety.exit&&this.safety.status!=='cancelled'){
       const safety=this.safety;safety.resumeRequested=true;safety.resumeRequestId=this.requestProgress.id;this.phase='blocked';this.persist()
       this.say('I am still dug in. I will continue your request once it is daylight and the area is clear.')

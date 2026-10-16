@@ -40,6 +40,9 @@ export const SHELTERED_CALLS=6
 // required". Walled in on a trip, the bot digs and bores under cover (covered-moves.js): this many
 // moves per request, and a cavity flood that follows a shaft and 64 bore columns (2 + 4 + 2 * 64).
 export const COVERED_MOVES=8,COVERED_CELLS=256
+// Review of 7d69c86, 16 October: model calls in the covered phase, wait and done included, per request
+// until an explicit Resume. A drop in health while alight, or within BURN_MS of it, is a burn, not a breach.
+export const COVERED_CALLS=12,BURN_MS=6000
 // Lab runs 99 to 101, 10 October: in a blaze-rod request the fights are the
 // work, and a fight is not a planned step, so the request stopped continuing
 // after two interruptions with rods being won. A criterion item gained (its

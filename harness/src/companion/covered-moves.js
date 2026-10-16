@@ -7,7 +7,7 @@
 // loop owns the bot while the model thinks, and a late answer never dispatches after Stop.
 import {setTimeout as delay} from 'node:timers/promises'
 import {Vec3} from 'vec3'
-import {COVERED_MOVES,COVERED_CELLS,canResume,canContinueAfterSafety,continuationMark} from './continuity.js'
+import {COVERED_MOVES,COVERED_CELLS,COVERED_CALLS,BURN_MS,canResume,canContinueAfterSafety,continuationMark} from './continuity.js'
 import {inspectEmergencyShelter} from '../shelter-occupants.js'
 import {fullCube} from '../construction.js'
 import {survivalObservation,fireObservation,FIRE_BLOCKS} from '../survival.js'
@@ -33,6 +33,7 @@ export function coveredGate(c,bot,eligible){
  if(!['hut','burrow'].includes(safety?.retreat?.shelterName)||!safety.retreat.surface)return 'not walled in'
  if(safety.exit||safety.port)return 'the shelter is open'
  if((request.coveredMoves||0)>=COVERED_MOVES)return `${COVERED_MOVES} covered moves made`
+ if((request.coveredCalls||0)>=COVERED_CALLS)return `${COVERED_CALLS} covered decisions asked`
  // Handing back is a safety continuation: it shares the episode cap, so done never loops.
  if(!(eligible||safety.resumeRequested)||!(safety.resumeRequested||canContinueAfterSafety(request,undefined,{protectedPlanning:true})))return 'the request is not due to continue'
  if(fireObservation(bot).onFire===true)return 'on fire'
@@ -81,23 +82,28 @@ function admit(c,bot,v,sites){
 }
 // The request goes back to the planner from inside the cover, as the departed branch does, and
 // the hut is never opened (unhut): its cavity stays shut behind the bot. The alarm guards what follows.
+// A line said at most once a minute per key, so a cycle that repeats does not fill the chat.
+export function sayEvery(c,key,text,ms=60000){const saidAt=c.saidAt??={},at=saidAt[key];if(at&&Date.now()-at<ms)return false;saidAt[key]=Date.now();c.say(text);return true}
 export async function coveredHandBack(c,bot,receipt=null){
  const request=c.requestProgress,safety=c.safety
  ;(request.safetyContinuations??=[]).push({requestId:request.id,connectionId:c.runner.connectionId,shelter:'covered_route',covered:structuredClone(safety.covered||{from:safety.retreat.surface,at:xyz(feetOf(bot)),moves:[]}),...(receipt?{receipt}:{}),resumeSerial:request.resumeSerial||0,...continuationMark(request)})
  ;(request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations.at(-1)})
  c.safety=null;c.activity='';c.phase='blocked';c.persist()
- c.say(receipt?.slit?.length?'The tunnel has a slit toward the target. Carrying on with the request from here.':'Carrying on with the request from here, under cover.')
+ sayEvery(c,'covered_handback',receipt?.slit?.length?'The tunnel has a slit toward the target. Carrying on with the request from here.':'Carrying on with the request from here, under cover.')
  await c.resume({automatic:true});return {status:'handed_back'}
 }
 export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*COVERED_MOVES,budgetMs=600000,decisionMs=30000,pollMs=100,waitMs=10000}={}){
  const gate=coveredGate(c,bot,eligible);if(gate)return {status:'skipped',reason:gate}
  const request=c.requestProgress,safety=c.safety,connection=c.runner.connectionId,deadline=Date.now()+budgetMs
- let health=bot.health,refusals=0
+ let health=bot.health,refusals=0,burntAt=-Infinity
  const check=()=>{if(signal.aborted||c.epoch!==epoch||c.safety!==safety||c.requestProgress!==request||!c.runner.ready||c.runner.bot!==bot||c.runner.connectionId!==connection)throw new Error('Covered moves cancelled or context changed')}
  // during: mid-move a fall leaves no floor for a moment, so the flood runs only on the ground there.
  const protection=(during=false)=>{
   check()
-  if(bot.health<health)throw new Error('Health fell during a covered move')
+  // Review of 7d69c86, 16 October: a burn tick read as a breach failed the shelter and the retry shot
+  // from the open. Burns are judged as the wait judges them (controller.js observe).
+  if(fireObservation(bot).onFire===true)burntAt=Date.now()
+  if(bot.health<health&&Date.now()-burntAt>BURN_MS)throw new Error('Health fell during a covered move')
   if(bot.health<TRIP_HEALTH)throw new Error(`Health ${bot.health} is under the trip's ${TRIP_HEALTH}`)
   if(bot.entity.isInWater||bot.entity.isInLava)throw new Error('Entered liquid during a covered move')
   if(!during||bot.entity.onGround)safety.protection=inspectEmergencyShelter(bot,{limit:COVERED_CELLS})
@@ -117,6 +123,7 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
    const observed={...state,goal:request.goal,pending:(request.pending||[]).slice(0,4),feedback:(request.feedback||[]).slice(-8),recovery:recoveryContext(c,bot),enclosure:safety.protection,
     feet:xyz(f),hut:safety.retreat.surface,shaftBelow:{deepest,refusal:shaft},lastReceipt:safety.covered?.moves?.at(-1)?.receipt??null,movesLeft:COVERED_MOVES-(request.coveredMoves||0),remainingMs:deadline-Date.now()}
    trace('covered_observation',{round,observation:observed})
+   request.coveredCalls=(request.coveredCalls||0)+1;c.persist()
    const abort=new AbortController(),combined=AbortSignal.any([signal,abort.signal]);let settled=false,value,error
    const pending=Promise.resolve().then(()=>{if(combined.aborted)throw new Error('Cancelled');return c.planner.covered(observed,combined,e=>trace('covered_model',e))}).then(v=>{value=v;settled=true},e=>{error=e;settled=true})
    try{
@@ -132,9 +139,12 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
     while(Date.now()<deadline){protection();if(Date.now()>=earliest&&decisionState()!==before)break;await delay(pollMs,undefined,{signal})}
     continue
    }
+   // Alight, or the trip ended while the model thought: no move starts.
+   const still=coveredGate(c,bot,eligible);if(still){journal('held',{reason:still,expectation:value.expectation});return {status:'held',reason:still}}
    const move=admit(c,bot,value,sites)
    if(move.reason){journal('rejected',{reason:move.reason,expectation:value.expectation});if(++refusals>=2)return {status:'held',reason:move.reason};continue}
-   request.coveredMoves=(request.coveredMoves||0)+1;c.persist()
+   // Saved before the move runs: a restart mid-bore re-arms the wait with the route's own cavity limit.
+   request.coveredMoves=(request.coveredMoves||0)+1;safety.covered??={from:structuredClone(safety.retreat.surface),at:xyz(feetOf(bot)),moves:[]};c.persist()
    const moveAbort=new AbortController(),moveSignal=AbortSignal.any([signal,moveAbort.signal]);let failure=null,receipt
    const monitor=setInterval(()=>{try{protection(true)}catch(e){failure??=e;moveAbort.abort();c.dispatch({action:'stop'})}},pollMs)
    try{await c.execute(move.command,moveSignal);receipt=structuredClone(c.runner.task?.result??null)}
@@ -144,7 +154,6 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
    // The last block dug may still be under a falling bot: land before the cavity is judged.
    for(let i=0;i<20&&!bot.entity.onGround;i++)await delay(50,undefined,{signal})
    protection();refusals=0
-   safety.covered??={from:structuredClone(safety.retreat.surface),moves:[]}
    safety.covered.at=xyz(feetOf(bot));safety.covered.moves.push({action:value.action,target:value.target,count:value.count,receipt});c.persist()
    journal('completed',{expectation:value.expectation,receipt})
    if(receipt?.slit?.length)return handBack(receipt)
@@ -152,7 +161,9 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
   journal('held',{reason:'Covered move budget exhausted'});return {status:'held'}
  }catch(e){
   if(signal.aborted||c.epoch!==epoch||c.safety!==safety||c.requestProgress!==request||!c.runner.ready||c.runner.bot!==bot||c.runner.connectionId!==connection)return {status:'cancelled'}
-  // A provider error falls back to the watch only while the enclosure still passes; a breach propagates.
-  protection();journal('failed',{reason:e.message});return {status:'held'}
+  // A breach of the enclosure propagates to the wait's recovery. Anything else (a provider error, health
+  // falling, the trip's health line) hands the hut back to the watch, whose own rules then judge it.
+  if(/^Emergency shelter|^Shelter contains|liquid/i.test(e.message))throw e
+  safety.protection=inspectEmergencyShelter(bot,{limit:COVERED_CELLS});journal('failed',{reason:e.message});return {status:'held',reason:e.message}
  }
 }

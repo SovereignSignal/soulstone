@@ -4,7 +4,7 @@ import {Vec3} from 'vec3'
 import minecraftData from 'minecraft-data'
 import {coveredMoves} from '../src/companion/covered-moves.js'
 import {LocalPlanner,validateCovered} from '../src/companion/planner.js'
-import {COVERED_MOVES} from '../src/companion/continuity.js'
+import {COVERED_MOVES,COVERED_CALLS} from '../src/companion/continuity.js'
 const registry=minecraftData('1.21.4')
 // Family rehearsal, 16 October: walled in beside the arrival portal at the Nether hub, the wait
 // held "for daylight and a clear area", which never comes in the Nether, until "Resume is
@@ -14,7 +14,7 @@ const limits={budgetMs:400,decisionMs:80,pollMs:2,waitMs:5}
 const kit=()=>[{name:'bow',count:1},{name:'arrow',count:40},{name:'iron_sword',count:1,maxDurability:250,durabilityUsed:0},{name:'iron_pickaxe',count:1,maxDurability:250,durabilityUsed:0},{name:'cobblestone',count:64,type:registry.itemsByName.cobblestone.id}]
 const wall=p=>(p.y===64||p.y===65)&&Math.abs(p.x)+Math.abs(p.z)===1||p.y===66&&p.x===0&&p.z===0
 function fixture(choose,{act}={}){
- const cells=new Map(),commands=[],events=[],abort=new AbortController(),said=[],resumed=[]
+ const cells=new Map(),commands=[],events=[],abort=new AbortController(),said=[],resumed=[],persisted=[]
  const name=p=>cells.get(`${p.x},${p.y},${p.z}`)??(p.x===0&&p.z===0&&(p.y===64||p.y===65)?'air':wall(p)?'cobblestone':'netherrack')
  const items=kit(),slots=[]
  const bot={registry,health:20,food:20,oxygenLevel:20,game:{gameMode:'survival',difficulty:'normal',dimension:'minecraft:the_nether'},time:{timeOfDay:6000},
@@ -23,11 +23,11 @@ function fixture(choose,{act}={}){
  for(const [i,n] of [[5,'iron_helmet'],[6,'iron_chestplate'],[7,'iron_leggings'],[8,'golden_boots']])slots[i]={name:n}
  const runner={bot,ready:true,connectionId:'c',log:(type,data)=>events.push({type,...data})}
  const c={runner,epoch:1,projects:{},safety:{status:'burrowed',retreat:{shelterName:'hut',surface:{x:0,y:64,z:0}}},requestProgress:{id:'r',request:'blaze rods',status:'interrupted',completed:[],feedback:[]},recoveryHistory:[],
-  planner:{covered:choose},persist(){},say:text=>said.push(text),snapshot:()=>({inventory:{},position:bot.entity.position,health:bot.health}),dispatch:cmd=>commands.push(cmd),resume:async o=>{resumed.push(o)},
+  planner:{covered:choose},persist(){persisted.push(structuredClone(c.safety?.covered??null))},say:text=>said.push(text),snapshot:()=>({inventory:{},position:bot.entity.position,health:bot.health}),dispatch:cmd=>commands.push(cmd),resume:async o=>{resumed.push(o)},
   async execute(cmd){commands.push(cmd);const result=await (act?.(cmd,bot,cells))??{receipt:cmd.action};runner.task={kind:cmd.action,status:'completed',result}}}
  // dig straight down: the column opens and the bot lands at its foot.
  if(!act)act=(cmd,b,m)=>{if(cmd.action==='dig'){for(let y=cmd.goal.y;y<64;y++)m.set(`0,${y},0`,'air');b.entity.position=new Vec3(.5,cmd.goal.y,.5);return {receipt:'dug',count:cmd.goal.count}}}
- return {bot,cells,c,commands,events,abort,said,resumed,run:(opts={})=>coveredMoves(c,1,abort.signal,bot,{eligible:true,...limits,...opts})}
+ return {bot,cells,c,commands,events,abort,said,resumed,persisted,run:(opts={})=>coveredMoves(c,1,abort.signal,bot,{eligible:true,...limits,...opts})}
 }
 const once=(...answers)=>{let i=0;return async()=>answers[Math.min(i++,answers.length-1)]}
 const wait={action:'wait',target:null,count:0,expectation:'Hold'}
@@ -70,7 +70,7 @@ test('a dig the column check refuses is never dispatched, and the reason reaches
   assert.ok(seen.length>=2,name+': asked again');assert.ok(seen[1].recovery.recentAttempts.some(a=>a.status==='rejected'&&re.test(a.reason)),name+': '+JSON.stringify(seen[1].recovery.recentAttempts))
  }
 })
-test('bore from the hut is refused as shaft first; from the shaft foot in rock it dispatches with the target and protected sites',async()=>{
+test('bore through a hut wall that is neither rock nor the bot\'s own is refused as shaft first; from the shaft foot in rock it dispatches with the target and protected sites',async()=>{
  const bore={action:'bore',target:{x:20,y:61,z:0},count:6,expectation:'Toward the spawner'}
  const hut=fixture(once(bore,wait));await hut.run({budgetMs:60})
  assert.deepEqual(acts(hut),[]);assert.ok(hut.c.recoveryHistory.some(a=>a.status==='rejected'&&/shaft first/.test(a.reason)),JSON.stringify(hut.c.recoveryHistory))
@@ -120,13 +120,42 @@ for(const change of ['breach','damage','stop','request','connection'])test(`${ch
  const f=fixture(async()=>{await new Promise(r=>setTimeout(r,40));return {action:'dig',target:{x:0,y:62,z:0},count:2,expectation:'Shaft'}})
  const run=f.run();setTimeout(()=>{if(change==='breach')for(let x=1;x<300;x++)f.cells.set(`${x},64,0`,'air');if(change==='damage')f.bot.health=19;if(change==='stop'){f.c.epoch++;f.abort.abort()}if(change==='request')f.c.requestProgress={id:'other'};if(change==='connection')f.c.runner.connectionId='other'},5)
  if(change==='breach')await assert.rejects(run,/open or exceeds/)
- else if(change==='damage')await assert.rejects(run,/Health fell/)
+ else if(change==='damage')assert.equal((await run).status,'held')
  else assert.equal((await run).status,'cancelled')
  await new Promise(r=>setTimeout(r,60));assert.deepEqual(acts(f),[],change)
 })
-test('a move stops when health falls during it',async()=>{
+test('a move stops when health falls during it, and the phase hands the hut back to the watch',async()=>{
  const f=fixture(once({action:'dig',target:{x:0,y:62,z:0},count:2,expectation:'Shaft'}),{act:async(cmd,bot)=>{bot.health=17;await new Promise(r=>setTimeout(r,30));return {receipt:'dug'}}})
- await assert.rejects(f.run(),/Health fell/);assert.ok(f.commands.some(x=>x.action==='stop'),acts(f).join(' '))
+ const result=await f.run();assert.equal(result.status,'held');assert.match(result.reason,/Health fell/);assert.ok(f.commands.some(x=>x.action==='stop'),acts(f).join(' '))
+})
+// Review of 7d69c86, 16 October: a burn tick while the model thought failed the shelter, the retry
+// shot from the open, the loss this branch prevents. A drop while alight or just after is a burn, as the wait judges it.
+test('a burn tick while the decision is pending does not fail the shelter, and no move starts while alight',async()=>{
+ const f=fixture(async()=>{await new Promise(r=>setTimeout(r,40));return {action:'dig',target:{x:0,y:62,z:0},count:2,expectation:'Shaft'}})
+ const run=f.run({budgetMs:120});setTimeout(()=>{f.bot.entity.metadata[0]=1;f.bot.health=18},5)
+ const result=await run;assert.equal(result.status,'held');assert.deepEqual(acts(f),[])
+})
+test('the covered record is saved before a move runs, so a restart mid-bore watches the whole route',async()=>{
+ let seen=null
+ const f=fixture(once({action:'dig',target:{x:0,y:61,z:0},count:3,expectation:'Shaft'},wait),{act:(cmd,b,m)=>{seen=f.persisted.at(-1);for(let y=61;y<64;y++)m.set(`0,${y},0`,'air');b.entity.position=new Vec3(.5,61,.5);return {receipt:'dug'}}})
+ await f.run({budgetMs:60})
+ assert.ok(seen,'persisted before the dig ran');assert.deepEqual(seen.from,{x:0,y:64,z:0})
+})
+test('model calls are capped per request; an explicit Resume resets the moves and calls',async()=>{
+ let calls=0;const f=fixture(async()=>{calls++;return wait});f.c.requestProgress.coveredCalls=COVERED_CALLS
+ assert.equal((await f.run()).status,'skipped');assert.equal(calls,0)
+ const g=fixture(async()=>wait);const running=g.run({budgetMs:300,waitMs:0});let flip=0;const t=setInterval(()=>{g.bot.food=15+(flip++%2)},3)
+ await running;clearInterval(t);assert.ok(g.c.requestProgress.coveredCalls<=COVERED_CALLS,String(g.c.requestProgress.coveredCalls))
+ const h=fixture(async()=>wait);Object.assign(h.c.requestProgress,{coveredMoves:COVERED_MOVES,coveredCalls:COVERED_CALLS})
+ Object.assign(h.c,{abort:{},runner:{...h.c.runner,respawnPending:false},snapshot:()=>({dead:false}),emit(){}})
+ await Teammate.prototype.resume.call(h.c,{})
+ assert.equal(h.c.requestProgress.coveredMoves,undefined);assert.equal(h.c.requestProgress.coveredCalls,undefined)
+})
+test('the hand-back line is said once a minute, not every cycle',async()=>{
+ const f=fixture(once({action:'done',target:null,count:0,expectation:'Hand back'}))
+ const safety=structuredClone(f.c.safety);await f.run()
+ f.c.safety=structuredClone(safety);f.c.requestProgress.status='interrupted';await f.run()
+ assert.equal(f.resumed.length,2);assert.equal(f.said.filter(t=>/Carrying on/.test(t)).length,1,f.said.join(' | '))
 })
 test('an action outside the closed schema or a malformed target is refused before anything is dispatched',()=>{
  for(const bad of [{action:'unhut',target:null,count:0,expectation:'Out'},{action:'dig',target:{x:0,y:61},count:3,expectation:'Shaft'},{action:'dig',target:{x:0,y:61,z:0},count:3,expectation:'Shaft',extra:1},{action:'wait',target:null,count:0,expectation:''},{action:'bore',target:{x:.5,y:61,z:0},count:3,expectation:'Bore'}])
