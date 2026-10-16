@@ -702,6 +702,7 @@ export class Teammate extends EventEmitter {
           return
         }
       }
+      let coverFirst=false
       if(reason===THREAT_INTERRUPTION&&adaptive!=='shelter'){
         let decision=defenseDecision(recoveryBot)
         // Landing from a jump or closing a window takes a moment; re-judge briefly before choosing shelter.
@@ -720,8 +721,14 @@ export class Teammate extends EventEmitter {
           else this.say(`Judgement: ${chosen} (${pick.source}${j?`; Jev ${j.response} at ${Math.round(j.confidence*100)}%, rule ${verdict.verdict}`:''}).`)
           this.runner.log?.('threat_control',{chosen,source:pick.source,rule:verdict.verdict,jev:j?.response??null,confidence:j?.confidence??null,winnable:j?.winnable??null,danger:j?.danger??null})
         }else void this.threatJudge?.judge('interruption',observed,{...this.judgementContext(recoveryBot),harness:verdict.verdict,harnessReason:verdict.reason})?.then(record)
+        // Family rehearsal, 16 October: at the Nether arrival hub the alarm fought a pillager from the
+        // open twice (9 and 11 arrows, no kill) down to health 9. On a trip, on the episode's first try,
+        // with blocks and ground for a hut, cover comes first and the bow answers from its port (runs
+        // 146, 156, 166). A retry after a failed hut still shoots, the 10 October case below.
+        coverFirst=!decision.engage&&retries===0&&inNether(recoveryBot)&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))&&hutSite(recoveryBot).ok
+        if(coverFirst)this.say('Cover first, the bow from the port.')
         // The bow answers what melee declines, unless a judge has chosen shelter.
-        const ranged=!decision.engage&&(!this.threatJudge?.control||chosen!=='shelter')?rangedDefenseDecision(recoveryBot):null
+        const ranged=!decision.engage&&!coverFirst&&(!this.threatJudge?.control||chosen!=='shelter')?rangedDefenseDecision(recoveryBot):null
         // After a kill by either weapon: confirm the area is clear, then resume or report.
         const finishDefense=async action=>{
           // Lab run 101: on 5 health after the kill, the check stood five seconds for a
@@ -864,7 +871,7 @@ export class Teammate extends EventEmitter {
       const trip=!wallInFirst&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))
       // Said either way: run 144 (14 October) went home from the spawner with the kit on and
       // the journal could not say which condition the trip mode failed.
-      if(inNether(recoveryBot))this.runner.log?.('nether_trip',{reason,trip,wallInFirst,requestActive:!!interruptedActiveRequest,requestStatus:this.requestProgress?.status||null,health:recoveryBot.health,kit:tripKit(recoveryBot)})
+      if(inNether(recoveryBot))this.runner.log?.('nether_trip',{reason,trip,wallInFirst,coverFirst,requestActive:!!interruptedActiveRequest,requestStatus:this.requestProgress?.status||null,health:recoveryBot.health,kit:tripKit(recoveryBot)})
       if(trip)this.say('Danger in the Nether. I have my kit, so I am taking cover here rather than running for the portal.')
       if(wallInFirst)this.say('Danger in the Nether. Walling in around the portal.')
       // The room first and nothing before it: from the Nether the walk to the Overworld

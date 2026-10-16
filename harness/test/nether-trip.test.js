@@ -529,3 +529,31 @@ test('a dimension change drops the trip\'s kills and the last shooter seen, and 
  assert.deepEqual(c.killSites,[home]);assert.equal(c.shooterSeenAt,null)
  clearInterval(c.dawnTimer)
 })
+// Family rehearsal, 16 October: at the Nether arrival hub the alarm fought a pillager from the
+// open twice (9 and 11 arrows, no kill) down to health 9. On a trip, on the episode's first try,
+// with blocks and ground for a hut, cover comes first and the bow answers from the hut's port.
+async function alarmActs({retries=0,blocks=true,dimension='the_nether'}={}){
+ const bot=netherBot({}),r=new EventEmitter(),logged=[]
+ bot.game.dimension='minecraft:'+dimension
+ bot.entities={8:{id:8,uuid:'10000000-0000-0000-0000-000000000008',type:'mob',name:'blaze',height:1.8,position:new Vec3(0.5,64,12.5),velocity:new Vec3(0,0,0)}}
+ if(!blocks){const items=bot.inventory.items();items.splice(items.findIndex(i=>i.name==='cobblestone'),1)}
+ Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Sov',connectionId:'20000000-0000-0000-0000-000000000005',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{},log:(t,d)=>logged.push([t,d])})
+ r.command=c=>{r.commands.push(c);if(c.action!=='stop')r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal}}
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-trip-alarm-')),'state.json'));c.threatJudge={control:false,judge:async()=>null}
+ c.requestProgress={id:'trip',request:'rods',status:'running',feedback:[]}
+ void c.seekSafety(THREAT_INTERRUPTION,{retries});await new Promise(res=>setTimeout(res,80))
+ const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop');c.cancel?.(true)
+ return {acts,said:c.messages.map(m=>m.text),trip:logged.find(l=>l[0]==='nether_trip')?.[1]}
+}
+test('on a trip, first try, with a hut site, a shooter in bow range means cover first, never a shot from the open',async()=>{
+ const first=await alarmActs()
+ assert.equal(first.acts[0],'hut',first.acts.join(' ')+' :: '+first.said.join(' | '));assert.ok(!first.acts.includes('shoot'),first.acts.join(' '))
+ assert.ok(first.said.some(t=>/cover first, the bow from the port/i.test(t)),first.said.join(' | '))
+ assert.equal(first.trip?.coverFirst,true,JSON.stringify(first.trip))
+})
+test('a retry after the hut failed, no blocks for one, or the Overworld still shoots from the open as before',async()=>{
+ for(const [name,opts] of [['retry',{retries:1}],['no blocks',{blocks:false}],['overworld',{dimension:'overworld'}]]){
+  const after=await alarmActs(opts)
+  assert.equal(after.acts[0],'shoot',name+': '+after.acts.join(' ')+' :: '+after.said.join(' | '))
+ }
+})
