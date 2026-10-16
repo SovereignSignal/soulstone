@@ -42,8 +42,8 @@ function world({pickaxe=true,at=[12.5,64,22.5],gravity=false}={}){
  const bot={registry,entity:{position:new Vec3(...at),onGround:true},inventory:{items:()=>inventory},
   blockAt(p){const name=cells.get(p.toString())??(p.y>=64?'air':p.y===63?'grass_block':p.y>60?'dirt':'stone');return {name,position:p.clone(),boundingBox:registry.blocksByName[name]?.boundingBox}},
   pathfinder:{setGoal(){},setMovements(){},async goto(g){bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}},clearControlStates(){},setControlState(){},
-  tool:{async equipForBlock(){}},
-  async equip(){},
+  tool:{async equipForBlock(){}},heldItem:null,
+  async equip(item){bot.heldItem=item},
   async placeBlock(ref,face){const at=ref.position.plus(face);const item=inventory.find(i=>i.name==='cobblestone');if(!item||item.count<1)throw new Error('nothing to place');item.count--;cells.set(at.toString(),'cobblestone');placed.push(at.toString())},
   async dig(block){dug.push(block.position.toString());cells.set(block.position.toString(),'air');if(block.name==='stone'){const c=inventory.find(i=>i.name==='cobblestone');c?c.count++:inventory.push({name:'cobblestone',count:1,type:registry.itemsByName.cobblestone.id})}const p=bot.entity.position;if(block.position.x===Math.floor(p.x)&&block.position.z===Math.floor(p.z)&&block.position.y<p.y)bot.entity.position=block.position.offset(.5,0,.5)}}
  if(gravity){

@@ -517,3 +517,11 @@ test('a placement that times out but lands a tick later is counted placed and ne
  assert.equal(clicks.length,10,'no retry for the block that landed late')
  assert.equal(new Set(clicks.map(c=>c.at)).size,10)
 })
+test('fillCell clicks its next reference with the block in hand when the first click is lost and empties the hand',async()=>{
+ const w=world({logs:0});w.inventory.push({name:'cobblestone',count:5});w.cells.set(new Vec3(12,64,10).toString(),'stone')
+ let first=true
+ const clicks=handServer(w,{afterClick:(p)=>{if(first){first=false;w.hand.name=null;throw new Error(`Event blockUpdate:${p} did not fire within timeout of 5000ms`)}placeHeld(w,p)}})
+ assert.equal(await fillCell(w.bot,new Vec3(11,64,10),{check(){}}),true)
+ assert.equal(w.cells.get(new Vec3(11,64,10).toString()),'cobblestone')
+ assert.deepEqual(clicks.map(c=>c.held),['cobblestone','cobblestone'])
+})

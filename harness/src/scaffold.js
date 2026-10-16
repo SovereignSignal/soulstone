@@ -1,6 +1,6 @@
 import {fullCube} from './construction.js'
 import {claimPlaced} from './natural.js'
-import {plainFirst} from './placement.js'
+import {plainFirst,holdToPlace} from './placement.js'
 
 const falling = new Set(['sand','red_sand','gravel','suspicious_sand','suspicious_gravel'])
 // Automatic movement must preserve portal material for explicit construction.
@@ -18,11 +18,10 @@ const key=p=>`${p.x},${p.y},${p.z}`
 // neighbour stands. The caller may name the cube to use.
 export async function fillCell(bot,cell,{check,progress=()=>{},item=scaffoldItems(bot)[0]}){
  if(!item)return false
- await bot.equip(item,'hand');check()
  const closed=()=>solidCube(bot,bot.blockAt(cell))
  for(const ref of plainFirst(SIDES.map(([dx,dy,dz])=>bot.blockAt(cell.offset(dx,dy,dz))).filter(b=>solidCube(bot,b)))){
   if(closed())break
-  try{await bot.placeBlock(ref,cell.minus(ref.position))}catch(error){check();progress(`Placement at ${key(cell)} unconfirmed: ${error.message.slice(0,60)}`)}
+  try{await holdToPlace(bot,item.name,check);await bot.placeBlock(ref,cell.minus(ref.position))}catch(error){check();progress(`Placement at ${key(cell)} unconfirmed: ${error.message.slice(0,60)}`)}
   check()
   const end=Date.now()+1500;while(Date.now()<end&&!closed()){check();await new Promise(r=>setTimeout(r,50))}
  }

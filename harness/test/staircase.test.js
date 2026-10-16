@@ -12,7 +12,7 @@ function world(cells=new Map(),at=[0.5,64,0.5],{blocks=0}={}){
  const dug=[],placed=[],items=blocks?[{name:'cobblestone',count:blocks,type:registry.itemsByName.cobblestone.id}]:[]
  let pos=new Vec3(...at)
  const bot={registry,inventory:{items:()=>items.filter(i=>i.count>0)},heldItem:null,
-  async equip(){},
+  async equip(item){bot.heldItem=item},
   async placeBlock(ref,face){const c=ref.position.plus(face);cells.set(c.toString(),'cobblestone');placed.push(c.toString());items[0].count--},
   blockAt:p=>{const f=p.floored(),n=name(f),e=registry.blocksByName[n];return {name:n,position:f,boundingBox:e?.boundingBox||'block',diggable:e?.diggable!==false,harvestTools:e?.harvestTools}},
   async dig(b){dug.push(b.position.toString());cells.set(b.position.toString(),'air')},

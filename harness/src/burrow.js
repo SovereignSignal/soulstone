@@ -2,7 +2,7 @@ import {bowCanAnswer} from './bow-readiness.js'
 import {observedSightline} from './visibility.js'
 import {scaffoldItems,fillCell,plainCube} from './scaffold.js'
 import {claimPlaced} from './natural.js'
-import {plainFirst} from './placement.js'
+import {plainFirst,holdToPlace} from './placement.js'
 // Emergency burrow: the shelter of last resort for a spawn with no base and no
 // weapon. Seal the verified shaft as soon as three cells give headroom,
 // deepen under the cap, then watch protection and surface clearance.
@@ -118,10 +118,9 @@ async function placeCap(bot,cap,cells,{check,progress}){
  // cap by the block being there, and try each solid side as the reference,
  // plain ones before any with a use (placement.js).
  const capped=()=>solid(bot,bot.blockAt(cap))
- await bot.equip(item,'hand');check()
  for(const ref of plainFirst(SIDES.map(([dx,dy,dz])=>bot.blockAt(cap.offset(dx,dy,dz))).filter(b=>solid(bot,b)))){
   if(capped())break
-  try{await bot.placeBlock(ref,cap.minus(ref.position))}catch(error){check();progress(`Cap placement unconfirmed: ${error.message.slice(0,60)}`)}
+  try{await holdToPlace(bot,item.name,check);await bot.placeBlock(ref,cap.minus(ref.position))}catch(error){check();progress(`Cap placement unconfirmed: ${error.message.slice(0,60)}`)}
   check()
   try{await settle(capped,'cap',{check,ms:1500})}catch{}
   if(capped())break
@@ -379,14 +378,14 @@ export async function climbOut(bot,surface,{check,stage,progress},{attempts=16}=
    check();await bot.dig(above);check()
   }
   const block=material();if(!block)throw new Error('No carried block to climb with')
-  await bot.equip(block,'hand');check()
+  await holdToPlace(bot,block.name,check)
   const floor=bot.blockAt(feet.offset(0,-1,0))
   if(bot.lookAt)await bot.lookAt(feet.offset(.5,-.5,.5),true)
   bot.setControlState('jump',true)
   const end=Date.now()+1500;let placed=false
   while(Date.now()<end&&!placed){
    check()
-   if(bot.entity.position.y-feet.y>=0.9){try{await bot.placeBlock(floor,new Vec3(0,1,0))}catch{}placed=solid(bot,bot.blockAt(feet));if(placed)claimPlaced(bot,feet)}
+   if(bot.entity.position.y-feet.y>=0.9){try{await holdToPlace(bot,block.name,check);await bot.placeBlock(floor,new Vec3(0,1,0))}catch{check()}placed=solid(bot,bot.blockAt(feet));if(placed)claimPlaced(bot,feet)}
    if(!placed)await delay(30)
   }
   bot.setControlState('jump',false)

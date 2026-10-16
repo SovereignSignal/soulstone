@@ -14,15 +14,17 @@ import {inspectEmergencyShelter} from '../src/shelter-occupants.js'
 import {THREAT_INTERRUPTION,NIGHT_EXPOSURE,emergencyReason,survivalObservation} from '../src/survival.js'
 const registry=minecraftData('1.21.4')
 function world(ground='dirt'){
- const cells=new Map(),inventory=[],placed=[],dug=[],equipped=[]
+ const cells=new Map(),inventory=[],placed=[],dug=[],equipped=[],hand={name:null}
  const bot={registry,game:{gameMode:'survival',difficulty:'normal'},time:{timeOfDay:15000},health:14,food:18,entities:{},players:{},
   entity:{position:new Vec3(10.5,64,10.5),onGround:true},inventory:{items:()=>inventory},
   blockAt(p){const name=cells.get(p.toString())??(p.y>=64?'air':p.y===63?'grass_block':ground);return {name,position:p.clone(),boundingBox:registry.blocksByName[name]?.boundingBox}},
   pathfinder:{setGoal(){},setMovements(){},async goto(){}},clearControlStates(){},
-  async equip(item){equipped.push(item.name)},
+  // As in mineflayer, the hand is the selected slot's stack, or null when that slot is empty.
+  get heldItem(){const stack=hand.name&&inventory.find(i=>i.name===hand.name);return stack?{name:stack.name,count:stack.count}:null},
+  async equip(item){equipped.push(item.name);hand.name=item.name},
   async dig(block){dug.push(block.position.toString());cells.set(block.position.toString(),'air');const drop=block.name==='grass_block'?'dirt':block.name;const slot=inventory.find(i=>i.name===drop);slot?slot.count++:inventory.push({name:drop,count:1});bot.entity.position=block.position.offset(.5,0,.5)},
   async placeBlock(ref,face){const p=ref.position.plus(face);placed.push(p.toString());cells.set(p.toString(),equipped.at(-1));const slot=inventory.find(i=>i.name===equipped.at(-1));if(slot&&--slot.count<=0)inventory.splice(inventory.indexOf(slot),1)}}
- return {bot,cells,inventory,placed,dug,equipped}
+ return {bot,cells,inventory,placed,dug,equipped,hand}
 }
 const api={check(){},stage(){},progress(){},persist(){},movements:{}}
 test('a burrow needs diggable ground, solid walls on every level and a solid floor',()=>{
@@ -854,4 +856,33 @@ test('the cap is placed against a plain wall before a dropper beside it',async()
  const result=await executeSkill(w.bot,{kind:'burrow',goal:{}},api)
  assert.equal(result.receipt,'burrowed_capped')
  assert.equal(refs[0],new Vec3(9,63,10).toString())
+})
+
+// Lab run 164, 15 October: a first click lost through the bridge, and the retry found the
+// hand empty ("must be holding an item to place"). The fake server places only from a hand.
+function losesFirstClick(w){
+ const place=w.bot.placeBlock,clicks=[];let first=true
+ w.bot.placeBlock=async(ref,face)=>{
+  const p=ref.position.plus(face);clicks.push({at:p.toString(),held:w.bot.heldItem?.name??null})
+  if(!w.bot.heldItem)throw new Error('must be holding an item to place')
+  if(first){first=false;w.hand.name=null;throw new Error(`Event blockUpdate:${p} did not fire within timeout of 5000ms`)}
+  return place(ref,face)}
+ return clicks
+}
+test('a cap whose first click is lost and leaves the hand empty is clicked again with the cap block in hand',async()=>{
+ const w=world();w.inventory.push({name:'cobblestone',count:4})
+ const clicks=losesFirstClick(w)
+ const result=await executeSkill(w.bot,{kind:'burrow',goal:{}},api)
+ assert.equal(result.receipt,'burrowed_capped');assert.equal(w.cells.get(new Vec3(10,63,10).toString()),'cobblestone')
+ assert.deepEqual(clicks.filter(c=>!c.held),[],'no click with an empty hand')
+})
+test('a climbing click lost with the hand left empty is made again with the block in hand',async()=>{
+ const w=world('stone');w.inventory.push({name:'cobblestone',count:5})
+ for(let y=60;y<=63;y++)w.cells.set(new Vec3(10,y,10).toString(),'air')
+ w.bot.entity.position=new Vec3(10.5,60,10.5)
+ w.bot.setControlState=(k,v)=>{if(k==='jump'&&v)w.bot.entity.position=w.bot.entity.position.offset(0,1,0)}
+ const clicks=losesFirstClick(w)
+ await climbOut(w.bot,new Vec3(10,61,10),api)
+ assert.equal(w.bot.blockAt(new Vec3(10,60,10)).name,'cobblestone')
+ assert.deepEqual(clicks.filter(c=>!c.held),[],'no click with an empty hand')
 })
