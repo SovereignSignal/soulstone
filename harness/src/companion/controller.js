@@ -712,6 +712,10 @@ export class Teammate extends EventEmitter {
         }
       }
       let coverFirst=false
+      // Third rehearsal death, 16 October 19:08Z: on the bridge at its tunnel's mouth, wither skeletons, and the chain
+      // fled 25 blocks into the fortress corridors, "taking damage while running (20 to 1)", and withered away. On a
+      // trip nothing flees or detours: cover where the bot stands, and the portal when no cover can be had.
+      const tripNow=!lastResort&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))
       if(reason===THREAT_INTERRUPTION&&adaptive!=='shelter'){
         let decision=defenseDecision(recoveryBot)
         // Landing from a jump or closing a window takes a moment; re-judge briefly before choosing shelter.
@@ -847,7 +851,7 @@ export class Teammate extends EventEmitter {
         // Behind its own walls the answer to anything outside is to stay behind
         // them and close up: no sprint past the door, no detour over open ground.
         // A covered column on a trip is indoors too: no sprint out of it onto the bridge (18:21Z, above).
-        const indoors=insideBase(recoveryBot,this.projects.base)||!!occupiedAlternative(recoveryBot,this.projects)||inColumn
+        const indoors=insideBase(recoveryBot,this.projects.base)||!!occupiedAlternative(recoveryBot,this.projects)||inColumn||tripNow
         for(let attempt=0;attempt<2;attempt++){
           const creeper=survivalObservation(recoveryBot).nearbyThreats.find(t=>t.name==='creeper'&&t.risk==='potential_hostile'&&t.distance<=16)
           if(!creeper||indoors)break
@@ -886,7 +890,10 @@ export class Teammate extends EventEmitter {
       const tunnelled=!lastResort&&inNether(recoveryBot)&&!portalRoom&&!!coveredColumn(recoveryBot)&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))
       const roomSpot=inNether(recoveryBot)&&!portalRoom&&!tunnelled?portalRoomSpot(recoveryBot):null
       const stepsBack=roomSpot?recoveryBot.entity.position.distanceTo(roomSpot.offset(.5,0,.5)):0
-      const wallInFirst=!lastResort&&(portalRoom||!!roomSpot)&&nearest>=PORTAL_ROOM_STANDOFF+Math.ceil(stepsBack)
+      // On a trip with the portal within three blocks and a wither skeleton in reach, getting out beats holding (19:08Z).
+      const portalId=recoveryBot.registry?.blocksByName?.nether_portal?.id
+      const exitNow=tripNow&&survivalObservation(recoveryBot).nearbyThreats.some(t=>t.name==='wither_skeleton'&&t.risk==='potential_hostile'&&t.distance<=3.5)&&!!recoveryBot.findBlock?.({matching:portalId,maxDistance:3})
+      const wallInFirst=!exitNow&&!lastResort&&(portalRoom||!!roomSpot)&&nearest>=PORTAL_ROOM_STANDOFF+Math.ceil(stepsBack)
       // Why the room was or was not chosen (run 106: hurt beside the portal, it went home and the journal could not say why).
       if(inNether(recoveryBot))this.runner.log?.('nether_shelter',{reason,wallInFirst,portalRoom,site:roomSite?.ok?(roomSite.portal?'portal_room':'plain_hut'):roomSite?.reason,roomSpot:roomSpot?`${roomSpot.x},${roomSpot.y},${roomSpot.z}`:null,stepsBack:Math.round(stepsBack*10)/10,nearestMelee:Number.isFinite(nearest)?nearest:null,position:(p=>p&&{x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,z:Math.round(p.z*10)/10})(recoveryBot.entity?.position)})
       // On a trip with the kit and health, the portal is not the answer to a hostile:
@@ -896,11 +903,11 @@ export class Teammate extends EventEmitter {
       // by the last alarm and waiting to resume is still the trip (lab run 144, 14 October:
       // "Resume is available", the next blaze, requestActive false, the portal walk, dead).
       // The trip's last resort (the tick, below its retries) is the walk home: not the trip's cover again.
-      const trip=!lastResort&&!wallInFirst&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))
+      const trip=tripNow
       // Said either way: run 144 (14 October) went home from the spawner with the kit on and
       // the journal could not say which condition the trip mode failed.
       if(inNether(recoveryBot))this.runner.log?.('nether_trip',{reason,trip,wallInFirst,coverFirst,requestActive:!!interruptedActiveRequest,requestStatus:this.requestProgress?.status||null,health:recoveryBot.health,kit:tripKit(recoveryBot)})
-      if(trip)this.say('Danger in the Nether. I have my kit, so I am taking cover here rather than running for the portal.')
+      if(trip&&!wallInFirst&&!exitNow)this.say('Danger in the Nether. I have my kit, so I am taking cover here rather than running for the portal.')
       if(wallInFirst)this.say('Danger in the Nether. Walling in around the portal.')
       // The room first and nothing before it: from the Nether the walk to the Overworld
       // base always refuses and nether bricks never burrow, and those 1.6 seconds under a
@@ -928,7 +935,7 @@ export class Teammate extends EventEmitter {
       // portal: the walk with it on the bot's back is what killed lab run 142 (14 October,
       // a wither skeleton at 0.8 blocks, health 4.9 at the portal), and the cornered rule
       // below only ran after the shelters, which the portal walk is chosen instead of.
-      if(!this.safety.retreat&&!trip&&inNether(recoveryBot)&&corneredDecision(recoveryBot).engage){
+      if(!this.safety.retreat&&!trip&&!exitNow&&inNether(recoveryBot)&&corneredDecision(recoveryBot).engage){
         const cornered=corneredDecision(recoveryBot)
         const attempt={name:'cornered',status:'trying',target:cornered.target.targetName};(this.safety.attempts??=[]).push(attempt);this.persist()
         this.say(`A ${cornered.target.targetName.replaceAll('_',' ')} is at arm's reach. Fighting it before the walk to the portal.`)
@@ -936,7 +943,7 @@ export class Teammate extends EventEmitter {
         catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;attempt.status='failed';attempt.reason=error.message;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)}
         if(epoch!==this.epoch||abort.signal.aborted)return
       }
-      if(!this.safety.retreat&&!trip&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})){
+      if(!this.safety.retreat&&(!trip||exitNow)&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})){
         const attempt={name:'portal_home',status:'trying'};this.safety.attempts=[attempt];this.persist()
         this.say('Danger in the Nether. Going back through the portal.')
         try{
@@ -987,7 +994,7 @@ export class Teammate extends EventEmitter {
       // two zombies took sixteen health while the burrow was being dug. Put
       // distance behind first, the way a creeper is handled, then dig. Melee reach
       // is the same floor the threat rule never negotiates.
-      if(!this.safety.retreat&&!tunnelled&&!insideBase(recoveryBot,this.projects.base)&&!occupiedAlternative(recoveryBot,this.projects)){
+      if(!this.safety.retreat&&!trip&&!tunnelled&&!insideBase(recoveryBot,this.projects.base)&&!occupiedAlternative(recoveryBot,this.projects)){
         // A shooter in arm's reach is no closer for being near: distance gains nothing
         // against it, and the sprint is where the Nether kills (lab run 141, 14 October:
         // kitted, a blaze at three blocks, "sprinting clear", off the fortress edge, lava).
@@ -1173,8 +1180,10 @@ export class Teammate extends EventEmitter {
     // a climb out under four blazes. Such a tunnel is a hut already but for its two open ends,
     // four blocks, so on a trip under rock those are walled first and the burrow is the fallback.
     const site=trip&&roofed(this.runner.bot)?hutSite(this.runner.bot):null
+    // On a trip the hut comes first anywhere: it has a port, and a burrow's way out is a climb (third rehearsal death, 19:08Z).
     const order=column||site?.ok&&site.needed<=4?[()=>hut('Rock on every side but two. I am walling in the open ends with carried blocks.'),burrow]
       // Ground that cannot be dug: wall in with carried blocks instead.
+      :trip?[()=>hut('Walling in where I stand.'),burrow]
       :[burrow,()=>hut('The ground here cannot be dug. I am walling myself in with carried blocks.')]
     for(const step of order)if(!this.safety.retreat&&!await step())return false
     return !!this.safety.retreat

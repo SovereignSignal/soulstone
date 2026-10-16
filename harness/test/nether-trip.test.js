@@ -258,14 +258,16 @@ test('a hostile does not cancel a crossing while it steps out of the arrival por
 })
 // Lab run 147: the portal room the alarm asked for failed by one block, and the next thing
 // tried was the walk home. One cell short is tried once more first.
-test('a portal room that fails by one cell is tried again before the portal walk',async()=>{
+test('a portal room that fails by one cell is tried again; one that fails by more is followed by cover where the bot stands, not the portal walk',async()=>{
  const {r,c}=tripTeammate({hoglinAt:8,fails:{hut:['Hut incomplete: 1 of 15 blocks missing (0,65,1)']}})
  void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,100))
  const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop');c.cancel?.(true)
  assert.deepEqual(acts.slice(0,2),['hut','hut'],acts.join(' '));assert.ok(!acts.includes('use_portal'),acts.join(' '))
+ // On a trip the walk home is for no cover at all (third rehearsal death, 19:08Z, 16 October).
  const short=tripTeammate({hoglinAt:8,fails:{hut:['Hut incomplete: 3 of 15 blocks missing (0,65,1)']}})
- await short.c.seekSafety(THREAT_INTERRUPTION)
- const two=short.r.commands.map(x=>x.action).filter(a=>a!=='stop');assert.deepEqual(two.slice(0,2),['hut','use_portal'],two.join(' '))
+ void short.c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,100))
+ const two=short.r.commands.map(x=>x.action).filter(a=>a!=='stop');short.c.cancel?.(true)
+ assert.deepEqual(two.slice(0,2),['hut','hut'],two.join(' '));assert.ok(!two.includes('use_portal'),two.join(' '))
 })
 // Lab run 150, 15 October: kitted in a one-wide covered netherrack tunnel, blazes off the
 // walls, and netherrack with a pickaxe always burrows, so the bot dug in where it had no
@@ -373,6 +375,8 @@ test('off a trip, with the first walk to the portal refused and no shelter here,
 test('a crossing the alarm cancelled still marks the kitted trip by the dimension, and the walk home ends it',async()=>{
  const {bot,r,c}=tripTeammate({cancelled:true,hoglinAt:8,fails:{hut:['Hut incomplete: 3 of 15 blocks missing (0,65,1)']}})
  assert.ok(c.requestProgress.kittedTrip,'in the Nether with the kit: a kitted trip')
+ // Hurt below the trip's line, the alarm walks home (on a trip it would wall in where it stands).
+ bot.health=10
  await c.seekSafety(THREAT_INTERRUPTION)
  assert.ok(r.commands.some(x=>x.action==='use_portal'));assert.equal(bot.game.dimension,'minecraft:overworld')
  assert.equal(c.requestProgress.status,'blocked');assert.equal(canResume(c.requestProgress),false)
@@ -627,4 +631,30 @@ test('off a trip a spent shelter watch never leaves "I have stopped" as the last
  assert.ok(c.unsafeSignature,'the situation is marked unsafe')
  r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,30))
  assert.equal(resumed,1);c.cancel?.(true)
+})
+// Third rehearsal death, 16 October 19:08Z: on the bridge at its own tunnel's mouth, wither skeletons came; the in-place
+// strike missed and the chain fled, "taking damage while running (20 to 1)", 25 blocks into the fortress corridors,
+// where it withered away. On a trip nothing flees: cover where the bot stands, and the portal only when no cover is
+// possible, or first when it is within three blocks with a wither skeleton in reach (getting out beats holding).
+const RUNS=['flee','climb','descend','travel']
+async function witherBridge({portal='near',kit=true,dimension='the_nether',fails={}}={}){
+ const {bot,r,c}=tripTeammate({kit,fails})
+ if(dimension!=='the_nether')bot.game.dimension='minecraft:'+dimension
+ const w=(id,z)=>({id,uuid:`10000000-0000-0000-0000-00000000000${id}`,type:'mob',name:'wither_skeleton',height:2.4,position:new Vec3(0.5,64,0.5+z),velocity:new Vec3(0,0,0)})
+ bot.entities={8:w(8,3),9:w(9,6)}
+ if(portal==='none')bot.findBlock=()=>null
+ c.threatJudge={control:false,judge:async()=>null}
+ void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,150))
+ const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop');c.cancel?.(true);return {acts,said:c.messages.map(m=>m.text)}
+}
+test('on a trip on the bridge with wither skeletons at 3 and 6 blocks: no flee; the portal at hand is taken first',async()=>{
+ const near=await witherBridge();assert.ok(!near.acts.some(a=>RUNS.includes(a)),near.acts.join(' '));assert.equal(near.acts[0],'use_portal',near.acts.join(' ')+' :: '+near.said.join(' | '))
+})
+test('on a trip with no portal at hand, cover where it stands and never a flee, even when the hut fails',async()=>{
+ const none=await witherBridge({portal:'none'});assert.ok(!none.acts.some(a=>RUNS.includes(a)),none.acts.join(' '));assert.equal(none.acts.find(a=>['hut','burrow'].includes(a)),'hut',none.acts.join(' '))
+ const failed=await witherBridge({portal:'none',fails:{hut:['Hut incomplete: 3 of 10 blocks missing (0,65,1)'],burrow:['No safe burrow here']}})
+ assert.ok(!failed.acts.some(a=>RUNS.includes(a)),failed.acts.join(' '))
+})
+test('off a trip the Nether chain is unchanged: the portal walk first',async()=>{
+ const bare=await witherBridge({kit:false});assert.equal(bare.acts[0],'use_portal',bare.acts.join(' '))
 })
