@@ -23,7 +23,10 @@ const key=p=>`${p.x},${p.y},${p.z}`
 // The same blocks the burrow caps with and the pathfinder climbs on: never
 // obsidian (lab run 57: the hut walled in with it and one wall's worth stayed
 // behind in the cave when it opened a side to leave).
-export const hutMaterials=scaffoldItems
+// Lab run 165, 15 October: in slot order the hut spent a single dirt block ahead of a
+// stack of cobblestone, and the cell after it was clicked with the spent dirt. The
+// biggest stack goes first, so a ten-block hut rarely empties a stack mid-build. The burrow, fillCell and the pathfinder keep slot order.
+export const hutMaterials=bot=>scaffoldItems(bot).sort((a,b)=>b.count-a.count)
 // Run 84, 9 October: arriving in the Nether among hoglins, the bot beside the
 // portal could not wall in ("Cannot wall through nether_portal") and the only
 // shelter left was going home. Beside a portal the hut becomes a portal room:
@@ -160,14 +163,18 @@ export async function wallIn(bot,task,{check,stage,progress}){
  for(const {target,ref} of placements){
   check();assertNoHostileOccupants(bot,[feet,feet.offset(0,1,0)])
   if(solid(bot,bot.blockAt(target))){placed++;continue}
-  const material=hutMaterials(bot)[0]
-  if(!material)break
+  if(!hutMaterials(bot).length)break
   // A planned reference that is gone (a fireball, a mob) gives way to any solid neighbour,
   // and one with a use (a chest, a dropper) to a plain one (lab run 163, placement.js).
   const reference=plainFirst([...(ref?[ref]:[]),...around(target)].map(c=>bot.blockAt(c)).filter(b=>solid(bot,b)))[0],at=reference?.position
   if(!reference){progress(`Nothing solid to place against at ${key(target)}`);continue}
   // The bridge can drop a placement or its update: try each block twice.
+  // Lab run 165, 15 October: the block update lands before the inventory update, so a
+  // stack the last click emptied still reads one; the material is picked right before
+  // each click, and a kind found gone gives way to the next.
   for(let attempt=0;attempt<2&&!solid(bot,bot.blockAt(target));attempt++){
+   const material=hutMaterials(bot)[0]
+   if(!material)break
    try{await holdToPlace(bot,material.name,check);await bot.placeBlock(reference,target.minus(at))}catch(error){check();progress(`Placement at ${key(target)} unconfirmed: ${String(error.message).slice(0,60)}`)}
    await settle(()=>solid(bot,bot.blockAt(target)),{check})
    // Lab run 147, 15 October: the alarm cancelled a crossing before its arrival hop, and

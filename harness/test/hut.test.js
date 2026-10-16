@@ -525,3 +525,45 @@ test('fillCell clicks its next reference with the block in hand when the first c
  assert.equal(w.cells.get(new Vec3(11,64,10).toString()),'cobblestone')
  assert.deepEqual(clicks.map(c=>c.held),['cobblestone','cobblestone'])
 })
+
+// Lab run 165, 15 October: the hut spent a single dirt block ahead of a stack of cobblestone,
+// and the next cell was clicked with the dirt already spent: the block update lands before
+// the inventory update, so the emptied stack still read one. The click timed out and the
+// retry said "No dirt left to place", the cobblestone never tried: "Hut incomplete: 1 of 10".
+// The fake inventory here lags the same way: an emptied stack reads one until the next
+// click with it is lost, and only then is it gone.
+function laggingStacks(w){
+ const spent=new Set()
+ return handServer(w,{afterClick:(p,held)=>{
+  const s=w.inventory.find(i=>i.name===held.name)
+  if(spent.has(s)){spent.delete(s);w.inventory.splice(w.inventory.indexOf(s),1);throw new Error(`Event blockUpdate:${p} did not fire within timeout of 5000ms`)}
+  w.placed.push(p.toString());w.cells.set(p.toString(),held.name)
+  if(s.count===1)spent.add(s);else s.count--
+ }})
+}
+test('the hut spends its biggest stack first: one dirt and sixty-four cobblestone wall in with cobblestone, and the dirt is still carried',async()=>{
+ const w=world({logs:0});w.inventory.push({name:'dirt',count:1},{name:'cobblestone',count:64})
+ const clicks=laggingStacks(w)
+ assert.equal((await wallIn(w.bot,{kind:'hut',goal:{}},api)).receipt,'walled_in')
+ assert.deepEqual(clicks.filter(c=>c.held!=='cobblestone'),[])
+ assert.equal(w.inventory.find(i=>i.name==='dirt')?.count,1)
+})
+test('a stack the last click emptied gives way to the next kind on the retry, and the hut closes',async()=>{
+ // Five and five: the hut takes them in turn, the dirt empties on the ninth block and
+ // still reads one, level with the last cobblestone, for the tenth.
+ const w=world({logs:0});w.inventory.push({name:'dirt',count:5},{name:'cobblestone',count:5})
+ const said=[],clicks=laggingStacks(w)
+ const result=await wallIn(w.bot,{kind:'hut',goal:{}},{...api,progress:t=>said.push(t)})
+ assert.equal(result.receipt,'walled_in');assert.equal(result.placed,10)
+ assert.ok(!said.some(t=>/No dirt left/.test(t)),said.join(' | '))
+ assert.deepEqual(clicks.slice(-2).map(c=>c.held),['dirt','cobblestone'])
+ assert.equal(clicks.at(-1).at,clicks.at(-2).at)
+})
+test('with a few blocks of several kinds the hut uses every one, each emptied stack giving way to the next',async()=>{
+ const w=world({logs:0});w.inventory.push({name:'stone_bricks',count:1},{name:'dirt',count:1},{name:'cobblestone',count:8})
+ const said=[];laggingStacks(w)
+ const result=await wallIn(w.bot,{kind:'hut',goal:{}},{...api,progress:t=>said.push(t)})
+ assert.equal(result.receipt,'walled_in',said.join(' | '));assert.equal(result.placed,10)
+ const walls=[...w.cells.values()]
+ assert.deepEqual(['stone_bricks','dirt','cobblestone'].map(n=>walls.filter(x=>x===n).length),[1,1,8])
+})
