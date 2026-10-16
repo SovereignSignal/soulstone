@@ -846,6 +846,18 @@ test('a shelter reached or a Stop survives the restart',async()=>{
   assert.equal(c.safety?.status,safety.status);assert.equal(c.restoreBurrow,rearm,safety.status)
  }
 })
+// A lit shelter is kept only while the bot is still in it: nothing re-arms a 'sheltered'
+// episode, so one restored somewhere else would hold the alarm off wherever the bot stands.
+test('a shelter kept over a restart is dropped on spawn if the bot is no longer in it',async()=>{
+ for(const [at,kept] of [[new Vec3(1.5,64,.5),true],[new Vec3(40.5,64,.5),false],[null,false]]){
+  const runner=new FakeRunner();runner.bot.entity={position:at??new Vec3(.5,64,.5)}
+  const c=await restoreWith({...inFlight,status:'sheltered',retreat:at?{position:{x:.5,y:64,z:.5},door:{position:{x:2,y:64,z:0}}}:{}},{runner})
+  assert.equal(c.safety?.status,'sheltered','kept until the bot is seen')
+  runner.emit('event',{type:'spawn'})
+  assert.equal(c.safety?.status??null,kept?'sheltered':null,String(at))
+  assert.equal(JSON.parse(readFileSync(c.statePath,'utf8')).safety?.status??null,kept?'sheltered':null)
+ }
+})
 function restartArena({health=20,distance=8}={}){
  const registry=minecraftDataForWanted('1.21.4'),inventory=[{name:'wooden_axe',count:1,maxDurability:59,durabilityUsed:0}]
  return {registry,game:{gameMode:'survival',difficulty:'normal'},time:{timeOfDay:6000},health,food:20,players:{},entities:{1:{id:1,uuid:'a'.repeat(36),type:'mob',name:'zombie',position:new Vec3(10.5+distance,64,10.5)}},

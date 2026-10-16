@@ -73,6 +73,8 @@ export const HOLD_SAY_MS=10*60*1000,DAY_HOLD_MS=5*60*1000,DAY_HOLD_FIGHT_HEALTH=
 export const DAYLIGHT_MS=(12500-1000)/20*1000
 // How far a shelter may be to be walked to in the dark: the saved shelters' own limit.
 export const FAR_SHELTER=48
+// How far from where it closed the door a restarted bot still counts as in that shelter.
+const SHELTER_DRIFT=4
 import {survivalObservation,fireObservation,SHOOTERS_ONLY,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS,HEALTH_EMERGENCY_LINE,outOfReach,cannotShootYet} from '../survival.js'
 // Air, fire and a portal underfoot run their own recovery at once and preempt
 // any shelter attempt: each has a clock no shelter stops.
@@ -188,6 +190,7 @@ export class Teammate extends EventEmitter {
     if(this.requestProgress?.status==='blocked'&&canResume(this.requestProgress))this.phase='blocked'
     // A restart while dug in must not strand the bot underground: resume the wait on spawn.
     this.restoreBurrow=rearmsOnSpawn(this.safety)
+    this.restoreSheltered=this.safety?.status==='sheltered'
     // A request interrupted only by a service restart continues once on its own
     // after the bot is back in the world; a second restart needs a person.
     // The blocker string this used to match is written nine lines below, so it was
@@ -422,6 +425,9 @@ export class Teammate extends EventEmitter {
       }
       // A trip's kills and the last shooter seen belong to the dimension they were in.
       if(e.type==='spawn'&&runner.ready){const here=dimensionOf(runner.bot);if(this.lastDimension&&here!==this.lastDimension){this.killSites=(this.killSites||[]).filter(k=>!k.trip);this.shooterSeenAt=null}this.lastDimension=here}
+      // Nothing re-arms a lit shelter kept over a restart, so it stands only while the bot is still
+      // where it closed the door; anywhere else it would hold the alarm off in the open.
+      if(e.type==='spawn'&&this.restoreSheltered&&runner.ready){this.restoreSheltered=false;const at=this.safety?.retreat?.position,p=runner.bot?.entity?.position;if(this.safety?.status==='sheltered'&&!(at&&p&&Math.hypot(at.x-p.x,at.y-p.y,at.z-p.z)<=SHELTER_DRIFT)){this.safety=null;this.persist()}}
       if(e.type==='spawn'&&this.restoreBurrow&&runner.ready){this.restoreBurrow=false;this.phase='blocked';this.safety.status='burrowed';delete this.safety.error;this.persist();const abort=this.abort=new AbortController();this.say('Service restarted while I was dug in. Waiting for daylight before digging out.');void this.waitInBurrow(this.epoch,abort.signal,runner.bot,this.requestProgress?.status==='interrupted')}
       if(e.type==='spawn'&&this.restoreRequest&&runner.ready&&!this.snapshot().dead){this.restoreRequest=false;this.requestProgress.restartContinuations=(this.requestProgress.restartContinuations||0)+1;this.persist();this.say('Service restarted while a request was running. Continuing it automatically.');setTimeout(()=>{this.resume({automatic:true}).catch(error=>{this.requestProgress.blocker=error.message;this.persist()})},1500)}
       // The dimension marks the trip too: the alarm can cancel a crossing that has already
