@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import minecraftData from 'minecraft-data'
 import {Vec3} from 'vec3'
-import {burrowClearance,shelterExits,RELOCATE_PATIENCE_MS} from '../src/burrow.js'
+import {burrowClearance,shelterExits,RELOCATE_PATIENCE_MS,RELOCATE_FLOOR} from '../src/burrow.js'
 import {roofed} from '../src/observations.js'
 import {emergencyReason,NIGHT_EXPOSURE} from '../src/survival.js'
 import {Teammate} from '../src/companion/controller.js'
@@ -134,6 +134,41 @@ test('a hidden shooter still comes due for relocation',()=>{
 test('a hidden shooter inside the relocation standoff is held, however long it lingers',()=>{
  const r=burrowClearance(archerUnder(),{lingeredMs:241000,exits:shaftExits})
  assert.equal(r.clear,false,r.reason);assert.equal(r.lingering,true);assert.equal(r.relocate,undefined);assert.equal(r.confront,undefined);assert.match(r.reason,/out of sight/)
+})
+// 16 October: that hold is worth it only while waiting heals. Hungry with nothing to eat it heals
+// nothing, and four watches end on a Resume nobody in the family world can send, so a hidden
+// lone shooter does not hold the standoff then: the patience runs and the bot leaves.
+const hungryArcher=({food=12,health=20,...o}={})=>{const bot=archerUnder(o);bot.food=food;bot.health=health;return bot}
+test('a hidden shooter inside the standoff is held only while waiting can heal',()=>{
+ const fed=burrowClearance(hungryArcher({food:20}),{lingeredMs:RELOCATE_PATIENCE_MS,exits:shaftExits})
+ assert.equal(fed.clear,false,fed.reason);assert.equal(fed.relocate,undefined)
+ const early=burrowClearance(hungryArcher(),{lingeredMs:61000,exits:shaftExits})
+ assert.equal(early.clear,false,early.reason);assert.equal(early.lingering,true);assert.equal(early.confront,undefined,'still never confronted unseen')
+ const hungry=burrowClearance(hungryArcher(),{lingeredMs:RELOCATE_PATIENCE_MS,exits:shaftExits})
+ assert.equal(hungry.clear,true,hungry.reason);assert.equal(hungry.relocate?.threats?.[0]?.name,'skeleton');assert.equal(hungry.confront,undefined)
+ const weak=burrowClearance(hungryArcher({health:RELOCATE_FLOOR-1}),{lingeredMs:RELOCATE_PATIENCE_MS,exits:shaftExits})
+ assert.equal(weak.clear,false,'under the relocation floor it still holds');assert.equal(weak.relocate,undefined)
+ const carrying=hungryArcher();carrying.inventory.items().push({name:'bread',count:3})
+ assert.equal(burrowClearance(carrying,{lingeredMs:RELOCATE_PATIENCE_MS,exits:shaftExits}).clear,false,'carrying food it can heal, so it waits')
+})
+test('the hunger waiver is for the lone hidden shooter only: a creeper at the rim or a zombie inside ten blocks still holds',()=>{
+ const creeper=hungryArcher({mobs:[['creeper',4.5,64,.5],['skeleton',8.5,64,.5]]})
+ const c=burrowClearance(creeper,{lingeredMs:RELOCATE_PATIENCE_MS,exits:shaftExits});assert.equal(c.clear,false,c.reason);assert.equal(c.relocate,undefined)
+ const zombie=hungryArcher({mobs:[['zombie',8.5,64,.5]]})
+ const z=burrowClearance(zombie,{lingeredMs:RELOCATE_PATIENCE_MS,exits:shaftExits});assert.equal(z.clear,false,z.reason);assert.equal(z.relocate,undefined)
+})
+const burrowedAt=bot=>{const executed=[],said=[]
+ const c={epoch:1,runner:{bot,ready:true,connectionId:'same',task:{result:{receipt:'surfaced'}}},safety:{status:'burrowed',retreat:{shelterName:'burrow',surface:{x:0,y:64,z:0}}},requestProgress:null,burrowWait:{quietMs:5,limitMs:1500,watches:1,relocateAfterMs:0},
+  persist(){},emit(){},say(m){said.push(m)},dispatch(){},async execute(command){executed.push(command.action)},resume(){assert.fail('no request to resume')}}
+ return {c,executed,said}}
+test('a burrow wait that cannot heal ends in a relocation from a hidden shooter, not a Resume request',async()=>{
+ const hungry=burrowedAt(hungryArcher())
+ await Teammate.prototype.waitInBurrow.call(hungry.c,1,new AbortController().signal,hungry.c.runner.bot,false)
+ assert.deepEqual(hungry.executed,['unburrow','climb','flee']);assert.equal(hungry.c.safety,null)
+ assert.ok(hungry.said.some(m=>/leaving the area/.test(m)),hungry.said.join(' | '));assert.ok(!hungry.said.some(m=>/Resume is required/.test(m)))
+ const fed=burrowedAt(hungryArcher({food:20}))
+ await Teammate.prototype.waitInBurrow.call(fed.c,1,new AbortController().signal,fed.c.runner.bot,false)
+ assert.deepEqual(fed.executed,[]);assert.ok(fed.said.some(m=>/Resume is required/.test(m)),'fed, the hold is the one built on purpose')
 })
 // A hut drops a hidden shooter past four blocks before the gate is asked; one closer, which it
 // keeps, is answered from the hut's port while the burrow holds it.

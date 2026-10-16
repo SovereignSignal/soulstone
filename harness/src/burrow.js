@@ -384,6 +384,7 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  // "Ready for your next instruction". A shooter no exit can see is held, not confronted; the
  // relocation rule below still ends a hold that will not clear. Inside its ten-block standoff
  // nothing does but the shooter leaving or burning: a burrow that can heal waits, on purpose.
+ // 16 October: one that cannot heal does not; see the standoff below.
  const unseen=!!lone&&!!exits&&!canPort&&SHOOTERS_ONLY.has(lone.name)&&hidden(lone)
  const ready=!portless&&(!!lone&&bowCanAnswer(bot,lone.name)&&!unseen||shooterAtWall||meleeReady)
  if(!ready){
@@ -397,7 +398,10 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
   // from climbing into a fuse or a sword's reach, and a phantom in daylight is neither, so it
   // does not hold the standoff then. It stays in near: the patience still runs, and the walk
   // away is away from it too.
-  const closest=near.filter(t=>!(daylight&&t.name==='phantom')).reduce((m,t)=>Math.min(m,t.distance),Infinity)
+  // 16 October: nor does a hidden lone shooter when waiting cannot heal (hungry, no food carried).
+  // The hold then heals nothing and its watches end on a Resume the family world cannot send, so
+  // the patience runs and the bot leaves, no lower than the relocation floor.
+  const closest=near.filter(t=>!(daylight&&t.name==='phantom')&&!(unseen&&!canHeal)).reduce((m,t)=>Math.min(m,t.distance),Infinity)
   if(lingeredMs>=relocateAfterMs&&strongEnoughToLeave(bot)&&closest>=RELOCATE_STANDOFF&&near.every(t=>t.position))
    return {clear:true,relocate:{threats:near,from:centre(near)},health:s.health,timeOfDay:s.timeOfDay,scope,
     reason:`${near.length===1?`A ${near[0].name}`:`${near.length} hostiles`} held station for ${Math.round(lingeredMs/1000)} seconds and will not disperse; surfacing to move away rather than wait them out`}
