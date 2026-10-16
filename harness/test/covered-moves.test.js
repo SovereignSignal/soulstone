@@ -84,19 +84,55 @@ test('bore through a hut wall that is neither rock nor the bot\'s own is refused
 // Live, 16 October: the family seed's Nether arrival is on a fortress bridge of nether bricks, which
 // the family rule never digs, so the shaft is refused there. From the hut a bore is admitted when its
 // first column is the bot's own wall or rock, or open air over a solid floor that is not hot.
-test('from a hut on a bridge, a bore through its own wall or across air over a cool floor is admitted; over magma or beside lava it is not',async()=>{
+// Blaze death, 16 October 18:44Z: a covered bore from the hut on the bridge dug its own front wall into open
+// floored air; the cavity joined the fortress ground and the shelter failed open. Under cover a bore goes
+// through rock only: the first column is rock or the bot's own wall, and the column beyond it is full cubes.
+test('a bore whose first column faces open air is refused before dispatch: the reason names the wall and reaches the next decision; its own wall into rock is admitted',async()=>{
  const bore={action:'bore',target:{x:20,y:64,z:0},count:6,expectation:'Along the bridge'}
  const bridge=f=>{for(const [k,v] of [['0,63,0','nether_bricks'],['1,63,0','nether_bricks']])f.cells.set(k,v)}
- const own=fixture(once(bore,wait),{act:()=>({receipt:'bored',columns:1,slit:null})});bridge(own)
- own.bot.ownBlocks={has:()=>false,entry:p=>p.x===1&&p.z===0&&(p.y===64||p.y===65)?{name:'cobblestone'}:null}
- await own.run({budgetMs:60});assert.ok(own.commands.some(x=>x.action==='bore'),'own wall: '+JSON.stringify(own.c.recoveryHistory))
- const air=fixture(once(bore,wait),{act:()=>({receipt:'bored',columns:1,slit:null})});bridge(air);air.cells.set('1,64,0','air');air.cells.set('1,65,0','air')
- await air.run({budgetMs:60});assert.ok(air.commands.some(x=>x.action==='bore'),'air over bricks: '+JSON.stringify(air.c.recoveryHistory))
- for(const [name,set,re] of [['magma floor',f=>f.cells.set('1,63,0','magma_block'),/magma_block/],['lava beside',f=>f.cells.set('1,64,1','lava'),/lava/]]){
-  // Lava beside is judged at the bot's own wall: beside an open column it would already be inside the hut's flood.
-  const f=fixture(once(bore,wait));bridge(f);if(name==='magma floor'){f.cells.set('1,64,0','air');f.cells.set('1,65,0','air')}else f.bot.ownBlocks={has:()=>false,entry:p=>p.x===1&&p.z===0?{name:'cobblestone'}:null};set(f)
-  await f.run({budgetMs:60});assert.deepEqual(acts(f),[],name);assert.ok(f.c.recoveryHistory.some(a=>a.status==='rejected'&&re.test(a.reason)),name+': '+JSON.stringify(f.c.recoveryHistory))
+ const ownWall=f=>{f.bot.ownBlocks={has:()=>false,entry:p=>p.x===1&&p.z===0&&(p.y===64||p.y===65)?{name:'cobblestone'}:null}}
+ const own=fixture(once(bore,wait),{act:()=>({receipt:'bored',columns:1,slit:null})});bridge(own);ownWall(own)
+ await own.run({budgetMs:60});assert.ok(own.commands.some(x=>x.action==='bore'),'own wall into rock: '+JSON.stringify(own.c.recoveryHistory))
+ const seen=[];const beyond=fixture(async o=>{seen.push(o);return seen.length===1?bore:wait});bridge(beyond);ownWall(beyond)
+ for(let x=2;x<9;x++)for(const y of [64,65])beyond.cells.set(`${x},${y},0`,'air')
+ await beyond.run({budgetMs:60});assert.deepEqual(acts(beyond),[])
+ assert.ok(seen[1]?.recovery.recentAttempts.some(a=>a.status==='rejected'&&/open ground beyond the wall at 1,64,0/.test(a.reason)),JSON.stringify(seen[1]?.recovery.recentAttempts))
+ const air=fixture(once(bore,wait));bridge(air);air.cells.set('1,64,0','air');air.cells.set('1,65,0','air')
+ await air.run({budgetMs:60});assert.deepEqual(acts(air),[],'an open first column');assert.ok(air.c.recoveryHistory.some(a=>a.status==='rejected'&&/rock only/.test(a.reason)),JSON.stringify(air.c.recoveryHistory))
+ const lava=fixture(once(bore,wait));bridge(lava);ownWall(lava);lava.cells.set('1,64,1','lava')
+ await lava.run({budgetMs:60});assert.deepEqual(acts(lava),[]);assert.ok(lava.c.recoveryHistory.some(a=>a.status==='rejected'&&/lava/.test(a.reason)))
+})
+test('the covered prompt does not offer bores across open air',async()=>{
+ const p=new LocalPlanner();let prompt='';p.structured=async m=>{prompt=m[0].content;return wait}
+ await p.covered({},new AbortController().signal);assert.ok(!/open air/.test(prompt.split('walled in on a Nether trip')[1]),prompt.slice(-600))
+})
+// A breach the bot's own move makes is a refused move: stop, wall in again where it stands, and tell the model.
+function breaching(f,{times=1}={}){
+ let n=0
+ return (cmd,bot,m)=>{
+  if(cmd.action==='bore'&&n++<times){for(let x=1;x<300;x++)m.set(`${x},61,0`,'air');return new Promise(r=>setTimeout(()=>r({receipt:'bored',columns:1}),40))}
+  if(cmd.action==='hut'){for(let x=1;x<300;x++)m.delete(`${x},61,0`);return {receipt:'walled_in',surface:{x:0,y:61,z:0}}}
  }
+}
+const atShaftFoot=f=>{for(let y=61;y<64;y++)f.cells.set(`0,${y},0`,'air');f.bot.entity.position=new Vec3(.5,61,.5)}
+test('a cavity breach during a move stops it, walls in again where the bot stands, and counts as a refusal; the hut record and the wait survive',async()=>{
+ const seen=[],bore={action:'bore',target:{x:20,y:61,z:0},count:6,expectation:'Toward the spawner'}
+ const f=fixture(async o=>{seen.push(o);return seen.length===1?bore:wait});f.c.execute=undefined
+ const act=breaching(f);Object.assign(f,{});f.c.execute=async function(cmd){f.commands.push(cmd);const result=await act(cmd,f.bot,f.cells)??{receipt:cmd.action};f.c.runner.task={kind:cmd.action,status:'completed',result}}
+ atShaftFoot(f)
+ const result=await f.run({budgetMs:150})
+ assert.equal(result.status,'held');const order=acts(f);assert.deepEqual(order.slice(0,2),['bore','hut'],order.join(' '))
+ assert.ok(f.c.recoveryHistory.some(a=>a.status==='rejected'&&/opened the cavity/.test(a.reason)),JSON.stringify(f.c.recoveryHistory))
+ assert.ok(seen[1]?.recovery.recentAttempts.some(a=>/opened the cavity/.test(a.reason||'')),'the next decision reads it')
+ assert.ok(f.c.safety&&f.c.safety.status==='burrowed')
+})
+test('two breaches hold the phase with the hut shut; the watch then judges the hut',async()=>{
+ const f=fixture(async()=>({action:'bore',target:{x:20,y:61,z:0},count:6,expectation:'Again'}))
+ const act=breaching(f,{times:2});f.c.execute=async function(cmd){f.commands.push(cmd);const result=await act(cmd,f.bot,f.cells)??{receipt:cmd.action};f.c.runner.task={kind:cmd.action,status:'completed',result}}
+ atShaftFoot(f)
+ const result=await f.run();assert.equal(result.status,'held');assert.match(result.reason,/opened the cavity/)
+ assert.deepEqual(acts(f),['bore','hut','bore','hut'])
+ assert.equal(inspectEmergencyShelter(f.bot,{limit:256}).verified,true)
 })
 test('a bore receipt with a slit hands the request back: safety cleared, one automatic resume, a covered_route continuation, never unhut',async()=>{
  const f=fixture(once({action:'bore',target:{x:20,y:61,z:0},count:6,expectation:'To the bay'}),{act:()=>({receipt:'bored',columns:5,slit:[{x:6,y:62,z:0}]})})

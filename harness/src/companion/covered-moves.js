@@ -69,18 +69,19 @@ function admit(c,bot,v,sites){
  let goal;try{goal=validateBoreGoal({...v.target,count:v.count,protectedSites:sites})}catch(error){return {reason:error.message}}
  const path=borePath(f,goal)
  if(!path.length)return {reason:`${key(goal)} is straight above or below; dig a shaft with dig`}
- // Live, 16 October: the family seed's Nether arrival is a fortress bridge of nether bricks the
- // family rule never digs. The first column is rock or the bot's own block (its hut wall), or open
- // air over a solid floor that is not hot; bore seals what it uncovers and stops short of open space.
- const cells=columnCells(f,path[0]),open=cells.some(p=>AIR.has(bot.blockAt(p)?.name))
+ // Live, 16 October: the family seed's Nether arrival is a fortress bridge of nether bricks the family rule
+ // never digs, so the first column may be the bot's own hut wall as well as rock. Blaze death, 18:44Z: a bore
+ // from that hut dug its wall into open floored air, the cavity joined the fortress ground and the shelter
+ // failed open. Under cover a bore goes through rock only: the column beyond the wall is full cubes too.
+ const cells=columnCells(f,path[0])
  for(const p of cells){
   const b=bot.blockAt(p)
   if(!b)return {reason:`${key(p)} is not loaded`}
-  if(!AIR.has(b.name)&&(!fullCube(bot.registry,b.name)||hot(b)||GRAVITY.has(b.name)||!mayDig(bot,b)))return {reason:`${b.name} at ${key(p)} is neither natural rock nor my own block; on rock dig a shaft first, then bore from its foot`}
+  if(AIR.has(b.name))return {reason:`open ground at ${key(p)}; under cover I bore through rock only, so the cover stays shut`}
+  if(!fullCube(bot.registry,b.name)||hot(b)||GRAVITY.has(b.name)||!mayDig(bot,b))return {reason:`${b.name} at ${key(p)} is neither natural rock nor my own block; on rock dig a shaft first, then bore from its foot`}
   for(const [dx,dy,dz] of [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0]]){const q=p.offset(dx,dy,dz),n=bot.blockAt(q);if(!cells.some(o=>o.equals(q))&&hot(n))return {reason:`${n?.name??'unloaded ground'} beside the first column at ${key(q)}`}}
  }
- const under=path[0].offset(0,-1,0),floor=bot.blockAt(under)
- if(open&&(!floor||!fullCube(bot.registry,floor.name)||hot(floor)))return {reason:`${floor?.name??'unloaded ground'} under ${key(path[0])}; bore crosses open air only over a solid floor that is not hot`}
+ if(path[1])for(const p of columnCells(path[0],path[1]).filter(q=>!cells.some(o=>o.equals(q)))){const b=bot.blockAt(p);if(!b||!fullCube(bot.registry,b.name))return {reason:`open ground beyond the wall at ${key(cells.at(-1))} (${b?.name??'unloaded'} at ${key(p)}); under cover I bore through rock only. Done hands the bore to the planner, guarded by the alarm`}}
  return {command:{action:'bore',goal,timeoutMs:BORE_TIMEOUT_MS}}
 }
 // The request goes back to the planner from inside the cover, as the departed branch does, and
@@ -100,6 +101,7 @@ export function atPort(bot){
  const feet=feetOf(bot)
  return Object.values(bot.entities||{}).find(e=>SHOOTERS_ONLY.has(e?.name)&&e.position&&e.position.distanceTo(bot.entity.position)<=threatRadius(e.name)&&bowCanAnswer(bot,e.name)&&portSightline(bot,feet,e).status==='clear')??null
 }
+const enclosureError=e=>/^Emergency shelter|^Shelter contains|liquid/i.test(e?.message||'')
 export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*COVERED_MOVES,budgetMs=600000,decisionMs=30000,pollMs=100,waitMs=10000}={}){
  const gate=coveredGate(c,bot,eligible);if(gate)return {status:'skipped',reason:gate}
  const request=c.requestProgress,safety=c.safety,connection=c.runner.connectionId,deadline=Date.now()+budgetMs
@@ -159,10 +161,22 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
    request.coveredMoves=(request.coveredMoves||0)+1;safety.covered??={from:structuredClone(safety.retreat.surface),at:xyz(feetOf(bot)),moves:[]};c.persist()
    const moveAbort=new AbortController(),moveSignal=AbortSignal.any([signal,moveAbort.signal]);let failure=null,receipt
    const monitor=setInterval(()=>{try{protection(true)}catch(e){failure??=e;moveAbort.abort();c.dispatch({action:'stop'})}},pollMs)
+   let failed=null
    try{await c.execute(move.command,moveSignal);receipt=structuredClone(c.runner.task?.result??null)}
-   catch(e){if(failure)throw failure;check();journal('failed',{reason:e.message,expectation:value.expectation});if(++refusals>=2)return {status:'held',reason:e.message};continue}
+   catch(e){failed=e}
    finally{clearInterval(monitor);moveAbort.abort()}
+   // Blaze death, 16 October 18:44Z: the bot's own move opened the cavity, the breach failed the shelter three
+   // times and the bot stood idle in an opened hut. A breach a move makes is a refused move: stop, wall in again
+   // where the bot stands, and tell the model. If walling in fails, that is a shelter failure as before.
+   if(failure&&enclosureError(failure)){
+    check();await c.execute({action:'hut',goal:{},timeoutMs:60000},signal);check()
+    const closed=c.runner.task?.result?.surface;if(closed)safety.retreat={...safety.retreat,surface:structuredClone(closed)}
+    health=bot.health;protection()
+    const reason=`the move opened the cavity (${failure.message}); closed again where I stand`
+    journal('rejected',{reason,expectation:value.expectation});if(++refusals>=2)return {status:'held',reason};continue
+   }
    if(failure)throw failure
+   if(failed){check();journal('failed',{reason:failed.message,expectation:value.expectation});if(++refusals>=2)return {status:'held',reason:failed.message};continue}
    // The last block dug may still be under a falling bot: land before the cavity is judged.
    for(let i=0;i<20&&!bot.entity.onGround;i++)await delay(50,undefined,{signal})
    protection();refusals=0
@@ -175,7 +189,7 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
   if(signal.aborted||c.epoch!==epoch||c.safety!==safety||c.requestProgress!==request||!c.runner.ready||c.runner.bot!==bot||c.runner.connectionId!==connection)return {status:'cancelled'}
   // A breach of the enclosure propagates to the wait's recovery. Anything else (a provider error, health
   // falling, the trip's health line) hands the hut back to the watch, whose own rules then judge it.
-  if(/^Emergency shelter|^Shelter contains|liquid/i.test(e.message))throw e
+  if(enclosureError(e))throw e
   safety.protection=inspectEmergencyShelter(bot,{limit:COVERED_CELLS});journal('failed',{reason:e.message});return {status:'held',reason:e.message}
  }
 }
