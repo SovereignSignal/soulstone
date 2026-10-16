@@ -1,6 +1,6 @@
 import {setTimeout as delay} from 'node:timers/promises'
 import {survivalObservation,threatRadius} from '../survival.js'
-import {shelteredObservation} from '../retreat.js'
+import {shelteredObservation,pressingThreats} from '../retreat.js'
 import {occupiedAlternative} from '../alternate-shelter.js'
 
 export {THREAT_INTERRUPTION} from '../survival.js'
@@ -26,7 +26,11 @@ export function clearanceObservation(bot,projects,shelterName){
  if(threats.blocking.length)return {clear:false,reason:'A potential threat remains on or near the departure corridor',blockingThreats:threats.blocking,peripheralThreats:threats.peripheral}
  // Leaving with a hostile already inside its interruption radius walks straight
  // back into the rule: out for ten seconds, in again, all morning.
- const pressing=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name))
+ // Judged by reach from the doorstep, as the door and the base hold judge it (pressingOutside): family
+ // rehearsal, 16 October, a sealed cave under the base held this watch while the door would have opened.
+ const near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name))
+ // A flood that cannot be judged counts every one of them, as before.
+ const pressing=(()=>{try{return !shelterName||shelterName==='base'?pressingThreats(bot,projects?.base,near):near}catch{return near}})()
  if(pressing.length)return {clear:false,reason:'A potential hostile is inside its interruption radius of the shelter',threats:pressing,peripheralThreats:threats.peripheral}
  const sheltered=shelterName&&shelterName!=='base'?occupiedAlternative(bot,projects)?.name===shelterName:shelteredObservation(bot,projects.base).passed
  if(!sheltered)return {clear:false,reason:'Closed lit shelter is no longer verified'}

@@ -101,3 +101,20 @@ test('a hurt, hungry bot with nothing to eat may leave the base for food in dayl
  assert.match(clearanceObservation(hurt({food:18}),{},'base').reason,/Health/,'at hunger 18 it heals by waiting')
  assert.match(clearanceObservation(hurt({health:20,food:12}),{},'base').reason,/shelter/,'hungry at full health with no food: go and get some')
 })
+// Family rehearsal, 16 October: a dark cave of permanent mobs under the base floor. The base
+// watch counted any hostile in its radius, sealed or not, while the door and the base hold
+// judged them by reach; the watch held until its window ended over mobs nothing could free.
+import minecraftData from 'minecraft-data'
+test('a hostile sealed under the base floor does not hold the base watch; one at the door still does',()=>{
+ const design=[]
+ for(let x=0;x<4;x++)for(let z=0;z<4;z++)for(let y=0;y<3;y++)if((y===2||x===0||x===3||z===0||z===3)&&!(x===1&&z===0&&y<2))design.push({x,y,z,block:'cobblestone'})
+ const base={build:{origin:{x:-1,y:65,z:-1},design}},shell=new Set(design.map(b=>`${b.x-1},${b.y+65},${b.z-1}`)),pocket=new Set(['0,54,0','0,55,0'])
+ const name=p=>p.y<65?(pocket.has(`${p.x},${p.y},${p.z}`)?'air':'stone'):shell.has(`${p.x},${p.y},${p.z}`)?'cobblestone':'air'
+ const cave=at=>{const b=bot();b.registry=minecraftData('1.21.4');b.blockAt=p=>({name:name(p),position:p,boundingBox:name(p)==='air'?'empty':'block',getProperties:()=>({})})
+  b.world.raycast=(from,dir,range)=>{for(let d=.1;d<=range;d+=.1){const c=from.plus(dir.scaled(d)).floored();if(name(c)!=='air')return {name:name(c),position:c}}return null}
+  b.entities.s={name:'skeleton',position:at};return b}
+ const under=clearanceObservation(cave(new Vec3(.5,54,.5)),{base},'base')
+ assert.doesNotMatch(under.reason||'',/interruption radius/,'a skeleton sealed eleven blocks under the floor')
+ assert.match(under.reason,/shelter/,'on to the remaining checks')
+ assert.match(clearanceObservation(cave(new Vec3(.5,65,-2.5)),{base},'base').reason,/departure corridor/,'the same skeleton at the door')
+})

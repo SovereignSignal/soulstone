@@ -260,3 +260,45 @@ test('a back exit left open by an earlier trip is dropped into, not refused, and
  assert.ok(!w.dug.some(k=>/, (61|62|63), /.test(k)),'the open cells were not dug: '+w.dug.join(' '))
  assert.equal(w.dug.length,BACK_EXIT_DEPTH-3)
 })
+// Family rehearsal, 16 October: one dirt roof block of the base was gone. The inspection
+// threw on it, every retreat refused the base, and the bot dug in through its own floor
+// with the dirt to mend it in its bag. The base is the bot's own build: a few air cells of
+// it are put back from inside, door shut, with the design's own block, and never by digging.
+const ROOF=new Vec3(12,66,22)
+function holed({holes=[ROOF],dirt=1,...options}={}){
+ const h=hut(options)
+ h.project.build={...h.project.build,design:design.map(b=>b.y===2&&b.x>=1&&b.x<=2&&b.z>=1&&b.z<=2?{...b,block:'dirt'}:b)}
+ for(const c of [new Vec3(11,66,21),new Vec3(12,66,21),new Vec3(11,66,22),ROOF])h.w.cells.set(c.toString(),'dirt')
+ for(const c of holes)h.w.cells.set(c.toString(),'air')
+ if(dirt)h.w.inventory.unshift({name:'dirt',count:dirt,type:registry.itemsByName.dirt.id})
+ // The block placed is the one in hand, as the server has it.
+ h.w.bot.placeBlock=async(ref,face)=>{const at=ref.position.plus(face),item=h.w.inventory.find(i=>i.name===h.w.bot.heldItem?.name);if(!item||item.count<1)throw new Error('nothing to place');item.count--;h.w.cells.set(at.toString(),item.name);h.w.placed.push(at.toString())}
+ return h
+}
+test('the base inspection can list a few missing air cells instead of refusing; a foreign block or a crater still refuses',()=>{
+ const one=holed(),missing=[]
+ assert.throws(()=>inspectRetreatShelter(one.w.bot,one.project),/missing or changed at \(12, 66, 22\): air/,'strict as before without a list')
+ assert.doesNotThrow(()=>inspectRetreatShelter(one.w.bot,one.project,{missing}))
+ assert.deepEqual(missing.map(m=>[m.cell.toString(),m.block]),[[ROOF.toString(),'dirt']])
+ const wool=holed();wool.w.cells.set(ROOF.toString(),'white_wool')
+ assert.throws(()=>inspectRetreatShelter(wool.w.bot,wool.project,{missing:[]}),/missing or changed at \(12, 66, 22\): white_wool/)
+ const crater=holed({holes:[ROOF,new Vec3(11,66,22),new Vec3(11,66,21),new Vec3(12,66,21),new Vec3(10,66,20)]})
+ assert.throws(()=>inspectRetreatShelter(crater.w.bot,crater.project,{missing:[]}),/missing or changed/,'five is a rebuild for the build skill')
+})
+test('the retreat puts a missing roof block back from inside with the door shut, then verifies the base strictly',async()=>{
+ const {w,project,api,isOpen}=holed({at:[11.5,64,18.5]})
+ const r=await retreatToShelter(w.bot,{kind:'retreat',goal:{project}},api)
+ assert.equal(r.receipt,'sheltered_door_closed');assert.deepEqual(r.repaired,[{x:12,y:66,z:22,block:'dirt'}])
+ assert.equal(w.bot.blockAt(ROOF).name,'dirt');assert.equal(isOpen(),false);assert.deepEqual(w.dug,[],'nothing is dug')
+ const bare=holed({dirt:0,at:[11.5,64,18.5]})
+ await assert.rejects(retreatToShelter(bare.w.bot,{kind:'retreat',goal:{project:bare.project}},bare.api),/missing or changed at \(12, 66, 22\): air; I need 1 dirt/)
+ assert.equal(bare.toggles(),0,'refused before the door is touched')
+})
+test('from the back exit\'s foot the retreat climbs, keeps the dirt for the roof, closes the shaft and repairs',async()=>{
+ const {w,project,api,toggles}=holed({shaftOpen:true,backExit:{cell:{x:12,y:64,z:22},bottom:59},at:[12.5,59,22.5]})
+ for(let y=59;y<=62;y++)w.cells.set(new Vec3(12,y,22).toString(),'air')
+ const r=await retreatToShelter(w.bot,{kind:'retreat',goal:{project}},api)
+ assert.equal(r.receipt,'sheltered_door_closed');assert.equal(r.repaired?.length,1);assert.equal(toggles(),0)
+ assert.equal(w.bot.blockAt(ROOF).name,'dirt','the carried dirt went to the roof, not the climb');assert.equal(w.bot.blockAt(new Vec3(12,63,22)).name,'cobblestone')
+ assert.deepEqual(w.bot.entity.position,new Vec3(11.5,64,21.5));assert.equal(project.backExit.bottom,undefined)
+})

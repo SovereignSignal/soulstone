@@ -60,8 +60,11 @@ test('hostiles the exits cannot reach do not hold a shelter closed; a route, a c
  assert.equal(burrowClearance(sealed.bot,{exits}).clear,true,'the trial 42 wait')
  const open=deep({mobs:RECORDED});breach(open.cells)
  assert.equal(burrowClearance(open.bot,{exits}).clear,false,'the west exit opens onto the cave')
+ // 16 October: a sealed creeper never fuses, and nothing in the shelter digs toward it.
  const close=deep({mobs:[['creeper',-595.5,-39,-332.5]]})
- assert.equal(burrowClearance(close.bot,{exits}).clear,false,'a creeper within four blocks counts through rock')
+ assert.equal(burrowClearance(close.bot,{exits}).clear,true,'a sealed, unseen creeper within four blocks does not hold the wait')
+ const reached=deep({mobs:[['creeper',-596.5,-39,-332.5]]});for(let y=-39;y<=-36;y++)reached.cells.set(new Vec3(-597,y,-333).toString(),'air')
+ assert.equal(burrowClearance(reached.bot,{exits}).clear,false,'one the exit flood reaches does')
  const below=deep({mobs:[['creeper',-595.5,-45,-332.5]]})
  assert.equal(burrowClearance(below.bot,{exits}).clear,true,'sealed nine below, it cannot see the bot to fuse (run 47)')
  // A ranged mob holds a shelter out to twenty-four blocks, past the default search radius.
@@ -609,4 +612,50 @@ test('a bot that did not get back into the hut from the port walls in where it s
  assert.deepEqual(actions.slice(0,3),['unhut','shoot','hut'],w.said.join(' | '))
  assert.deepEqual(safety.retreat.surface,{x:1,y:64,z:0},'the wait watches the hut it is actually in')
  assert.ok(w.said.some(t=>/not back in the hut/i.test(t)),w.said.join(' | '))
+})
+// Family rehearsal, 16 October: tunnel_out left the bot at the back exit's foot (y 59), one block
+// of rock over a dark cave at y 55 to 57 under the base: three skeletons, a zombie 2.2 blocks
+// below and two creepers at 3.6, every one sealed off and out of sight. It walled in and held
+// "for daylight and a clear area" through four watches, then stopped until Resume.
+const CAVE_BASE={x:-625,y:68,z:-368},CAVE_SHAFT={x:-623,z:-366},CAVE_FOOT=new Vec3(-623,59,-366)
+const CAVE_MOBS=[['zombie',-622.5,56.8,-365.5],['creeper',-620.5,56,-365.5],['creeper',-622.5,56.2,-363.3],['skeleton',-625.5,55,-363.5],['skeleton',-619.5,55,-368.5],['skeleton',-626.5,55,-369.5]]
+function sealedCave({cells=new Map(),timeOfDay=6000}={}){
+ const name=p=>cells.has(p.toString())?cells.get(p.toString()):p.y>=CAVE_BASE.y?'air':p.x===CAVE_SHAFT.x&&p.z===CAVE_SHAFT.z&&p.y>=59?'air':p.y>=55&&p.y<=57&&p.x>=-627&&p.x<=-619&&p.z>=-370&&p.z<=-362?'air':'stone'
+ return {cells,bot:base(CAVE_FOOT.offset(.5,0,.5),name,{timeOfDay,mobs:CAVE_MOBS})}
+}
+const CAVE_HUT={shelterName:'hut',surface:{x:CAVE_FOOT.x,y:CAVE_FOOT.y,z:CAVE_FOOT.z}}
+test('walled in at the shaft foot over a sealed cave, the wait clears; a way in from the cave holds it',()=>{
+ const exits=shelterExits(CAVE_HUT),r=burrowClearance(sealedCave().bot,{exits})
+ assert.equal(r.clear,true,r.reason);assert.equal(r.relocate,undefined);assert.equal(r.confront,undefined)
+ assert.deepEqual(r.sealed?.map(t=>t.name).sort(),['creeper','creeper','zombie'],'the ones only the rock floors held are named, for the chat')
+ const under=sealedCave({cells:new Map([[CAVE_FOOT.offset(0,-1,0).toString(),'air']])})
+ assert.equal(burrowClearance(under.bot,{exits}).clear,false,'the floor under the foot opened: the zombie is in sight')
+ const side=sealedCave({cells:new Map([CAVE_FOOT.offset(2,0,0),CAVE_FOOT.offset(2,-1,0)].map(c=>[c.toString(),'air']))})
+ assert.equal(burrowClearance(side.bot,{exits}).clear,false,'a cave cell opened to an exit: the flood reaches them')
+ const warden=sealedCave();warden.bot.entities[7]={id:7,name:'warden',position:new Vec3(-624.5,55,-366.5)}
+ assert.equal(burrowClearance(warden.bot,{exits}).clear,false,'rock does not stop a warden')
+})
+test('the shaft-foot wait that clears over a sealed cave climbs home into the base, says why and resumes',async()=>{
+ // The hut's roof two above the feet closes the shaft over it, as the hut built it.
+ const roofed=()=>sealedCave({cells:new Map([[CAVE_FOOT.offset(0,2,0).toString(),'cobblestone']])})
+ const {bot}=roofed(),executed=[],said=[];let resumed=0
+ const design=[];for(let x=0;x<4;x++)for(let z=0;z<4;z++)for(let y=0;y<3;y++)if((y===2||x===0||x===3||z===0||z===3)&&!(x===1&&z===0&&y<2))design.push({x,y,z,block:y===2?'dirt':'cobblestone'})
+ const project={build:{origin:{...CAVE_BASE},design,wood:'spruce_log'},stations:{torch:{position:{x:-624,y:68,z:-366},confirmed:true}},backExit:{cell:{x:CAVE_SHAFT.x,y:CAVE_BASE.y,z:CAVE_SHAFT.z},bottom:59},built:true}
+ const c={epoch:1,projects:{base:project},runner:{bot,ready:true,connectionId:'same',task:{result:{}}},safety:{status:'burrowed',reason:'A potential hostile is within ten blocks',retreat:{...CAVE_HUT}},
+  requestProgress:{id:'r16',request:'mine iron',status:'interrupted',feedback:[],completed:[]},burrowWait:{quietMs:5,limitMs:1500,watches:1},
+  persist(){},emit(){},say:t=>said.push(t),dispatch(){},async resume(){resumed++},
+  async execute(command){executed.push(command);this.runner.task={result:command.action==='retreat'?{item:'shelter',count:1,receipt:'sheltered_door_closed',repaired:[{x:-623,y:70,z:-366,block:'dirt'}]}:{item:'safety',count:1,receipt:'unwalled'}}}}
+ await Teammate.prototype.waitInBurrow.call(c,1,new AbortController().signal,bot,true)
+ assert.deepEqual(executed.map(x=>x.action),['unhut','retreat'],said.join(' | '))
+ assert.deepEqual(executed[1].goal.project.backExit,project.backExit,'the base is the goal, up the shaft')
+ assert.equal(resumed,1,said.join(' | '))
+ assert.ok(said.includes('The mobs are in a sealed cave under me and cannot reach me.'),said.join(' | '))
+ assert.ok(said.some(t=>/One roof block was missing\. I put it back\./.test(t)),said.join(' | '))
+ assert.ok(!said.some(t=>/Back on the surface/.test(t)),said.join(' | '))
+ // A failed climb falls back to today's way: the request resumes from where the bot stands.
+ const failed=roofed(),fsaid=[];let fresumed=0
+ const f={...c,runner:{bot:failed.bot,ready:true,connectionId:'same',task:{result:{}}},safety:{status:'burrowed',retreat:{...CAVE_HUT}},requestProgress:{id:'r17',request:'mine iron',status:'interrupted',feedback:[],completed:[]},
+  say:t=>fsaid.push(t),async resume(){fresumed++},async execute(command){if(command.action==='retreat')throw new Error('Climb stalled');this.runner.task={result:{item:'safety',count:1,receipt:'unwalled'}}}}
+ await Teammate.prototype.waitInBurrow.call(f,1,new AbortController().signal,failed.bot,true)
+ assert.equal(fresumed,1,fsaid.join(' | '));assert.ok(fsaid.some(t=>/Climb stalled/.test(t)),fsaid.join(' | '))
 })

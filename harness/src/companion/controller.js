@@ -17,7 +17,7 @@ import {adaptiveRecovery} from './adaptive-recovery.js'
 import {recoveryContext,recoveryState,recentRecovery,recordRecovery} from './recovery-context.js'
 import {THREAT_INTERRUPTION,clearanceObservation,awaitClearance,openGroundClearance} from './hazard-clearance.js'
 import {alternativeShelters,occupiedAlternative} from '../alternate-shelter.js'
-import {shelteredObservation,inspectRetreatShelter,insideBase,inBackExit,backExitObservation,pressingOutside,departureRefusal} from '../retreat.js'
+import {shelteredObservation,inspectRetreatShelter,assertRepairable,insideBase,inBackExit,backExitObservation,pressingOutside,departureRefusal} from '../retreat.js'
 import {fullCube} from '../construction.js'
 import {Vec3} from 'vec3'
 import {canopyLandings} from '../canopy.js'
@@ -106,6 +106,11 @@ async function collectKillSites(c,signal,bot,request,within=()=>true){
 const LIVE_REQUEST=new Set(['running','blocked','interrupted','paused'])
 const comeBackFor=request=>canResume(request)||!!request?.tripEnded
 const inventoryOf=bot=>(bot?.inventory?.items?.()||[]).reduce((m,i)=>(m[i.name]=(m[i.name]||0)+i.count,m),{})
+// What the retreat put back in the base, in words for the family world's children (16 October).
+const repairedLine=(project,repaired)=>{
+ const top=Math.max(...(project?.build?.design||[]).map(b=>b.y)),roof=repaired.every(c=>c.y===(project?.build?.origin?.y??NaN)+top)
+ return repaired.length===1?`One ${roof?'roof':'wall'} block was missing. I put it back.`:`${repaired.length} ${roof?'roof':'wall'} blocks were missing. I put them back.`
+}
 export const STOP_HOLD_MS=60000
 import {burrowClearance,shelterExits,strongEnoughToLeave,RELOCATE_STANDOFF} from '../burrow.js'
 import {roofed} from '../observations.js'
@@ -240,7 +245,10 @@ export class Teammate extends EventEmitter {
         // shelter for a few seconds rather than treat the mob beyond the wall as an
         // emergency. Blocks that never arrive stop being an excuse.
         let awaitingBase=false
-        if(shelterAvailable&&base.build?.design?.length){try{inspectRetreatShelter(runner.bot,base,{occupants:false});this.unloadedSince=null}catch(error){
+        // Family rehearsal, 16 October: one dirt roof block gone made the base no shelter at all, and
+        // the chain dug through its own floor. A few air cells the bot carries the blocks for are put
+        // back by the retreat, so the base stays the place to go; `sheltered` below stays strict.
+        if(shelterAvailable&&base.build?.design?.length){try{const missing=[];inspectRetreatShelter(runner.bot,base,{occupants:false,missing});if(missing.length)assertRepairable(runner.bot,missing);this.unloadedSince=null}catch(error){
           awaitingBase=/: unloaded$/.test(error.message)&&insideBase(runner.bot,base)&&Date.now()-(this.unloadedSince??=Date.now())<20000
           if(!awaitingBase)shelterAvailable=false
         }}
@@ -885,7 +893,9 @@ export class Teammate extends EventEmitter {
         try{
           await this.execute({action:'retreat',goal:candidate.goal,timeoutMs:Math.min(45000,remaining)},abort.signal)
           if(epoch!==this.epoch||abort.signal.aborted)return
-          this.safety.retreat=structuredClone(this.runner.task.result);attempt.status='sheltered';break
+          this.safety.retreat=structuredClone(this.runner.task.result);attempt.status='sheltered'
+          if(this.safety.retreat?.repaired?.length)this.say(repairedLine(this.projects.base,this.safety.retreat.repaired))
+          break
         }catch(error){
           if(epoch!==this.epoch||abort.signal.aborted)return
           attempt.status='rejected';attempt.reason=error.message;this.persist()
@@ -1226,6 +1236,9 @@ export class Teammate extends EventEmitter {
         }
         if(result.status!=='cleared'){this.say('I am staying dug in. Resume is required because daylight and a clear area were not established in time.');return}
         confront=result.observation?.confront;relocate=result.observation?.relocate
+        // Family rehearsal, 16 October: a wait held over a cave of mobs nothing could free. Said plainly
+        // when it was only those (sealedStill) and they no longer hold it.
+        if(result.observation?.sealed?.length){const below=result.observation.sealed.every(t=>t.verticalOffset<0);this.say(`The mobs are ${below?'in a sealed cave under me':'sealed off behind rock'} and cannot reach me.`)}
         if(!(safety.retreat.shelterName==='hut'&&confront?.position&&SHOOTERS_ONLY.has(confront.name)&&bowCanAnswer(bot,confront.name)))break
         // Out of ports, leaving takes the same health and standoff as the wait's own
         // relocation; short of them the hut holds, and the next watch's gates decide
@@ -1299,6 +1312,18 @@ export class Teammate extends EventEmitter {
         await this.execute({action:'unhut',goal:{},timeoutMs:60000},signal);check()
       }
       safety.exit=structuredClone(this.runner.task.result);this.persist()
+      // Family rehearsal, 16 October: at the back exit's foot the way out is up. Released there, the
+      // first working step re-fired the alarm and the bot walled in again. The retreat climbs the
+      // shaft, shuts the base, caps the shaft and mends the base; the request goes on from inside.
+      // If the climb fails, the request goes on from here, as before.
+      let home=false
+      if(!confront&&!relocate&&this.projects?.base?.build?.design?.length&&inBackExit(bot,this.projects.base)){
+        try{
+          await this.execute({action:'retreat',goal:{project:structuredClone(this.projects.base)},timeoutMs:45000},signal);check()
+          const back=safety.home=structuredClone(this.runner.task.result);safety.status='sheltered';home=true;this.persist()
+          this.say('I climbed the back exit into the base.'+(back?.repaired?.length?' '+repairedLine(this.projects.base,back.repaired):''))
+        }catch(error){check();this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check();this.say(`I could not climb into the base: ${error.message}. Carrying on from here.`)}
+      }
       // Surfacing beside a threat that outguns us only helps if we then leave.
       // Opening one wall is not leaving: a shelter four blocks down still needs
       // the pit exit before a sprint has anywhere to go, which is why moving away
@@ -1334,9 +1359,9 @@ export class Teammate extends EventEmitter {
       if(continuing){
         ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,shelter:safety.retreat.shelterName,resumeRequested:!!safety.resumeRequested,resumeSerial:request.resumeSerial||0,...continuationMark(request)})
         ;(request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations.at(-1)});this.persist()
-        this.say('Back on the surface. I am continuing your saved request.')
+        this.say(`${home?'Back in the base.':'Back on the surface.'} I am continuing your saved request.`)
         await this.resume({automatic:true})
-      }else if(!ended)this.say('Back on the surface. '+(canResume(request)?'Resume is available if the saved request can safely continue.':'Ready for your next instruction.'))
+      }else if(!ended)this.say((home?'Back in the base. ':'Back on the surface. ')+(canResume(request)?'Resume is available if the saved request can safely continue.':'Ready for your next instruction.'))
     }catch(error){
       if(epoch!==this.epoch)return
       safety.status='failed';safety.error=error.message;safety.failedAt=Date.now();safety.protection={verified:false,reason:error.message};this.phase='blocked';this.activity='';this.persist()

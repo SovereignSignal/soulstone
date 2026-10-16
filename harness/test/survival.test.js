@@ -183,3 +183,16 @@ test('hurt with no way to heal in place, out in Overworld daylight, the health a
  assert.equal(emergencyReason({...base,dimension:'the_nether'}),HEALTH_EMERGENCY,'no food to find in the Nether')
  assert.equal(emergencyReason({...base,openSky:false}),HEALTH_EMERGENCY,'under rock the food is not here')
 })
+// Family rehearsal, 16 October: walled in at the back exit's foot, one block of rock over a
+// cave of three skeletons, a zombie and two creepers, every one sealed off and out of sight.
+// The rock floors kept the zombie at 2.2 and the creepers at 3.7 counting for good. Sealed and
+// still is the shelter's test: nothing in the shelter digs, and a sealed creeper never fuses.
+import {sealedStill} from '../src/survival.js'
+test('a hostile sealed off and out of sight is still at any distance, unless rock does not stop it',()=>{
+ const t=(name,distance,reach='sealed',status='blocked')=>({risk:'potential_hostile',name,distance,reach,sightline:{status}})
+ assert.equal(sealedStill(t('zombie',2.2)),true,'the zombie through one block of stone')
+ assert.equal(sealedStill(t('creeper',3.7)),true,'the creepers inside the fuse floor')
+ for(const name of ['warden','vex','ghast','enderman'])assert.equal(sealedStill(t(name,6)),false,name)
+ assert.equal(sealedStill(t('zombie',2.2,'open')),false,'a route counts');assert.equal(sealedStill(t('zombie',2.2,'unknown')),false,'an inconclusive flood proves nothing')
+ assert.equal(sealedStill(t('zombie',2.2,'sealed','clear')),false,'in sight counts');assert.equal(sealedStill({...t('zombie',2.2),sightline:undefined}),false,'no sightline evidence counts')
+})

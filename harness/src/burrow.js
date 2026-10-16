@@ -12,7 +12,7 @@ import {Vec3} from 'vec3'
 import {DoorAwareMovements,SOFT_GROUND as SOFT,centreOn} from './navigation.js'
 import {fullCube} from './construction.js'
 import {assertNoHostileOccupants,inspectEmergencyShelter} from './shelter-occupants.js'
-import {survivalObservation,RANGED,HEALTH_EMERGENCY_LINE,breachesRock,outOfReach,SHOOTERS_ONLY,threatRadius} from './survival.js'
+import {survivalObservation,RANGED,HEALTH_EMERGENCY_LINE,breachesRock,outOfReach,sealedStill,SHOOTERS_ONLY,threatRadius} from './survival.js'
 import {threatReach,threatRoutes} from './threat-reach.js'
 import {roofed} from './observations.js'
 import {defenseDecision,armorPoints,HEAVY_ARMOR} from './combat.js'
@@ -328,13 +328,19 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  // is not waiting outside (a blaze behind the fortress's nether bricks).
  const eyeAt=c=>({x:c.x+.5,y:c.y+(bot.entity?.eyeHeight??1.62),z:c.z+.5})
  const hidden=t=>!!t.position&&exits.every(c=>observedSightline(bot,eyeAt(c),{x:t.position.x,y:t.position.y+1,z:t.position.z}).status==='blocked')
- // A hostile the exits cannot reach is not waiting outside. The same floors as
- // the interruption rule still count, so leaving never walks into a re-trigger.
+ // A hostile the exits cannot reach is not waiting outside.
+ let sealed=[]
  if(exits&&near.length){
   // From the shelter's own exits, by the same test the alarm uses afterwards,
   // so a hostile it ignores is never the one that sends the bot back in.
+  // Family rehearsal, 16 October: nor is one sealed and out of sight at any distance (sealedStill),
+  // since nothing in the shelter digs, though the alarm's rock floors still count it; from the back
+  // exit's foot the wait therefore ends by climbing home (controller.js). Those only the floors
+  // would have held are named, for the chat.
   const routes=threatRoutes(bot,near,{origins:exits})
-  near=near.filter((t,i)=>!outOfReach({...t,reach:routes[i].reach,routeSteps:routes[i].steps,routeAtLeast:routes[i].atLeast,sightline:t.sightline?.status?t.sightline:{status:'blocked'}}))
+  const judged=near.map((t,i)=>({...t,reach:routes[i].reach,routeSteps:routes[i].steps,routeAtLeast:routes[i].atLeast,sightline:t.sightline?.status?t.sightline:{status:'blocked'}}))
+  sealed=judged.filter(t=>!outOfReach(t)&&sealedStill(t))
+  near=near.filter((t,i)=>!outOfReach(judged[i])&&!sealedStill(judged[i]))
   // Only a hut answers a shooter from its exits. Out of a burrow the bot climbs and walks on past
   // where the shaft's column could see (lab run 150, 15 October: in a tunnel those eyes saw only
   // along it, three of four blazes off its walls were "hidden", and two met the bot in clear sight).
@@ -346,7 +352,7 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
   if(trip){const seen=near.map(t=>({...t,sightline:{status:hidden(t)?'blocked':'clear'}}));near=near.filter((t,i)=>!walkOnThreat(bot,seen[i],seen))}
  }
  const scope='Loaded entities within 16 blocks and the world clock; not proof of a safe surface'
- if(!near.length)return {clear:true,health:s.health,timeOfDay:s.timeOfDay,scope}
+ if(!near.length)return {clear:true,health:s.health,timeOfDay:s.timeOfDay,scope,...(sealed.length?{sealed}:{})}
  const lone=near.length===1?near[0]:null
  // Leaving cover to confront requires the executor's current capability
  // checks, including a serviceable weapon and an identified target.
@@ -417,8 +423,8 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
 // Manual climb for when the pathfinder will not tower out of a capped shaft:
 // dig whatever sits two above the feet, jump, place a carried full cube
 // beneath at the apex, and repeat until standing at the surface level.
-export async function climbOut(bot,surface,{check,stage,progress},{attempts=16}={}){
- const material=()=>scaffoldItems(bot)[0]
+// `material` picks the block to pillar with: the retreat keeps the blocks its base repair needs (16 October).
+export async function climbOut(bot,surface,{check,stage,progress},{attempts=16,material=()=>scaffoldItems(bot)[0]}={}){
  stage('climbing');progress('Climbing out by jumping and placing blocks beneath')
  let stalls=0
  for(let tries=0;Math.floor(bot.entity.position.y)<surface.y&&tries<attempts;tries++){

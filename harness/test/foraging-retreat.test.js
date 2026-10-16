@@ -117,6 +117,7 @@ test('leaving a damaged or unlit base still works and reports what needs repair'
  assert.equal(result.receipt,'left_base_door_closed')
  assert.match(result.damage,/missing or changed/)
  assert.ok(messages.some(m=>/Leaving the base \(it needs repair/.test(m)),messages.join(' | '))
- // Retreating INTO the same damaged base is still refused.
- await assert.rejects(retreatToShelter(bot,{kind:'retreat',goal:{project}},api),/missing or changed/)
+ // Retreating INTO the same damaged base is still refused. Since 16 October a missing cell the
+ // retreat could put back is not the refusal; this unlit base's missing torch is.
+ await assert.rejects(retreatToShelter(bot,{kind:'retreat',goal:{project}},api),/missing or changed|Torch light source not confirmed/)
 })

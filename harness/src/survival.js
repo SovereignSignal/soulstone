@@ -37,6 +37,13 @@ const WALL_BREACHING=new Set(['warden','vex','wither','ender_dragon','ghast','en
 export const ROCK_FLOORS={melee:3,creeper:4}
 export const breachesRock=t=>WALL_BREACHING.has(t.name)||t.distance<=(t.name==='creeper'?ROCK_FLOORS.creeper:ROCK_FLOORS.melee)
 export const sealedOff=t=>t.reach==='sealed'&&t.sightline?.status==='blocked'&&!breachesRock(t)
+// The shelter's test, not the alarm's: sealed off and out of sight at any distance. The rock
+// floors stand for the bot's own digging, and a bot holding a shelter digs nothing; a sealed
+// creeper never fuses. Rock still does not stop WALL_BREACHING mobs. Family rehearsal, 16
+// October: walled in at the back exit's foot over a sealed cave, a zombie 2.2 blocks below and
+// two creepers at 3.7 held the wait for four watches. The alarm keeps sealedOff: at the shaft
+// foot it is the honest "do not work here".
+export const sealedStill=t=>t.reach==='sealed'&&t.sightline?.status==='blocked'&&!WALL_BREACHING.has(t.name)
 // Out of sight with only a long way round: a hostile that cannot see the bot
 // counts by the length of its open route, not the straight line through rock.
 // ROUTE_FACTOR allows for the flood's square steps against a mob's diagonal walk.

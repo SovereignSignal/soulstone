@@ -427,3 +427,43 @@ test('a planner blocker that asks for Resume or says it lost its kit waits for a
   const w=held(blocker);assert.equal(await w.c.stallRetry(),true,blocker);assert.equal(w.resumes,1,blocker)
  }
 })
+// Family rehearsal, 16 October: one dirt roof block of the shared base was gone. The tick
+// read the base as no shelter at all, and from inside its walls the chain refused the base
+// and dug down through its own floor. A hole the bot can mend is still its home to go to.
+import {HEALTH_EMERGENCY,NIGHT_EXPOSURE} from '../src/survival.js'
+// The world() base with what the inspection needs: a dirt roof over the room, a torch and a shut oak door.
+function furnished(position,{holes=[],dirt=1}={}){
+ const w=world(position),plain=w.bot.blockAt,holed=new Set(holes.map(([x,y,z])=>`${x},${y},${z}`))
+ w.c.projects.base.build={...w.c.projects.base.build,wood:'oak_log',design:design.map(b=>b.y===2&&b.x>=1&&b.x<=2&&b.z>=1&&b.z<=2?{...b,block:'dirt'}:b)}
+ w.bot.blockAt=p=>{
+  const at=(name,props={})=>({name,position:p,boundingBox:name==='air'||name==='torch'?'empty':'block',getProperties:()=>props})
+  if(holed.has(`${p.x},${p.y},${p.z}`))return at('air')
+  if(p.x===2&&p.y===64&&p.z===2)return at('torch')
+  if(p.x===1&&p.z===0&&(p.y===64||p.y===65))return at('oak_door',{open:false,half:p.y===64?'lower':'upper'})
+  if(p.y===66&&p.x>=1&&p.x<=2&&p.z>=1&&p.z<=2)return at('dirt')
+  return plain(p)}
+ const items=dirt?[{name:'dirt',count:dirt,type:registry.itemsByName.dirt.id}]:[];w.bot.inventory={items:()=>items}
+ return w
+}
+test('a base with a hole the bot can mend stays the shelter to go to; one it cannot mend does not',()=>{
+ const night=(options)=>{const w=furnished(new Vec3(8.5,64,-6.5),options);w.bot.entities={};w.bot.health=8;const calls=[];w.c.seekSafety=async why=>{calls.push(why);w.c.safety={status:'retreating',reason:why}};w.r.emit('event',{type:'survival_tick'});return calls}
+ assert.deepEqual(night(),[HEALTH_EMERGENCY],'whole: hurt at night, go to the lit base')
+ assert.deepEqual(night({holes:[[2,66,2]]}),[HEALTH_EMERGENCY],'one roof block gone and dirt carried: still the base')
+ assert.deepEqual(night({holes:[[2,66,2]],dirt:0}),[NIGHT_EXPOSURE],'nothing to mend it with: no shelter')
+})
+test('inside a base with a hole it can mend, a threat sends the bot back into the base, which says what it put back',async()=>{
+ const {r,c}=furnished(new Vec3(1.5,64,1.5),{holes:[[2,66,2]]}),said=[];const say=c.say.bind(c);c.say=(t,...a)=>{said.push(t);return say(t,...a)}
+ const command=r.command;r.command=cmd=>{if(cmd.action!=='retreat')return command(cmd);r.commands.push(cmd.action);r.task={id:String(r.commands.length),kind:cmd.action,status:'running'}
+  setTimeout(()=>{r.task={...r.task,status:'completed',result:{item:'shelter',count:1,receipt:'sheltered_door_closed',repaired:[{x:2,y:66,z:2,block:'dirt'}]}};r.emit('event',{type:'task_finished',task:r.task})},1)}
+ await c.seekSafety(THREAT_INTERRUPTION)
+ const acted=r.commands.filter(a=>a!=='stop')
+ assert.deepEqual(acted,['retreat'],'never a burrow or a hut in its own floor');assert.equal(c.safety.status,'sheltered')
+ assert.ok(said.includes('One roof block was missing. I put it back.'),said.join(' | '))
+})
+test('a new instruction inside the whole base does not re-run the shelter chain over a sealed cave below',()=>{
+ // Guard: the instruction clears the safety record (submit), and the next tick re-derives it.
+ const {r,c,bot}=furnished(new Vec3(1.5,64,1.5));bot.time.timeOfDay=13000
+ bot.entities={1:{id:1,name:'creeper',position:new Vec3(1.5,53,1.5)},2:{id:2,name:'zombie',position:new Vec3(2.5,54,1.5)},3:{id:3,name:'skeleton',position:new Vec3(1.5,53,2.5)}}
+ const calls=[];c.seekSafety=async why=>{calls.push(why)};c.safety=null
+ r.emit('event',{type:'survival_tick'});assert.deepEqual(calls,[])
+})
