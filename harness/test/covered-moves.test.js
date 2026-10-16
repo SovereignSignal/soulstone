@@ -438,3 +438,28 @@ test('a trip hold that keeps killing through the port is not cut short by the bo
  const start=Date.now();await Teammate.prototype.waitInBurrow.call(f.c,1,f.abort.signal,f.bot,true)
  assert.equal(kills,4,f.said.join(' | '));assert.ok(Date.now()-start>1200,'the kills ran past the bound');assert.deepEqual(f.events.filter(e=>e.type==='hold_bounded'),[])
 })
+
+// Review of the port-line gate, 16 October: off a trip (the family world's Overworld hut) nothing bounds a hold, so a
+// shooter no port line reaches must still count toward the port attempts and the leave rule, as a port that opened
+// and missed did: four times, then a strong bot with the shooter ten or more blocks off moves away. On a trip the same
+// shooter holds the hut quietly, and the trip's hold bound backs that up. A pit east of the hut, a skeleton low in it
+// eleven blocks off: the east exit sees it, the port's window does not.
+function skeletonInPit(f,{nether=false}={}){
+ f.cells.set('1,65,0','netherrack')
+ for(let x=2;x<=14;x++)for(let y=57;y<=66;y++)for(let z=-3;z<=3;z++)f.cells.set(`${x},${y},${z}`,'air')
+ f.bot.world={getColumn:()=>({}),raycast:(from,dir,range)=>{for(let d=0;d<=range;d+=.01){const c=from.plus(dir.scaled(d)).floored(),b=f.bot.blockAt(c);if(b.boundingBox==='block')return {name:b.name,position:c}}return null}}
+ f.bot.entities={7:{id:7,uuid:'10000000-0000-0000-0000-000000000007',type:'mob',name:'skeleton',height:1.99,position:new Vec3(11.5,58,.5),velocity:new Vec3(0,0,0)}}
+ if(!nether)f.bot.game.dimension='minecraft:overworld'
+ setTimeout(()=>{f.bot.entities={}},6000)
+}
+test('off a trip a shooter no port line reaches still counts toward the port attempts and the leave rule; on a trip it holds quietly',async()=>{
+ const opts={coveredMoves:false,burrowWait:{quietMs:50,limitMs:1500,patienceMs:50,relocateAfterMs:600000,watches:1}}
+ const off=fixture(async()=>wait);skeletonInPit(off);inWait(off,opts)
+ await Teammate.prototype.waitInBurrow.call(off.c,1,off.abort.signal,off.bot,true)
+ assert.ok(!off.commands.some(x=>x.action==='unhut'&&x.goal?.shooter),'no port opens without a line: '+acts(off).join(' '))
+ assert.ok(off.commands.some(x=>x.action==='flee'),'out of port attempts, it moves away: '+acts(off).join(' ')+' :: '+off.said.join(' | '))
+ assert.equal(off.said.filter(t=>/No clear shot at the skeleton/.test(t)).length,1,off.said.join(' | '))
+ const on=fixture(async()=>wait);skeletonInPit(on,{nether:true});inWait(on,opts)
+ await Teammate.prototype.waitInBurrow.call(on.c,1,on.abort.signal,on.bot,true)
+ assert.ok(!on.commands.some(x=>['unhut','shoot','climb','flee','use_portal'].includes(x.action)),acts(on).join(' ')+' :: '+on.said.join(' | '))
+})

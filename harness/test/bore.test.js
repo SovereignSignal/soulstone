@@ -371,5 +371,5 @@ test('the slit opens only the cells with a line to a blaze, and with none says h
  assert.deepEqual(a.slit,[{x:4,y:65,z:0}]);assert.deepEqual(ahead.of('dig').filter(c=>c.startsWith('(4,')),[k(4,65,0)])
  // No blaze loaded: no slit, and the reason says so.
  const empty=world({fills:ROOM});const e=await bore(empty,{})
- assert.equal(e.slit,null);assert.match(e.reason,/slit sees no blaze: none within 32 blocks/)
+ assert.equal(e.slit,null);assert.match(e.reason,/slit sees no blaze: none within 32 blocks; wait, then bore again/)
 })

@@ -1443,10 +1443,16 @@ export class Teammate extends EventEmitter {
         const target=live??confront,line=portSightline(bot,feet,target,{skip:tried})
         if(line.status!=='clear'){
           const distance=Math.round(bot.entity.position.distanceTo(target.position)*10)/10
-          this.runner.log?.('port_held',{shooter:confront.name,distance,reason:'no port line',block:line.block??null,tried:tried.length})
+          // Logged on a change of shooter or blocker, else at most every thirty seconds.
+          const heldKey=`${confront.name}:${line.block??''}:${tried.length}`
+          if(heldKey!==this.portHeldKey||Date.now()-(this.portHeldLogAt||0)>=30000){this.portHeldKey=heldKey;this.portHeldLogAt=Date.now();this.runner.log?.('port_held',{shooter:confront.name,distance,reason:'no port line',block:line.block??null,tried:tried.length})}
           if(!noLine){noLine=true;this.say(`No clear shot at the ${name} ${Math.round(distance)} blocks away. Keeping the hut shut.`)}
           // Only the sides already tried had the line: offered again once leaving is refused, as when unhut finds none left.
           if(tried.length){if(leave())break;continue}
+          // Review of the port-line gate, 16 October: off a trip nothing bounds the hold (the family world's Overworld hut),
+          // so no line counts as a port that missed: PORT_ATTEMPTS of them and the leave rule decides. On a trip the hold
+          // stays quiet, its patience starting again, and the trip's hold bound (COVERED_MS) backs it up.
+          if(!onTrip(bot,canResume(request))){if(++attempts>=PORT_ATTEMPTS&&leave())break;continue}
           lingerSince=null;continue
         }
         const side={dx:line.side[0],dz:line.side[2]}

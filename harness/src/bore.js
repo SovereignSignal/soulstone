@@ -230,7 +230,7 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
   // Every line into a side cell passes the centre first, so the centre is judged with every fitting cell open.
   if(!blazes.some(b=>clear(b,cells.filter(fit)))){
    const b=blazes[0]
-   if(!b){reason=`slit sees no blaze: none within ${SLIT_SIGHT} blocks`;return}
+   if(!b){reason=`slit sees no blaze: none within ${SLIT_SIGHT} blocks; wait, then bore again (blazes spawn near the player)`;return}
    const d=Math.hypot(b.position.x-eye.x,b.position.z-eye.z),slope=(eyeH-1)/1.5,aim=aimPoint(b,bot.registry).y,low=eye.y-slope*d
    reason=aim<low?`slit sees no blaze: the nearest is ${Math.round((low-aim)*10)/10} below the window at ${Math.round(d)} blocks; bore to y <= ${Math.floor(aim+slope*d-eyeH)}`
     :`slit sees no blaze: the nearest, ${Math.round(d)} blocks off, has ${shotLine(bot,eye,b,{open:cells.filter(fit)}).block||'a block'} in the way`
