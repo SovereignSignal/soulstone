@@ -13,6 +13,7 @@ import {validateBoreGoal,BORE_TIMEOUT_MS} from '../bore.js'
 import {validatePlaceAtGoal,validateCollectGoal,validateAttackGoal,liveSites} from '../primitives-world.js'
 import {berryObservation} from '../foraging.js'
 import {shelteredPlanning} from './sheltered-planning.js'
+import {coveredMoves} from './covered-moves.js'
 import {adaptiveRecovery} from './adaptive-recovery.js'
 import {recoveryContext,recoveryState,recentRecovery,recordRecovery} from './recovery-context.js'
 import {THREAT_INTERRUPTION,clearanceObservation,awaitClearance,openGroundClearance} from './hazard-clearance.js'
@@ -230,7 +231,7 @@ export class Teammate extends EventEmitter {
     super(); this.runner = runner; this.planner = planner; this.statePath = statePath; this.recorder = recorder
     this.messages = []; this.places = {}; this.phase = 'ready'; this.plan = []; this.stepIndex = -1; this.epoch = 0
     this.skillControlMode=process.env.MC_SKILL_CONTROL==='jev'?'jev':'planner'
-    this.shelterPlanning=process.env.MC_SHELTER_PLANNING==='1';this.recoveryHistory=[];this.recoveryMode=process.env.MC_RECOVERY_MODE==='adaptive'?'adaptive':'existing';this.threatContextMode=process.env.MC_THREAT_CONTEXT==='legacy'?'legacy':'rich'
+    this.shelterPlanning=process.env.MC_SHELTER_PLANNING==='1';this.coveredMoves=process.env.MC_COVERED_MOVES!=='0';this.recoveryHistory=[];this.recoveryMode=process.env.MC_RECOVERY_MODE==='adaptive'?'adaptive':'existing';this.threatContextMode=process.env.MC_THREAT_CONTEXT==='legacy'?'legacy':'rich'
     this.safety = null; this.requestProgress = null; this.projects = {};this.experience=new ExperienceStore(join(dirname(statePath),'experience.json'),runner.profile)
     // Shadow mode: Jev's opinion is logged beside every safety decision and changes nothing yet.
     this.threatJudge=new ThreatJudge({log:(type,data)=>runner.log?.(type,data)})
@@ -1249,6 +1250,13 @@ export class Teammate extends EventEmitter {
         const waiting=new AbortController(),loadedSignal=AbortSignal.any([signal,waiting.signal])
         try{await Promise.race([bot.waitForChunksToLoad(),delay(10000,undefined,{signal:loadedSignal}).then(()=>{throw new Error('Shelter chunks did not load within ten seconds')})]);check()}
         finally{waiting.abort()}
+      }
+      // Family rehearsal, 16 October: walled in at the Nether hub, this wait could only end in "Resume is
+      // required". On a trip the bot digs and bores under cover first, and hands the request back.
+      if(this.coveredMoves&&typeof this.planner.covered==='function'){
+        const covered=await coveredMoves(this,epoch,signal,bot,{eligible,...this.coveredLimits})
+        if(covered.status==='cancelled'||covered.status==='handed_back')return
+        check()
       }
       if(this.shelterPlanning&&eligible&&canResume(request)&&canContinueAfterSafety(request,undefined,{protectedPlanning:true})&&typeof this.planner.sheltered==='function'){
         const planned=await shelteredPlanning(this,epoch,signal,bot,this.shelteredLimits)

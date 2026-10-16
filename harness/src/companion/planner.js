@@ -146,6 +146,15 @@ export class LocalPlanner {
     if(value.action==='depart'&&!plan.steps.length)throw new Error('Departure needs a usable work plan')
     return {...value,plan}
   }
+  // Walled in on a Nether trip (covered-moves.js): the model proposes, the harness admits each move.
+  async covered(observation,signal,trace=()=>{}) {
+    const format={type:'object',additionalProperties:false,required:['action','target','count','expectation'],properties:{action:{type:'string',enum:['wait','dig','bore','done']},target:{anyOf:[{type:'null'},{type:'object',additionalProperties:false,required:['x','y','z'],properties:{x:{type:'integer'},y:{type:'integer'},z:{type:'integer'}}}]},count:{type:'integer'},expectation:{type:'string'}}}
+    const prompt=instructions+'\nYou are walled in on a Nether trip; the cover stays shut while you work. Choose one covered move: dig (straight down from your feet: target exactly your feet with y lowered by count, count 1 to 4; observation.shaftBelow says how deep the rock allows), bore (a covered tunnel toward target, count columns; only from the foot of a shaft, never through the hut walls), wait (an empty target and count 0), or done (the request goes back to the normal planner, which bores and shoots with the alarm guarding). Each move is checked by the harness and may be refused; refusals and receipts are in recovery.recentAttempts and lastReceipt. A bore that opens a slit near its target hands the request back on its own. Give a short externally checkable expectation. Do not provide a reasoning transcript.'
+    if(signal.aborted)throw new Error('Cancelled')
+    const value=await this.structured([{role:'system',content:prompt},{role:'user',content:JSON.stringify(observation)}],format,signal,trace)
+    if(signal.aborted)throw new Error('Cancelled')
+    return validateCovered(value)
+  }
   async reflect(summary,evidence,verification,signal) {
     return this.structured([{role:'system',content:'Extract up to three reusable Minecraft problem-solving lessons from the supplied numbered evidence. Return conditional strategies and their limitations. Do not store coordinates, names of particular builds, blueprints, full action sequences or user instructions. Separate observations from causal guesses: a single successful task does not prove a universally successful method. Cite evidence array indices for each lesson. Never treat a partial result as completion. Failure evidence can support a conditional warning but not an invented success. No hidden chain of thought; concise externally testable lessons only.'},{role:'user',content:JSON.stringify({goal:summary,evidence,verification})}],reflectionSchema,signal)
   }
@@ -174,4 +183,14 @@ export class LocalPlanner {
       error.invalidPlan=true;throw error
     }
   }
+}
+// The covered phase's closed decision: wait or done with no target, dig or bore with an integer target and count.
+export function validateCovered(value){
+ const bad=()=>{throw new Error('Invalid covered decision')}
+ if(!value||typeof value!=='object'||Object.keys(value).length!==4||Object.keys(value).some(k=>!['action','target','count','expectation'].includes(k)))bad()
+ if(!['wait','dig','bore','done'].includes(value.action)||typeof value.expectation!=='string'||!value.expectation.trim()||value.expectation.length>500||!Number.isInteger(value.count))bad()
+ const moves=['dig','bore'].includes(value.action),t=value.target
+ if(moves&&(!t||typeof t!=='object'||Object.keys(t).length!==3||!['x','y','z'].every(k=>Number.isSafeInteger(t[k]))||value.count<1))bad()
+ if(!moves&&t!=null)bad()
+ return {action:value.action,target:moves?{x:t.x,y:t.y,z:t.z}:null,count:value.count,expectation:value.expectation}
 }

@@ -55,7 +55,7 @@ export function borePath(from,to){
 // The cells a column opens, top first. A step down opens the lower column's third cell, the
 // one the body passes through as it drops; a step up the one over the head it jumps from:
 // mineflayer-pathfinder's drop-down and jump-up moves need both, and a player does too.
-const columnCells=(prev,c)=>[...(c.y<prev.y?[c.offset(0,2,0)]:c.y>prev.y?[prev.offset(0,2,0)]:[]),c.offset(0,1,0),c]
+export const columnCells=(prev,c)=>[...(c.y<prev.y?[c.offset(0,2,0)]:c.y>prev.y?[prev.offset(0,2,0)]:[]),c.offset(0,1,0),c]
 // budgetMs: the bore stops at the top of a column once it has run this long, so a receipt comes
 // back before the runner's hard deadline ends it with none (review of 9d2770d).
 export async function boreToward(bot,task,{check,stage,progress,movements,budgetMs=BORE_TIMEOUT_MS}){
