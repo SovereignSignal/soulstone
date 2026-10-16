@@ -75,13 +75,14 @@ export function noteAdvance(request,inventory,registry){
 // fall outside the hut (or a hopper floor takes them), so none is in hand when the hut opens. A
 // hut that killed through its port came out idle, and the third would have stopped the request.
 // noteAdvance only counts an item in hand, and the tick already calls it each second, so a kill
-// through the port counts here, beside the completed steps, as an item won does.
+// through the port is counted apart, in portKills. It resets only the idle allowance: never the
+// six-episode cap, since every walk out of a hut is where the Nether kills.
 export function notePortKill(request){
  if(!request)return false
- request.advances=(request.advances||0)+1;return true
+ request.portKills=(request.portKills||0)+1;return true
 }
 export const progressCount=request=>(request?.completed?.length||0)+(request?.advances||0)
-export const continuationMark=request=>({completedAt:progressCount(request),advancedAt:request?.advances||0})
+export const continuationMark=request=>({completedAt:progressCount(request),advancedAt:request?.advances||0,portKillsAt:request?.portKills||0})
 // Fights continue the request on their own three times with nothing gained;
 // a step completed or an item won starts the count again.
 export const COMBAT_CONTINUATIONS=3
@@ -104,7 +105,9 @@ export function canContinueAfterSafety(request,limit=SAFETY_CONTINUATIONS,{prote
  if(done>last.completedAt)return true
  // Threats can repeat before any step completes; allow a short run of idle
  // continuations at the same step count before requiring an explicit Resume.
- return run.filter(c=>c.completedAt===done).length<IDLE_CONTINUATIONS
+ // A port kill since an idle continuation makes it no longer idle (lab run 166, 16 October).
+ const kills=request?.portKills||0
+ return run.filter(c=>c.completedAt===done&&(c.portKillsAt||0)===kills).length<IDLE_CONTINUATIONS
 }
 export function shouldContinueAfterBudget(request,completedAtStart,message){
  return /^(Active planning time limit|Planning limit reached)/.test(message||'')&&(request?.completed?.length||0)>completedAtStart&&(request?.budgetContinuations||0)<BUDGET_CONTINUATIONS

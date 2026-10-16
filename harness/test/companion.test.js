@@ -921,6 +921,19 @@ test('a request continues after each safety episode while it keeps completing st
  r.resumeSerial=0;r.safetyContinuations=Array.from({length:SAFETY_CONTINUATIONS},(_,i)=>({completedAt:i}));r.completed=Array(20).fill({});assert.equal(canContinueAfterSafety(r),false,'six episodes in one run')
 })
 
+// Lab run 166, 16 October: a kill through a hut's port is progress for the idle allowance only.
+// It never resets the six-episode cap: every walk out of a hut is where the Nether kills.
+test('a kill through the port resets the idle allowance and never the six-episode cap',async()=>{
+ const {notePortKill,continuationMark}=await import('../src/companion/continuity.js')
+ const r={completed:[],safetyContinuations:[]}
+ r.safetyContinuations.push(continuationMark(r),continuationMark(r));assert.equal(canContinueAfterSafety(r),false,'two idle huts')
+ notePortKill(r);assert.equal(canContinueAfterSafety(r),true,'a port kill since');assert.equal(r.advances,undefined,'not an item won')
+ r.safetyContinuations.push(continuationMark(r));assert.equal(canContinueAfterSafety(r),true)
+ r.safetyContinuations.push(continuationMark(r));assert.equal(canContinueAfterSafety(r),false,'two idle huts since that kill')
+ const six={completed:[],safetyContinuations:Array.from({length:SAFETY_CONTINUATIONS},()=>({completedAt:0,advancedAt:0}))}
+ notePortKill(six);assert.equal(canContinueAfterSafety(six),false,'six episodes in one run, port kill or not')
+})
+
 test('a built base counts as shelter for the dusk rule only once it has a torch station',()=>{
  const [r,c]=setup(async()=>({reply:'',steps:[]}))
  r.bot.game={gameMode:'survival',difficulty:'normal'};r.bot.time={timeOfDay:13000};r.bot.health=20;r.bot.food=20;r.bot.entity={position:{x:0,y:64,z:0},onGround:true};r.bot.entities={}

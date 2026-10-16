@@ -304,7 +304,7 @@ test('on a trip a kill through the port counts as progress, so the request conti
  let resumed=0;w.c.resume=async()=>{resumed++}
  await Teammate.prototype.waitInBurrow.call(w.c,1,new AbortController().signal,w.bot,true)
  assert.ok(w.said.some(t=>/fell to my arrows\. Port closed/.test(t)),w.said.join(' | '))
- assert.equal(w.c.requestProgress.advances,1,'the port kill is an advance')
+ assert.equal(w.c.requestProgress.portKills,1,'the port kill is counted');assert.equal(w.c.requestProgress.advances,undefined,'and is not an item won')
  assert.equal(resumed,1,w.said.join(' | '))
  // With no kill, two idle continuations still stop it.
  const none=portWait({shot:noShot,trip:true,limitMs:800});Object.assign(none.c.requestProgress,{completed:[],safetyContinuations:idle()})

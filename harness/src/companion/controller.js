@@ -1259,7 +1259,7 @@ export class Teammate extends EventEmitter {
         protectedHealth=bot.health
         if(shot?.receipt==='killed'){
           if(shot.at)recordKill(this,bot,shot.at)
-          // On a trip a kill through the port is the request moving (lab run 166, 16 October).
+          // In the Nether a kill through the port resets the idle allowance, not the six-episode cap (lab run 166, 16 October).
           if(inNether(bot)&&canResume(request)&&notePortKill(request))this.persist()
           this.say(`The ${name} fell to my arrows. Port closed; watching again.`);continue
         }
