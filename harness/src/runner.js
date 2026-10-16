@@ -13,7 +13,7 @@ import mineflayer from 'mineflayer'
 import pathfinding from 'mineflayer-pathfinder'
 import collection from 'mineflayer-collectblock'
 import {worldIdentity} from './profile-identity.js'
-import { loadTask, saveTask, validateGoal, validateTaskGoal } from './task-store.js'
+import { loadTask, saveTask, loadJoined, validateGoal, validateTaskGoal } from './task-store.js'
 import { executeSkill } from './skills.js'
 import {wearBestArmor} from './armor.js'
 import { attachChatControl, attachIdleCompany } from './chat-control.js'
@@ -43,11 +43,16 @@ export class Runner extends EventEmitter {
     this.statePath = statePath
     this.chatControl = chatControl; this.owner = owner
     this.task = loadTask(statePath, this.profile)
+    // A join is kept for the connection that made it: the same world set up with another
+    // address, account or version has not joined there (retry below).
+    this.joinKey = JSON.stringify([host, port, username, version, auth])
+    this.everJoined = loadJoined(statePath, this.profile) === this.joinKey
     this.closed = false; this.ready = false; this.attempts = 0
     this.persist()
   }
   log(type, data = {}) { this.emit('event', { at: new Date().toISOString(), type, ...data }) }
-  persist() { saveTask(this.statePath, this.profile, this.task) }
+  persist() { saveTask(this.statePath, this.profile, this.task, this.everJoined ? this.joinKey : null) }
+  joined() { this.slowRetry = false; if (!this.everJoined) { this.everJoined = true; this.persist() } }
   start() {
     this.watchdog = setInterval(() => {
       if (['running', 'paused'].includes(this.task?.status) && Date.now() >= this.task.deadline) this.finish('failed', 'task deadline exceeded')
@@ -101,7 +106,7 @@ export class Runner extends EventEmitter {
       bot.collectBlock.movements = gathering
       bot.pathfinder.thinkTimeout = 3000
       this.stableTimer = setTimeout(() => { this.attempts = 0 }, 10000)
-      this.everJoined = true; this.slowRetry = false
+      this.joined()
       this.log('spawn', { version: bot.version, position: this.position() })
       this.applyGoal()
     })
@@ -147,6 +152,9 @@ export class Runner extends EventEmitter {
       // The family server restarted at 03:42 on 3 October, five tries failed in
       // under a minute, and the bot stayed out for four hours. Giving up is for
       // a connection that never worked (wrong address, account or version).
+      // 16 October: a Pi reboot started the agent before the server's seventy second startup,
+      // and a fresh process had no memory of joining, so it gave up for seven and a half hours.
+      // The join is saved beside the task state and read back at start.
       if (this.everJoined) {
         if (!this.slowRetry) { this.slowRetry = true; if (['running', 'paused'].includes(this.task?.status)) this.finish('failed', 'server stopped answering') }
         this.log('reconnecting', { delayMs: SLOW_RETRY_MS, slow: true })

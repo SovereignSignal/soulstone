@@ -70,6 +70,37 @@ test('a server the bot has played on is retried once a minute without end; one n
   try { fresh.runner.attempts=5;fresh.runner.retry();assert.equal(fresh.runner.closed,true);assert.equal(fresh.runner.connectionExhausted,true) } finally {fresh.cleanup()}
 })
 
+// 16 October: the Pi rebooted at 19:16, the agent started before the server's seventy second
+// startup, five tries failed in thirty seconds, and the bot stayed out seven and a half hours.
+// The join is kept beside the task state, so a fresh process knows this server is down, not wrong.
+test('a runner whose saved state says it joined this server keeps retrying once a minute after a restart',()=>{
+  const dir=mkdtempSync(join(tmpdir(),'soul-rejoin-')),statePath=join(dir,'task.json'),worldId='00000000-0000-4000-8000-000000000001'
+  const runners=[],make=host=>{const r=new Runner({host,worldId,statePath});r.connect=()=>{};runners.push(r);return r}
+  const knock=(r,n)=>{for(let i=0;i<n;i++){r.retry();clearTimeout(r.retryTimer)}}
+  try {
+    const before=make('localhost');before.joined();before.close()
+    const after=make('localhost'),events=[];after.on('event',e=>events.push(e))
+    knock(after,8)
+    assert.equal(after.closed,false,'it never gives up');assert.ok(!after.connectionExhausted)
+    assert.deepEqual(events.filter(e=>e.type==='reconnecting').slice(5).map(e=>[e.delayMs,e.slow]),[[SLOW_RETRY_MS,true],[SLOW_RETRY_MS,true],[SLOW_RETRY_MS,true]])
+    assert.equal(events.filter(e=>e.type==='connection_exhausted').length,0)
+    after.close()
+    // The same world set up with another address has never joined there: it gives up as before.
+    const moved=make('otherhost');knock(moved,6);assert.equal(moved.connectionExhausted,true)
+  } finally {for(const r of runners)r.close();rmSync(dir,{recursive:true,force:true})}
+})
+test('a fresh runner, or state saved before any join, still exhausts',()=>{
+  const dir=mkdtempSync(join(tmpdir(),'soul-rejoin-')),statePath=join(dir,'task.json')
+  try {
+    const fresh=new Runner({host:'localhost',statePath});fresh.connect=()=>{}
+    for(let i=0;i<6;i++){fresh.retry();clearTimeout(fresh.retryTimer)}
+    assert.equal(fresh.connectionExhausted,true);fresh.close()
+    const again=new Runner({host:'localhost',statePath});again.connect=()=>{}
+    for(let i=0;i<6;i++){again.retry();clearTimeout(again.retryTimer)}
+    assert.equal(again.connectionExhausted,true,'a restart alone proves nothing');again.close()
+  } finally {rmSync(dir,{recursive:true,force:true})}
+})
+
 // Run 69, 8 October: the test bot died, the agent restarted for a deploy, and
 // on every rejoin the server logged it in dead. A dead player gets the death
 // screen, not a spawn, so the 30 second join timer ended each connection and

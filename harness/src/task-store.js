@@ -105,10 +105,14 @@ export function validateTaskGoal(kind, goal) {
   if (kind === 'craft' && goal?.item === 'wooden_pickaxe' && goal.count === 1) return { item: goal.item, count: 1 }
   throw new Error('Invalid skill goal; check action, item, count, coordinates and design')
 }
-export function saveTask(path, profile, task) {
+// joined: the connection this profile has spawned through (runner.js retry), kept across restarts.
+export function saveTask(path, profile, task, joined = null) {
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path + '.tmp', JSON.stringify({ schema: 1, profile, task }, null, 2) + '\n', { mode: 0o600 })
+  writeFileSync(path + '.tmp', JSON.stringify({ schema: 1, profile, task, ...(joined ? { joined } : {}) }, null, 2) + '\n', { mode: 0o600 })
   renameSync(path + '.tmp', path)
+}
+export function loadJoined(path, profile) {
+  try { const value = JSON.parse(readFileSync(path, 'utf8')); return value?.schema === 1 && value.profile === profile && typeof value.joined === 'string' ? value.joined : null } catch { return null }
 }
 export function loadTask(path, profile, now = Date.now()) {
   let value
