@@ -11,7 +11,7 @@ import {SHOOTERS_ONLY,FIRE_BLOCKS} from './survival.js'
 import {hop} from './portal-guard.js'
 import {inNether} from './dimension.js'
 import {claimPlaced} from './natural.js'
-import {plainFirst} from './placement.js'
+import {plainFirst,holdToPlace} from './placement.js'
 import pathfinding from 'mineflayer-pathfinder'
 const {goals}=pathfinding
 import {Vec3} from 'vec3'
@@ -162,14 +162,13 @@ export async function wallIn(bot,task,{check,stage,progress}){
   if(solid(bot,bot.blockAt(target))){placed++;continue}
   const material=hutMaterials(bot)[0]
   if(!material)break
-  await bot.equip(material,'hand');check()
   // A planned reference that is gone (a fireball, a mob) gives way to any solid neighbour,
   // and one with a use (a chest, a dropper) to a plain one (lab run 163, placement.js).
   const reference=plainFirst([...(ref?[ref]:[]),...around(target)].map(c=>bot.blockAt(c)).filter(b=>solid(bot,b)))[0],at=reference?.position
   if(!reference){progress(`Nothing solid to place against at ${key(target)}`);continue}
   // The bridge can drop a placement or its update: try each block twice.
   for(let attempt=0;attempt<2&&!solid(bot,bot.blockAt(target));attempt++){
-   try{await bot.placeBlock(reference,target.minus(at))}catch(error){check();progress(`Placement at ${key(target)} unconfirmed: ${String(error.message).slice(0,60)}`)}
+   try{await holdToPlace(bot,material.name,check);await bot.placeBlock(reference,target.minus(at))}catch(error){check();progress(`Placement at ${key(target)} unconfirmed: ${String(error.message).slice(0,60)}`)}
    await settle(()=>solid(bot,bot.blockAt(target)),{check})
    // Lab run 147, 15 October: the alarm cancelled a crossing before its arrival hop, and
    // until the bot jumps the server ignores its placements. One hop, then the retry.

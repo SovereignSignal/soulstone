@@ -12,15 +12,17 @@ import {Teammate} from '../src/companion/controller.js'
 import {THREAT_INTERRUPTION} from '../src/survival.js'
 const registry=minecraftData('1.21.4')
 function world({logs=21,stoneFrom=60}={}){
- const cells=new Map(),inventory=logs?[{name:'oak_log',count:logs}]:[],placed=[],dug=[],equipped=[]
+ const cells=new Map(),inventory=logs?[{name:'oak_log',count:logs}]:[],placed=[],dug=[],equipped=[],hand={name:null}
  const bot={registry,game:{gameMode:'survival',difficulty:'normal'},time:{timeOfDay:15000},health:20,food:18,entities:{},players:{},
   entity:{position:new Vec3(10.5,64,10.5),onGround:true},inventory:{items:()=>inventory},
   blockAt(p){const name=cells.get(p.toString())??(p.y>=64?'air':p.y===63?'grass_block':p.y>stoneFrom?'dirt':'stone');return {name,position:p.clone(),boundingBox:registry.blocksByName[name]?.boundingBox}},
   pathfinder:{setGoal(){},setMovements(){},async goto(){}},clearControlStates(){},tool:{async equipForBlock(){}},
-  async equip(item){equipped.push(item.name)},
+  // As in mineflayer, the hand is the selected slot's stack, or null when that slot is empty.
+  get heldItem(){const stack=hand.name&&inventory.find(i=>i.name===hand.name);return stack?{name:stack.name,count:stack.count}:null},
+  async equip(item){equipped.push(item.name);hand.name=item.name},
   async placeBlock(ref,face){const p=ref.position.plus(face);placed.push(p.toString());cells.set(p.toString(),equipped.at(-1));const slot=inventory.find(i=>i.name===equipped.at(-1));if(slot&&--slot.count<=0)inventory.splice(inventory.indexOf(slot),1)},
   async dig(block){dug.push(block.position.toString());cells.set(block.position.toString(),'air')}}
- return {bot,cells,inventory,placed,dug}
+ return {bot,cells,inventory,placed,dug,hand}
 }
 const api={check(){},stage(){},progress(){},persist(){},movements:{}}
 test('a burrow takes three cells when stone stops the fourth, and refuses a two-cell column',()=>{
@@ -463,4 +465,55 @@ test('fillCell against a lone dropper places sneaking; beside stone it takes the
  const s2=vanilla(mixed)
  assert.equal(await fillCell(mixed.bot,cell,{check(){}}),true)
  assert.deepEqual(s2.refs,[{at:below.toString(),sneaking:false}]);assert.deepEqual(s2.sneaks,[])
+})
+
+// Lab run 164, 15 October: after the bow, re-closing the hut in a one-wide Nether corridor,
+// the first click timed out ("blockUpdate did not fire") and the retry found the hand empty
+// ("must be holding an item to place") with 52 cobblestone carried: "Hut incomplete: 1 of 10".
+// The fake server here places only what the hand holds, as mineflayer and vanilla do.
+function handServer(w,{equipTakes=()=>true,afterClick=()=>{}}={}){
+ const clicks=[]
+ w.bot.equip=async item=>{if(equipTakes(item.name))w.hand.name=item.name}
+ w.bot.placeBlock=async(ref,face)=>{
+  const held=w.bot.heldItem,p=ref.position.plus(face)
+  clicks.push({at:p.toString(),held:held?.name??null})
+  if(!held)throw new Error('must be holding an item to place')
+  // A bow or any other non-block takes the click and places nothing.
+  if(!registry.blocksByName[held.name])throw new Error(`Event blockUpdate:${p} did not fire within timeout of 5000ms`)
+  return afterClick(p,held)
+ }
+ return clicks
+}
+function placeHeld(w,p){w.placed.push(p.toString());w.cells.set(p.toString(),w.hand.name);const s=w.inventory.find(i=>i.name===w.hand.name);if(s&&--s.count<=0)w.inventory.splice(w.inventory.indexOf(s),1)}
+test('walling in with the bow in hand places every block with cobblestone held, equipping again when the first equip does not take',async()=>{
+ const w=world({logs:0});w.inventory.push({name:'bow',count:1},{name:'cobblestone',count:52});w.hand.name='bow'
+ let dropped=1
+ const clicks=handServer(w,{equipTakes:()=>dropped--<=0,afterClick:(p)=>placeHeld(w,p)})
+ assert.equal((await wallIn(w.bot,{kind:'hut',goal:{}},api)).receipt,'walled_in')
+ assert.equal(w.placed.length,10)
+ assert.deepEqual(clicks.filter(c=>c.held!=='cobblestone'),[],'no click with the bow or an empty hand')
+})
+test('a placement that times out and leaves the hand empty is retried with the block equipped again',async()=>{
+ const w=world({logs:0});w.inventory.push({name:'bow',count:1},{name:'cobblestone',count:52});w.hand.name='bow'
+ const said=[];let first=true
+ const clicks=handServer(w,{afterClick:(p)=>{
+  // The first click is lost and the hand changes while the hut waits: the bow, then nothing.
+  if(first){first=false;w.hand.name='bow';setTimeout(()=>{w.hand.name=null},10);throw new Error(`Event blockUpdate:${p} did not fire within timeout of 5000ms`)}
+  placeHeld(w,p)}})
+ assert.equal((await wallIn(w.bot,{kind:'hut',goal:{}},{...api,progress:t=>said.push(t)})).receipt,'walled_in')
+ assert.equal(w.placed.length,10)
+ assert.equal(clicks.length,11,'one lost click, then one retry')
+ assert.equal(clicks[1].at,clicks[0].at);assert.equal(clicks[1].held,'cobblestone')
+ assert.ok(!said.some(t=>/must be holding/.test(t)),said.join(' | '))
+})
+test('a placement that times out but lands a tick later is counted placed and never clicked again',async()=>{
+ const w=world({logs:0});w.inventory.push({name:'cobblestone',count:52})
+ let first=true
+ const clicks=handServer(w,{afterClick:(p)=>{
+  if(first){first=false;setTimeout(()=>{placeHeld(w,p);w.hand.name=null},50);throw new Error(`Event blockUpdate:${p} did not fire within timeout of 5000ms`)}
+  placeHeld(w,p)}})
+ const result=await wallIn(w.bot,{kind:'hut',goal:{}},api)
+ assert.equal(result.receipt,'walled_in');assert.equal(result.placed,10)
+ assert.equal(clicks.length,10,'no retry for the block that landed late')
+ assert.equal(new Set(clicks.map(c=>c.at)).size,10)
 })

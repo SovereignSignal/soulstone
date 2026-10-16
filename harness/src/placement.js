@@ -55,3 +55,19 @@ export function sneakAgainstInteractables(bot) {
   }
  }
 }
+
+// Lab run 164, 15 October: re-closing the hut after the bow, the first click timed
+// out and the retry found the hand empty ("must be holding an item to place") with
+// 52 cobblestone carried; the hut ended one block short. The block was equipped
+// once per cell, before both clicks. Every click now takes the block in hand right
+// before it, found again by name since a stack's slot can move, and only once the
+// hand is seen holding it; an equip the hand does not show is made once more.
+export async function holdToPlace(bot,name,check=()=>{}){
+ for(let tries=0;tries<2;tries++){
+  const item=bot.inventory.items().find(i=>i.name===name)
+  if(!item)throw new Error(`No ${name} left to place`)
+  await bot.equip(item,'hand');check()
+  if(bot.heldItem?.name===name)return
+ }
+ throw new Error(`Holding ${bot.heldItem?.name??'nothing'} instead of ${name} to place`)
+}
