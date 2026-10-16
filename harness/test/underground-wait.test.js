@@ -106,6 +106,32 @@ test('melee mobs are confronted with the sword alone as before, unless a shooter
  assert.equal(burrowClearance(covered.bot,{lingeredMs:61000}).clear,false,'the skeleton shoots while the sword works on the zombie')
  covered.wear(IRON);assert.equal(burrowClearance(covered.bot,{lingeredMs:61000}).confront?.name,'zombie')
 })
+// Lab run 165, 15 October: a lone skeleton in shade nine blocks off, a bow and 88 arrows, and
+// the burrow opened "to confront it"; from the surface dirt was in the way and the alarm chose
+// shelter at once. The same capped shaft, with a stone column between the exits and the skeleton.
+function archerUnder({wall=true,mobs=[['skeleton',8.5,64,.5]]}={}){
+ const bot=base(new Vec3(.5,60,.5),p=>wall&&p.x===5&&p.z===0&&p.y>=64&&p.y<=69?'stone':p.y>=64?'air':p.x===0&&p.z===0&&p.y>=60&&p.y<=62?'air':'stone',{mobs})
+ const items=[{name:'bow',count:1,maxDurability:384,durabilityUsed:0},{name:'arrow',count:88}]
+ Object.values(bot.entities).forEach((e,i)=>Object.assign(e,{uuid:`00000000-0000-0000-0000-00000000000${i+1}`,type:'hostile'}))
+ bot.food=20;bot.inventory={items:()=>items,slots:[]};bot.getEquipmentDestSlot=()=>null
+ return bot
+}
+const shaftExits=shelterExits({shelterName:'burrow',surface:{x:0,y:64,z:0}})
+test('a lone skeleton the shaft cannot see holds the burrow; one in view is confronted',()=>{
+ const hidden=burrowClearance(archerUnder(),{lingeredMs:61000,exits:shaftExits})
+ assert.equal(hidden.clear,false,hidden.reason);assert.equal(hidden.lingering,true);assert.equal(hidden.confront,undefined);assert.match(hidden.reason,/out of sight/)
+ const seen=burrowClearance(archerUnder({wall:false}),{lingeredMs:61000,exits:shaftExits})
+ assert.equal(seen.clear,true,seen.reason);assert.equal(seen.confront?.name,'skeleton')
+ assert.equal(burrowClearance(archerUnder(),{lingeredMs:61000}).confront?.name,'skeleton','with no exits given, as before')
+})
+test('a hidden shooter still comes due for relocation',()=>{
+ const r=burrowClearance(archerUnder({mobs:[['skeleton',10.5,64,.5]]}),{lingeredMs:241000,exits:shaftExits})
+ assert.equal(r.clear,true,r.reason);assert.ok(r.relocate,r.reason);assert.equal(r.confront,undefined)
+})
+test('a hut answers a hidden shooter at its wall as before',()=>{
+ const r=burrowClearance(archerUnder(),{lingeredMs:61000,exits:shaftExits,canPort:true})
+ assert.equal(r.clear,true,r.reason);assert.equal(r.confront,undefined);assert.equal(r.relocate,undefined)
+})
 class FakeRunner extends EventEmitter{
  constructor(bot){super();this.profile='lab';this.owner='Sov';this.ready=true;this.commands=[];this.bot=bot}
  position(){const p=this.bot.entity.position;return {x:p.x,y:p.y,z:p.z}}
