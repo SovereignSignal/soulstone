@@ -825,18 +825,23 @@ const restoreWith=async(safety,{runner=new FakeRunner()}={})=>{
  return new Teammate(runner,{model:'fake',plan:async()=>({reply:'',steps:[]})},path)
 }
 const inFlight={status:'fleeing',reason:THREAT_INTERRUPTION,startedAt:'2026-10-16T04:46:35.839Z',retries:0,resumeRequestId:null}
+// A failed verdict is not kept either: the signature that lets the tick end it is not saved, so
+// one restored with its retries spent stood behind the alarm as the flee did. Nor is a shelter
+// the bot died in or left with a firing port open.
+const burrowRetreat={shelterName:'burrow',surface:{x:1,y:64,z:1},capped:true}
 test('an escape in flight when the service stopped is not a safety episode after it',async()=>{
  for(const safety of [inFlight,{...inFlight,status:'retreating',attempts:[{name:'portal_home',status:'trying'}]},{...inFlight,status:'defending'},{...inFlight,status:'interrupted'},{...inFlight,status:'afloat'},{...inFlight,status:'clear'},
-  {...inFlight,status:'burrowed',retreat:{shelterName:'burrow',surface:{x:1,y:64,z:1}},exit:{receipt:'surfaced'}},{...inFlight,status:'failed',error:'Agent died',deathPosition:{x:0,y:64,z:0}}]){
+  {...inFlight,status:'burrowed',retreat:burrowRetreat,exit:{receipt:'surfaced'}},{...inFlight,status:'failed',error:'Agent died',deathPosition:{x:0,y:64,z:0}},
+  {...inFlight,status:'failed',error:'Hut incomplete: 1 of 8',retries:3,failedAt:1},{...inFlight,status:'failed',error:'Died during retreat',deathPosition:{x:0,y:64,z:0}},
+  {...inFlight,status:'failed',error:'Agent died',deathPosition:{x:1,y:61,z:1},retreat:burrowRetreat},{...inFlight,status:'burrowed',retreat:{...burrowRetreat,shelterName:'hut'},port:{side:'east'}}]){
   const c=await restoreWith(safety)
-  assert.equal(c.safety,null,safety.status);assert.equal(c.restoreBurrow,false,safety.status);assert.equal(c.phase,'blocked',safety.status)
+  assert.equal(c.safety,null,safety.error||safety.status);assert.equal(c.restoreBurrow,false,safety.error||safety.status);assert.equal(c.phase,'blocked',safety.status)
  }
 })
-test('a shelter reached or a verdict the tick ends survives the restart',async()=>{
- const burrow={shelterName:'burrow',surface:{x:1,y:64,z:1},capped:true}
- for(const [safety,rearm] of [[{...inFlight,status:'sheltered',retreat:{shelterName:'base'}},false],[{status:'cancelled',reason:'Operator stop',at:1},false],
-  [{...inFlight,status:'failed',error:'Hut incomplete: 1 of 8'},false],[{...inFlight,status:'failed',error:'Took to long to decide path to goal!',retreat:burrow},true],
-  [{...inFlight,status:'burrowed',retreat:burrow},true],[{...inFlight,status:'burrowed',retreat:{...burrow,shelterName:'hut'}},true]]){
+test('a shelter reached or a Stop survives the restart',async()=>{
+ for(const [safety,rearm] of [[{...inFlight,status:'sheltered',retreat:{position:{x:0,y:64,z:0}}},false],[{status:'cancelled',reason:'Operator stop',at:1},false],
+  [{...inFlight,status:'failed',error:'Took to long to decide path to goal!',retreat:burrowRetreat},true],
+  [{...inFlight,status:'burrowed',retreat:burrowRetreat},true],[{...inFlight,status:'burrowed',retreat:{...burrowRetreat,shelterName:'hut'}},true]]){
   const c=await restoreWith(safety)
   assert.equal(c.safety?.status,safety.status);assert.equal(c.restoreBurrow,rearm,safety.status)
  }
@@ -847,13 +852,14 @@ function restartArena({health=20,distance=8}={}){
   entity:{position:new Vec3(10.5,64,10.5),onGround:true,isInWater:false,isInLava:false},inventory:{items:()=>inventory,slots:[]},getEquipmentDestSlot:()=>null,currentWindow:null,
   blockAt:p=>({name:p.y>=64?'air':'dirt',position:p.clone(),boundingBox:p.y>=64?'empty':'block'}),pathfinder:{setGoal(){},setMovements(){},async goto(){}},clearControlStates(){},async equip(){},async dig(){},async placeBlock(){},world:{getColumn:()=>null}}
 }
-test('after a restart mid-escape the first tick\'s alarm still runs',async()=>{
- for(const [health,reason] of [[20,THREAT_INTERRUPTION],[9,HEALTH_EMERGENCY]]){
+test('after a restart mid-escape or after a spent recovery the first tick\'s alarm still runs',async()=>{
+ const spent={...inFlight,status:'failed',error:'Hut incomplete: 1 of 8',retries:3,failedAt:1}
+ for(const [health,reason,saved] of [[20,THREAT_INTERRUPTION,inFlight],[9,HEALTH_EMERGENCY,inFlight],[20,THREAT_INTERRUPTION,spent],[9,HEALTH_EMERGENCY,spent]]){
   const runner=new FakeRunner();runner.bot=restartArena({health})
-  const c=await restoreWith(inFlight,{runner});c.threatJudge={control:false,judge:async()=>null}
+  const c=await restoreWith(saved,{runner});c.threatJudge={control:false,judge:async()=>null}
   const sought=[];c.seekSafety=async r=>{sought.push(r)}
   runner.emit('event',{type:'survival_tick'});await new Promise(r=>setTimeout(r,10))
-  assert.deepEqual(sought,[reason])
+  assert.deepEqual(sought,[reason],saved.status)
  }
 })
 

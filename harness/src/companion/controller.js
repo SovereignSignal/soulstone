@@ -158,15 +158,18 @@ export async function eatAfterPortalEscape(c,signal,bot){
  catch(error){c.runner?.log?.('portal_escape_eat_failed',{reason:String(error.message).slice(0,120)});return false}
 }
 // A burrow or hut the bot was dug into when the service stopped: the spawn handler resumes its wait.
-const rearmsOnSpawn=safety=>['burrow','hut'].includes(safety?.retreat?.shelterName)&&!!safety.retreat.surface&&!safety.exit
+// Not one it died in (the death handler keeps the retreat), and not a hut with a firing port
+// open: re-armed, the wait watched an unclosed hut.
+const rearmsOnSpawn=safety=>['burrow','hut'].includes(safety?.retreat?.shelterName)&&!!safety.retreat.surface&&!safety.exit&&!safety.port&&!safety.deathPosition&&!/^(Agent died|Died during)/.test(safety.error||'')
 // Lab run 165, 15 October: a deploy restarted the service five seconds into a flee from a
 // creeper. The flee came back as `safety` with its status still 'fleeing', and to the tick a
 // saved episode is one already being handled, so no alarm ran for nine minutes while
 // phantoms, a skeleton and zombies took the bot from 20 to 0; four health alarms logged and
 // did nothing. An episode in flight does not survive the process that ran it. Kept: a shelter
-// the spawn handler re-arms, a lit shelter reached, and a verdict the tick ends on its own
-// (cancelled, failed other than by death, which only the respawn clears).
-const outlivesRestart=safety=>rearmsOnSpawn(safety)||['sheltered','cancelled'].includes(safety?.status)||safety?.status==='failed'&&safety.error!=='Agent died'
+// the spawn handler re-arms, a lit shelter reached, and a Stop the tick ends on its own. Not a
+// failed recovery: the signature the tick ends a spent one by is not saved, so restored with
+// its retries used it stood behind the alarm the same way.
+const outlivesRestart=safety=>rearmsOnSpawn(safety)||['sheltered','cancelled'].includes(safety?.status)
 export class Teammate extends EventEmitter {
   constructor(runner, planner, statePath, recorder = null) {
     super(); this.runner = runner; this.planner = planner; this.statePath = statePath; this.recorder = recorder
