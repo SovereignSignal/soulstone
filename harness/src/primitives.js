@@ -1,4 +1,4 @@
-import { isNatural, breakable } from './natural.js'
+import { isNatural, breakable, mayDig } from './natural.js'
 import {scaffoldItems} from './scaffold.js'
 // Thin movement/dig primitives the planner can compose when travel/climb refuse.
 // goto walks to a point (optionally digging through harvestable blocks); dig
@@ -356,7 +356,10 @@ function exactRefusal(bot, cell, dig) {
   return null
 }
 
-export function refuseDigCell(bot, cell, { protectedSites = [], role = 'target' } = {}) {
+// ownAnyAge: the bot's own blocks of any age count as its own (natural.js mayDig), not only those under
+// OWN_TTL_MS. Bore alone passes it (live, 16 October 22:16Z: its own tunnel plug, placed 3.6 hours before,
+// stopped it as not natural ground); the dig action keeps the TTL so old scaffolding is a player's again.
+export function refuseDigCell(bot, cell, { protectedSites = [], role = 'target', ownAnyAge = false } = {}) {
   const block = bot.blockAt(cell)
   if (!block) {
     const here = bot.entity?.position
@@ -386,7 +389,7 @@ export function refuseDigCell(bot, cell, { protectedSites = [], role = 'target' 
   }
   // Reach is the caller's to fix by walking; only an unbreakable block is refused here.
   if (block.diggable === false) return `${block.name} at ${key(cell)} cannot be broken`
-  if (!breakable(bot, block)) return `${block.name} at ${key(cell)} is not natural ground; dig breaks only stone, soil, sand, ore and leaves, so it never wrecks something a player built. Go around it.`
+  if (!(ownAnyAge ? mayDig : breakable)(bot, block)) return `${block.name} at ${key(cell)} is not natural ground; dig breaks only stone, soil, sand, ore and leaves, so it never wrecks something a player built. Go around it.`
   return null
 }
 

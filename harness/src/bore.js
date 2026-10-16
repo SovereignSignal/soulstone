@@ -130,7 +130,7 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
  // Live, 16 October: the bot's own hut on the bridge leaves columns half wall, half air. A column
  // with some air whose other cells bore may dig (natural, or its own, refuseDigCell clean) is
  // covered too: closed first, then dug, then entered. Bricks in it still stop.
- const diggable=q=>{const b=bot.blockAt(q);return !!b&&solid(b)&&mayDig(bot,b)&&!refuseDigCell(bot,q,{protectedSites:sites,role:'head'})}
+ const diggable=q=>{const b=bot.blockAt(q);return !!b&&solid(b)&&mayDig(bot,b)&&!refuseDigCell(bot,q,{protectedSites:sites,role:'head',ownAnyAge:true})}
  const passable=cells=>cells.some(q=>AIR.has(bot.blockAt(q)?.name))&&cells.every(q=>AIR.has(bot.blockAt(q)?.name)||diggable(q))
  const limit=Math.min(goal.count,path.length)
  const named=p=>{const b=bot.blockAt(p);return !b?`unloaded ground at ${key(p)}`:AIR.has(b.name)?`open space at ${key(p)}`:`${b.name} at ${key(p)}`}
@@ -178,9 +178,10 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
    for(const p of cells)open.add(key(p))
    columns++;covered++;frontLeft=front.length?[next.offset(0,-1,0),...front]:[];continue
   }
-  // The family rule, lava beside, over or under, falling blocks overhead: refuseDigCell as dig judges them.
+  // The family rule, lava beside, over or under, falling blocks overhead: refuseDigCell as dig judges them, but
+  // with its own blocks of any age diggable (live, 16 October 22:16Z: its 3.6-hour-old tunnel plug stopped it).
   let refused=null
-  for(const p of cells){const why=refuseDigCell(bot,p,{protectedSites:sites,role:'head'});if(why){refused=[why,p];break}}
+  for(const p of cells){const why=refuseDigCell(bot,p,{protectedSites:sites,role:'head',ownAnyAge:true});if(why){refused=[why,p];break}}
   const f=c.offset(0,-1,0),floor=bot.blockAt(f)
   if(!refused&&hot(floor))refused=[`${key(c)} has ${floor?.name??'unloaded ground'} under it at ${key(f)}; bore again toward a point three blocks to the side`,f]
   if(refused){stop(refused[0],c,bot.blockAt(refused[1]));break}

@@ -9,7 +9,7 @@ import {hutSite} from '../src/hut.js'
 import {validatePlan} from '../src/companion/planner.js'
 import {validateTaskGoal} from '../src/task-store.js'
 import {Runner} from '../src/runner.js'
-import {OwnBlocks,trackOwnPlacements} from '../src/natural.js'
+import {OwnBlocks,trackOwnPlacements,OWN_TTL_MS} from '../src/natural.js'
 const registry=minecraftData('1.21.4')
 const k=(x,y,z)=>new Vec3(x,y,z).toString()
 // A Nether of netherrack with the bot standing at 0,64,0 in a two-high cell. fills: [x,y,z,name].
@@ -331,4 +331,22 @@ test('near a waypoint open floored space is covered with no slit; only a bore th
  assert.equal(r.slit,null);assert.equal(r.covered,6)
  const s=liveBridge(true);const t=await executeSkill(s.bot,{kind:'bore',goal:{x:7,y:64,z:0,count:7,slit:true}},api)
  assert.equal(t.columns,0);assert.deepEqual(t.slit,[{x:1,y:65,z:0},{x:1,y:65,z:-1},{x:1,y:65,z:1}])
+})
+// Live, 16 October 22:16Z: walking its own tunnel, bore stopped at the bot's own cobblestone plug ("not natural
+// ground"), placed about 3.6 hours earlier: the dig judgement forgot own blocks after OWN_TTL_MS, meant for
+// scaffolding. Bore digs its own plugs of any age, as the shelters do; a block not recorded as its own still stops it.
+const age=w=>{for(const e of w.bot.ownBlocks.cells.values())e.at-=OWN_TTL_MS+60000}
+test('an own cobblestone plug older than OWN_TTL_MS in the bore\'s path is dug and the bore goes on; an unrecorded one still stops it',async()=>{
+ const plug=[[4,64,0,'cobblestone'],[4,65,0,'cobblestone']]
+ const own=world({fills:plug});for(const [x,y,z,n] of plug)own.bot.ownBlocks.add(new Vec3(x,y,z),n,'the_nether');age(own)
+ const a=await bore(own,{count:6});assert.equal(a.reason,null);assert.equal(a.columns,6);assert.ok(own.of('dig').includes(k(4,65,0))&&own.of('dig').includes(k(4,64,0)),own.of('dig').join(' '))
+ const theirs=world({fills:plug});const b=await bore(theirs,{count:6})
+ assert.equal(b.columns,3);assert.match(b.reason,/not natural ground/);assert.equal(theirs.cells.get(k(4,64,0)),'cobblestone')
+})
+test('on the live bridge, own plugs older than OWN_TTL_MS are dug and the covered walk goes on',async()=>{
+ for(const head of [true,false]){
+  const w=liveBridge(head);age(w);guard(w)
+  const r=await executeSkill(w.bot,{kind:'bore',goal:{x:7,y:64,z:0,count:7}},api)
+  assert.equal(r.reason,null,`head plug ${head}: ${r.reason}`);assert.equal(r.columns,7);assert.ok(w.of('dig').includes(k(1,64,0)))
+ }
 })
