@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {Vec3} from 'vec3'
-import {aimPitch,arrowPath,ARROW,lineOfFireBlocker} from '../src/archery.js'
+import {lineOfFireBlocker} from '../src/archery.js'
+import {aimPitch,arrowPath,ARROW} from '../src/arrow.js'
 
 // The dragon ladder needs a bow: blazes keep their distance and the dragon's
 // end crystals sit on towers. A fully drawn arrow leaves at 3 blocks a tick,
@@ -603,4 +604,19 @@ test('through a one-high slit the bow engages a blaze across the room without a 
  assert.match(rangedDefenseDecision(under.bot).reason,/No clear shot at the blaze: netherrack/)
  await assert.rejects(shootTarget(under.bot,{kind:'shoot',goal:{type:'blaze',collect:false,stay:true}},api,fast),/No clear shot/)
  assert.deepEqual(under.walked,[],'and no walk to look for one')
+})
+
+// Live rehearsal, 16 October 22:21Z: every stayed shot at the hut's port failed "No clear shot at any blaze within 32
+// blocks, nor from a spot within 4: crimson_nylium is in the way". A stayed shot tries no other spot, and the block was
+// the farthest blaze's. It says now that it looked through the port, and names what stands before the nearest blaze.
+test('a stayed shot with no line says so and names the nearest blaze\'s blocker',async()=>{
+ const r=range()
+ const name=p=>p.y<64?'stone':p.x===2&&p.y===65&&p.z===0?'nether_wart_block':p.x===-4&&p.y===65&&p.z===0?'crimson_nylium':'air'
+ r.bot.blockAt=p=>{const c=p.floored(),n=name(c);return {name:n,position:c,boundingBox:n==='air'?'empty':'block'}}
+ r.bot.world={raycast:(from,dir,range)=>{for(let d=0.01;d<=range;d+=0.01){const c=from.plus(dir.scaled(d)).floored(),n=name(c);if(n!=='air')return {name:n,position:c}}return null}}
+ r.bot.entities={7:{id:7,name:'blaze',type:'hostile',height:1.8,position:new Vec3(3.5,64,.5),velocity:new Vec3(0,0,0)},8:{id:8,name:'blaze',type:'hostile',height:1.8,position:new Vec3(-9.5,64,.5),velocity:new Vec3(0,0,0)}}
+ const walked=[];r.bot.pathfinder={movements:null,setMovements(){},setGoal(){},async goto(g){walked.push(g)}}
+ const run=shootTarget(r.bot,{kind:'shoot',goal:{type:'blaze',collect:false,stay:true}},api,fast)
+ await assert.rejects(run,e=>{assert.match(e.message,/^No clear shot through the port at the nearest blaze \(3 blocks\): nether_wart_block is in the way/);assert.doesNotMatch(e.message,/spot within|crimson/);return true})
+ assert.deepEqual(walked,[])
 })

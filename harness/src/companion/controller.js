@@ -158,7 +158,7 @@ export function clearSealedHolds(c){
  if(request?.sealedHolds?.length&&!insideBase(c.runner?.bot,c.projects?.base)){request.sealedHolds=[];c.persist?.()}
 }
 export const STOP_HOLD_MS=60000
-import {burrowClearance,shelterExits,strongEnoughToLeave,RELOCATE_STANDOFF} from '../burrow.js'
+import {burrowClearance,shelterExits,strongEnoughToLeave,portSightline,RELOCATE_STANDOFF} from '../burrow.js'
 import {roofed} from '../observations.js'
 import {inspectEmergencyShelter,cavityCells} from '../shelter-occupants.js'
 import {threatReach,threatRoutes} from '../threat-reach.js'
@@ -181,7 +181,7 @@ import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { dirname,join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { validatePlan } from './planner.js'
-import {hutSite,firingPort,hutMaterials,portalRoomSpot,coveredColumn,WALLS_NOT_MINE} from '../hut.js'
+import {hutSite,hutMaterials,portalRoomSpot,coveredColumn,WALLS_NOT_MINE} from '../hut.js'
 import {rangedDefenseDecision,bowCanAnswer} from '../archery.js'
 import {onTrip,tripKit,walkOnThreat,portReady,tripPickup,sitesNearHut,PICKUP,PORT_HEALTH,PORT_FOOD,TRIP_HEALTH} from '../nether-trip.js'
 import {deliveredCount,satisfiedStep,currentRequestTask} from './progress.js'
@@ -1381,7 +1381,7 @@ export class Teammate extends EventEmitter {
       // A shooter the bow answers is shot through a firing port while the shelter is
       // still held, so no alarm fires, and the hut closes the port after. A port with no
       // shot is not opened again; PORT_ATTEMPTS openings without a kill and it moves away.
-      let result,confront,relocate,attempts=0,sealedLap=0,portShort=false
+      let result,confront,relocate,attempts=0,sealedLap=0,portShort=false,noLine=false
       const tried=[]
       for(;;){
         for(let watch=1;;watch++){
@@ -1413,11 +1413,26 @@ export class Teammate extends EventEmitter {
           this.say(`I will not walk out with the ${name} ${confront.distance} blocks away. Holding the hut and watching again.`)
           attempts=0;tried.length=0;lingerSince=null;return false
         }
+        // Live rehearsal, 16 October 22:21Z to 22:38Z: walled in in its own tunnel beside the spawner, the port opened toward
+        // blazes beside the wall by direction alone, ten times, and the bow found the wall every time: a dig and a cobblestone
+        // a cycle and no arrow. The line is asked again here, at the shooter where it is now, through the sides not yet tried;
+        // with none the hut stays shut (said once), and a port that opens opens on the side the line was judged through.
+        const feet=bot.entity.position.floored(),live=Object.values(bot.entities||{}).filter(e=>e?.name===confront.name&&e.position).sort((a,b)=>a.position.distanceTo(confront.position)-b.position.distanceTo(confront.position))[0]
+        const target=live??confront,line=portSightline(bot,feet,target,{skip:tried})
+        if(line.status!=='clear'){
+          const distance=Math.round(bot.entity.position.distanceTo(target.position)*10)/10
+          this.runner.log?.('port_held',{shooter:confront.name,distance,reason:'no port line',block:line.block??null,tried:tried.length})
+          if(!noLine){noLine=true;this.say(`No clear shot at the ${name} ${Math.round(distance)} blocks away. Keeping the hut shut.`)}
+          // Only the sides already tried had the line: offered again once leaving is refused, as when unhut finds none left.
+          if(tried.length){if(leave())break;continue}
+          lingerSince=null;continue
+        }
+        const side={dx:line.side[0],dz:line.side[2]}
         // Review of 875042a, 16 October: a bore that spent its plugs could open the port and then fail to close it with
         // blazes near. The port opens only with the blocks to wall in here again after it, and one to spare.
         {
-          const site=hutSite(bot),port=firingPort(bot,bot.entity.position.floored(),{toward:{x:Math.floor(confront.position.x),z:Math.floor(confront.position.z)},shooter:confront.name,skip:tried})
-          const carried=hutMaterials(bot).reduce((n,i)=>n+i.count,0),needed=site.ok?site.needed+(port?.cells.filter(c=>fullCube(bot.registry,bot.blockAt(c)?.name)).length||0)+1:null
+          const site=hutSite(bot)
+          const carried=hutMaterials(bot).reduce((n,i)=>n+i.count,0),needed=site.ok?site.needed+line.cells.filter(c=>fullCube(bot.registry,bot.blockAt(c)?.name)).length+1:null
           if(!site.ok||carried<needed){
             const why=site.ok?`${carried} carried and ${needed} needed`:site.reason
             this.runner.log?.('port_held',{shooter:confront.name,carried,needed,reason:why})
@@ -1428,7 +1443,7 @@ export class Teammate extends EventEmitter {
         }
         this.say(`A ${name} has lingered ${confront.distance} blocks away. Opening a firing port toward it.`)
         let port
-        try{await this.execute({action:'unhut',goal:{toward:{x:Math.floor(confront.position.x),z:Math.floor(confront.position.z)},shooter:confront.name,...(tried.length?{skip:structuredClone(tried)}:{})},timeoutMs:60000},signal);check();port=structuredClone(this.runner.task.result)}
+        try{await this.execute({action:'unhut',goal:{toward:{x:Math.floor(target.position.x),z:Math.floor(target.position.z)},shooter:confront.name,side,...(tried.length?{skip:structuredClone(tried)}:{})},timeoutMs:60000},signal);check();port=structuredClone(this.runner.task.result)}
         catch(error){check();this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check();this.say(`No port to shoot the ${name} from: ${error.message}.`);if(leave())break;continue}
         safety.port=port;this.persist()
         let shot=null,missed=null

@@ -1,5 +1,5 @@
 import {bowCanAnswer} from './bow-readiness.js'
-import {observedSightline} from './visibility.js'
+import {observedSightline,shotLine} from './visibility.js'
 import {scaffoldItems,fillCell,plainCube} from './scaffold.js'
 import {claimPlaced,mayDig,refuseUnowned} from './natural.js'
 import {plainFirst,holdToPlace} from './placement.js'
@@ -280,27 +280,19 @@ export function shelterExits(retreat){
 // then more than ten minutes shut with blazes six to ten blocks off. The exits two cells out
 // stood under the room's roof edge and saw none of them; the bot's own eye through the port, a
 // block and a half back, saw most. A hut answers a shooter from the head cell of the wall facing
-// it (hut.js firingPort), so this is the bot's eye along the line to the mob, judged from where
-// the line leaves that cell: the closed port block is not counted, everything beyond it is.
+// it (hut.js firingPort), so this is the bot's eye along the line to the mob through that cell.
 // feet: the hut's feet cell. Only the side unhut opens toward the mob counts (firingPort: by its
-// floored cell, ties east first, never beside lava, water or fire); a line that leaves the bot's
-// head cell anywhere but into that side's head cell has no port: blocked.
-export function portSightline(bot,feet,t){
+// floored cell, ties east first, never beside lava, water or fire, nor into a block not the bot's).
+// Live rehearsal, 16 October 22:21Z to 22:38Z: this judge aimed a block above the mob's feet and walked its own line, the
+// bow aimed at its middle and found the wall. It is now the bow's own question (archery.js shotLine) from the hut's eye,
+// with the port cell read as open: a line out through any other wall, the port's floor or its neighbour is blocked.
+// skip: sides already tried. The result carries the side and cells judged, so the port opens exactly there.
+export function portSightline(bot,feet,t,{skip=[]}={}){
  const blocked={status:'blocked'}
  if(!feet||!t?.position)return blocked
- const opens=firingPort(bot,new Vec3(feet.x,feet.y,feet.z),{toward:{x:Math.floor(t.position.x),z:Math.floor(t.position.z)},shooter:t.name})
- if(!opens)return blocked
- const eye={x:feet.x+.5,y:feet.y+(bot.entity?.eyeHeight??1.62),z:feet.z+.5},to={x:t.position.x,y:t.position.y+1,z:t.position.z}
- const d={x:to.x-eye.x,y:to.y-eye.y,z:to.z-eye.z},axes=['x','y','z'],along=k=>({x:eye.x+k*d.x,y:eye.y+k*d.y,z:eye.z+k*d.z})
- // How far along the line it leaves a cell, as a fraction of the way to the mob.
- const leave=c=>Math.min(...axes.map(a=>d[a]>0?(c[a]+1-eye[a])/d[a]:d[a]<0?(c[a]-eye[a])/d[a]:Infinity))
- const into=k=>{const p=along(k+1e-6);return {x:Math.floor(p.x),y:Math.floor(p.y),z:Math.floor(p.z)}}
- const port=into(leave({x:feet.x,y:feet.y+1,z:feet.z}))
- if(port.y!==feet.y+1||port.x-feet.x!==opens.side[0]||port.z-feet.z!==opens.side[2])return blocked
- const out=leave(port)
- if(!(out<1))return blocked
- const len=Math.hypot(d.x,d.y,d.z),from=along(out+.01/len)
- return observedSightline(bot,from,to)
+ const at=new Vec3(feet.x,feet.y,feet.z),port=firingPort(bot,at,{toward:{x:Math.floor(t.position.x),z:Math.floor(t.position.z)},shooter:t.name,skip})
+ if(!port)return blocked
+ return {...shotLine(bot,at.offset(.5,bot.entity?.eyeHeight??1.62,.5),t,{open:port.cells}),side:port.side,cells:port.cells}
 }
 export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_MS,relocateAfterMs=RELOCATE_PATIENCE_MS,exits=null,trip=false,canPort=false,feet=null}={}){
  const s=survivalObservation(bot)
@@ -323,6 +315,9 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  // that would not interrupt the work does not hold the bot in (lab run 142, 14 October:
  // kitted, a portal room, hoglins at fifteen that the alarm ignores, and no way out).
  let near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=(trip?threatRadius(t.name):RANGED.has(t.name)?24:16))
+ // On a trip a hut answers a shooter through its port, so the port line is asked once per shooter (lab run 166, 16 October).
+ const portLine=canPort&&trip&&!!feet,lines=new Map()
+ const throughPort=t=>{if(!portLine)return false;if(!lines.has(t))lines.set(t,portSightline(bot,feet,t).status==='clear');return lines.get(t)}
  // Run 86 (10 October): from inside, the shelter's own walls block every sightline,
  // so a shooter is judged at the exits: one that could not see the bot at any exit
  // is not waiting outside (a blaze behind the fortress's nether bricks).
@@ -345,7 +340,6 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
   // where the shaft's column could see (lab run 150, 15 October: in a tunnel those eyes saw only
   // along it, three of four blazes off its walls were "hidden", and two met the bot in clear sight).
   // On a trip a shooter the bot's own eye sees through a port is not hidden (lab run 166, 16 October).
-  const throughPort=t=>canPort&&trip&&!!feet&&portSightline(bot,feet,t).status==='clear'
   if(canPort)near=near.filter(t=>!(SHOOTERS_ONLY.has(t.name)&&t.distance>4&&hidden(t)&&!throughPort(t)))
   // On a trip a mob the alarm walks on outside is not waiting outside either, judged by sight
   // at the exits, or the hut holds the bot over it for good (lab run 148, 15 October).
@@ -367,6 +361,12 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  // Several shooters are shot in turn, as the ranged chain does in the open (three blazes at
  // the wall by 18:10Z the same run).
  const shooters=near.filter(t=>SHOOTERS_ONLY.has(t.name))
+ // Live rehearsal, 16 October 22:21Z to 22:38Z: walled in in its own tunnel beside the spawner, the watch confronted blazes
+ // 1.5 to 3.5 blocks off because they were within four, where nothing asked whether the port could see them; the port
+ // opened, the line from the eye left the port cell through its floor or its side, and ten shots found the wall. On a trip
+ // a hut confronts a shooter only through a port line. One within four blocks or in an exit's sight that no port line
+ // reaches still holds the hut (blind): it is not confronted, and while it is there nothing but a port shot opens the hut.
+ const blind=portLine?shooters.filter(t=>!throughPort(t)):[],lined=shooters.filter(t=>!blind.includes(t)).sort((a,b)=>a.distance-b.distance)
  // A burrow has no port: on a trip, confronting a shooter from one is a climb out with no shot
  // planned (lab run 150, 15 October: a lone blaze confronted, four waiting, dead in ten seconds).
  // Off a trip the armour and bow gates below still open a burrow to a lone skeleton.
@@ -395,7 +395,8 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  // nothing does but the shooter leaving or burning: a burrow that can heal waits, on purpose.
  // 16 October: one that cannot heal does not; see the standoff below.
  const unseen=!!lone&&!!exits&&!canPort&&SHOOTERS_ONLY.has(lone.name)&&hidden(lone)
- const ready=!portless&&(!!lone&&bowCanAnswer(bot,lone.name)&&!unseen||shooterAtWall||meleeReady)
+ const ready=!portless&&(blind.length?lined.length>0&&lined.every(t=>bowCanAnswer(bot,t.name))&&near.every(t=>SHOOTERS_ONLY.has(t.name)||t.distance>=SHOOTER_CONFRONT_STANDOFF)
+  :!!lone&&bowCanAnswer(bot,lone.name)&&!unseen||shooterAtWall||meleeReady)
  if(!ready){
   // Neither fight nor hide. Unarmed against numbers or a crossbow, healthy, in
   // daylight, with nothing in melee reach and the threat sat still past the
@@ -415,10 +416,10 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
   if(lingeredMs>=relocateAfterMs&&strongEnoughToLeave(bot)&&closest>=RELOCATE_STANDOFF&&near.every(t=>t.position))
    return {clear:true,relocate:{threats:near,from:centre(near)},health:s.health,timeOfDay:s.timeOfDay,scope,
     reason:`${near.length===1?`A ${near[0].name}`:`${near.length} hostiles`} held station for ${Math.round(lingeredMs/1000)} seconds and will not disperse; surfacing to move away rather than wait them out`}
-  return {clear:false,lingering:true,reason:portless?'A shooter waits outside and a burrow has no port; holding':unseen?`A ${lone.name} waits out of sight of the shaft; holding`:`A potential hostile remains within 16 blocks: ${[...new Set(near.map(t=>t.name))].sort().join(', ')}`,threats:near}
+  return {clear:false,lingering:true,reason:portless?'A shooter waits outside and a burrow has no port; holding':blind.length?`No port has a line to the ${blind[0].name.replaceAll('_',' ')} ${blind[0].distance} blocks off; holding`:unseen?`A ${lone.name} waits out of sight of the shaft; holding`:`A potential hostile remains within 16 blocks: ${[...new Set(near.map(t=>t.name))].sort().join(', ')}`,threats:near}
  }
  if(lingeredMs<patienceMs)return {clear:false,lingering:true,reason:`${lone?`A lone ${lone.name} lingers`:`${near.length} hostiles I can fight linger`} within 16 blocks in daylight; confronting after ${Math.round(patienceMs/1000)} seconds`,threats:near}
- return {clear:true,confront:lone||nearest,health:s.health,timeOfDay:s.timeOfDay,reason:lone?`A lone ${lone.name} has lingered ${Math.round(lingeredMs/1000)} seconds into daylight; surfacing to confront it`:`${near.length} hostiles I can fight have lingered ${Math.round(lingeredMs/1000)} seconds; surfacing to fight them, nearest first`,scope}
+ return {clear:true,confront:blind.length?lined[0]:lone||nearest,health:s.health,timeOfDay:s.timeOfDay,reason:lone?`A lone ${lone.name} has lingered ${Math.round(lingeredMs/1000)} seconds into daylight; surfacing to confront it`:`${near.length} hostiles I can fight have lingered ${Math.round(lingeredMs/1000)} seconds; surfacing to fight them, nearest first`,scope}
 }
 // Manual climb for when the pathfinder will not tower out of a capped shaft:
 // dig whatever sits two above the feet, jump, place a carried full cube

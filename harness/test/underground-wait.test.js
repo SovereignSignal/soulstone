@@ -371,7 +371,8 @@ test('a shooter outside the hut is shot from a firing port while the shelter sti
  const w=portWait({shot:(bot,c)=>{delete bot.entities[1];c.runner.task={result:{item:'blaze',receipt:'killed',count:1,shots:3,at:{x:5.5,y:63,z:.5}}}}})
  await Teammate.prototype.waitInBurrow.call(w.c,1,new AbortController().signal,w.bot,false)
  assert.deepEqual(w.executed.map(x=>x.action),['unhut','shoot','hut','unhut'],w.said.join(' | '))
- assert.deepEqual(w.executed[0].goal,{toward:{x:5,z:0},shooter:'blaze'})
+ assert.deepEqual(w.executed[0].goal,{toward:{x:5,z:0},shooter:'blaze',side:{dx:1,dz:0}},'the side the port line was judged through')
+ assert.deepEqual(validateTaskGoal('unhut',w.executed[0].goal),w.executed[0].goal,'and the runner keeps it')
  assert.deepEqual(w.executed[1].goal,{type:'blaze',collect:false,stay:true},'shot from cover, never walking out to find a line')
  assert.deepEqual(validateTaskGoal('shoot',w.executed[1].goal),w.executed[1].goal,'and the runner keeps it so')
  assert.deepEqual(w.held,['burrowed'],'the shelter is still held while it shoots, so the alarm does not fire')
@@ -390,7 +391,7 @@ test('on a trip a blaze the hut\'s exits cannot see but its port can is shot thr
  const w=portWait({shot:kill,trip:true,blaze:[7.5,63.2,-.3],cells})
  await run(w)
  assert.deepEqual(w.executed.slice(0,3).map(x=>x.action),['unhut','shoot','hut'],w.said.join(' | '))
- assert.deepEqual(w.executed[0].goal,{toward:{x:7,z:-1},shooter:'blaze'})
+ assert.deepEqual(w.executed[0].goal,{toward:{x:7,z:-1},shooter:'blaze',side:{dx:1,dz:0}})
  assert.equal(w.executed[1].goal.stay,true)
  assert.ok(w.said.some(t=>/fell to my arrows\. Port closed/.test(t)),w.said.join(' | '))
 })
@@ -414,12 +415,15 @@ test('on a trip a kill through the port counts as progress, so the request conti
 })
 // Review of lab run 166: a side refused for no clear shot is skipped only until a port kill.
 // The next mob may stand where that side is the shot, so after a kill every side is offered again.
+// Live rehearsal, 16 October 22:21Z: no port opens without a line through it, so with only the tried side seeing the
+// blaze the hut holds and the leave rule decides (here: too close to walk from, so every side is offered again).
 test('after a kill through the port the sides tried before are offered again',async()=>{
  let n=0,again=null
  const w=portWait({limitMs:1500,shot:(bot,c)=>{
   if(++n===1)return noShot()
   const blaze=bot.entities[1];delete bot.entities[1];if(n===2)again=()=>{bot.entities[1]=blaze}
   c.runner.task={result:{item:'blaze',receipt:'killed',count:1,shots:3}}}})
+ w.c.say=t=>{w.said.push(t)}
  const execute=w.c.execute
  w.c.execute=async function(command){
   if(command.action==='unhut'&&command.goal?.shooter){w.executed.push(command);this.runner.task={result:{receipt:'unwalled',port:true,side:{dx:1,dz:0}}};return}
@@ -427,7 +431,8 @@ test('after a kill through the port the sides tried before are offered again',as
  }
  await run(w)
  const ports=w.executed.filter(x=>x.action==='unhut'&&x.goal?.shooter).map(x=>x.goal.skip)
- assert.deepEqual(ports,[undefined,[{dx:1,dz:0}],undefined],w.said.join(' | '))
+ assert.deepEqual(ports,[undefined,undefined,undefined],w.said.join(' | '))
+ const said=w.said.join(' | ');assert.match(said,/No luck through that port.*No clear shot at the blaze 5 blocks away\. Keeping the hut shut\..*I will not walk out.*fell to my arrows/,said)
 })
 // Lab run 156, 15 October: at a firing port into a sealed room of blazes the bot lost 11
 // health in six seconds before the duel's own half-health line stopped it. On a kitted trip
@@ -573,15 +578,17 @@ test('hurt, burning or hungry, the wait holds the hut shut rather than open a po
 })
 test('a firing port with no shot closes again and is not reopened; out of ports with the blaze close, it holds the hut',async()=>{
  const w=portWait({shot:noShot}),actions=await run(w)
- assert.deepEqual(actions.slice(0,4),['unhut','shoot','hut','unhut'],w.said.join(' | '))
- assert.deepEqual(w.executed[3].goal.skip,[{dx:1,dz:0}],'the port that had no shot is not opened again')
+ // The only side with a line was tried: no second port toward the blaze is dispatched at all.
+ assert.deepEqual(actions,['unhut','shoot','hut','unhut'],w.said.join(' | '))
+ assert.equal(w.executed[3].goal.shooter,undefined,'the port that had no shot is not opened again; the blaze gone, it opens up as before')
+ assert.ok(w.said.includes('No clear shot at the blaze 5 blocks away. Keeping the hut shut.'),w.said.join(' | '))
  assert.deepEqual(leaving(actions),[],'a blaze five blocks off is not walked away from: '+w.said.join(' | '))
  assert.ok(w.said.some(t=>/Holding the hut/.test(t)))
- assert.deepEqual(actions.slice(4),['unhut'],'the blaze gone, it opens up as before')
 })
 test('out of ports with the shooter ten or more blocks off and the bot strong, it moves away; not strong, it holds',async()=>{
  const far=portWait({shot:noShot,blaze:[12.5,63,.5]}),actions=await run(far)
- assert.deepEqual(actions,['unhut','shoot','hut','unhut','unhut','climb','flee'],far.said.join(' | '))
+ assert.deepEqual(actions,['unhut','shoot','hut','unhut','climb','flee'],far.said.join(' | '))
+ assert.equal(far.executed[3].goal.shooter,undefined,'no second port toward it: the way out is away from it')
  const weak=portWait({shot:noShot,blaze:[12.5,63,.5],health:12})
  assert.deepEqual(leaving(await run(weak)),[],'twelve health it can heal from is not enough to leave on: '+weak.said.join(' | '))
 })

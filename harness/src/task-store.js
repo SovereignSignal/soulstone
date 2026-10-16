@@ -36,9 +36,12 @@ export function validateTaskGoal(kind, goal) {
   // Against a shooter it is a firing port (hut.js), skipping the sides that had no shot.
   if(kind==='unhut'){
     if(!Number.isInteger(goal?.toward?.x)||!Number.isInteger(goal?.toward?.z))return {}
-    const skip=SHOOTERS_ONLY.has(goal.shooter)&&Array.isArray(goal.skip)?goal.skip.filter(s=>[s?.dx,s?.dz].every(Number.isInteger)&&Math.abs(s.dx)+Math.abs(s.dz)===1).slice(0,4).map(s=>({dx:s.dx,dz:s.dz})):[]
+    const side1=s=>[s?.dx,s?.dz].every(Number.isInteger)&&Math.abs(s.dx)+Math.abs(s.dz)===1
+    const skip=SHOOTERS_ONLY.has(goal.shooter)&&Array.isArray(goal.skip)?goal.skip.filter(side1).slice(0,4).map(s=>({dx:s.dx,dz:s.dz})):[]
+    // The side the watch judged the port line through (live rehearsal, 16 October 22:21Z).
+    const side=SHOOTERS_ONLY.has(goal.shooter)&&side1(goal.side)?{side:{dx:goal.side.dx,dz:goal.side.dz}}:{}
     const mobs=Array.isArray(goal.from)?goal.from.filter(m=>Number.isInteger(m?.x)&&Number.isInteger(m?.z)).slice(0,8).map(m=>({x:m.x,z:m.z})):[],from=mobs.length?{from:mobs}:{}
-    return {toward:{x:goal.toward.x,z:goal.toward.z},...(SHOOTERS_ONLY.has(goal.shooter)?{shooter:goal.shooter}:{}),...(skip.length?{skip}:{}),...from}
+    return {toward:{x:goal.toward.x,z:goal.toward.z},...(SHOOTERS_ONLY.has(goal.shooter)?{shooter:goal.shooter}:{}),...(skip.length?{skip}:{}),...side,...from}
   }
   if(['surface','douse','leave_portal','use_portal','burrow'].includes(kind))return {}
   if(kind==='travel')return validateTravelGoal(goal)

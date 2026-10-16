@@ -245,13 +245,15 @@ export const WALLS_NOT_MINE='not natural ground and not placed by me'
 const opens=(bot,b)=>!b||REPLACEABLE.has(b.name)||breakable(bot,b)||ownedNow(bot,b)
 // Exported for the hut's watch (burrow.js portSightline), so it judges a shot only through the
 // side unhut will open (lab run 166, 16 October).
+// Live rehearsal, 16 October 22:21Z: the port opened by pull alone, not where the line was judged. Given goal.side (the
+// side the watch judged the line through), only that side is offered, unranked, and every refusal below still applies.
 export function firingPort(bot,feet,goal){
- const t=goal.toward,skip=goal.skip||[]
+ const t=goal.toward,skip=goal.skip||[],given=goal.side
  // An enderman's port is always two high: the pearl it drops is fetched by a step into it.
  const low=goal.shooter==='enderman'
  const toward=([dx,,dz])=>dx*(t.x-feet.x)+dz*(t.z-feet.z)
  const inside=[feet,feet.offset(0,1,0)]
- for(const side of SIDES.filter(s=>toward(s)>0&&!skip.some(k=>k.dx===s[0]&&k.dz===s[2])).sort((a,b)=>toward(b)-toward(a))){
+ for(const side of given?SIDES.filter(s=>s[0]===given.dx&&s[2]===given.dz):SIDES.filter(s=>toward(s)>0&&!skip.some(k=>k.dx===s[0]&&k.dz===s[2])).sort((a,b)=>toward(b)-toward(a))){
   const [dx,,dz]=side,cells=low?[feet.offset(dx,1,dz),feet.offset(dx,0,dz)]:[feet.offset(dx,1,dz)]
   const touching=cells.flatMap(c=>[c,...AROUND.map(([x,y,z])=>c.offset(x,y,z))]).filter(c=>!inside.some(i=>i.equals(c)))
   if(touching.every(c=>{const b=bot.blockAt(c);return b&&!LIQUID.has(b.name)&&!FIRE_BLOCKS.has(b.name)})&&cells.every(c=>opens(bot,bot.blockAt(c))))return {side,cells}

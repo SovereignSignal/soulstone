@@ -370,3 +370,39 @@ test('with the port held shut for want of blocks, the watch still notices a brea
  await Teammate.prototype.waitInBurrow.call(f.c,1,f.abort.signal,f.bot,true)
  assert.equal(safety.status,'failed');assert.match(safety.error,/open or exceeds/)
 })
+
+// Live rehearsal, 16 October 22:21Z to 22:38Z: walled in in its own tunnel beside the spawner, the watch opened a port
+// toward a blaze 2.1 blocks off beside the wall, diagonal to the port, again and again; the line from the eye left the
+// port cell through its side into rock, every shot failed "No clear shot", and each cycle cost a dig and a cobblestone.
+// Here the room east of the hut is open, the port cell 1,65,0 is rock as in shooterEast, the rock at 1,65,1 stands beside
+// it, and the raycast is real.
+function blazeBeside(f,at=[2.5,64,1.5]){
+ f.cells.set('1,65,0','netherrack')
+ for(let x=2;x<9;x++)for(const y of [64,65,66])for(let z=-2;z<=3;z++)f.cells.set(`${x},${y},${z}`,'air')
+ f.bot.world={getColumn:()=>({}),raycast:(from,dir,range)=>{for(let d=0;d<=range;d+=.01){const c=from.plus(dir.scaled(d)).floored(),b=f.bot.blockAt(c);if(b.boundingBox==='block')return {name:b.name,position:c}}return null}}
+ f.bot.entities={7:{id:7,uuid:'10000000-0000-0000-0000-000000000007',type:'mob',name:'blaze',height:1.8,position:new Vec3(...at),velocity:new Vec3(0,0,0)}}
+}
+const portWait={coveredMoves:false,burrowWait:{quietMs:50,limitMs:1500,patienceMs:50,relocateAfterMs:60000,watches:1}}
+// A port that does open is opened twice at most here: then the blaze goes, so a loop like the live one ends.
+const portAct=(cmd,bot)=>{if(cmd.action!=='unhut')return;portAct.opened=(portAct.opened||0)+1;if(portAct.opened>=2)bot.entities={};return {receipt:'unwalled',port:true,side:{dx:1,dz:0}}}
+test('the watch never opens a port toward a shooter no port line reaches',async()=>{
+ const f=fixture(async()=>wait,{act:portAct});portAct.opened=0;blazeBeside(f);inWait(f,portWait)
+ f.c.safety.covered={from:{x:0,y:64,z:0},at:{x:0,y:64,z:0},moves:[]}
+ await Teammate.prototype.waitInBurrow.call(f.c,1,f.abort.signal,f.bot,true)
+  assert.ok(!f.commands.some(x=>['unhut','shoot','hut'].includes(x.action)),acts(f).join(' ')+' :: '+f.said.join(' | '))
+ assert.equal(f.cells.get('1,65,0'),'netherrack','the hut wall stands')
+ // Judged in line, then gone beside the wall before the port opens: the controller asks the line again and holds.
+ const g=fixture(async()=>wait,{act:portAct});portAct.opened=0;blazeBeside(g,[6.5,64.2,.5]);inWait(g,portWait)
+ g.c.safety.covered={from:{x:0,y:64,z:0},at:{x:0,y:64,z:0},moves:[]}
+ const persist=g.c.persist;let moved=false
+ g.c.persist=function(){persist.call(this);if(!moved&&g.c.safety?.continuation?.status==='cleared'&&g.c.safety.continuation.observation?.confront){moved=true;g.bot.entities[7].position=new Vec3(2.5,64,1.5)}}
+ await Teammate.prototype.waitInBurrow.call(g.c,1,g.abort.signal,g.bot,true)
+ assert.ok(moved,'the watch judged the blaze in line first');assert.ok(!g.commands.some(x=>['unhut','shoot','hut'].includes(x.action)),acts(g).join(' '))
+ const held=g.events.filter(e=>e.type==='port_held');assert.equal(held.length,1,JSON.stringify(g.events));assert.equal(held[0].reason,'no port line');assert.equal(held[0].shooter,'blaze')
+ assert.equal(g.said.filter(t=>/No clear shot at the blaze/.test(t)).length,1,g.said.join(' | '))
+})
+test('the covered phase holds for a blaze with a port line, and not for one beside the wall without one',async()=>{
+ const {atPort}=await import('../src/companion/covered-moves.js')
+ const f=fixture(async()=>wait);blazeBeside(f,[6.5,64.2,.5]);assert.equal(atPort(f.bot)?.name,'blaze')
+ const g=fixture(async()=>wait);blazeBeside(g);assert.equal(atPort(g.bot),null)
+})

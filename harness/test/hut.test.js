@@ -290,6 +290,21 @@ test('against a shooter the hut opens a firing port in the wall facing it, rock 
  assert.deepEqual((await unwall(high.bot,{kind:'unhut',goal:{toward:{x:13,z:10},shooter:'blaze'}},api)).side,{dx:1,dz:0})
  assert.deepEqual(high.dug,[new Vec3(11,65,10).toString()])
 })
+// Live rehearsal, 16 October 22:21Z: the port opened by horizontal pull alone, never on the side the line was judged
+// through. Given a side, unhut opens that side's head cell and ranks nothing; the refusals still stand.
+test('unhut opens the side it is given, not the one with the most pull',async()=>{
+ const w=tunnelHut();await executeSkill(w.bot,{kind:'hut',goal:{}},api)
+ blazeAt(w.bot,13.5,63,10.5);w.dug.length=0
+ const goal=validateTaskGoal('unhut',{toward:{x:13,z:10},shooter:'blaze',side:{dx:0,dz:1}})
+ assert.deepEqual(goal.side,{dx:0,dz:1},'the side survives validation')
+ const port=await unwall(w.bot,{kind:'unhut',goal},api)
+ assert.deepEqual(port.side,{dx:0,dz:1});assert.deepEqual(w.dug,[new Vec3(10,65,11).toString()])
+ assert.equal(validateTaskGoal('unhut',{toward:{x:13,z:10},shooter:'blaze',side:{dx:1,dz:1}}).side,undefined,'never a diagonal')
+ // Lava over the given side's head cell refuses it, and no other side is taken instead.
+ const hot=tunnelHut();await executeSkill(hot.bot,{kind:'hut',goal:{}},api)
+ blazeAt(hot.bot,13.5,63,10.5);hot.cells.set(new Vec3(10,66,11).toString(),'lava');hot.dug.length=0
+ await assert.rejects(unwall(hot.bot,{kind:'unhut',goal},api),/No wall facing the blaze/);assert.deepEqual(hot.dug,[])
+})
 // 16 October: the hut leans on any wall already standing, and in the family world that can be
 // a player's. A port, or the plain exit, opens only what the bot may break: natural ground, or a
 // block it placed itself. The bot stands at 10,64,10; a wall at x 11 is the east side.

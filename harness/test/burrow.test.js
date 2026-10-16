@@ -783,7 +783,8 @@ test('a burrow holds against shooters it cannot answer from inside, and counts e
 // corridor along z; its wall x=1 holds the port cell (1,65,0); the room is x 2 to 9, y 63 and 64
 // open with y 65 open only over x 2 and 3, its roof from x 4. Blazes at the 07:11:54 positions.
 // open: no corridor, room or roof, only the hut on a floor, open air all round.
-function bayHut({blazes=[[7,63.2,1.6],[7.5,63.2,-.3],[7.9,63,3.7]],cells=new Map(),open=false}={}){
+// step: the raycast's stride; the port line tests near a window's edge walk it finer.
+function bayHut({blazes=[[7,63.2,1.6],[7.5,63.2,-.3],[7.9,63,3.7]],cells=new Map(),open=false,step=.1}={}){
  const name=p=>{const c=cells.get(`${p.x},${p.y},${p.z}`);if(c)return c
   if(p.x===0&&p.z===0&&(p.y===64||p.y===65))return 'air'
   if((Math.abs(p.x)===1&&p.z===0||p.x===0&&Math.abs(p.z)===1)&&(p.y===64||p.y===65))return 'cobblestone'
@@ -800,7 +801,7 @@ function bayHut({blazes=[[7,63.2,1.6],[7.5,63.2,-.3],[7.9,63,3.7]],cells=new Map
   entity:{position:new Vec3(.5,64,.5),onGround:true,eyeHeight:1.62},inventory:{items:()=>items,slots},getEquipmentDestSlot:s=>({head:5,torso:6,legs:7,feet:8})[s],
   entities:Object.fromEntries(blazes.map(([x,y,z],i)=>[i+1,{id:i+1,uuid:`00000000-0000-0000-0000-00000000003${i}`,type:'hostile',name:'blaze',height:1.8,position:new Vec3(x,y,z)}])),
   blockAt:p=>{const n=name(p);return {name:n,position:p.clone(),boundingBox:registry.blocksByName[n]?.boundingBox,getProperties:()=>({})}},
-  world:{raycast:(from,dir,range)=>{for(let d=0.1;d<=range;d+=0.1){const c=from.plus(dir.scaled(d)).floored(),n=name(c);if(registry.blocksByName[n]?.boundingBox==='block')return {name:n,position:c}}return null}}}
+  world:{raycast:(from,dir,range)=>{for(let d=step;d<=range;d+=step){const c=from.plus(dir.scaled(d)).floored(),n=name(c);if(registry.blocksByName[n]?.boundingBox==='block')return {name:n,position:c}}return null}}}
 }
 test('on a trip a hut confronts blazes its exits cannot see but its own eye sees through the port',async()=>{
  const {shelterExits}=await import('../src/burrow.js')
@@ -842,6 +843,52 @@ test('the port sightline judges only through the side the hut would open',async(
  assert.equal(portSightline(lava,feet,at(7.5,63.2,-.3)).status,'blocked')
  const r=burrowClearance(lava,{exits:shelterExits({shelterName:'hut',surface}),canPort:true,trip:true,lingeredMs:61000,feet:surface})
  assert.equal(r.clear,true,r.reason);assert.equal(r.confront,undefined)
+})
+
+// Live rehearsal, 16 October 22:30Z: walled in in its own tunnel beside the spawner, the watch confronted a blaze 2.7
+// blocks off and 1.8 below because it was within four blocks, where the exits and the port were never asked. The port
+// opened toward it, the line from the eye left the port cell through its floor, and the bow found the wall: ten cycles
+// that night, no arrow. On a trip a hut confronts a shooter only through a port line; one within four blocks or in an
+// exit's sight that no port line reaches holds the hut shut.
+test('on a trip a shooter within four blocks that no port line reaches holds the hut shut',async()=>{
+ const {shelterExits}=await import('../src/burrow.js')
+ const surface={x:0,y:64,z:0},opts={exits:shelterExits({shelterName:'hut',surface}),canPort:true,trip:true,lingeredMs:61000,feet:surface}
+ // Two blocks east and 0.8 below: the line drops out of the port cell into the wall's feet cell.
+ const low=burrowClearance(bayHut({blazes:[[2.5,63.2,.5]]}),opts)
+ assert.equal(low.confront,undefined,low.reason);assert.equal(low.clear,false);assert.equal(low.lingering,true);assert.match(low.reason,/no port has a line to the blaze/i)
+ assert.equal(low.threats.length,1,'it still holds the hut: it is not "not waiting outside"')
+ // Three blocks east at the port's own height the line is clear, and it is confronted.
+ const level=burrowClearance(bayHut({blazes:[[3.5,64.3,.5]]}),opts);assert.equal(level.confront?.name,'blaze',level.reason)
+ // With one blaze in the port's line and one beside the wall out of it, the one in line is the target.
+ const both=burrowClearance(bayHut({blazes:[[2.5,63.2,.5],[3.5,64.3,.5]]}),opts);assert.equal(both.clear,true,both.reason)
+ assert.equal(both.confront?.position.x,3.5,'the blaze the port can see, not the nearest')
+})
+test('on a trip a shooter an exit sees but no port line reaches is held, not confronted',async()=>{
+ const {shelterExits}=await import('../src/burrow.js'),{observedSightline}=await import('../src/visibility.js')
+ const surface={x:0,y:64,z:0},opts={exits:shelterExits({shelterName:'hut',surface}),canPort:true,trip:true,lingeredMs:61000,feet:surface}
+ // In the room east, low and off to the south: the east exit sees it; from the eye the line leaves the port
+ // cell sideways into rock.
+ const bot=bayHut({blazes:[[4.5,63,2.5]]})
+ assert.equal(observedSightline(bot,{x:2.5,y:65.62,z:.5},{x:4.5,y:64,z:2.5}).status,'clear','the east exit sees it')
+ const r=burrowClearance(bot,opts);assert.equal(r.confront,undefined,r.reason);assert.equal(r.lingering,true,r.reason)
+})
+// Live rehearsal, 16 October 22:21Z: the port's judge aimed a block above a blaze's feet and the bow at its middle
+// (0.9 up for a blaze), so a blaze on the window's lower edge passed the one and failed the other. Both ask shotLine now.
+test('the port line and the bow ask the same question',async()=>{
+ const {portSightline}=await import('../src/burrow.js'),{shotLine}=await import('../src/visibility.js'),{observedSightline}=await import('../src/visibility.js')
+ const feet={x:0,y:64,z:0},eye=new Vec3(.5,65.62,.5),blaze=(x,y,z)=>({name:'blaze',height:1.8,position:new Vec3(x,y,z)})
+ // Six blocks east on the window's lower edge: the bow's line through the cut port meets the wall's feet cell.
+ const edge=blaze(6.5,62.2,.5),cut=bayHut({open:true,step:.005,cells:new Map([['1,65,0','air']])})
+ assert.equal(observedSightline(cut,eye,edge.position.offset(0,.9,0)).status,'blocked','the bow, through the port cut open')
+ assert.equal(portSightline(bayHut({open:true,step:.005}),feet,edge).status,'blocked','so the port is not judged open for it')
+ // A grid on all four sides, near and far, low and high: through the closed port as through the port cut open.
+ const shut=bayHut({open:true,step:.005})
+ for(const [ax,az] of [[1,0],[-1,0],[0,1],[0,-1]])for(const d of [2,3,6,10])for(const dy of [-3.4,-1.8,-.6,0,.8,2.5])for(const side of [-.7,.3]){
+  const t=blaze(.5+ax*d+az*side,64+dy,.5+az*d+ax*side),judged=portSightline(shut,feet,t)
+  assert.ok(judged.side,'the side the port would open')
+  const open=bayHut({open:true,step:.005,cells:new Map([[`${judged.side[0]},65,${judged.side[2]}`,'air']])})
+  assert.equal(judged.status,shotLine(open,eye,t).status,`blaze at ${t.position}`)
+ }
 })
 
 test('in the Nether a shelter that will not clear leaves through the portal, not deeper in',async()=>{

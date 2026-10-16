@@ -1,7 +1,8 @@
 import {setTimeout as delay} from 'node:timers/promises'
 import {Vec3} from 'vec3'
 import {validateAttackGoal,nearestOfType,isProtectedBystander,collectKillDrops} from './primitives-world.js'
-import {observedSightline} from './visibility.js'
+import {observedSightline,shotLine,aimPoint} from './visibility.js'
+import {aimPitch,arrowPath} from './arrow.js'
 import {fullCube} from './construction.js'
 import {survivalObservation} from './survival.js'
 import {standable} from './fire-safety.js'
@@ -10,46 +11,6 @@ import pathfinding from 'mineflayer-pathfinder'
 const {goals}=pathfinding
 import {RANGED_DEFENSE,bowCanAnswer} from './bow-readiness.js'
 export {RANGED_DEFENSE,bowCanAnswer}
-// Bow aim for the dragon ladder: blazes keep their distance and the dragon's end
-// crystals sit on towers. A fully drawn arrow leaves at 3 blocks a tick, falls
-// 0.05 a tick to gravity and keeps 0.99 of its speed to drag each tick. The aim
-// is the pitch whose simulated path passes through the target, low arc first.
-export const ARROW={speed:3,gravity:0.05,drag:0.99,maxTicks:120}
-
-// The path as (horizontal distance, height) points, one per tick, from the launch point.
-export function arrowPath(pitch,{ticks=ARROW.maxTicks,speed=ARROW.speed}={}){
- let x=0,y=0,vx=Math.cos(pitch)*speed,vy=Math.sin(pitch)*speed
- const path=[{x,y}]
- for(let i=0;i<ticks;i++){x+=vx;y+=vy;vx*=ARROW.drag;vy=vy*ARROW.drag-ARROW.gravity;path.push({x,y})}
- return path
-}
-// Height of the path at horizontal distance d, and the ticks it took; null if it never gets there.
-function heightAt(pitch,d){
- const path=arrowPath(pitch)
- for(let i=1;i<path.length;i++){const a=path[i-1],b=path[i];if(b.x>=d){const t=(d-a.x)/(b.x-a.x);return {y:a.y+(b.y-a.y)*t,ticks:i-1+t}}}
- return null
-}
-// The low-arc pitch (radians, up positive) that lands on `to` from `from`, or null past the bow's reach.
-export function aimPitch(from,to){
- const d=Math.hypot(to.x-from.x,to.z-from.z),dy=to.y-from.y
- // Height reached at d rises with pitch up to the range-maximising angle; search below it.
- let best=-Math.PI/2+0.01,bestY=-Infinity
- for(let p=-Math.PI/2+0.01;p<Math.PI/2;p+=0.01){const h=heightAt(p,d);if(h&&h.y>bestY){bestY=h.y;best=p}}
- if(bestY<dy)return null
- let lo=-Math.PI/2+0.01,hi=best
- for(let i=0;i<60;i++){const mid=(lo+hi)/2,h=heightAt(mid,d);if(h&&h.y<dy)lo=mid;else hi=mid}
- return (lo+hi)/2
-}
-// Lead a moving target: aim where it will be when the arrow arrives (two refinements).
-aimPitch.lead=function(from,to,velocity){
- let aimAt=to.clone?.()??to,pitch=aimPitch(from,aimAt)
- for(let i=0;i<2&&pitch!==null;i++){
-  const flight=heightAt(pitch,Math.hypot(aimAt.x-from.x,aimAt.z-from.z))?.ticks??0
-  aimAt=to.plus(velocity.scaled(flight));pitch=aimPitch(from,aimAt)
- }
- return {aimAt,pitch}
-}
-
 export const SHOOT={radius:32,drawMs:1100,maxShots:12,settleMs:900,reacquire:10,reposition:4,repositionMs:12000,repositions:3,healthStop:10,breakOnHit:false}
 // Security reviews of 6da6e6c, ae7e4aa and 1993aea (9 October): an arrow flies on
 // past a miss, so the target's type is not enough. A protected bystander within a
@@ -116,11 +77,10 @@ export async function shootTarget(bot,task,{check,stage,progress,movements},opti
  // Run 87 (10 October): the nearest blaze sat behind the fortress's nether bricks
  // three times over. Take the nearest one in sight; with none in sight, step to a
  // standing spot within four blocks that has a clear line, as a player strafes.
- const centreOf=e=>e.position.offset(0,(e.height??1.8)/2,0)
  const eyeAt=c=>c.offset(.5,bot.entity.eyeHeight??1.62,.5)
  const candidates=()=>Object.values(bot.entities||{}).filter(e=>e?.name===goal.type&&e.position&&e.position.distanceTo(bot.entity.position)<=o.radius).sort((a,b)=>a.position.distanceTo(bot.entity.position)-b.position.distanceTo(bot.entity.position))
  let lastBlock=null
- const visibleFrom=(from,e)=>{const sight=observedSightline(bot,from,centreOf(e));if(sight.status==='blocked'){lastBlock=sight.block;return false}return aimPitch(from,centreOf(e))!==null}
+ const visibleFrom=(from,e)=>{const line=shotLine(bot,from,e);if(line.status==='blocked')lastBlock=line.block;return line.status==='clear'||line.status==='unknown'}
  const inSight=()=>candidates().find(e=>visibleFrom(bot.entity.position.offset(0,bot.entity.eyeHeight??1.62,0),e))
  let moves=0,edgeRefusal=false,home=null,port=null,strayed=null
  const walk=async(c,why)=>{
@@ -142,6 +102,7 @@ export async function shootTarget(bot,task,{check,stage,progress,movements},opti
   const seen=atEdge?null:inSight();if(seen)return seen
   // Shooting from the hut (stay), a step into a firing port is still cover, so it is
   // taken; an ordinary shot keeps the reposition rules below.
+  // A head-only port (lab run 156) never gives a covered step: this serves the enderman's two-high port.
   if(task.goal?.stay&&!home&&!atEdge)for(const c of coveredSteps(bot,feet)){
    if(!candidates().some(t=>visibleFrom(eyeAt(c),t)))continue
    home=feet;port=c;await walk(c,`Stepping into the port at ${c.x},${c.y},${c.z} for a clear shot at the ${goal.type}`)
@@ -177,6 +138,12 @@ export async function shootTarget(bot,task,{check,stage,progress,movements},opti
  try{target=await takeAim()}catch(error){await back();throw notHome(error)}
  if(!target)await back()
  if(!target&&edgeRefusal)throw notHome(new Error(`Not shooting from an open edge: no spot within ${o.reposition} blocks away from the drop has a clear shot at a ${goal.type}`))
+ // Live rehearsal, 16 October 22:21Z: a stayed shot said "nor from a spot within 4" though it tries none, and named the
+ // farthest blaze's blocker (crimson_nylium); from the port the nearest is the one that matters.
+ if(!target&&task.goal?.stay){
+  const near=candidates()[0],line=near?shotLine(bot,bot.entity.position.offset(0,bot.entity.eyeHeight??1.62,0),near):null
+  throw notHome(new Error(`No clear shot through the port at the nearest ${goal.type}${near?` (${Math.round(near.position.distanceTo(bot.entity.position))} blocks)`:''}: ${line?.block||lastBlock||'a block'} is in the way`))
+ }
  if(!target)throw notHome(new Error(`No clear shot at any ${goal.type} within ${o.radius} blocks, nor from a spot within ${o.reposition}: ${lastBlock||'a block'} is in the way`))
  let dead=false,shots=0,drawn=false,stopped=null,lastSeen=target.position.clone?.()??target.position
  // Lab run 101: 20 health to 5 in five seconds against a blaze at close range, still
@@ -197,7 +164,7 @@ export async function shootTarget(bot,task,{check,stage,progress,movements},opti
  const killed=e=>{if(e?.id===target.id)dead=true}
  bot.on('entityDead',killed)
  const eye=()=>bot.entity.position.offset(0,bot.entity.eyeHeight??1.62,0)
- const centre=()=>target.position.offset(0,(target.height??1.8)/2,0)
+ const centre=()=>aimPoint(target,bot.registry)
  const aim=()=>{
   const from=eye(),{aimAt,pitch}=aimPitch.lead(from,centre(),target.velocity??new Vec3(0,0,0))
   if(pitch===null)throw new Error(`The ${goal.type} is out of bow range`)
@@ -282,7 +249,7 @@ export function rangedDefenseDecision(bot,{healthFloor=10,foodFloor=6,minArrows=
   if(t.distance>SHOOT.radius)return `The ${t.name} is out of bow range`
   const target=nearestOfType(bot,t.name,t.position,1)
   if(!target)return 'Target identity is unavailable'
-  const centre=target.position.offset(0,(target.height??1.8)/2,0)
+  const centre=aimPoint(target,bot.registry)
   const sight=observedSightline(bot,here,centre)
   const eye=sight.status==='blocked'?steps.find(e=>observedSightline(bot,e,centre).status!=='blocked'):here
   if(!eye)return `No clear shot at the ${t.name}: ${sight.block||'a block'} is in the way`
