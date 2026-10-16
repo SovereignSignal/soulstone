@@ -723,6 +723,7 @@ test('Stop after a rejected primary prevents fallback execution',async()=>{
 })
 
 import {THREAT_INTERRUPTION} from '../src/companion/hazard-clearance.js'
+import {HEALTH_EMERGENCY} from '../src/survival.js'
 test('a threat or health interruption of active work arms automatic continuation, once per episode',async()=>{
  for(const [status,reason,used,review,expected] of [['running',THREAT_INTERRUPTION,false,false,1],['blocked',THREAT_INTERRUPTION,false,false,0],['running','Health is at or below half',false,false,1],['running',THREAT_INTERRUPTION,true,false,0],['running',THREAT_INTERRUPTION,false,true,0]]){
   const [r,c]=setup(async()=>({reply:'',steps:[]}));r.bot.food=20;c.projects.base={};c.requestProgress={id:'saved',request:'supplies',status,safetyContinuations:used?[{}]:[]};if(review)r.task={consumption:{uncertain:true}}
@@ -812,6 +813,48 @@ test('a request interrupted only by a service restart continues once automatical
  assert.equal(resumed,1);assert.equal(c.requestProgress.restartContinuations,1)
  writeFileSync(path,JSON.stringify({...saved,requestProgress:{...saved.requestProgress,restartContinuations:1}}))
  const d=new Teammate(new FakeRunner(),{model:'fake',plan:async()=>({reply:'',steps:[]})},path);assert.equal(d.restoreRequest,false)
+})
+
+// Lab run 165, 15 October: restarted five seconds into a flee, the saved 'fleeing' episode
+// came back as one already being handled, and no alarm ran for nine minutes while mobs
+// killed the bot. An episode in flight does not survive the process that ran it.
+const restoreWith=async(safety,{runner=new FakeRunner()}={})=>{
+ const path=join(mkdtempSync(join(tmpdir(),'mc-restart-safety-')),'state.json')
+ const {writeFileSync}=await import('node:fs')
+ writeFileSync(path,JSON.stringify({profile:'lab',places:{},messages:[],projects:{},safety,requestProgress:{id:'rods',request:'get blaze rods',status:'blocked',blocker:'Goal still incomplete.',completed:[],pending:[],feedback:[]}}))
+ return new Teammate(runner,{model:'fake',plan:async()=>({reply:'',steps:[]})},path)
+}
+const inFlight={status:'fleeing',reason:THREAT_INTERRUPTION,startedAt:'2026-10-16T04:46:35.839Z',retries:0,resumeRequestId:null}
+test('an escape in flight when the service stopped is not a safety episode after it',async()=>{
+ for(const safety of [inFlight,{...inFlight,status:'retreating',attempts:[{name:'portal_home',status:'trying'}]},{...inFlight,status:'defending'},{...inFlight,status:'interrupted'},{...inFlight,status:'afloat'},{...inFlight,status:'clear'},
+  {...inFlight,status:'burrowed',retreat:{shelterName:'burrow',surface:{x:1,y:64,z:1}},exit:{receipt:'surfaced'}},{...inFlight,status:'failed',error:'Agent died',deathPosition:{x:0,y:64,z:0}}]){
+  const c=await restoreWith(safety)
+  assert.equal(c.safety,null,safety.status);assert.equal(c.restoreBurrow,false,safety.status);assert.equal(c.phase,'blocked',safety.status)
+ }
+})
+test('a shelter reached or a verdict the tick ends survives the restart',async()=>{
+ const burrow={shelterName:'burrow',surface:{x:1,y:64,z:1},capped:true}
+ for(const [safety,rearm] of [[{...inFlight,status:'sheltered',retreat:{shelterName:'base'}},false],[{status:'cancelled',reason:'Operator stop',at:1},false],
+  [{...inFlight,status:'failed',error:'Hut incomplete: 1 of 8'},false],[{...inFlight,status:'failed',error:'Took to long to decide path to goal!',retreat:burrow},true],
+  [{...inFlight,status:'burrowed',retreat:burrow},true],[{...inFlight,status:'burrowed',retreat:{...burrow,shelterName:'hut'}},true]]){
+  const c=await restoreWith(safety)
+  assert.equal(c.safety?.status,safety.status);assert.equal(c.restoreBurrow,rearm,safety.status)
+ }
+})
+function restartArena({health=20,distance=8}={}){
+ const registry=minecraftDataForWanted('1.21.4'),inventory=[{name:'wooden_axe',count:1,maxDurability:59,durabilityUsed:0}]
+ return {registry,game:{gameMode:'survival',difficulty:'normal'},time:{timeOfDay:6000},health,food:20,players:{},entities:{1:{id:1,uuid:'a'.repeat(36),type:'mob',name:'zombie',position:new Vec3(10.5+distance,64,10.5)}},
+  entity:{position:new Vec3(10.5,64,10.5),onGround:true,isInWater:false,isInLava:false},inventory:{items:()=>inventory,slots:[]},getEquipmentDestSlot:()=>null,currentWindow:null,
+  blockAt:p=>({name:p.y>=64?'air':'dirt',position:p.clone(),boundingBox:p.y>=64?'empty':'block'}),pathfinder:{setGoal(){},setMovements(){},async goto(){}},clearControlStates(){},async equip(){},async dig(){},async placeBlock(){},world:{getColumn:()=>null}}
+}
+test('after a restart mid-escape the first tick\'s alarm still runs',async()=>{
+ for(const [health,reason] of [[20,THREAT_INTERRUPTION],[9,HEALTH_EMERGENCY]]){
+  const runner=new FakeRunner();runner.bot=restartArena({health})
+  const c=await restoreWith(inFlight,{runner});c.threatJudge={control:false,judge:async()=>null}
+  const sought=[];c.seekSafety=async r=>{sought.push(r)}
+  runner.emit('event',{type:'survival_tick'});await new Promise(r=>setTimeout(r,10))
+  assert.deepEqual(sought,[reason])
+ }
 })
 
 // Lab, 5 October 02:52Z: a failed repair carried a design with a solid

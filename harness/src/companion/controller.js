@@ -157,6 +157,16 @@ export async function eatAfterPortalEscape(c,signal,bot){
  try{await c.execute({action:'eat',goal:{item:food.name,count:Math.min(2,food.count)},timeoutMs:10000},signal);return true}
  catch(error){c.runner?.log?.('portal_escape_eat_failed',{reason:String(error.message).slice(0,120)});return false}
 }
+// A burrow or hut the bot was dug into when the service stopped: the spawn handler resumes its wait.
+const rearmsOnSpawn=safety=>['burrow','hut'].includes(safety?.retreat?.shelterName)&&!!safety.retreat.surface&&!safety.exit
+// Lab run 165, 15 October: a deploy restarted the service five seconds into a flee from a
+// creeper. The flee came back as `safety` with its status still 'fleeing', and to the tick a
+// saved episode is one already being handled, so no alarm ran for nine minutes while
+// phantoms, a skeleton and zombies took the bot from 20 to 0; four health alarms logged and
+// did nothing. An episode in flight does not survive the process that ran it. Kept: a shelter
+// the spawn handler re-arms, a lit shelter reached, and a verdict the tick ends on its own
+// (cancelled, failed other than by death, which only the respawn clears).
+const outlivesRestart=safety=>rearmsOnSpawn(safety)||['sheltered','cancelled'].includes(safety?.status)||safety?.status==='failed'&&safety.error!=='Agent died'
 export class Teammate extends EventEmitter {
   constructor(runner, planner, statePath, recorder = null) {
     super(); this.runner = runner; this.planner = planner; this.statePath = statePath; this.recorder = recorder
@@ -166,7 +176,7 @@ export class Teammate extends EventEmitter {
     this.safety = null; this.requestProgress = null; this.projects = {};this.experience=new ExperienceStore(join(dirname(statePath),'experience.json'),runner.profile)
     // Shadow mode: Jev's opinion is logged beside every safety decision and changes nothing yet.
     this.threatJudge=new ThreatJudge({log:(type,data)=>runner.log?.(type,data)})
-    try { const s = JSON.parse(readFileSync(statePath, 'utf8')); if (s.profile === runner.profile) { this.recoveryHistory=Array.isArray(s.recoveryHistory)?s.recoveryHistory.slice(-16):[];this.safety=s.safety||null;if(['retreating','defending'].includes(this.safety?.status))this.safety.status='interrupted';this.messages = s.messages.slice(-60); this.places = s.places; this.projects=s.projects||{}; this.requestProgress=s.requestProgress||null; if(this.requestProgress?.status==='running')this.requestProgress.status='interrupted' } }
+    try { const s = JSON.parse(readFileSync(statePath, 'utf8')); if (s.profile === runner.profile) { this.recoveryHistory=Array.isArray(s.recoveryHistory)?s.recoveryHistory.slice(-16):[];this.safety=outlivesRestart(s.safety)?s.safety:null;this.messages = s.messages.slice(-60); this.places = s.places; this.projects=s.projects||{}; this.requestProgress=s.requestProgress||null; if(this.requestProgress?.status==='running')this.requestProgress.status='interrupted' } }
     catch (e) { if (e.code !== 'ENOENT') throw e }
     if(this.safety?.continuation?.status==='watching')this.safety.continuation={status:'paused',reason:'Service restarted; explicit Resume is required'}
     // A request blocked before the restart is blocked after it: the stall retry and the
@@ -174,7 +184,7 @@ export class Teammate extends EventEmitter {
     // a blocked request saved, the bot came back ready and sat silent in its base).
     if(this.requestProgress?.status==='blocked'&&canResume(this.requestProgress))this.phase='blocked'
     // A restart while dug in must not strand the bot underground: resume the wait on spawn.
-    this.restoreBurrow=['burrow','hut'].includes(this.safety?.retreat?.shelterName)&&!!this.safety.retreat.surface&&!this.safety.exit
+    this.restoreBurrow=rearmsOnSpawn(this.safety)
     // A request interrupted only by a service restart continues once on its own
     // after the bot is back in the world; a second restart needs a person.
     // The blocker string this used to match is written nine lines below, so it was
