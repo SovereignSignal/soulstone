@@ -271,18 +271,64 @@ test('a portal room that fails by one cell is tried again before the portal walk
 // walls, and netherrack with a pickaxe always burrows, so the bot dug in where it had no
 // port, and leaving was a climb out under four blazes. The tunnel is a hut already but for
 // its two open ends; on a trip those are walled first and the burrow is the fallback.
-async function tunnelCover(opts){
- const {bot,r,c}=tripTeammate(opts)
+// portalNear: the arrival portal within the portal walk's 48 blocks.
+function tunnelTeammate({portalNear=false,...opts}={}){
+ const t=tripTeammate(opts),{bot}=t
  bot.inventory.items().push({name:'iron_pickaxe',count:1,maxDurability:250,durabilityUsed:0})
  bot.blockAt=p=>{const name=p.x===0&&(p.y===64||p.y===65)&&Math.abs(p.z)<=10?'air':'netherrack';return {name,position:p.clone(),boundingBox:registry.blocksByName[name].boundingBox,getProperties:()=>({})}}
- bot.findBlock=()=>null
+ if(!portalNear)bot.findBlock=()=>null
  bot.entities={8:{id:8,uuid:'10000000-0000-0000-0000-000000000008',type:'mob',name:'blaze',position:new Vec3(4.5,64,2.5)}}
+ return t
+}
+// The bow's turn at the blaze comes before the shelter chain; these pins are about the chain.
+const chain=r=>r.commands.map(x=>x.action).filter(a=>a!=='stop'&&a!=='shoot')
+async function tunnelCover(opts){
+ const {r,c}=tunnelTeammate(opts)
  void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,100))
- const acts=r.commands.map(x=>x.action).filter(a=>a==='hut'||a==='burrow');c.cancel?.(true);return {acts,said:c.messages.map(m=>m.text)}
+ const all=chain(r),acts=all.filter(a=>a==='hut'||a==='burrow');c.cancel?.(true);return {acts,all,said:c.messages.map(m=>m.text)}
 }
 test('on a trip in a one-wide tunnel the open ends are walled before any burrow; off a trip, the burrow first as before',async()=>{
  const trip=await tunnelCover({});assert.equal(trip.acts[0],'hut',trip.acts.join(' ')+' :: '+trip.said.join(' | '))
  const bare=await tunnelCover({kit:false});assert.equal(bare.acts[0],'burrow',bare.acts.join(' ')+' :: '+bare.said.join(' | '))
+})
+// Lab run 165, 15 October: kitted, health 20, 116 arrows, the hut one block short and the
+// burrow refused by a dropper floor, "Nowhere to wall in here. Trying the portal again." took
+// the bot home with one rod. On a trip the portal is for an ended trip or a hurt bot.
+const SPRINTS=['use_portal','flee','climb','descend']
+test('on a kitted trip whose hut and burrow both fail, the portal is not tried again: a hut one block short is walled once more',async()=>{
+ const short=await tunnelCover({portalNear:true,fails:{hut:['Hut incomplete: 1 of 10 blocks missing (0,65,1)'],burrow:['No safe burrow here']}})
+ assert.deepEqual(short.all.slice(0,3),['hut','burrow','hut'],short.all.join(' ')+' :: '+short.said.join(' | '))
+ assert.deepEqual(short.all.filter(a=>SPRINTS.includes(a)),[],short.all.join(' '))
+ assert.ok(!short.said.some(t=>/Trying the portal again/.test(t)),short.said.join(' | '))
+})
+test('a trip bot that cannot shelter where it stands never runs: no portal, no flee, no climb or descent, and the episode fails for its retries',async()=>{
+ const {r,c}=tunnelTeammate({portalNear:true,fails:{hut:['Hut incomplete: 3 of 10 blocks missing (0,65,1)'],burrow:['No safe burrow here']}})
+ await c.seekSafety(THREAT_INTERRUPTION)
+ const acts=chain(r)
+ assert.deepEqual(acts,['hut','burrow'],acts.join(' '))
+ assert.equal(c.safety.status,'failed');assert.match(c.safety.error,/No verified shelter reached/)
+ c.cancel?.(true)
+})
+test('a trip whose cover fails retries it while strong, and once hurt below the trip line the retry goes home through the portal',async()=>{
+ const {bot,r,c}=tunnelTeammate({portalNear:true,fails:{hut:Array(4).fill('Hut incomplete: 3 of 10 blocks missing (0,65,1)'),burrow:Array(4).fill('No safe burrow here')}})
+ c.threatJudge={control:false,judge:async()=>null}
+ const acts=()=>chain(r).join(' ')
+ // The tick's own retry: the episode failed, a retry is due, the danger is still there.
+ const retry=async()=>{const n=r.commands.length;c.safety.failedAt=0;r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,80));return chain({commands:r.commands.slice(n)})}
+ await c.seekSafety(THREAT_INTERRUPTION);assert.equal(c.safety.status,'failed')
+ assert.deepEqual(await retry(),['hut','burrow'],'strong: cover again, '+acts())
+ assert.equal(c.safety.retries,1)
+ bot.health=8
+ const hurt=await retry()
+ assert.equal(hurt[0],'use_portal','hurt: home, '+acts()+' :: '+c.messages.map(m=>m.text).join(' | '))
+ assert.equal(bot.game.dimension,'minecraft:overworld')
+ c.cancel?.(true)
+})
+test('off a trip, with the first walk to the portal refused and no shelter here, the portal is tried again as before',async()=>{
+ const bare=await tunnelCover({kit:false,portalNear:true,fails:{use_portal:['No path to the portal'],hut:['Hut incomplete: 3 of 10 blocks missing (0,65,1)'],burrow:['No safe burrow here']}})
+ assert.equal(bare.all[0],'use_portal',bare.all.join(' '))
+ assert.equal(bare.all.filter(a=>a==='use_portal').length,2,bare.all.join(' ')+' :: '+bare.said.join(' | '))
+ assert.ok(bare.said.some(t=>/Nowhere to wall in here. Trying the portal again/.test(t)),bare.said.join(' | '))
 })
 // Lab run 147: the cancelled crossing left no trip mark, so the safety chain's walk home did
 // not end the trip and the stall retry crossed again into the same alarm.
