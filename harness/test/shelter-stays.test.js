@@ -433,18 +433,19 @@ test('a planner blocker that asks for Resume or says it lost its kit waits for a
 import {HEALTH_EMERGENCY,NIGHT_EXPOSURE} from '../src/survival.js'
 // The world() base with what the inspection needs: a dirt roof over the room, a torch and a shut oak door.
 function furnished(position,{holes=[],dirt=1,items=null}={}){
+ let doorOpen=false
  const w=world(position),plain=w.bot.blockAt,cells=new Map(holes.map(([x,y,z])=>[`${x},${y},${z}`,'air']))
  w.c.projects.base.build={...w.c.projects.base.build,wood:'oak_log',design:design.map(b=>b.y===2&&b.x>=1&&b.x<=2&&b.z>=1&&b.z<=2?{...b,block:'dirt'}:b)}
  w.bot.blockAt=p=>{
   const at=(name,props={})=>({name,position:p,boundingBox:name==='air'||name==='torch'?'empty':'block',getProperties:()=>props})
   if(cells.has(`${p.x},${p.y},${p.z}`))return at(cells.get(`${p.x},${p.y},${p.z}`))
   if(p.x===2&&p.y===64&&p.z===2)return at('torch')
-  if(p.x===1&&p.z===0&&(p.y===64||p.y===65))return at('oak_door',{open:false,half:p.y===64?'lower':'upper'})
+  if(p.x===1&&p.z===0&&(p.y===64||p.y===65))return at('oak_door',{open:doorOpen,half:p.y===64?'lower':'upper'})
   if(p.y===66&&p.x>=1&&p.x<=2&&p.z>=1&&p.z<=2)return at('dirt')
   return plain(p)}
  const carried=items??(dirt?[{name:'dirt',count:dirt,type:registry.itemsByName.dirt.id}]:[]);w.bot.inventory={items:()=>carried.filter(i=>i.count>0)}
  // The block placed is the one in hand, as the server has it.
- Object.assign(w.bot,{heldItem:null,async equip(item){w.bot.heldItem=item},async unequip(){w.bot.heldItem=null},async activateBlock(){},
+ Object.assign(w.bot,{heldItem:null,async equip(item){w.bot.heldItem=item},async unequip(){w.bot.heldItem=null},async activateBlock(){doorOpen=!doorOpen},
   async placeBlock(ref,face){const at=ref.position.plus(face),item=carried.find(i=>i.name===w.bot.heldItem?.name);if(!item||item.count<1)throw new Error('nothing to place');item.count--;cells.set(`${at.x},${at.y},${at.z}`,item.name)}})
  return {...w,cells}
 }
@@ -493,14 +494,34 @@ test('the retreat the chain runs puts the roof block back with the real placemen
 })
 // Review of 16 October: the same loop at the base door. The base watch clears over a sealed mob
 // within the rock floors, the request goes on, the bot steps out, the alarm sends it back in.
-test('the second sealed release at the base door ends the loop: leaving the base is refused for the request',async()=>{
- const {c,bot}=furnished(new Vec3(1.5,64,1.5));bot.time.timeOfDay=6000;bot.world.getColumn=()=>({})
+test('the second sealed release at the base door holds the door while the released mob stays by it, for ten minutes',async()=>{
+ const {c,r,bot}=furnished(new Vec3(1.5,64,1.5));bot.time.timeOfDay=6000;bot.world.getColumn=()=>({})
  bot.entities={1:{id:1,name:'creeper',position:new Vec3(1.5,61,-.5)}}
  const request={id:'door',request:'build a farm',status:'interrupted',feedback:[],completed:[],pending:[]},said=[];let resumed=0
  const say=c.say.bind(c);c.say=(t,...a)=>{said.push(t);return say(t,...a)};c.resume=async()=>{resumed++};c.requestProgress=request
  const lap=async()=>{c.safety={status:'sheltered',retreat:{item:'shelter',receipt:'sheltered_door_closed'}};await c.continueAfterClearance(c.epoch,new AbortController().signal,bot,{quietMs:0,limitMs:3000})}
- await lap();c.safety=null;assert.equal(Teammate.prototype.sealedHoldRefusal.call(c,{action:'leave_base',goal:{}}),null,'one release holds nothing')
+ const leave=()=>c.executeCommand({action:'leave_base',goal:{},timeoutMs:1000},new AbortController().signal)
+ await lap();c.safety=null;await assert.doesNotReject(leave(),'one release holds nothing')
  await lap();assert.equal(resumed,2,said.join(' | '));c.safety=null
- await assert.rejects(c.executeCommand({action:'leave_base',goal:{},timeoutMs:1000},new AbortController().signal),/leaving the base is refused/)
+ await assert.rejects(leave(),/stepping out sets my alarm off/)
  assert.equal(said.filter(t=>/keep sending me back inside/.test(t)).length,1,said.join(' | '))
+ // Second review of 16 October: acquire and prepare leave by the skill's own door departure, which reads
+ // the base the runner was given; the same hold refuses it.
+ c.dispatch({action:'stop'});const api={check(){},progress(){},stage(){},settle:async fn=>assert.ok(fn()),walk:async g=>{bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}}
+ await assert.rejects(retreatToShelter(bot,{kind:'leave_base',goal:{project:r.shelterProject}},api),/stepping out sets my alarm off/)
+ // Moved beyond its rock floor of the door, the mob holds nothing.
+ bot.entities[1].position=new Vec3(1.5,57,-.5);await assert.doesNotReject(leave(),'the creeper is past four blocks from the door')
+ bot.entity.position=new Vec3(1.5,64,1.5);bot.entities[1].position=new Vec3(1.5,61,-.5);await assert.rejects(leave(),/stepping out/,'and back by the door it holds again')
+ // Ten minutes after the second release the door is free whatever is by it.
+ for(const h of request.sealedHolds)h.until=Date.now()-1
+ await assert.doesNotReject(leave(),'past its window')
+ bot.entity.position=new Vec3(1.5,64,1.5);c.dispatch({action:'stop'})
+ const out=await retreatToShelter(bot,{kind:'leave_base',goal:{project:r.shelterProject}},api);assert.equal(out.receipt,'left_base_door_closed','the skill\'s own departure too')
+})
+// Second review of 16 October: a step done outside ends the holds; they are for the loop, not the request.
+import {clearSealedHolds} from '../src/companion/controller.js'
+test('a step completed outside the base clears the sealed holds; one inside keeps them',()=>{
+ const inside=furnished(new Vec3(1.5,64,1.5)),hold={key:'door@0,64,0',kind:'door',until:Date.now()+60000,reason:'x'}
+ inside.c.requestProgress={id:'h',sealedHolds:[hold]};clearSealedHolds(inside.c);assert.deepEqual(inside.c.requestProgress.sealedHolds,[hold])
+ const outside=furnished(new Vec3(12.5,64,-6.5));outside.c.requestProgress={id:'h',sealedHolds:[hold]};clearSealedHolds(outside.c);assert.deepEqual(outside.c.requestProgress.sealedHolds,[])
 })

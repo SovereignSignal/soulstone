@@ -121,23 +121,40 @@ const wallHoleGuarded=(bot,project,missing)=>{
 // Review of 16 October: a wait or base watch released because the mobs near it are sealed and out
 // of sight (sealedStill) sends the request back to the work that put the bot there, where the
 // alarm, which keeps its rock floors, fires again: home, back down, alarm, hut, home, for good.
-// The second such release at one place in one request holds that work. The planner is told why,
-// chat says it once, and the refused action fails with the reason (sealedHoldRefusal).
-const SEALED_HOLDS={
- back_exit:{refuses:'tunnel_out',chat:'Mobs in a sealed cave under the back exit keep sending me back up. I will not work down there this time.',reason:()=>'The back exit opens one block above a sealed cave of mobs, and the alarm fires at its foot every time; tunnel_out is refused for this request, so work elsewhere'},
- door:{refuses:'leave_base',chat:'Mobs walled in under the base keep sending me back inside. I will stay in rather than go out that way this time.',reason:()=>'Mobs sealed in rock beside the base door set the alarm off each time the bot steps out; leaving the base is refused for this request, so work underground or wait'},
- site:{refuses:null,chat:'Mobs walled off behind rock here keep stopping my work. I will work somewhere else.',reason:place=>`The place at ${place} sits beside a sealed cave of mobs, and the alarm fires there every time; work elsewhere`}}
-export function noteSealedRelease(c,request,kind,at){
+// Two such releases at one place within SEALED_WINDOW_MS hold that work for SEALED_WINDOW_MS from
+// the second: at the back exit tunnel_out is refused (sealedHoldRefusal); at the base door leaving
+// is refused only while a mob that only sealedStill let go is within its rock floor of the door
+// (departureRefusal, the same test for the planner's leave_base, the work that leaves first, and
+// acquire's own departure). A step completed outside ends the holds (clearSealedHolds). Anywhere
+// else nothing is refused: the planner is told and chat says it once.
+export const SEALED_WINDOW_MS=10*60*1000
+const SEALED_NOTES={
+ back_exit:{holds:true,chat:'Mobs in a sealed cave under the back exit keep sending me back up. I will not work down there for a while.',reason:()=>'The back exit opens one block above a sealed cave of mobs, and the alarm fires at its foot every time; tunnel_out is refused for ten minutes, so work elsewhere'},
+ door:{holds:true,chat:'Mobs walled in under the base keep sending me back inside. I will stay in for a while rather than go out that way.',reason:()=>'Mobs sealed in rock by the base door set the alarm off each time the bot steps out; for ten minutes leaving by the door is refused while one is still that close, so work underground or wait'},
+ site:{holds:false,chat:'Mobs walled off behind rock here keep stopping my work. I will try to work somewhere else.',reason:place=>`The place at ${place} sits beside a sealed cave of mobs, and the alarm fires there every time; work elsewhere`}}
+export function noteSealedRelease(c,request,kind,at,now=Date.now()){
  if(!request)return 1
  const place=`${Math.floor(at.x)},${Math.floor(at.y)},${Math.floor(at.z)}`,key=`${kind}@${place}`,releases=request.sealedReleases??={}
- const n=releases[key]=(releases[key]||0)+1
- if(n>=2&&!(request.sealedHolds||[]).some(h=>h.key===key)){
-  const hold=SEALED_HOLDS[kind],reason=hold.reason(place)
-  ;(request.sealedHolds??=[]).push({key,kind,refuses:hold.refuses,reason})
-  ;(request.feedback??=[]).push({action:'safety_hold',status:'completed',automatic:true,reason,result:{refuses:hold.refuses,place}})
-  c.runner?.log?.('sealed_hold',{key,reason});c.say(hold.chat)
- }
+ // Only releases inside the window count: two hours apart are not a loop.
+ const recent=releases[key]=[...(Array.isArray(releases[key])?releases[key]:[]).filter(t=>now-t<SEALED_WINDOW_MS),now],n=recent.length
+ if(n<2)return c.persist?.(),n
+ const note=SEALED_NOTES[kind],reason=note.reason(place)
+ if(note.holds){
+  if((request.sealedHolds||[]).some(h=>h.key===key&&h.until>now))return c.persist?.(),n
+  request.sealedHolds=[...(request.sealedHolds||[]).filter(h=>h.key!==key),{key,kind,place,reason,until:now+SEALED_WINDOW_MS}]
+ }else if((request.sealedNoted||[]).includes(key))return c.persist?.(),n
+ else (request.sealedNoted??=[]).push(key)
+ ;(request.feedback??=[]).push({action:note.holds?'safety_hold':'sealed_note',status:'completed',automatic:true,reason,result:{place}})
+ c.runner?.log?.('sealed_hold',{key,reason,holds:note.holds});c.say(note.chat)
  c.persist?.();return n
+}
+const liveHold=(c,kind)=>(c.requestProgress?.sealedHolds||[]).find(h=>h.kind===kind&&h.until>Date.now())
+// The base as the door judges it, carrying a live door hold (departureRefusal reads it).
+const baseForDoor=c=>{const base=c.projects?.base,hold=liveHold(c,'door');return base&&hold?{...base,sealedHold:hold}:base}
+// A step that ended outside the base: the bot is out working, so the loop the holds guard is over.
+export function clearSealedHolds(c){
+ const request=c.requestProgress
+ if(request?.sealedHolds?.length&&!insideBase(c.runner?.bot,c.projects?.base)){request.sealedHolds=[];c.persist?.()}
 }
 export const STOP_HOLD_MS=60000
 import {burrowClearance,shelterExits,strongEnoughToLeave,RELOCATE_STANDOFF} from '../burrow.js'
@@ -544,7 +561,7 @@ export class Teammate extends EventEmitter {
       health: b?.health ?? null, survival:survivalObservation(b), footing:footingObservation(b), backExit:backExitObservation(b,base), worn:b?wornArmour(b):[], tools:(b?.inventory?.items()||[]).filter(i=>i.maxDurability).map(i=>({name:i.name,remaining:remainingDurability(i),maximum:i.maxDurability})), inventory, places: this.places, task: this.runner.task, plan: this.plan, stepIndex: this.stepIndex,
       safety:this.safety, conversation:this.conversation(), activity: this.activity || '', messages: this.messages, model: this.planner.model, requestProgress:this.requestProgress,canResume:!dead&&!this.runner.respawnPending&&!['retreating','defending'].includes(this.phase)&&canResume(this.requestProgress),projects:this.projects,experienceCount:this.experience.entries.length }
   }
-  dispatch(command) { this.runner.shelterProject=this.projects.base; this.runner.protectedSites=projectFootprints(this.projects,dimensionOf(this.runner.bot)); this.dispatching = true; try { this.runner.command(command) } finally { this.dispatching = false } }
+  dispatch(command) { this.runner.shelterProject=baseForDoor(this); this.runner.protectedSites=projectFootprints(this.projects,dimensionOf(this.runner.bot)); this.dispatching = true; try { this.runner.command(command) } finally { this.dispatching = false } }
   cancel(stop = true, disposition = 'cancelled') { if(['retreating','defending'].includes(this.safety?.status))this.safety.status=disposition; ++this.epoch; if(this.requestProgress?.status==='running'){this.requestProgress.status=disposition;this.persist()} this.episode?.end(disposition); this.episode = null; this.abort?.abort(); this.abort = null; this.phase = 'ready'; this.plan = []; this.stepIndex = -1; this.activity = ''; if (stop) this.dispatch({ action: 'stop' }); this.emit('change') }
   stop() { const unfinished=['running','blocked','interrupted','paused'].includes(this.requestProgress?.status);this.cancel();if(unfinished){this.requestProgress.status='cancelled';this.persist()} this.safety={status:'cancelled',reason:'Operator stop',at:Date.now()};this.say('Stopped. I will wait for your next instruction.') }
   interrupt(reason='Service stopped. Resume to continue the saved request.') {
@@ -1266,7 +1283,7 @@ export class Teammate extends EventEmitter {
         confront=result.observation?.confront;relocate=result.observation?.relocate
         // Family rehearsal, 16 October: a wait held over a cave of mobs nothing could free. Said plainly
         // when it was only those (sealedStill) and they no longer hold it.
-        // Said the first time at a place; the second time noteSealedRelease holds the work and says that instead.
+        // Said the first time at a place; the second time in the window noteSealedRelease says what it does about it instead.
         if(result.observation?.sealed?.length){
           sealedLap=noteSealedRelease(this,request,this.projects?.base&&inBackExit(bot,this.projects.base)?'back_exit':'site',bot.entity.position)
           const below=result.observation.sealed.every(t=>t.verticalOffset<0)
@@ -1863,7 +1880,7 @@ export class Teammate extends EventEmitter {
             if(epoch!==this.epoch)return
             const result=['come','gather','acquire','build','construct','revise','give','eat','harvest','hunt','sleep','descend','climb','use_portal','travel','goto','emote','trade','throw_eye','stand','dig','bore','place_at','collect','attack','shoot','use',...PREPARE_ACTIONS,...OBSIDIAN_ACTIONS,...STATION_ACTIONS,...EXPEDITION_ACTIONS].includes(step.action)?structuredClone(this.runner.task?.result||null):null
             feedback.push({action:step.action,step,taskId:this.requestProgress.inFlight?.taskId,status:'completed',result,inventory:this.snapshot().inventory,...(['build','construct','revise'].includes(step.action)?{task:structuredClone(this.runner.task)}:{})})
-            this.requestProgress.completed.push({step,result,taskId:this.requestProgress.inFlight?.taskId});this.requestProgress.inFlight=null;this.requestProgress.pending=plan.steps.slice(i+1);this.requestProgress.blocker=null;this.verifyGoal();this.persist()
+            this.requestProgress.completed.push({step,result,taskId:this.requestProgress.inFlight?.taskId});clearSealedHolds(this);this.requestProgress.inFlight=null;this.requestProgress.pending=plan.steps.slice(i+1);this.requestProgress.blocker=null;this.verifyGoal();this.persist()
             episode?.write('action_result', { round, stepIndex: i, step, outcome: feedback.at(-1), evidence: step.action==='follow'?'Follow started; continued proximity is not independently verified.':'Executor/client observation; no independent server verification.' })
             // A returned expedition may have only part of its resource target.
             // Let the planner repair prerequisites before dependent steps run.
@@ -1922,7 +1939,7 @@ export class Teammate extends EventEmitter {
       if(inBackExit(this.runner.bot,this.projects.base))return
       const occupied=insideBase(this.runner.bot,this.projects.base)?{name:'base',project:this.projects.base}:occupiedAlternative(this.runner.bot,this.projects)
       if(occupied&&occupied.name!==destinationName){
-        const refusal=departureRefusal(this.runner.bot,this.projects.base);if(refusal)throw refusal
+        const refusal=departureRefusal(this.runner.bot,baseForDoor(this));if(refusal)throw refusal
         const goal=occupied.name==='base'?{project:structuredClone(occupied.project)}:{shelter:structuredClone(occupied)}
         await this.execute({action:'leave_base',goal,timeoutMs:30000},signal)
         if(signal.aborted)throw new Error('Cancelled')
@@ -1942,10 +1959,11 @@ export class Teammate extends EventEmitter {
     catch(error){outcome=signal.aborted?'cancelled':'failed';reason=error.message;throw error}
     finally{if(tracked&&this.runner.bot===bot&&this.runner.connectionId===connectionId)recordRecovery(this,{at,connectionId,requestId,action:command.action,expectation,status:outcome,reason,before,after:recoveryState(bot)})}
   }
-  // The work a sealed hold refuses (noteSealedRelease), as an error the planner reads; null otherwise. Safety's own actions are never refused.
+  // tunnel_out under a live back-exit hold (noteSealedRelease), as an error the planner reads; null otherwise.
+  // The door hold is departureRefusal's. Safety's own actions are never refused.
   sealedHoldRefusal(command){
-    if(this.safety)return null
-    const hold=(this.requestProgress?.sealedHolds||[]).find(h=>h.refuses&&h.refuses===command?.action)
+    if(this.safety||command?.action!=='tunnel_out')return null
+    const hold=liveHold(this,'back_exit')
     return hold?new Error(hold.reason):null
   }
   async executeCommand(command, signal, started = () => {}) {
@@ -1956,7 +1974,7 @@ export class Teammate extends EventEmitter {
     // shelter first: fleeing a creeper at the door used to open the door on it.
     if(!deferredDeparture&&!['defend','eat','craft','stop','leave_base','burrow','unburrow','flee','hut','climb','descend','tunnel_out'].includes(command.action))await this.leaveOccupiedShelter(signal,command.action==='retreat'?(command.goal?.shelter?.name||'base'):null)
     // The planner's own leave_base is the same door with the same answer.
-    if(command.action==='leave_base'&&(insideBase(this.runner.bot,this.projects.base)||occupiedAlternative(this.runner.bot,this.projects))){const refusal=departureRefusal(this.runner.bot,this.projects.base);if(refusal)throw refusal}
+    if(command.action==='leave_base'&&(insideBase(this.runner.bot,this.projects.base)||occupiedAlternative(this.runner.bot,this.projects))){const refusal=departureRefusal(this.runner.bot,baseForDoor(this));if(refusal)throw refusal}
     return new Promise((resolve, reject) => {
       let taskId
       const cleanup = () => { this.runner.off('event', handler); signal.removeEventListener('abort', onAbort) }

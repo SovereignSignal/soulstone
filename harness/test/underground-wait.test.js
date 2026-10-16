@@ -9,7 +9,7 @@ import {Vec3} from 'vec3'
 import {burrowClearance,shelterExits,RELOCATE_PATIENCE_MS,RELOCATE_FLOOR} from '../src/burrow.js'
 import {roofed} from '../src/observations.js'
 import {emergencyReason,NIGHT_EXPOSURE} from '../src/survival.js'
-import {Teammate} from '../src/companion/controller.js'
+import {Teammate,SEALED_WINDOW_MS} from '../src/companion/controller.js'
 const registry=minecraftData('1.21.4')
 // Trial 42 again: of 1455 blocked seconds, 894 were "Waiting for daylight" in a
 // hut 36 blocks underground and 493 were waiting on mobs in a cave that could
@@ -687,4 +687,22 @@ test('the second sealed release at the shaft foot ends the loop: tunnel_out is r
  const count=re=>said.filter(t=>re.test(t)).length
  assert.equal(count(/sealed cave under me/),1,said.join(' | '));assert.equal(count(/keep sending me back up/),1,said.join(' | '))
  assert.equal(count(/I climbed the back exit/),1,said.join(' | '))
+ // Second review of 16 October: the hold lasts ten minutes from the second release, and a release
+ // older than that does not count toward the next one.
+ for(const h of request.sealedHolds)h.until=Date.now()-1
+ assert.equal(Teammate.prototype.sealedHoldRefusal.call(c,{action:'tunnel_out',goal:{}}),null,'past its window the back exit is open again')
+ for(const k of Object.keys(request.sealedReleases))request.sealedReleases[k]=request.sealedReleases[k].map(()=>Date.now()-SEALED_WINDOW_MS-1)
+ request.sealedHolds=[];await lap()
+ assert.equal(Teammate.prototype.sealedHoldRefusal.call(c,{action:'tunnel_out',goal:{}}),null,'one release in the window holds nothing')
+})
+// Second review of 16 October: away from the back exit no work is refused; the planner is told and chat says it once.
+test('sealed releases at a hut away from the back exit refuse nothing and say so once',async()=>{
+ const roofed=()=>sealedCave({cells:new Map([[CAVE_FOOT.offset(0,2,0).toString(),'cobblestone']])}).bot
+ const request={id:'site',request:'mine iron',status:'interrupted',feedback:[],completed:[]},said=[]
+ const c={epoch:1,projects:{},runner:{bot:null,ready:true,connectionId:'same',task:{result:{}}},requestProgress:request,burrowWait:{quietMs:5,limitMs:1500,watches:1},
+  persist(){},emit(){},say:t=>said.push(t),dispatch(){},async resume(){},async execute(){this.runner.task={result:{item:'safety',count:1,receipt:'unwalled'}}}}
+ for(let i=0;i<3;i++){const bot=roofed();c.runner.bot=bot;c.safety={status:'burrowed',retreat:{...CAVE_HUT}};request.status='interrupted';await Teammate.prototype.waitInBurrow.call(c,1,new AbortController().signal,bot,true)}
+ for(const action of ['tunnel_out','leave_base','mine','bore'])assert.equal(Teammate.prototype.sealedHoldRefusal.call(c,{action,goal:{}}),null,action)
+ assert.equal(said.filter(t=>/keep stopping my work/.test(t)).length,1,said.join(' | '));assert.equal(said.filter(t=>/cannot reach me/.test(t)).length,1,said.join(' | '))
+ assert.ok(request.feedback.some(f=>f.action==='sealed_note'&&/work elsewhere/.test(f.reason)),JSON.stringify(request.feedback));assert.deepEqual(request.sealedHolds||[],[])
 })

@@ -4,7 +4,7 @@ import {Vec3} from 'vec3'
 import pathfinding from 'mineflayer-pathfinder'
 import {shelterLayout,shelterAccessLayout,inspectShelterSite} from './shelter.js'
 import {shelterLightBounds} from './lighting.js'
-import {survivalObservation,threatRadius,sealedOff,outOfReach,sealedStill} from './survival.js'
+import {survivalObservation,threatRadius,sealedOff,outOfReach,sealedStill,ROCK_FLOORS} from './survival.js'
 import {threatReach,threatRoutes} from './threat-reach.js'
 import {fillCell,solidCube,scaffoldItems,plainCube} from './scaffold.js'
 import {DoorAwareMovements} from './navigation.js'
@@ -253,7 +253,23 @@ export const departureRefusal=(bot,project=null)=>{
  // same loop as the wait, through the other door.
  const pressing=pressingOutside(bot,project)
  if(pressing)return new Error(`A ${pressing.name} is ${pressing.distance} blocks from the base, inside its interruption radius; staying in until it moves on. Work underground can go on through the back exit (tunnel_out)`)
+ const sealed=sealedByDoor(bot,project)
+ if(sealed)return new Error(`A ${sealed.name} is sealed in the rock ${sealed.fromDoor} blocks from the door, and stepping out sets my alarm off every time; staying in for now. Work underground can go on through the back exit (tunnel_out)`)
  return null
+}
+// Second review of 16 October: under a live door hold (the controller's, on the project it hands
+// out), the nearest hostile that only sealedStill lets go and that is within its rock floor of the
+// doorstep, where the alarm still counts it; null otherwise. The hold ends at its window or when no
+// such mob is that close.
+function sealedByDoor(bot,project){
+ if(!(project?.sealedHold?.until>Date.now())||!project.build?.origin)return null
+ try{
+  const near=(survivalObservation(bot).nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name))
+  pressingThreats(bot,project,near)
+  const o=new Vec3(project.build.origin.x,project.build.origin.y,project.build.origin.z),layout=shelterLayout(project.build.design),step=o.plus(layout.door).plus(layout.out).offset(.5,.5,.5)
+  return near.filter(t=>sealedStill(t)&&t.position).map(t=>({...t,fromDoor:Math.round(Math.hypot(t.position.x-step.x,t.position.y-step.y,t.position.z-step.z)*10)/10}))
+   .filter(t=>t.fromDoor<=(t.name==='creeper'?ROCK_FLOORS.creeper:ROCK_FLOORS.melee)).sort((a,b)=>a.fromDoor-b.fromDoor)[0]||null
+ }catch{return null}
 }
 
 // Away from the sky: under rock, or where the sky's light does not reach the bot's
