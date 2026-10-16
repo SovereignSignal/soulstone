@@ -384,6 +384,86 @@ test('goto arrival receipt reports arrived shape with dug/placed counts', async 
   assert.ok(result.countsFrom === 'events' || result.countsFrom === 'inventory_delta')
 })
 
+// Lab run 164, 15 October: "stand on -42 59 -8", a firing bay whose dropper
+// floor delivers blaze rods into that one cell. goto stopped at -42 59 -10, two
+// cells short, so the rods never reached the bot and it shot from the wrong cell.
+const floorBelow = p => p.y < 64 ? stone(p) : air(p)
+const walkTo = (bot, place) => ({
+  movements: null,
+  setMovements(m) { this.movements = m },
+  setGoal() {},
+  async goto(goal) { bot.entity.position = place(goal, bot.entity.position) },
+})
+
+test('goto exact ends only on the named cell: a walk that stops two cells short fails naming the cell', async () => {
+  const goal = { x: 0, y: 64, z: 6, dig: false }
+  const twoShort = g => new Vec3(g.x + 0.5, g.y, g.z - 2 + 0.5)
+  const plain = fakeBot({ defaultBlock: floorBelow }); plain.pathfinder = walkTo(plain, twoShort)
+  const near = await gotoPosition(plain, { kind: 'goto', goal: validateGotoGoal(goal) }, deps())
+  assert.equal(near.receipt, 'arrived', 'goto without exact still arrives within two blocks')
+  assert.equal(Math.floor(plain.entity.position.z), 4)
+  const bot = fakeBot({ defaultBlock: floorBelow }); bot.pathfinder = walkTo(bot, twoShort)
+  await assert.rejects(
+    () => gotoPosition(bot, { kind: 'goto', goal: validateGotoGoal({ ...goal, exact: true }) }, deps()),
+    /0,64,6/,
+  )
+})
+
+test('goto exact keeps walking past range two until the feet are in the cell', async () => {
+  const goal = { x: 0, y: 64, z: 6, dig: false }
+  const twoCells = (g, p) => new Vec3(0.5, 64, Math.min(g.z + 0.5, p.z + 2))
+  const plain = fakeBot({ defaultBlock: floorBelow }); plain.pathfinder = walkTo(plain, twoCells)
+  await gotoPosition(plain, { kind: 'goto', goal: validateGotoGoal(goal) }, deps())
+  assert.notEqual(Math.floor(plain.entity.position.z), 6, 'the default walk stops within range')
+  const bot = fakeBot({ defaultBlock: floorBelow }); bot.pathfinder = walkTo(bot, twoCells)
+  const result = await gotoPosition(bot, { kind: 'goto', goal: validateGotoGoal({ ...goal, exact: true }) }, deps())
+  assert.equal(result.receipt, 'arrived')
+  assert.deepEqual(bot.entity.position.floored().toArray(), [0, 64, 6])
+})
+
+test('exact arrival is the feet cell, not the cell above the feet; a short floor block still counts', async () => {
+  const dest = { x: 0, y: 64, z: 6 }
+  const below = fakeBot(); below.pathfinder = walkTo(below, () => new Vec3(0.5, 63, 6.5))
+  const error = await walkNear(below, dest, { dig: false, exact: true, ...deps() }).then(() => null, e => e)
+  assert.ok(error, 'head in the cell is not standing in it')
+  assert.match(error.message, /0,64,6/)
+  const soulSand = fakeBot(); soulSand.pathfinder = walkTo(soulSand, () => new Vec3(0.5, 63.875, 6.5))
+  const ok = await walkNear(soulSand, dest, { dig: false, exact: true, ...deps() })
+  assert.equal(ok.receipt, 'arrived', 'feet on soul sand stand in the cell above it')
+})
+
+test('goto exact refuses a cell no player could stand in, naming the cell, before taking a step', async () => {
+  const exact = { x: 0, y: 64, z: 6, dig: false, exact: true }
+  const solid = fakeBot({ defaultBlock: floorBelow, fills: [[0, 64, 6, stone]] })
+  await assert.rejects(() => gotoPosition(solid, { kind: 'goto', goal: validateGotoGoal(exact) }, deps()), /0,64,6.*stone|stone.*0,64,6/)
+  const floorless = fakeBot()
+  await assert.rejects(() => gotoPosition(floorless, { kind: 'goto', goal: validateGotoGoal(exact) }, deps()), /0,64,6/)
+  assert.equal(solid.entity.position.z, 0.5, 'refused before moving')
+  assert.equal(floorless.entity.position.z, 0.5, 'refused before moving')
+  const door = fakeBot({ defaultBlock: floorBelow, fills: [[0, 64, 6, { name: 'oak_door', boundingBox: 'block' }], [0, 65, 6, { name: 'oak_door', boundingBox: 'block' }]] })
+  const through = await gotoPosition(door, { kind: 'goto', goal: validateGotoGoal(exact) }, deps())
+  assert.equal(through.receipt, 'arrived', 'a doorway is a cell to stand in')
+})
+
+test('validation passes a boolean exact through and rejects any other value', () => {
+  assert.deepEqual(validateGotoGoal({ x: 1, y: 64, z: 2, dig: false, exact: true }), { x: 1, y: 64, z: 2, dig: false, exact: true })
+  assert.deepEqual(validateGotoGoal({ x: 1, y: 64, z: 2, dig: false }), { x: 1, y: 64, z: 2, dig: false })
+  for (const exact of ['yes', 1, null]) assert.throws(() => validateGotoGoal({ x: 1, y: 64, z: 2, dig: false, exact }), /exact/)
+  assert.deepEqual(validateTaskGoal('goto', { x: 1, y: 64, z: 2, dig: true, exact: true }), { x: 1, y: 64, z: 2, dig: true, exact: true })
+  const plan = validatePlan({ reply: 'Standing in the bay.', steps: [gotoStep({ target: { x: -42, y: 59, z: -8, dig: false, exact: true } })] })
+  assert.deepEqual(plan.steps[0].target, { x: -42, y: 59, z: -8, dig: false, exact: true })
+  assert.throws(() => validatePlan({ reply: 'x', steps: [gotoStep({ target: { x: 1, y: 2, z: 3, dig: false, exact: 'yes' } })] }), /exact/)
+  const variants = schema.properties.steps.items.properties.target.anyOf
+  assert.ok(variants.some(v => v.required?.includes('dig') && v.required.includes('exact') && v.properties.exact.type === 'boolean'), 'the model can send exact')
+})
+
+test('the planner brief tells the model to use exact when a request names a cell to stand on', () => {
+  const brief = readFileSync(new URL('../src/companion/teammate-prompt.txt', import.meta.url), 'utf8')
+  const line = brief.split('\n').find(l => l.startsWith('Action goto:'))
+  assert.match(line, /exact:true/)
+  assert.match(line, /cell to stand on/)
+})
+
 // Live, 2026-09-23: goto, dig, collect and place_at all logged "Goto leg
 // exceeded its 25 second budget". An expired leg threw, so every walk was one
 // leg long and the 30s-8min walk budgets were never reached.

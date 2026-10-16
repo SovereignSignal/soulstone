@@ -8,7 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import pathfinding from 'mineflayer-pathfinder'
 import { Vec3 } from 'vec3'
 import { fullCube } from './construction.js'
-import { DoorAwareMovements, allowGroundBreaking, requireReachedGoal, TRAVERSAL_DIG_COST, lavaBeside } from './navigation.js'
+import { DoorAwareMovements, allowGroundBreaking, requireReachedGoal, TRAVERSAL_DIG_COST, lavaBeside, breakableWhileTravelling } from './navigation.js'
 import { lineObstruction, LEG_TIMEOUT_MS, CLOSED_PER_LEG } from './travel.js'
 
 const { goals } = pathfinding
@@ -34,6 +34,9 @@ export const key = p => `${p.x},${p.y},${p.z}`
 const SEARCH_WEIGHT = 5
 export const point = p => new Vec3(p.x, p.y, p.z)
 const floored = p => ({ x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) })
+// The cell the feet stand in. Soul sand, mud, farmland and dirt paths are short
+// of a full block, so feet on them sit up to an eighth below the cell's floor.
+const standingCell = p => new Vec3(Math.floor(p.x), Math.floor(p.y + 0.2), Math.floor(p.z))
 
 export function validateProtectedSites(sites) {
   if (sites === undefined) return
@@ -50,8 +53,9 @@ export function inProtectedSite(p, sites = []) {
 export function validateGotoGoal(goal) {
   if (!goal || !['x', 'y', 'z'].every(k => Number.isSafeInteger(goal[k])) || typeof goal.dig !== 'boolean')
     throw new Error('Goto needs integer x, y, z and a boolean dig')
+  if (goal.exact !== undefined && typeof goal.exact !== 'boolean') throw new Error('Goto exact must be true or false')
   validateProtectedSites(goal.protectedSites)
-  return { x: goal.x, y: goal.y, z: goal.z, dig: goal.dig, ...(goal.protectedSites?.length ? { protectedSites: goal.protectedSites } : {}) }
+  return { x: goal.x, y: goal.y, z: goal.z, dig: goal.dig, ...(goal.exact ? { exact: true } : {}), ...(goal.protectedSites?.length ? { protectedSites: goal.protectedSites } : {}) }
 }
 
 export function validateDigGoal(goal) {
@@ -66,7 +70,8 @@ export function validateDigGoal(goal) {
 export function validateGotoStep(s) {
   if (s.count !== 0 || s.name !== '' || (s.item ?? '') !== '' || (s.design !== undefined && (!Array.isArray(s.design) || s.design.length)))
     throw new Error('Terrain recovery requires empty name, item, design and count zero')
-  if (!s.target || typeof s.target.dig !== 'boolean' || Object.keys(s.target).length !== 4 || !['x', 'y', 'z'].every(k => Number.isSafeInteger(s.target[k])))
+  if (s.target && 'exact' in s.target && typeof s.target.exact !== 'boolean') throw new Error('Goto exact must be true or false')
+  if (!s.target || typeof s.target.dig !== 'boolean' || Object.keys(s.target).length !== ('exact' in s.target ? 5 : 4) || !['x', 'y', 'z'].every(k => Number.isSafeInteger(s.target[k])))
     throw new Error('Goto needs a target with integer x, y, z and a boolean dig')
 }
 
@@ -242,7 +247,10 @@ export function watchPathfinder(bot) {
   }
 }
 
-export async function walkNear(bot, target, { dig, protectedSites, wade = false, check, stage, progress, movements, timeoutMs = 8 * 60 * 1000, range = GOTO_RANGE, legTimeoutMs = LEG_TIMEOUT_MS }) {
+// `exact` ends the walk only with the feet in the target cell: range 0 alone
+// also accepts standing in the cell below with the head in it.
+export async function walkNear(bot, target, { dig, protectedSites, wade = false, check, stage, progress, movements, timeoutMs = 8 * 60 * 1000, range = GOTO_RANGE, exact = false, legTimeoutMs = LEG_TIMEOUT_MS }) {
+  if (exact) range = 0
   const dest = point(target), start = bot.entity.position.clone()
   const distance = start.distanceTo(dest)
   if (distance > GOTO_MAX)
@@ -250,9 +258,14 @@ export async function walkNear(bot, target, { dig, protectedSites, wade = false,
   const movement = movementProfile(bot, { dig, protectedSites, wade })
   bot.pathfinder.setMovements(movement)
   const arrival = () => new goals.GoalNear(dest.x, dest.y, dest.z, range)
-  const arrived = () => {
+  const onCell = () => standingCell(bot.entity.position).equals(dest)
+  const arrived = exact ? onCell : () => {
     const g = arrival(), f = bot.entity.position.floored()
     return g.isEnd(f) || g.isEnd(f.offset(0, 1, 0)) || bot.entity.position.distanceTo(dest) <= range
+  }
+  const reached = () => {
+    if (!exact) return requireReachedGoal(bot, arrival())
+    if (!onCell()) throw Object.assign(new Error(`Stopped in ${key(standingCell(bot.entity.position))}, not on ${key(dest)}`), { code: 'NAVIGATION_INCOMPLETE' })
   }
   // Plain A* in dense rock with digging allowed runs out of its search time;
   // prospecting weights the heuristic fivefold and tunnels through the same
@@ -261,7 +274,8 @@ export async function walkNear(bot, target, { dig, protectedSites, wade = false,
   const search = () => { const g = arrival(); if (!weighted) return g; const w = Object.create(g); w.heuristic = n => g.heuristic(n) * SEARCH_WEIGHT; return w }
   const counters = subscribeDigPlace(bot)
   const started = Date.now()
-  const gap = () => bot.entity.position.distanceTo(dest)
+  const aim = exact ? dest.offset(0.5, 0, 0.5) : dest
+  const gap = () => bot.entity.position.distanceTo(aim)
   const short = () => `${Math.round(gap())} blocks short of ${key(dest)}.${lineRefusal(bot, bot.entity.position.floored(), dest)}`
   try {
     while (!arrived()) {
@@ -278,7 +292,7 @@ export async function walkNear(bot, target, { dig, protectedSites, wade = false,
       expiry.catch(() => {}); walking.catch(() => {})
       try {
         await Promise.race([walking, expiry])
-        check(); requireReachedGoal(bot, arrival())
+        check(); reached()
       } catch (error) {
         check()
         const closed = before - gap() >= CLOSED_PER_LEG
@@ -293,7 +307,7 @@ export async function walkNear(bot, target, { dig, protectedSites, wade = false,
       check()
       if (!arrived()) await delay(50)
     }
-    check(); requireReachedGoal(bot, arrival())
+    check(); reached()
   } finally {
     bot.pathfinder.setGoal(null); bot.clearControlStates?.()
     if (movements) bot.pathfinder.setMovements(movements)
@@ -321,7 +335,25 @@ export async function gotoPosition(bot, task, { check, stage, progress, movement
     const lava = lavaBeside(bot, q)
     if (lava) throw new Error(`${key(cell)} is beside lava at ${key(lava)}; standing there is how the bot catches fire. Choose a cell at least two blocks from lava.`)
   }
-  return walkNear(bot, goal, { dig: goal.dig, protectedSites: goal.protectedSites || [], check, stage, progress, movements })
+  if (goal.exact) { const why = exactRefusal(bot, cell, goal.dig); if (why) throw new Error(why) }
+  return walkNear(bot, goal, { dig: goal.dig, protectedSites: goal.protectedSites || [], check, stage, progress, movements, exact: !!goal.exact })
+}
+
+// Lab run 164, 15 October: "stand on -42 59 -8", a firing bay whose dropper
+// floor delivers blaze rods into that one cell. goto stopped two cells short at
+// its default range, so the rods never reached the bot. An exact goto walks into
+// the cell and refuses up front one no player could stand in. Doors, gates and
+// trapdoors open; a block the walk's profile may break is no wall.
+function exactRefusal(bot, cell, dig) {
+  const floor = bot.blockAt(cell.offset(0, -1, 0))
+  if (floor && floor.boundingBox !== 'block')
+    return `Nothing to stand on at ${key(cell)}: ${floor.name} below it. Place a block at ${key(cell.offset(0, -1, 0))} first, or choose a cell with a floor.`
+  for (const q of [cell, cell.offset(0, 1, 0)]) {
+    const b = bot.blockAt(q)
+    if (b && b.boundingBox === 'block' && !/_(door|fence_gate|trapdoor)$/.test(b.name) && !(dig ? breakable(bot, b) : breakableWhileTravelling(b, bot)))
+      return `Cannot stand at ${key(cell)}: ${b.name} fills ${key(q)}${dig ? '' : ' and dig is false'}. Choose an open cell${dig ? '' : ', or goto with dig:true'}.`
+  }
+  return null
 }
 
 export function refuseDigCell(bot, cell, { protectedSites = [], role = 'target' } = {}) {
