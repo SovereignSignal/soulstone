@@ -204,3 +204,11 @@ test('restarted with a covered route saved, the wait is re-armed in it',async()=
  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},path)
  assert.equal(c.restoreBurrow,true);assert.deepEqual(c.safety.covered,covered)
 })
+// Review of 1fe8e32, 16 October: the wait took its health line before the covered phase, so a burn in
+// the phase whose fire was out by the time it held read as a breach, and the retry shot from the open.
+test('health lower after a held covered phase with the fire out does not fail the shelter',async()=>{
+ const f=fixture(async()=>{if(f.bot.health===20){f.bot.entity.metadata[0]=1;f.bot.health=18;setTimeout(()=>{f.bot.entity.metadata[0]=0},10)}await new Promise(r=>setTimeout(r,20));return wait})
+ inWait(f,{coveredLimits:{...limits,budgetMs:120}})
+ await Teammate.prototype.waitInBurrow.call(f.c,1,f.abort.signal,f.bot,true)
+ assert.notEqual(f.c.safety?.status,'failed',f.said.join(' | '));assert.ok(!f.said.some(t=>/Health fell/.test(t)),f.said.join(' | '))
+})

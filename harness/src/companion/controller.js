@@ -1258,6 +1258,8 @@ export class Teammate extends EventEmitter {
         const covered=await coveredMoves(this,epoch,signal,bot,{eligible,...this.coveredLimits})
         if(covered.status==='cancelled'||covered.status==='handed_back')return
         check()
+        // The phase judged health itself, burns included; the watch takes its line from here (review of 1fe8e32).
+        protectedHealth=bot.health
       }
       if(this.shelterPlanning&&eligible&&canResume(request)&&canContinueAfterSafety(request,undefined,{protectedPlanning:true})&&typeof this.planner.sheltered==='function'){
         const planned=await shelteredPlanning(this,epoch,signal,bot,this.shelteredLimits)
