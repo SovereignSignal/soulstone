@@ -792,8 +792,26 @@ test('dig never breaks a building block: it says to go around', async () => {
   await assert.rejects(() => digToward(planks, { kind: 'dig', goal: validateDigGoal({ x: 1, y: 64, z: 0, count: 1 }) }, deps()), /oak_planks at 1,64,0 is not natural ground.*Go around it/)
   assert.equal(planks._dug || 0, 0)
   const { isNatural } = await import('../src/natural.js')
-  for (const n of ['stone', 'deepslate', 'grass_block', 'gravel', 'iron_ore', 'deepslate_diamond_ore', 'oak_leaves', 'netherrack', 'orange_terracotta', 'crimson_nylium', 'warped_nylium', 'nether_wart_block', 'warped_wart_block', 'glowstone', 'gilded_blackstone', 'nether_gold_ore']) assert.equal(isNatural(n), true, n)
+  for (const n of ['stone', 'deepslate', 'grass_block', 'gravel', 'iron_ore', 'deepslate_diamond_ore', 'oak_leaves', 'netherrack', 'orange_terracotta', 'nether_gold_ore']) assert.equal(isNatural(n), true, n)
   for (const n of ['oak_planks', 'oak_log', 'cobblestone', 'glass', 'white_wool', 'bricks', 'obsidian', 'chest', 'orange_glazed_terracotta', '', undefined]) assert.equal(isNatural(n), false, String(n))
+})
+
+// 16 October: glowstone and the wart blocks are ground in the Nether and a lamp or a decoration
+// in the Overworld, so dig breaks them only there (lab run 152 put them on the list for the Nether).
+test('glowstone and the Nether\'s forest blocks are natural ground in the Nether and a player\'s block in the Overworld', async () => {
+  const { breakable } = await import('../src/natural.js')
+  const at = dimension => ({ game: { dimension } })
+  for (const name of ['glowstone', 'crimson_nylium', 'warped_nylium', 'nether_wart_block', 'warped_wart_block', 'gilded_blackstone']) {
+    const block = { name, position: new Vec3(1, 64, 0) }
+    assert.equal(breakable(at('overworld'), block), false, `${name} in the Overworld`)
+    assert.equal(breakable(at('the_end'), block), false, `${name} in the End`)
+    assert.equal(breakable(at('the_nether'), block), true, `${name} in the Nether`)
+  }
+  assert.equal(breakable(at('overworld'), { name: 'stone', position: new Vec3(1, 64, 0) }), true, 'stone is ground everywhere')
+  const lamp = fakeBot({ fills: [[1, 64, 0, { name: 'glowstone', boundingBox: 'block', diggable: true }], [1, 63, 0, stone]] })
+  lamp.canDigBlock = eyeReach(lamp)
+  await assert.rejects(() => digToward(lamp, { kind: 'dig', goal: validateDigGoal({ x: 1, y: 64, z: 0, count: 1 }) }, deps()), /glowstone at 1,64,0 is not natural ground/)
+  assert.equal(lamp._dug || 0, 0)
 })
 
 // Honest run 2, 14 October: a fortress-search tunnel at y 75 in the Nether broke into a

@@ -28,7 +28,7 @@ const key=p=>`${p.x},${p.y},${p.z}`
 // biggest stack goes first, so a ten-block hut rarely empties a stack mid-build.
 // Plain ground blocks go before anything built or bought, so a hut never spends logs,
 // planks or iron blocks while cobblestone is carried (review of run 165, 16 October).
-// An explicit list: isNatural (natural.js) also admits ores, glowstone and ancient debris.
+// An explicit list: isNatural (natural.js) also admits ores and ancient debris, and breakable glowstone in the Nether.
 // The burrow, fillCell and the pathfinder keep slot order.
 const PLAIN=new Set(['cobblestone','cobbled_deepslate','netherrack','dirt','stone','deepslate','blackstone','basalt'])
 export const hutMaterials=bot=>scaffoldItems(bot).sort((a,b)=>PLAIN.has(b.name)-PLAIN.has(a.name)||b.count-a.count)

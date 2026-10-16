@@ -10,11 +10,12 @@ export const NATURAL=new Set([
  'dirt','grass_block','coarse_dirt','podzol','rooted_dirt','mud','clay','mycelium','moss_block',
  'sand','red_sand','gravel','sandstone','red_sandstone','terracotta','snow','snow_block','powder_snow',
  'netherrack','soul_sand','soul_soil','magma_block','end_stone','sculk','ancient_debris','amethyst_block','budding_amethyst',
- // The Nether's forest floor and growth (lab run 152, 15 October: a dig toward the blaze
- // spawner stopped at crimson nylium as if a player had built it).
- 'crimson_nylium','warped_nylium','nether_wart_block','warped_wart_block','glowstone','gilded_blackstone',
 ])
 export const isNatural=name=>!!name&&(NATURAL.has(name)||/_ore$/.test(name)||/_leaves$/.test(name)||/_terracotta$/.test(name)&&!/glazed/.test(name))
+// The Nether's forest floor and growth (lab run 152, 15 October: a dig toward the blaze
+// spawner stopped at crimson nylium as if a player had built it). 16 October: ground only
+// in the Nether; in the Overworld glowstone is a lamp and a wart block a decoration.
+export const NETHER_NATURAL=new Set(['crimson_nylium','warped_nylium','nether_wart_block','warped_wart_block','glowstone','gilded_blackstone'])
 
 // The cells the bot itself filled (run 76, 8 October: in the Nether it stood
 // on a pillar of its own cobblestone above the portal and the dig action
@@ -25,7 +26,7 @@ export const isNatural=name=>!!name&&(NATURAL.has(name)||/_ore$/.test(name)||/_l
 // first past OWN_LIMIT.
 import {readFileSync,writeFileSync,mkdirSync} from 'node:fs'
 import {dirname} from 'node:path'
-import {dimensionOf} from './dimension.js'
+import {dimensionOf,inNether} from './dimension.js'
 export const OWN_LIMIT=4096,OWN_TTL_MS=2*3600*1000
 // Lab run 162, 15 October: through the version bridge placeBlock can give up on
 // the update while the block lands a moment later, inside the placing skill's
@@ -80,4 +81,4 @@ export function trackOwnPlacements(bot,own){
 // placeBlock's answer, calls this once it sees the block: the hut's walls and
 // re-closed port, fillCell's scaffolding and plugs, the burrow's cap and climb.
 export const claimPlaced=(bot,cell)=>!!bot?.ownBlocks?.claim&&!!cell&&bot.ownBlocks.claim(cell,bot.blockAt?.(cell),dimensionOf(bot))
-export const breakable=(bot,block)=>isNatural(block?.name)||!!bot?.ownBlocks?.has(block?.position,block?.name,dimensionOf(bot))
+export const breakable=(bot,block)=>isNatural(block?.name)||inNether(bot)&&NETHER_NATURAL.has(block?.name)||!!bot?.ownBlocks?.has(block?.position,block?.name,dimensionOf(bot))
