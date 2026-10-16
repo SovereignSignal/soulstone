@@ -22,6 +22,7 @@ import {fireObservation} from './survival.js'
 import {correctToolTierMaterials} from './tool-tiers.js'
 import {installEconomicalTools} from './tool-choice.js'
 import {OwnBlocks,trackOwnPlacements} from './natural.js'
+import {sneakAgainstInteractables} from './placement.js'
 import {attachTrail} from './trail.js'
 import {dirname,join as joinPath} from 'node:path'
 
@@ -79,6 +80,8 @@ export class Runner extends EventEmitter {
       // test-world canary still dug with the diamond pickaxe, 4 October).
       installEconomicalTools(bot)
       trackOwnPlacements(bot,this.ownBlocks??=new OwnBlocks(this.statePath?joinPath(dirname(this.statePath),'own-blocks.json'):null))
+      // A placement against a chest or a dropper is made sneaking (placement.js).
+      sneakAgainstInteractables(bot)
       this.ready = true
       this.respawnPending = false; clearTimeout(this.respawnTimer)
       const movements = new DoorAwareMovements(bot)

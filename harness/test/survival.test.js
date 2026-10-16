@@ -5,7 +5,8 @@ import {eatFood,survivalObservation} from '../src/survival.js'
 import {validateTaskGoal} from '../src/task-store.js'
 import {validatePlan} from '../src/companion/planner.js'
 import {interruptedEffect} from '../src/companion/continuity.js'
-import {parseBuildingBlock,validateBuildingBlock,placeBuildingBlock,setPlacementSneaking} from '../src/building-blocks.js'
+import {parseBuildingBlock,validateBuildingBlock,placeBuildingBlock} from '../src/building-blocks.js'
+import {setPlacementSneaking} from '../src/placement.js'
 import {compileArchitecture,reviewArchitecture} from '../src/construction.js'
 function fixture(){
  let count=3;const bot={food:14,game:{gameMode:'survival'},inventory:{items:()=>count?[{name:'bread',count}]:[]},equip:async()=>{},consume:async()=>{count--;bot.food=Math.min(20,bot.food+5)},deactivateItem(){}}

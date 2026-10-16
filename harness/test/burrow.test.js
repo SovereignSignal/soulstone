@@ -846,3 +846,12 @@ test('a climbing block that lands after placeBlock gave up is recorded as the bo
  assert.equal(w.bot.blockAt(step).name,'cobblestone')
  assert.equal(refuseDigCell(w.bot,step),null,'the step it climbed on is its own')
 })
+// Lab run 163, 15 October: a block with a use (here a dropper) opens on right-click
+// instead of taking the placement. The cap prefers a plain neighbour when it has one.
+test('the cap is placed against a plain wall before a dropper beside it',async()=>{
+ const w=world(),dropper=new Vec3(11,63,10);w.cells.set(dropper.toString(),'dropper')
+ const place=w.bot.placeBlock,refs=[];w.bot.placeBlock=async(ref,face)=>{refs.push(ref.position.toString());return place(ref,face)}
+ const result=await executeSkill(w.bot,{kind:'burrow',goal:{}},api)
+ assert.equal(result.receipt,'burrowed_capped')
+ assert.equal(refs[0],new Vec3(9,63,10).toString())
+})

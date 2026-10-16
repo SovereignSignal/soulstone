@@ -1,5 +1,6 @@
 import {fullCube} from './construction.js'
 import {claimPlaced} from './natural.js'
+import {plainFirst} from './placement.js'
 
 const falling = new Set(['sand','red_sand','gravel','suspicious_sand','suspicious_gravel'])
 // Automatic movement must preserve portal material for explicit construction.
@@ -12,15 +13,15 @@ export const solidCube=(bot,b)=>!!b&&fullCube(bot.registry,b.name)&&!LIQUID.has(
 const key=p=>`${p.x},${p.y},${p.z}`
 // Close one air cell with a carried cube, placed against any solid neighbour,
 // and judge it by the block being there (the burrow's cap rule: the block
-// update can be missed through the version bridge). False when nothing is
-// carried or no neighbour stands. The caller may name the cube to use.
+// update can be missed through the version bridge). Plain neighbours come
+// before ones with a use (placement.js). False when nothing is carried or no
+// neighbour stands. The caller may name the cube to use.
 export async function fillCell(bot,cell,{check,progress=()=>{},item=scaffoldItems(bot)[0]}){
  if(!item)return false
  await bot.equip(item,'hand');check()
  const closed=()=>solidCube(bot,bot.blockAt(cell))
- for(const [dx,dy,dz] of SIDES){
+ for(const ref of plainFirst(SIDES.map(([dx,dy,dz])=>bot.blockAt(cell.offset(dx,dy,dz))).filter(b=>solidCube(bot,b)))){
   if(closed())break
-  const ref=bot.blockAt(cell.offset(dx,dy,dz));if(!solidCube(bot,ref))continue
   try{await bot.placeBlock(ref,cell.minus(ref.position))}catch(error){check();progress(`Placement at ${key(cell)} unconfirmed: ${error.message.slice(0,60)}`)}
   check()
   const end=Date.now()+1500;while(Date.now()<end&&!closed()){check();await new Promise(r=>setTimeout(r,50))}

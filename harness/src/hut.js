@@ -11,6 +11,7 @@ import {SHOOTERS_ONLY,FIRE_BLOCKS} from './survival.js'
 import {hop} from './portal-guard.js'
 import {inNether} from './dimension.js'
 import {claimPlaced} from './natural.js'
+import {plainFirst} from './placement.js'
 import pathfinding from 'mineflayer-pathfinder'
 const {goals}=pathfinding
 import {Vec3} from 'vec3'
@@ -154,7 +155,7 @@ export async function wallIn(bot,task,{check,stage,progress}){
   placements.push({target:feet.offset(0,2,0),ref:feet.offset(1,2,0)})
  }
  // A portal room's cells take whichever solid neighbour stands when their turn comes, lowest first.
- const anchor=target=>[[0,-1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0]].map(([x,y,z])=>target.offset(x,y,z)).find(c=>solid(bot,bot.blockAt(c)))
+ const around=target=>[[0,-1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0]].map(([x,y,z])=>target.offset(x,y,z))
  let placed=0,hopped=false
  for(const {target,ref} of placements){
   check();assertNoHostileOccupants(bot,[feet,feet.offset(0,1,0)])
@@ -162,9 +163,10 @@ export async function wallIn(bot,task,{check,stage,progress}){
   const material=hutMaterials(bot)[0]
   if(!material)break
   await bot.equip(material,'hand');check()
-  // A planned reference that is gone (a fireball, a mob) gives way to any solid neighbour.
-  const at=solid(bot,ref&&bot.blockAt(ref))?ref:anchor(target),reference=at&&bot.blockAt(at)
-  if(!solid(bot,reference)){progress(`Nothing solid to place against at ${key(target)}`);continue}
+  // A planned reference that is gone (a fireball, a mob) gives way to any solid neighbour,
+  // and one with a use (a chest, a dropper) to a plain one (lab run 163, placement.js).
+  const reference=plainFirst([...(ref?[ref]:[]),...around(target)].map(c=>bot.blockAt(c)).filter(b=>solid(bot,b)))[0],at=reference?.position
+  if(!reference){progress(`Nothing solid to place against at ${key(target)}`);continue}
   // The bridge can drop a placement or its update: try each block twice.
   for(let attempt=0;attempt<2&&!solid(bot,bot.blockAt(target));attempt++){
    try{await bot.placeBlock(reference,target.minus(at))}catch(error){check();progress(`Placement at ${key(target)} unconfirmed: ${String(error.message).slice(0,60)}`)}

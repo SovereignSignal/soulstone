@@ -415,3 +415,52 @@ test('a firing port closed again with cobblestone is the bot\'s own to dig, acro
  w.cells.set(new Vec3(11,64,11).toString(),'cobblestone')
  assert.match(refuseDigCell(w.bot,new Vec3(11,64,11)),/not natural ground/,'a player\'s cobblestone in the wall line stays refused')
 })
+// Lab run 163, 15 October: in the Nether the hut's wall cell at -42,59,-8 had a dropper
+// as its only solid neighbour. Vanilla right-click on a block with a use opens it
+// instead of placing against it unless the player sneaks, so the hut ended "1 of 10
+// blocks missing" and the safety chain fell back to the portal walk. The fake server
+// here behaves that way; the runner's sneak wrapper is installed over it, as on spawn.
+import {sneakAgainstInteractables} from '../src/placement.js'
+import {fillCell} from '../src/scaffold.js'
+const USES=new Set(['dropper','chest','furnace'])
+function vanilla(w){
+ const place=w.bot.placeBlock,controls={sneak:false},refs=[],sneaks=[],opened=[]
+ w.bot.setControlState=(c,s)=>{if(controls[c]===s)return;controls[c]=s;if(c==='sneak')sneaks.push(s)}
+ w.bot.getControlState=c=>controls[c]
+ w.bot.placeBlock=async(ref,face)=>{
+  refs.push({at:ref.position.toString(),sneaking:controls.sneak})
+  if(USES.has(ref.name)&&!controls.sneak){opened.push(ref.position.toString());throw new Error('No block has been placed : the block is still air')}
+  return place(ref,face)}
+ sneakAgainstInteractables(w.bot)
+ return {controls,refs,sneaks,opened}
+}
+test('a hut wall whose only neighbour is a dropper is placed sneaking, and the sneak is let go after',async()=>{
+ const w=world(),dropper=new Vec3(11,63,10);w.cells.set(dropper.toString(),'dropper')
+ const server=vanilla(w)
+ assert.equal((await wallIn(w.bot,{kind:'hut',goal:{}},api)).receipt,'walled_in')
+ assert.equal(w.cells.get(new Vec3(11,64,10).toString()),'oak_log')
+ assert.deepEqual(server.opened,[],'the dropper was never opened')
+ assert.deepEqual(server.refs.filter(r=>r.at===dropper.toString()),[{at:dropper.toString(),sneaking:true}])
+ assert.deepEqual(server.sneaks,[true,false]);assert.equal(server.controls.sneak,false)
+})
+test('a hut wall with a dropper below and stone beside it is placed against the stone, without sneaking',async()=>{
+ const w=world(),dropper=new Vec3(11,63,10),stone=new Vec3(12,64,10)
+ w.cells.set(dropper.toString(),'dropper');w.cells.set(stone.toString(),'stone')
+ const server=vanilla(w)
+ assert.equal((await wallIn(w.bot,{kind:'hut',goal:{}},api)).receipt,'walled_in')
+ assert.ok(server.refs.some(r=>r.at===stone.toString()),'the stone is the reference')
+ assert.ok(!server.refs.some(r=>r.at===dropper.toString()),'the dropper is never clicked')
+ assert.deepEqual(server.sneaks,[])
+})
+test('fillCell against a lone dropper places sneaking; beside stone it takes the stone and never sneaks',async()=>{
+ const lone=world(),cell=new Vec3(11,64,10),below=new Vec3(11,63,10);lone.cells.set(below.toString(),'dropper')
+ const s1=vanilla(lone)
+ assert.equal(await fillCell(lone.bot,cell,{check(){}}),true)
+ assert.equal(lone.cells.get(cell.toString()),'oak_log')
+ assert.deepEqual(s1.refs,[{at:below.toString(),sneaking:true}]);assert.deepEqual(s1.sneaks,[true,false])
+ // The dropper comes first in fillCell's own order (+x); the grass below is plain.
+ const mixed=world(),side=new Vec3(12,64,10);mixed.cells.set(side.toString(),'dropper')
+ const s2=vanilla(mixed)
+ assert.equal(await fillCell(mixed.bot,cell,{check(){}}),true)
+ assert.deepEqual(s2.refs,[{at:below.toString(),sneaking:false}]);assert.deepEqual(s2.sneaks,[])
+})

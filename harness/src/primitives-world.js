@@ -10,6 +10,7 @@ import { DoorAwareMovements, centreOn } from './navigation.js'
 import { weaponFor, clearStrike, ENGAGE_RANGE } from './combat.js'
 import { observedSightline } from './visibility.js'
 import { inNether } from './dimension.js'
+import { interactable } from './placement.js'
 import { walkNear, inProtectedSite, validateProtectedSites, inventoryCounts, inventoryDelta, LIQUID, AIR, DIG_REACH, key, point } from './primitives.js'
 
 const { goals } = pathfinding
@@ -134,12 +135,11 @@ export async function placeAt(bot, task, { check, stage, progress, movements }) 
     return block
   }
   readTarget()
+  // A solid face to click, plain before one with a use (a chest, a dropper: placement.js).
   const support = () => {
-    for (const face of FACES) {
-      const n = target.plus(face), b = bot.blockAt(n)
-      if (isSolid(b) && !occupiedByBot(bot, n)) return { reference: b, faceVector: face.scaled(-1), against: n }
-    }
-    return null
+    const faces = FACES.map(face => { const n = target.plus(face); return { reference: bot.blockAt(n), faceVector: face.scaled(-1), against: n } })
+      .filter(o => isSolid(o.reference) && !occupiedByBot(bot, o.against))
+    return faces.find(o => !interactable(o.reference)) || faces[0] || null
   }
   if (!support())
     throw new Error(`No solid face touches ${key(target)}; place a support block beside or below it first, or choose a cell touching solid ground`)

@@ -118,6 +118,15 @@ test('place_at places against a solid neighbour and verifies by re-reading the c
   assert.equal(bot._held, 'cobblestone')
 })
 
+// Lab run 163, 15 October: a dropper opens on right-click instead of taking the placement.
+test('place_at places against a plain neighbour before a dropper under the target', async () => {
+  const dropper = p => ({ name: 'dropper', boundingBox: 'block', position: p })
+  const bot = fakeBot({ fills: [[1, 63, 0, dropper], [2, 64, 0, stone], [0, 63, 0, stone]] })
+  const r = await placeAt(bot, placeTask({ item: 'cobblestone', x: 1, y: 64, z: 0 }), deps())
+  assert.equal(r.receipt, 'placed')
+  assert.deepEqual(r.against, { x: 2, y: 64, z: 0 })
+})
+
 test('place_at refuses an occupied cell, a project footprint, a missing item, a non-cube, and a cell with no solid face', async () => {
   const occupied = fakeBot({ fills: [[1, 64, 0, stone], [1, 63, 0, stone]] })
   await assert.rejects(() => placeAt(occupied, placeTask({ item: 'cobblestone', x: 1, y: 64, z: 0 }), deps()), /already holds stone/)

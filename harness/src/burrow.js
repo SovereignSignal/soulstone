@@ -2,6 +2,7 @@ import {bowCanAnswer} from './bow-readiness.js'
 import {observedSightline} from './visibility.js'
 import {scaffoldItems,fillCell,plainCube} from './scaffold.js'
 import {claimPlaced} from './natural.js'
+import {plainFirst} from './placement.js'
 // Emergency burrow: the shelter of last resort for a spawn with no base and no
 // weapon. Seal the verified shaft as soon as three cells give headroom,
 // deepen under the cap, then watch protection and surface clearance.
@@ -114,10 +115,11 @@ async function placeCap(bot,cap,cells,{check,progress}){
  const item=capItem(bot)
  if(!item)return false
  // The block-update event can be missed through the version bridge; judge the
- // cap by the block being there, and try each solid side as the reference.
+ // cap by the block being there, and try each solid side as the reference,
+ // plain ones before any with a use (placement.js).
  const capped=()=>solid(bot,bot.blockAt(cap))
  await bot.equip(item,'hand');check()
- for(const ref of SIDES.map(([dx,dy,dz])=>bot.blockAt(cap.offset(dx,dy,dz))).filter(b=>solid(bot,b))){
+ for(const ref of plainFirst(SIDES.map(([dx,dy,dz])=>bot.blockAt(cap.offset(dx,dy,dz))).filter(b=>solid(bot,b)))){
   if(capped())break
   try{await bot.placeBlock(ref,cap.minus(ref.position))}catch(error){check();progress(`Cap placement unconfirmed: ${error.message.slice(0,60)}`)}
   check()

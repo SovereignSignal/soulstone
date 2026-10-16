@@ -1,4 +1,5 @@
 import {withStationWindow} from './stations.js'
+import {setPlacementSneaking} from './placement.js'
 import {Vec3} from 'vec3'
 import pathfinding from 'mineflayer-pathfinder'
 const {goals}=pathfinding
@@ -40,13 +41,6 @@ export function validateBuildingBlock(registry,b,fullCube) {
   const state=entry.states?.find(s=>s.name===name)
   if(!state||state.values&&!state.values.includes(String(value)))throw new Error(`This version cannot represent ${b.block} ${name}=${value}`)
  }
-}
-export function setPlacementSneaking(bot,enabled) {
- bot.setControlState('sneak',enabled)
- // Mineflayer 4.38 sends only player_input on 1.21.3–1.21.5, although
- // these protocols still carry numeric start/stop sneak entity actions.
- // Remove this supplement when the pinned upstream implementation is fixed.
- if(bot.supportFeature?.('newPlayerInputPacket')&&!bot.supportFeature('entityActionUsesStringMapper'))bot._client.write('entity_action',{entityId:bot.entity.id,actionId:enabled?0:1,jumpBoost:0})
 }
 export async function placeBuildingBlock(bot,pos,b,{walk,check,stage,settle,approach}) {
  const existing=bot.blockAt(pos)
