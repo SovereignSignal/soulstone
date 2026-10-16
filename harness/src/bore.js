@@ -10,7 +10,7 @@
 // held twenty minutes). Lava and the family rule stop it with a named reason;
 // nothing is left half done, so the next bore from where it stands carries on.
 import {Vec3} from 'vec3'
-import {refuseDigCell,digOne,walkNear,inventoryCounts,inventoryDelta,validateProtectedSites,LIQUID,AIR,key} from './primitives.js'
+import {refuseDigCell,digOne,walkNear,inventoryCounts,inventoryDelta,validateProtectedSites,inProtectedSite,LIQUID,AIR,key} from './primitives.js'
 import {fullCube} from './construction.js'
 import {hutMaterials} from './hut.js'
 import {fillCell} from './scaffold.js'
@@ -18,10 +18,12 @@ import {mayDig} from './natural.js'
 import {portReady} from './nether-trip.js'
 import {FIRE_BLOCKS} from './survival.js'
 import {centreOn} from './navigation.js'
+import {inNether} from './dimension.js'
 export const BORE_MAX=64,BORE_PLUGS=8,BORE_TIMEOUT_MS=600000
 const AROUND=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0],[0,-1,0]].map(([x,y,z])=>new Vec3(x,y,z))
 const xyz=p=>({x:p.x,y:p.y,z:p.z})
-const hot=b=>!b||LIQUID.has(b.name)||FIRE_BLOCKS.has(b.name)
+// Magma is a full cube and natural ground, and it burns whoever stands on it (review of 9d2770d).
+const hot=b=>!b||LIQUID.has(b.name)||FIRE_BLOCKS.has(b.name)||b.name==='magma_block'
 export function validateBoreGoal(goal){
  if(!goal||!['x','y','z'].every(k=>Number.isSafeInteger(goal[k])))throw new Error('Bore needs a target with integer x, y and z')
  if(!Number.isInteger(goal.count)||goal.count<1||goal.count>BORE_MAX)throw new Error(`Bore count must be 1–${BORE_MAX} columns`)
@@ -49,34 +51,39 @@ export function borePath(from,to){
 // one the body passes through as it drops; a step up the one over the head it jumps from:
 // mineflayer-pathfinder's drop-down and jump-up moves need both, and a player does too.
 const columnCells=(prev,c)=>[...(c.y<prev.y?[c.offset(0,2,0)]:c.y>prev.y?[prev.offset(0,2,0)]:[]),c.offset(0,1,0),c]
-export async function boreToward(bot,task,{check,stage,progress,movements}){
+// budgetMs: the bore stops at the top of a column once it has run this long, so a receipt comes
+// back before the runner's hard deadline ends it with none (review of 9d2770d).
+export async function boreToward(bot,task,{check,stage,progress,movements,budgetMs=BORE_TIMEOUT_MS}){
  const goal=validateBoreGoal(task.goal),sites=goal.protectedSites||[],solid=b=>!!b&&fullCube(bot.registry,b.name)
  const here=()=>{const p=bot.entity.position;return new Vec3(Math.floor(p.x),Math.floor(p.y+.2),Math.floor(p.z))}
  check()
+ if(!inNether(bot))throw new Error('bore is for the Nether: a covered route through netherrack. In the Overworld use dig or goto with dig')
  if(!bot.inventory.items().some(i=>/_pickaxe$/.test(i.name)))throw new Error('Boring needs a pickaxe')
  const carried=hutMaterials(bot).reduce((n,i)=>n+i.count,0)
  if(carried<BORE_PLUGS)throw new Error(`Boring needs ${BORE_PLUGS} blocks to close what it uncovers; carrying ${carried}`)
- const before=inventoryCounts(bot),from=here(),path=borePath(from,goal)
+ const before=inventoryCounts(bot),from=here(),path=borePath(from,goal),started=Date.now()
  if(!path.length)throw new Error(`Bore runs sideways and ${key(goal)} is straight above or below; dig a shaft with dig`)
  const open=new Set([from,from.offset(0,1,0)].map(key)),plugged=[]
  let columns=0,reason=null,stoppedAt=null,slit=null,beyond=null,wall=null
  const stop=(why,at,b)=>{reason=why;stoppedAt=xyz(at);if(b?.boundingBox==='block'&&!mayDig(bot,b))wall=`${b.name} at ${key(b.position)}`}
  // Close each of these cells that is not a full cube and not the tunnel itself, standing
- // centred first (a player is 0.6 wide). Returns the first cell it could not close.
+ // centred first (a player is 0.6 wide). Returns why the first one it could not close stays open.
  const seal=async cells=>{
   let centred=false
   for(const n of cells){
    if(open.has(key(n))||solid(bot.blockAt(n)))continue
+   if(inProtectedSite(n,sites))return `${key(n)} is inside a saved project footprint; bore does not build there`
    if(!centred){centred=true;await centreOn(bot,here(),check)}
    const item=hutMaterials(bot)[0]
-   if(!item||!await fillCell(bot,n,{check,progress,item}))return n
+   if(!item||!await fillCell(bot,n,{check,progress,item}))return `could not close ${key(n)}`
    plugged.push(xyz(n));progress(`Plugged ${key(n)}`)
   }
   return null
  }
- // The burrow's lid: at the foot of a shaft the cell two above the feet is open.
+ // The burrow's lid: at the foot of a shaft the cell two above the feet is open. The start column
+ // itself stays open behind the bot by design: it is the tunnel's mouth and the way home.
  stage('walling');const lid=await seal([from.offset(0,2,0)])
- if(lid)throw new Error(`Boring could not close ${key(lid)} over the start`)
+ if(lid)throw new Error(`Boring stopped over the start: ${lid}`)
  // Open space: a cell that is not a full cube, unless it is air closed in by rock and the tunnel.
  // That is a pocket inside the column, or a column an alarm left dug and closed: a bore issued
  // again from the column behind it carries on through it.
@@ -84,6 +91,7 @@ export async function boreToward(bot,task,{check,stage,progress,movements}){
  const named=p=>{const b=bot.blockAt(p);return !b?`unloaded ground at ${key(p)}`:AIR.has(b.name)?`open space at ${key(p)}`:`${b.name} at ${key(p)}`}
  for(let i=0;i<Math.min(goal.count,path.length);i++){
   check()
+  if(Date.now()-started>=budgetMs){reason=`timed out after ${columns} columns`;stoppedAt=xyz(path[i]);break}
   const c=path[i],prev=i?path[i-1]:from,next=path[i+1],cells=columnCells(prev,c)
   const skin=()=>cells.flatMap(p=>AROUND.map(d=>p.plus(d))).filter(q=>!cells.some(p=>p.equals(q)))
   stage('digging');progress(`Boring column ${i+1}/${goal.count} at ${key(c)}`)
@@ -105,7 +113,7 @@ export async function boreToward(bot,task,{check,stage,progress,movements}){
   // The skin is closed against the column's own rock before it is dug, so no opening is ever
   // uncovered, and read again after the dig.
   stage('walling');const early=await seal(skin())
-  if(early){stop(`could not close ${key(early)}; the tunnel stops before ${key(c)}`,c);break}
+  if(early){stop(`${early}; the tunnel stops before ${key(c)}`,c);break}
   stage('digging')
   for(const p of cells){
    const b=bot.blockAt(p)
@@ -116,7 +124,7 @@ export async function boreToward(bot,task,{check,stage,progress,movements}){
    open.add(key(p))
   }
   stage('walling');const leak=await seal(skin())
-  if(leak&&!reason)stop(`could not close ${key(leak)}; the tunnel stops before ${key(c)}`,c)
+  if(leak&&!reason)stop(`${leak}; the tunnel stops before ${key(c)}`,c)
   if(reason)break
   try{await walkNear(bot,c,{dig:false,protectedSites:sites,check,stage,progress,movements,exact:true,timeoutMs:20000})}
   catch(error){check();stop(`did not step into ${key(c)}: ${error.message}`,c);break}
@@ -126,6 +134,9 @@ export async function boreToward(bot,task,{check,stage,progress,movements}){
  // walks in or out. Gated as the hut's port is (portReady), and skipping what the port skips.
  async function openSlit(w){
   const feet=here(),ready=portReady(bot),s0=new Vec3(w.x,feet.y+1,w.z),lateral=new Vec3(Math.abs(w.z-feet.z),0,Math.abs(w.x-feet.x))
+  // A wall a step above the bot has its feet cell at the bot's head height, and the hut re-closes
+  // only that height: a slit there would be a doorway. Level first, then the slit.
+  if(w.y!==feet.y){reason=`wall one step ${w.y>feet.y?'up':'down'} at ${key(w)}; bore level first, toward a target at y ${feet.y}`;return}
   if(!ready.ready){reason=`${ready.reason}: the slit at ${key(s0)} waits; rest, then bore again from here`;return}
   const inside=[feet,feet.offset(0,1,0)].map(key)
   const fit=p=>{const b=bot.blockAt(p);return !!b&&(AIR.has(b.name)||mayDig(bot,b))&&![p,...AROUND.map(d=>p.plus(d))].some(q=>!inside.includes(key(q))&&hot(bot.blockAt(q)))}
@@ -138,6 +149,7 @@ export async function boreToward(bot,task,{check,stage,progress,movements}){
    if(!slit.length){reason=`no slit at ${key(s0)}: the centre would not open`;slit=null;return}
   }
  }
- if(!columns&&!slit&&!plugged.length)throw new Error(reason||`Bore opened nothing toward ${key(goal)}`)
+ // Plugs alone are no progress: as dig's failOrStop, nothing opened is a failure that says why.
+ if(!columns&&!slit)throw new Error(`${reason||`Bore opened nothing toward ${key(goal)}`}${plugged.length?` (plugged ${plugged.map(key).join('; ')} first)`:''}`)
  return {receipt:'bored',columns,requested:goal.count,from:xyz(from),to:xyz(here()),stoppedAt,reason,plugged,slit,beyond,wall,drops:inventoryDelta(before,inventoryCounts(bot))}
 }

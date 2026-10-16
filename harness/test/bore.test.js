@@ -189,3 +189,30 @@ test('a column open onto a cavern stops the bore before it; a pocket closed insi
  const w=world({fills:[[3,64,0,'air'],[3,65,0,'air'],[4,64,0,'air']]});const r=await bore(w,{})
  assert.equal(r.columns,1);assert.equal(r.slit.length,3);assert.deepEqual(r.beyond,{x:3,y:64,z:0,name:'air'})
 })
+// Review of 9d2770d, 16 October: magma, receipts with nothing done, the Overworld, footprints, a raised wall, the clock.
+test('a magma floor under the next column stops the bore before it, and magma beside a slit cell keeps that cell shut',async()=>{
+ const w=world({fills:[[2,63,0,'magma_block']]});const r=await bore(w,{})
+ assert.equal(r.columns,1);assert.match(r.reason,/magma_block under it at 2,63,0/);assert.ok(!w.of('dig').some(c=>c.startsWith('(2,')))
+ const s=world({fills:[...ROOM,[4,66,-1,'magma_block']]});const a=await bore(s,{})
+ assert.deepEqual(a.slit,[{x:4,y:65,z:0},{x:4,y:65,z:1}])
+})
+test('plugs alone are no progress: zero columns and no slit fail with the reason and name the plugs',async()=>{
+ const w=world({fills:[[0,66,0,'air'],[1,64,0,'air'],[1,65,0,'air'],[1,64,1,'air'],[1,65,1,'air'],[1,64,2,'air']]})
+ await assert.rejects(bore(w,{}),/open space at 1,65,0.*plugged 0,66,0/)
+})
+test('bore refuses outside the Nether, and stops rather than build inside a saved footprint',async()=>{
+ const over=world();over.bot.game.dimension='overworld'
+ await assert.rejects(bore(over,{}),/bore is for the Nether/);assert.deepEqual(over.log,[])
+ const w=world({fills:[[2,65,1,'cave_air']]});const r=await bore(w,{protectedSites:[{minX:2,maxX:2,minZ:1,maxZ:1}]})
+ assert.equal(r.columns,1);assert.match(r.reason,/2,65,1 is inside a saved project footprint/);assert.equal(w.cells.get(k(2,65,1)),'cave_air')
+ assert.ok(!w.log.some(e=>e[0]==='place'))
+})
+test('a wall one step above the bot gets no slit: the reason says to bore level first',async()=>{
+ const room=[];for(let x=4;x<=6;x++)for(let y=65;y<=67;y++)for(let z=-1;z<=1;z++)room.push([x,y,z,'air'])
+ const w=world({fills:room});const r=await executeSkill(w.bot,{kind:'bore',goal:{x:6,y:66,z:0,count:6}},api)
+ assert.equal(r.columns,2);assert.equal(r.slit,null);assert.match(r.reason,/wall one step up at 3,65,0; bore level first/);assert.deepEqual(w.at(),new Vec3(2,64,0))
+})
+test('a bore cut short by its time budget says so in the receipt',async()=>{
+ const w=world();const r=await bore(w,{},{...api,budgetMs:400})
+ assert.ok(r.columns>=1&&r.columns<10,`${r.columns} columns`);assert.equal(r.reason,`timed out after ${r.columns} columns`)
+})
