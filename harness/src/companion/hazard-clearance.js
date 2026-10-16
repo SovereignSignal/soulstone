@@ -30,11 +30,11 @@ export function clearanceObservation(bot,projects,shelterName){
  // rehearsal, 16 October, a sealed cave under the base held this watch while the door would have opened.
  const near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name))
  // A flood that cannot be judged counts every one of them, as before.
- const pressing=(()=>{try{return !shelterName||shelterName==='base'?pressingThreats(bot,projects?.base,near):near}catch{return near}})()
+ const released=[],pressing=(()=>{try{return !shelterName||shelterName==='base'?pressingThreats(bot,projects?.base,near,released):near}catch{released.length=0;return near}})()
  if(pressing.length)return {clear:false,reason:'A potential hostile is inside its interruption radius of the shelter',threats:pressing,peripheralThreats:threats.peripheral}
  const sheltered=shelterName&&shelterName!=='base'?occupiedAlternative(bot,projects)?.name===shelterName:shelteredObservation(bot,projects.base).passed
  if(!sheltered)return {clear:false,reason:'Closed lit shelter is no longer verified'}
- return {clear:true,health:s.health,food:s.food,peripheralThreats:threats.peripheral,scope:'Loaded chunks and classified entities within 24 blocks; departure corridor checked for the first three approach blocks; not proof of a safe destination route'}
+ return {clear:true,health:s.health,food:s.food,...(released.length?{sealed:released}:{}),peripheralThreats:threats.peripheral,scope:'Loaded chunks and classified entities within 24 blocks; departure corridor checked for the first three approach blocks; not proof of a safe destination route'}
 }
 // After a daylight flight from a lone mob the bot could not strike: clear when
 // it is still day and no potential hostile has followed within 16 blocks.

@@ -302,3 +302,18 @@ test('from the back exit\'s foot the retreat climbs, keeps the dirt for the roof
  assert.equal(w.bot.blockAt(ROOF).name,'dirt','the carried dirt went to the roof, not the climb');assert.equal(w.bot.blockAt(new Vec3(12,63,22)).name,'cobblestone')
  assert.deepEqual(w.bot.entity.position,new Vec3(11.5,64,21.5));assert.equal(project.backExit.bottom,undefined)
 })
+// Review of 16 October: only a full cube is put back; a missing slab, pane, door or torch is not
+// a block a hole-filler restores, and the base is refused over it as before.
+test('only a missing full cube is listed for repair; any other missing design block still refuses',()=>{
+ const slab=holed();slab.project.build.design=slab.project.build.design.map(b=>b.x===2&&b.y===2&&b.z===2?{...b,block:'oak_slab'}:b)
+ assert.throws(()=>inspectRetreatShelter(slab.w.bot,slab.project,{missing:[]}),/missing or changed at \(12, 66, 22\): air/)
+})
+// Review of 16 October: the climb's blocks and the repair's are one bag. A climb that would need
+// the dirt kept for the roof fails before it starts, the dirt still carried and the bot still below.
+test('a climb that would spend the blocks the repair needs fails before the climb',async()=>{
+ const {w,project,api}=holed({shaftOpen:true,backExit:{cell:{x:12,y:64,z:22},bottom:59},at:[12.5,59,22.5]})
+ for(let y=59;y<=62;y++)w.cells.set(new Vec3(12,y,22).toString(),'air')
+ w.inventory.find(i=>i.name==='cobblestone').count=2
+ await assert.rejects(retreatToShelter(w.bot,{kind:'retreat',goal:{project}},api),/takes 5 blocks/)
+ assert.equal(w.inventory.find(i=>i.name==='dirt').count,1,'the dirt for the roof is untouched');assert.equal(Math.floor(w.bot.entity.position.y),59,'and the bot did not climb');assert.deepEqual(w.placed,[])
+})

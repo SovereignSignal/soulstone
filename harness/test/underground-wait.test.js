@@ -654,8 +654,37 @@ test('the shaft-foot wait that clears over a sealed cave climbs home into the ba
  assert.ok(!said.some(t=>/Back on the surface/.test(t)),said.join(' | '))
  // A failed climb falls back to today's way: the request resumes from where the bot stands.
  const failed=roofed(),fsaid=[];let fresumed=0
- const f={...c,runner:{bot:failed.bot,ready:true,connectionId:'same',task:{result:{}}},safety:{status:'burrowed',retreat:{...CAVE_HUT}},requestProgress:{id:'r17',request:'mine iron',status:'interrupted',feedback:[],completed:[]},
+ const logged=[]
+ const f={...c,runner:{bot:failed.bot,ready:true,connectionId:'same',task:{result:{}},log:(type,data)=>logged.push([type,data])},safety:{status:'burrowed',retreat:{...CAVE_HUT}},requestProgress:{id:'r17',request:'mine iron',status:'interrupted',feedback:[],completed:[]},
   say:t=>fsaid.push(t),async resume(){fresumed++},async execute(command){if(command.action==='retreat')throw new Error('Climb stalled');this.runner.task={result:{item:'safety',count:1,receipt:'unwalled'}}}}
  await Teammate.prototype.waitInBurrow.call(f,1,new AbortController().signal,failed.bot,true)
- assert.equal(fresumed,1,fsaid.join(' | '));assert.ok(fsaid.some(t=>/Climb stalled/.test(t)),fsaid.join(' | '))
+ assert.equal(fresumed,1,fsaid.join(' | '))
+ // Review of 16 October: chat is for the children; the detail goes to the log.
+ assert.ok(fsaid.includes('I could not get back into the base. I will keep going from here.'),fsaid.join(' | '))
+ assert.ok(!fsaid.some(t=>/Climb stalled/.test(t)),fsaid.join(' | '));assert.ok(logged.some(([type,data])=>type==='back_exit_climb_failed'&&/Climb stalled/.test(data.reason)),JSON.stringify(logged))
+})
+// Review of 16 October: the sealed release sends the bot home and the request back to work, the
+// planner goes back down the shaft, the alarm fires at the foot, the hut waits, and round again.
+// The second sealed release at one place holds that work: tunnel_out is refused with a reason the
+// planner reads, chat says so once, and no line repeats each lap.
+test('the second sealed release at the shaft foot ends the loop: tunnel_out is refused and chat does not repeat',async()=>{
+ const roofed=()=>sealedCave({cells:new Map([[CAVE_FOOT.offset(0,2,0).toString(),'cobblestone']])}).bot
+ const design=[];for(let x=0;x<4;x++)for(let z=0;z<4;z++)for(let y=0;y<3;y++)if((y===2||x===0||x===3||z===0||z===3)&&!(x===1&&z===0&&y<2))design.push({x,y,z,block:'cobblestone'})
+ const project={build:{origin:{...CAVE_BASE},design,wood:'spruce_log'},stations:{torch:{position:{x:-624,y:68,z:-366},confirmed:true}},backExit:{cell:{x:CAVE_SHAFT.x,y:CAVE_BASE.y,z:CAVE_SHAFT.z},bottom:59},built:true}
+ const request={id:'loop',request:'mine iron',status:'interrupted',feedback:[],completed:[]},said=[];let resumed=0
+ const c={epoch:1,projects:{base:project},runner:{bot:null,ready:true,connectionId:'same',task:{result:{}}},requestProgress:request,burrowWait:{quietMs:5,limitMs:1500,watches:1},
+  persist(){},emit(){},say:t=>said.push(t),dispatch(){},async resume(){resumed++},async execute(command){this.runner.task={result:{item:'safety',count:1,receipt:command.action==='retreat'?'sheltered_door_closed':'unwalled'}}}}
+ const lap=async()=>{const bot=roofed();c.runner.bot=bot;c.safety={status:'burrowed',retreat:{...CAVE_HUT}};request.status='interrupted';await Teammate.prototype.waitInBurrow.call(c,1,new AbortController().signal,bot,true)}
+ await lap()
+ assert.equal(Teammate.prototype.sealedHoldRefusal.call(c,{action:'tunnel_out',goal:{}}),null,'one release holds nothing')
+ await lap();await lap()
+ assert.equal(resumed,2,said.join(' | ')+' (a third idle continuation is already stopped by the continuation cap)')
+ const refusal=Teammate.prototype.sealedHoldRefusal.call(c,{action:'tunnel_out',goal:{}})
+ assert.match(refusal?.message||'',/sealed cave/,'the planner is told why going back down is refused')
+ await assert.rejects(Teammate.prototype.executeCommand.call(c,{action:'tunnel_out',goal:{},timeoutMs:1000},new AbortController().signal),/sealed cave/)
+ assert.equal(Teammate.prototype.sealedHoldRefusal.call(c,{action:'mine',goal:{}}),null,'other work is not refused')
+ assert.ok(request.feedback.some(f=>f.action==='safety_hold'&&/tunnel_out/.test(f.reason)),JSON.stringify(request.feedback))
+ const count=re=>said.filter(t=>re.test(t)).length
+ assert.equal(count(/sealed cave under me/),1,said.join(' | '));assert.equal(count(/keep sending me back up/),1,said.join(' | '))
+ assert.equal(count(/I climbed the back exit/),1,said.join(' | '))
 })

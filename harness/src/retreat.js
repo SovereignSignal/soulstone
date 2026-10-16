@@ -43,6 +43,8 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
  inspect(true);const keep=missing.length?assertRepairable(bot,missing):new Map()
  // The climb and the cap use any other block first, so the dirt is still there for the roof.
  const spare=()=>scaffoldItems(bot).find(i=>carried(bot,i.name)>(keep.get(i.name)||0))
+ // What may be spent without touching the repair's blocks (review of 16 October: one bag for both).
+ const spareCount=()=>[...new Set(scaffoldItems(bot).map(i=>i.name))].reduce((n,name)=>n+Math.max(0,carried(bot,name)-(keep.get(name)||0)),0)
  const repaired=[]
  const repair=async()=>{
   if(missing.length)progress(`Putting back ${missing.length===1?'a missing block':`${missing.length} missing blocks`} of the base`)
@@ -89,7 +91,13 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
   // The pathfinder does not climb a one-wide shaft under a burrow cap (lab
   // run 22: "Navigation ended" at once); the burrow's own climb does, digging
   // what is overhead and pillaring up, which also refills the shaft behind it.
-  if(shaft&&bot.entity.position.y<o.y){progress('Climbing the back exit to the base floor');await climbOut(bot,new Vec3(shaft.x,shaft.y,shaft.z),{check,stage:()=>{},progress},{material:()=>spare()||scaffoldItems(bot)[0]});check()}
+  if(shaft&&bot.entity.position.y<o.y){
+   // The climb places a block under each level it rises. Short of that many beside the repair's,
+   // it fails here, with the blocks still carried, rather than at the roof after spending them.
+   const levels=shaft.y-Math.floor(bot.entity.position.y),have=spareCount()
+   if(keep.size&&have<levels)throw new Error(`Climbing the back exit takes ${levels} blocks and I have ${have} besides the ${[...keep].map(([name,n])=>`${n} ${name.replaceAll('_',' ')}`).join(' and ')} the base needs`)
+   progress('Climbing the back exit to the base floor');await climbOut(bot,new Vec3(shaft.x,shaft.y,shaft.z),{check,stage:()=>{},progress},{material:spare});check()
+  }
   await walk(new goals.GoalBlock(target.x,target.y,target.z));check()
   await settle(()=>bot.entity.onGround&&bot.entity.position.distanceTo(target.offset(.5,0,.5))<.85,'Retreat did not reach the interior')
   await open(false)
@@ -97,7 +105,7 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
   if(shaft){
    const floor=new Vec3(shaft.x,shaft.y-1,shaft.z)
    if(!solidCube(bot,bot.blockAt(floor))){
-    if(!await fillCell(bot,floor,{check,progress,item:spare()}))throw new Error(`Could not cap the back exit at ${floor.x},${floor.y},${floor.z}`)
+    if(!await fillCell(bot,floor,{check,progress,item:spare()??null}))throw new Error(`Could not cap the back exit at ${floor.x},${floor.y},${floor.z}`)
     capped=true
    }
    delete project.backExit.bottom
@@ -134,7 +142,8 @@ export function inspectRetreatShelter(bot,project,{occupants=true,missing=null}=
   for(const b of build.design){
    const cell=o.offset(b.x,b.y,b.z),found=bot.blockAt(cell)?.name,block=b.block==='wood_planks'?build.wood.replace('_log','_planks'):b.block
    if(found===block)continue
-   if(missing&&AIR.has(found)){missing.push({cell,block,found});continue}
+   // Only a full cube is put back by placing (review of 16 October); a missing slab, pane, door or torch refuses as before.
+   if(missing&&AIR.has(found)&&solidCube(bot,{name:block})){missing.push({cell,block,found});continue}
    throw new Error('Retreat shelter structure is missing or changed at '+cell+': '+(found||'unloaded'))
   }
   if(missing?.length>BASE_REPAIR_LIMIT)throw new Error(`Retreat shelter structure is missing or changed at ${missing[0].cell}: ${missing[0].found} (${missing.length} blocks gone; that is a rebuild)`)
@@ -213,7 +222,8 @@ export const pressingOutside=(bot,project=null)=>{
  try{return pressingThreats(bot,project,(survivalObservation(bot).nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name)))[0]||null}catch{return null}
 }
 // The given hostiles that could meet the bot at the door, nearest first (pressingOutside's test, for the base watch too).
-export function pressingThreats(bot,project,near){
+// `released`, when given, collects those only sealedStill let go, which the alarm's rock floors still count.
+export function pressingThreats(bot,project,near,released=null){
  const blocked=near.filter(t=>t.sightline?.status==='blocked'&&t.position)
  if(blocked.length&&project?.build?.origin){
   // Flood from the hostile toward the doorstep, not the other way: a sealed
@@ -226,6 +236,7 @@ export function pressingThreats(bot,project,near){
    const route=threatRoutes(from,[{position:doorstep}])[0];t.reach=route.reach;t.routeSteps=route.steps;t.routeAtLeast=route.atLeast
   }
  }
+ if(released)released.push(...near.filter(t=>!outOfReach(t)&&sealedStill(t)))
  return near.filter(t=>!outOfReach(t)&&!sealedStill(t)).sort((a,b)=>a.distance-b.distance)
 }
 // Why the door stays shut, or null. One answer for every way out: the

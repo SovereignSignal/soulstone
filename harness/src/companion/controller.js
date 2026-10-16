@@ -76,7 +76,7 @@ export const DAYLIGHT_MS=(12500-1000)/20*1000
 export const FAR_SHELTER=48
 // How far from where it closed the door a restarted bot still counts as in that shelter.
 const SHELTER_DRIFT=4
-import {survivalObservation,fireObservation,SHOOTERS_ONLY,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS,HEALTH_EMERGENCY_LINE,outOfReach,cannotShootYet} from '../survival.js'
+import {isPotentialHostile,survivalObservation,fireObservation,SHOOTERS_ONLY,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS,HEALTH_EMERGENCY_LINE,outOfReach,cannotShootYet} from '../survival.js'
 // Air, fire and a portal underfoot run their own recovery at once and preempt
 // any shelter attempt: each has a clock no shelter stops.
 const URGENT=new Set([WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY])
@@ -110,6 +110,34 @@ const inventoryOf=bot=>(bot?.inventory?.items?.()||[]).reduce((m,i)=>(m[i.name]=
 const repairedLine=(project,repaired)=>{
  const top=Math.max(...(project?.build?.design||[]).map(b=>b.y)),roof=repaired.every(c=>c.y===(project?.build?.origin?.y??NaN)+top)
  return repaired.length===1?`One ${roof?'roof':'wall'} block was missing. I put it back.`:`${repaired.length} ${roof?'roof':'wall'} blocks were missing. I put them back.`
+}
+// Review of 16 October: a wall hole lets a mob beside it reach in or shoot through while it is mended;
+// only a roof hole, or a wall hole with no hostile within eight blocks of it, keeps the base shelter.
+const WALL_HOLE_GUARD=8
+const wallHoleGuarded=(bot,project,missing)=>{
+ const top=project.build.origin.y+Math.max(...project.build.design.map(b=>b.y)),walls=missing.filter(m=>m.cell.y!==top)
+ return walls.length>0&&Object.values(bot.entities||{}).some(e=>e!==bot.entity&&isPotentialHostile(e?.name)&&e.position&&walls.some(m=>e.position.distanceTo(m.cell.offset(.5,.5,.5))<=WALL_HOLE_GUARD))
+}
+// Review of 16 October: a wait or base watch released because the mobs near it are sealed and out
+// of sight (sealedStill) sends the request back to the work that put the bot there, where the
+// alarm, which keeps its rock floors, fires again: home, back down, alarm, hut, home, for good.
+// The second such release at one place in one request holds that work. The planner is told why,
+// chat says it once, and the refused action fails with the reason (sealedHoldRefusal).
+const SEALED_HOLDS={
+ back_exit:{refuses:'tunnel_out',chat:'Mobs in a sealed cave under the back exit keep sending me back up. I will not work down there this time.',reason:()=>'The back exit opens one block above a sealed cave of mobs, and the alarm fires at its foot every time; tunnel_out is refused for this request, so work elsewhere'},
+ door:{refuses:'leave_base',chat:'Mobs walled in under the base keep sending me back inside. I will stay in rather than go out that way this time.',reason:()=>'Mobs sealed in rock beside the base door set the alarm off each time the bot steps out; leaving the base is refused for this request, so work underground or wait'},
+ site:{refuses:null,chat:'Mobs walled off behind rock here keep stopping my work. I will work somewhere else.',reason:place=>`The place at ${place} sits beside a sealed cave of mobs, and the alarm fires there every time; work elsewhere`}}
+export function noteSealedRelease(c,request,kind,at){
+ if(!request)return 1
+ const place=`${Math.floor(at.x)},${Math.floor(at.y)},${Math.floor(at.z)}`,key=`${kind}@${place}`,releases=request.sealedReleases??={}
+ const n=releases[key]=(releases[key]||0)+1
+ if(n>=2&&!(request.sealedHolds||[]).some(h=>h.key===key)){
+  const hold=SEALED_HOLDS[kind],reason=hold.reason(place)
+  ;(request.sealedHolds??=[]).push({key,kind,refuses:hold.refuses,reason})
+  ;(request.feedback??=[]).push({action:'safety_hold',status:'completed',automatic:true,reason,result:{refuses:hold.refuses,place}})
+  c.runner?.log?.('sealed_hold',{key,reason});c.say(hold.chat)
+ }
+ c.persist?.();return n
 }
 export const STOP_HOLD_MS=60000
 import {burrowClearance,shelterExits,strongEnoughToLeave,RELOCATE_STANDOFF} from '../burrow.js'
@@ -248,7 +276,7 @@ export class Teammate extends EventEmitter {
         // Family rehearsal, 16 October: one dirt roof block gone made the base no shelter at all, and
         // the chain dug through its own floor. A few air cells the bot carries the blocks for are put
         // back by the retreat, so the base stays the place to go; `sheltered` below stays strict.
-        if(shelterAvailable&&base.build?.design?.length){try{const missing=[];inspectRetreatShelter(runner.bot,base,{occupants:false,missing});if(missing.length)assertRepairable(runner.bot,missing);this.unloadedSince=null}catch(error){
+        if(shelterAvailable&&base.build?.design?.length){try{const missing=[];inspectRetreatShelter(runner.bot,base,{occupants:false,missing});if(missing.length)assertRepairable(runner.bot,missing);if(wallHoleGuarded(runner.bot,base,missing))throw new Error('A hostile is beside a hole in the base wall');this.unloadedSince=null}catch(error){
           awaitingBase=/: unloaded$/.test(error.message)&&insideBase(runner.bot,base)&&Date.now()-(this.unloadedSince??=Date.now())<20000
           if(!awaitingBase)shelterAvailable=false
         }}
@@ -1224,7 +1252,7 @@ export class Teammate extends EventEmitter {
       // A shooter the bow answers is shot through a firing port while the shelter is
       // still held, so no alarm fires, and the hut closes the port after. A port with no
       // shot is not opened again; PORT_ATTEMPTS openings without a kill and it moves away.
-      let result,confront,relocate,attempts=0
+      let result,confront,relocate,attempts=0,sealedLap=0
       const tried=[]
       for(;;){
         for(let watch=1;;watch++){
@@ -1238,7 +1266,12 @@ export class Teammate extends EventEmitter {
         confront=result.observation?.confront;relocate=result.observation?.relocate
         // Family rehearsal, 16 October: a wait held over a cave of mobs nothing could free. Said plainly
         // when it was only those (sealedStill) and they no longer hold it.
-        if(result.observation?.sealed?.length){const below=result.observation.sealed.every(t=>t.verticalOffset<0);this.say(`The mobs are ${below?'in a sealed cave under me':'sealed off behind rock'} and cannot reach me.`)}
+        // Said the first time at a place; the second time noteSealedRelease holds the work and says that instead.
+        if(result.observation?.sealed?.length){
+          sealedLap=noteSealedRelease(this,request,this.projects?.base&&inBackExit(bot,this.projects.base)?'back_exit':'site',bot.entity.position)
+          const below=result.observation.sealed.every(t=>t.verticalOffset<0)
+          if(sealedLap===1)this.say(`The mobs are ${below?'in a sealed cave under me':'walled off behind rock'} and cannot reach me.`)
+        }
         if(!(safety.retreat.shelterName==='hut'&&confront?.position&&SHOOTERS_ONLY.has(confront.name)&&bowCanAnswer(bot,confront.name)))break
         // Out of ports, leaving takes the same health and standoff as the wait's own
         // relocation; short of them the hut holds, and the next watch's gates decide
@@ -1321,8 +1354,8 @@ export class Teammate extends EventEmitter {
         try{
           await this.execute({action:'retreat',goal:{project:structuredClone(this.projects.base)},timeoutMs:45000},signal);check()
           const back=safety.home=structuredClone(this.runner.task.result);safety.status='sheltered';home=true;this.persist()
-          this.say('I climbed the back exit into the base.'+(back?.repaired?.length?' '+repairedLine(this.projects.base,back.repaired):''))
-        }catch(error){check();this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check();this.say(`I could not climb into the base: ${error.message}. Carrying on from here.`)}
+          if(sealedLap<=1)this.say('I climbed the back exit into the base.'+(back?.repaired?.length?' '+repairedLine(this.projects.base,back.repaired):''))
+        }catch(error){check();this.dispatch({action:'stop'});await this.runner.waitForIdle?.(signal);check();this.runner.log?.('back_exit_climb_failed',{reason:error.message});this.say('I could not get back into the base. I will keep going from here.')}
       }
       // Surfacing beside a threat that outguns us only helps if we then leave.
       // Opening one wall is not leaving: a shelter four blocks down still needs
@@ -1389,9 +1422,11 @@ export class Teammate extends EventEmitter {
       const atBase=!safety.retreat.shelterName||safety.retreat.shelterName==='base'
       const observe=()=>{const o=clearanceObservation(bot,this.projects,safety.retreat.shelterName);return o.clear&&atBase&&night()?{clear:false,reason:'Waiting in the lit base for daylight'}:o}
       const limitMs=night()&&atBase?Math.max(recovery.limitMs||0,this.nightHoldMs??NIGHT_HOLD_MS):recovery.limitMs
-      const result=await awaitClearance({check,limitMs,maintain:async()=>{const r=recovery.maintain?await recovery.maintain():false;await topUpWhileSheltered(this,signal,bot);return r},observe,onUpdate:record=>{safety.continuation=record;this.persist();this.emit('change')}})
+      const result=await awaitClearance({check,limitMs,quietMs:recovery.quietMs,maintain:async()=>{const r=recovery.maintain?await recovery.maintain():false;await topUpWhileSheltered(this,signal,bot);return r},observe,onUpdate:record=>{safety.continuation=record;this.persist();this.emit('change')}})
       check();safety.continuation=result;this.persist()
       if(result.status!=='cleared'){this.say('I am staying sheltered. Resume is required because a clear area was not established in time.');return}
+      // Cleared only because the mobs by the door are sealed off (sealedStill): counted, so the second time holds the door.
+      if(atBase&&result.observation?.sealed?.length&&this.projects?.base?.build?.origin)noteSealedRelease(this,request,'door',this.projects.base.build.origin)
       // Record before dispatch so restart, Stop or a second threat cannot create
       // an unbounded continuation loop. submit() re-observes the saved request.
       ;(request.safetyContinuations??=[]).push({...result,requestId:request.id,connectionId:connection,resumeSerial:request.resumeSerial||0,...continuationMark(request)});
@@ -1907,7 +1942,14 @@ export class Teammate extends EventEmitter {
     catch(error){outcome=signal.aborted?'cancelled':'failed';reason=error.message;throw error}
     finally{if(tracked&&this.runner.bot===bot&&this.runner.connectionId===connectionId)recordRecovery(this,{at,connectionId,requestId,action:command.action,expectation,status:outcome,reason,before,after:recoveryState(bot)})}
   }
+  // The work a sealed hold refuses (noteSealedRelease), as an error the planner reads; null otherwise. Safety's own actions are never refused.
+  sealedHoldRefusal(command){
+    if(this.safety)return null
+    const hold=(this.requestProgress?.sealedHolds||[]).find(h=>h.refuses&&h.refuses===command?.action)
+    return hold?new Error(hold.reason):null
+  }
   async executeCommand(command, signal, started = () => {}) {
+    const held=Teammate.prototype.sealedHoldRefusal.call(this,command);if(held)throw held
     await this.runner.waitForIdle?.(signal)
     const deferredDeparture=['acquire','prepare'].includes(command.action)&&insideBase(this.runner.bot,this.projects.base)
     // The checked door exit is for work. A safety action never walks out of a

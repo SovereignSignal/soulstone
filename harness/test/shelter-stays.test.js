@@ -432,18 +432,21 @@ test('a planner blocker that asks for Resume or says it lost its kit waits for a
 // and dug down through its own floor. A hole the bot can mend is still its home to go to.
 import {HEALTH_EMERGENCY,NIGHT_EXPOSURE} from '../src/survival.js'
 // The world() base with what the inspection needs: a dirt roof over the room, a torch and a shut oak door.
-function furnished(position,{holes=[],dirt=1}={}){
- const w=world(position),plain=w.bot.blockAt,holed=new Set(holes.map(([x,y,z])=>`${x},${y},${z}`))
+function furnished(position,{holes=[],dirt=1,items=null}={}){
+ const w=world(position),plain=w.bot.blockAt,cells=new Map(holes.map(([x,y,z])=>[`${x},${y},${z}`,'air']))
  w.c.projects.base.build={...w.c.projects.base.build,wood:'oak_log',design:design.map(b=>b.y===2&&b.x>=1&&b.x<=2&&b.z>=1&&b.z<=2?{...b,block:'dirt'}:b)}
  w.bot.blockAt=p=>{
   const at=(name,props={})=>({name,position:p,boundingBox:name==='air'||name==='torch'?'empty':'block',getProperties:()=>props})
-  if(holed.has(`${p.x},${p.y},${p.z}`))return at('air')
+  if(cells.has(`${p.x},${p.y},${p.z}`))return at(cells.get(`${p.x},${p.y},${p.z}`))
   if(p.x===2&&p.y===64&&p.z===2)return at('torch')
   if(p.x===1&&p.z===0&&(p.y===64||p.y===65))return at('oak_door',{open:false,half:p.y===64?'lower':'upper'})
   if(p.y===66&&p.x>=1&&p.x<=2&&p.z>=1&&p.z<=2)return at('dirt')
   return plain(p)}
- const items=dirt?[{name:'dirt',count:dirt,type:registry.itemsByName.dirt.id}]:[];w.bot.inventory={items:()=>items}
- return w
+ const carried=items??(dirt?[{name:'dirt',count:dirt,type:registry.itemsByName.dirt.id}]:[]);w.bot.inventory={items:()=>carried.filter(i=>i.count>0)}
+ // The block placed is the one in hand, as the server has it.
+ Object.assign(w.bot,{heldItem:null,async equip(item){w.bot.heldItem=item},async unequip(){w.bot.heldItem=null},async activateBlock(){},
+  async placeBlock(ref,face){const at=ref.position.plus(face),item=carried.find(i=>i.name===w.bot.heldItem?.name);if(!item||item.count<1)throw new Error('nothing to place');item.count--;cells.set(`${at.x},${at.y},${at.z}`,item.name)}})
+ return {...w,cells}
 }
 test('a base with a hole the bot can mend stays the shelter to go to; one it cannot mend does not',()=>{
  const night=(options)=>{const w=furnished(new Vec3(8.5,64,-6.5),options);w.bot.entities={};w.bot.health=8;const calls=[];w.c.seekSafety=async why=>{calls.push(why);w.c.safety={status:'retreating',reason:why}};w.r.emit('event',{type:'survival_tick'});return calls}
@@ -466,4 +469,38 @@ test('a new instruction inside the whole base does not re-run the shelter chain 
  bot.entities={1:{id:1,name:'creeper',position:new Vec3(1.5,53,1.5)},2:{id:2,name:'zombie',position:new Vec3(2.5,54,1.5)},3:{id:3,name:'skeleton',position:new Vec3(1.5,53,2.5)}}
  const calls=[];c.seekSafety=async why=>{calls.push(why)};c.safety=null
  r.emit('event',{type:'survival_tick'});assert.deepEqual(calls,[])
+})
+// Review of 16 October: a hole in a wall lets a mob beside it in or its arrows through; only a roof
+// hole, or a wall hole with no hostile within eight blocks of it, leaves the base the place to go.
+test('a wall hole with a hostile beside it is not a shelter; a roof hole is, and so is a lone wall hole',()=>{
+ const night=(holes,entities,items)=>{const w=furnished(new Vec3(30.5,64,1.5),{holes,items});w.bot.entities=entities;w.bot.health=8;const calls=[];w.c.seekSafety=async why=>{calls.push(why);w.c.safety={status:'retreating',reason:why}};w.r.emit('event',{type:'survival_tick'});return calls}
+ const cobble=()=>[{name:'cobblestone',count:4,type:registry.itemsByName.cobblestone.id}],dirt=()=>[{name:'dirt',count:1,type:registry.itemsByName.dirt.id}]
+ assert.deepEqual(night([[3,65,1]],{},cobble()),[HEALTH_EMERGENCY],'a wall hole with nothing near it')
+ assert.deepEqual(night([[3,65,1]],{1:{id:1,name:'zombie',position:new Vec3(4.5,64,1.5)}},cobble()),[NIGHT_EXPOSURE],'a zombie beside the wall hole')
+ assert.deepEqual(night([[2,66,2]],{1:{id:1,name:'zombie',position:new Vec3(2.5,67,2.5)}},dirt()),[HEALTH_EMERGENCY],'a roof hole is mended from inside whatever is near')
+})
+// Review of 16 October: the same chain with the real retreat and the real placement, not a stub.
+import {retreatToShelter} from '../src/retreat.js'
+test('the retreat the chain runs puts the roof block back with the real placement',async()=>{
+ const {r,c,bot,cells}=furnished(new Vec3(1.5,64,1.5),{holes:[[2,66,2]]}),said=[];const say=c.say.bind(c);c.say=(t,...a)=>{said.push(t);return say(t,...a)}
+ const api={check(){},progress(){},stage(){},settle:async fn=>assert.ok(fn()),walk:async g=>{bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}}
+ const command=r.command;r.command=cmd=>{if(cmd.action!=='retreat')return command(cmd);r.commands.push(cmd.action);const task=r.task={id:String(r.commands.length),kind:cmd.action,status:'running'}
+  const done=patch=>{r.task={...task,...patch};r.emit('event',{type:'task_finished',task:r.task})}
+  retreatToShelter(bot,{kind:'retreat',goal:cmd.goal},api).then(result=>done({status:'completed',result}),error=>done({status:'failed',reason:error.message}))}
+ await c.seekSafety(THREAT_INTERRUPTION)
+ assert.equal(c.safety.status,'sheltered',said.join(' | '));assert.equal(cells.get('2,66,2'),'dirt')
+ assert.deepEqual(c.safety.retreat.repaired,[{x:2,y:66,z:2,block:'dirt'}]);assert.ok(said.includes('One roof block was missing. I put it back.'),said.join(' | '))
+})
+// Review of 16 October: the same loop at the base door. The base watch clears over a sealed mob
+// within the rock floors, the request goes on, the bot steps out, the alarm sends it back in.
+test('the second sealed release at the base door ends the loop: leaving the base is refused for the request',async()=>{
+ const {c,bot}=furnished(new Vec3(1.5,64,1.5));bot.time.timeOfDay=6000;bot.world.getColumn=()=>({})
+ bot.entities={1:{id:1,name:'creeper',position:new Vec3(1.5,61,-.5)}}
+ const request={id:'door',request:'build a farm',status:'interrupted',feedback:[],completed:[],pending:[]},said=[];let resumed=0
+ const say=c.say.bind(c);c.say=(t,...a)=>{said.push(t);return say(t,...a)};c.resume=async()=>{resumed++};c.requestProgress=request
+ const lap=async()=>{c.safety={status:'sheltered',retreat:{item:'shelter',receipt:'sheltered_door_closed'}};await c.continueAfterClearance(c.epoch,new AbortController().signal,bot,{quietMs:0,limitMs:3000})}
+ await lap();c.safety=null;assert.equal(Teammate.prototype.sealedHoldRefusal.call(c,{action:'leave_base',goal:{}}),null,'one release holds nothing')
+ await lap();assert.equal(resumed,2,said.join(' | '));c.safety=null
+ await assert.rejects(c.executeCommand({action:'leave_base',goal:{},timeoutMs:1000},new AbortController().signal),/leaving the base is refused/)
+ assert.equal(said.filter(t=>/keep sending me back inside/.test(t)).length,1,said.join(' | '))
 })
