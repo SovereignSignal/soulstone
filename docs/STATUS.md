@@ -23,7 +23,7 @@ The regroup source passes 598 regressions. The updated local app passes signatur
 
 Compound goal briefs can now include a validated dependency graph tied to every original completion check. The controller persists stage evidence, transitions and blockers; rechecks inventory, tool condition and other live requirements before work; and replans at stage boundaries. Resume keeps the original goal and reopens unmet requirements. Earlier saved goals retain their existing checks and use a single compatibility stage. Ordinary planning and the optional Jev selector receive the same active milestone. Original completion verification, safety interruptions, Stop and finite budgets remain authoritative.
 
-The source passes 592 regressions, including a simulated food/tools/shelter mission, restart continuation without repeated feeding, resource regression, invalid graphs and cancellation. This is controller coverage; natural-world completion of the compound mission and Ender Dragon autonomy remain unverified. Intermediate material acquisition still uses existing bounded skills. The milestone graph does not add Nether, stronghold or dragon-combat capabilities.
+The source passes 592 regressions, including a simulated food/tools/shelter mission, restart continuation without repeated feeding, resource regression, invalid graphs and cancellation. This is controller coverage; natural-world completion of the compound mission remains unverified. Intermediate material acquisition still uses existing bounded skills. The Nether rungs (lit portal, crossing, blaze rods) have live evidence under staged conditions, with the latest trips on 16 October 2026 returning home with rods and no deaths. The Ender Dragon is the stated goal, not a result: ender pearls, eyes of ender, the stronghold and the End have no live evidence yet.
 
 ## What the teammate can do
 
@@ -79,7 +79,7 @@ A single compatibility manifest controls bridge selection and integrity. The [up
 
 ## Maintainer records
 
-Detailed plans, dated acceptance reports, raw receipts and past failures live in the owner's separate `workstreams/minecraft/` archive and ignored local result directories. References to historical receipt paths in technical notes identify that evidence; those private files are intentionally not required by this clone. The repo's guides describe the installation contract and capability limits needed by other users.
+Detailed plans, dated acceptance reports, raw receipts and past failures live in the owner's private planning archive and ignored local result directories. References to historical receipt paths in technical notes identify that evidence; those private files are intentionally not required by this clone. The repo's guides describe the installation contract and capability limits needed by other users.
 
 
 ## Onboarding verification, 11 September 2026

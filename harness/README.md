@@ -118,4 +118,4 @@ The current server is disposable by explicit instruction. It is left in peaceful
 
 Resolve the full-chain crafting failure, then validate T1 response and gathering cancellation. Keep the controller replaceable. Add the remaining battery tasks before comparing the five candidates; broaden version coverage and spike ZenithProxy afterward.
 
-[Project hub](https://app.notion.com/p/3c7000c0d59080a4b914d6243ddefcd0) · [Implementation plan: scope and evidence limits](../docs/STATUS.md)
+[Scope and evidence limits](../docs/STATUS.md)

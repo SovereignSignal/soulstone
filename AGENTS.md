@@ -2,7 +2,7 @@
 
 Read [README.md](README.md), [setup](docs/SETUP.md) and [support/limits](docs/STATUS.md) first. This repository is self-contained for installation and normal development. Code belongs in `harness/` and `companion/`; user/developer guides belong here with the code.
 
-For maintainers using the owner's Sovereign Signal archive, `workstreams/minecraft/overview.md`, `WORKING-STATE.md` and `log.md` hold the active roadmap and dated acceptance record. They normally sit at `../../workstreams/minecraft/` from this checkout. An external contributor does not need that archive; use the issue or task supplied by the maintainer instead. Keep private plans and raw receipts outside Git.
+The maintainer keeps the active roadmap and dated acceptance record in a private planning archive outside this repository. An external contributor does not need that archive; use the issue or task supplied by the maintainer instead. Keep private plans and raw receipts outside Git.
 
 - Use the repository's configured Git identity. Never change accounts automatically. Ask for the intended project author if none is configured.
 - Run `npm test` in `harness/` for relevant harness changes. Lab/integration scripts can mutate a Minecraft world or invoke a model; use only an explicitly authorized disposable test scope.

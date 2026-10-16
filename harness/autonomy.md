@@ -28,7 +28,7 @@ After an attempted task, the selected model may suggest up to three lessons citi
 
 Resume updates the existing request's experience instead of permanently retaining its first failed verdict. The same experience ID survives, with up to eight compact outcome revisions retaining earlier blockers. Current evidence, verdict and lessons are re-recorded after the resumed attempt. Restart tests verify the updated record is retrieved for the same profile; another world's profile is rejected. Raw request feedback and episodes remain the detailed trace. This is local persistent retrieval, not model-weight training.
 
-For developer-session continuity, start with the archive's `workstreams/minecraft/WORKING-STATE.md`. It links the current objective, incident diagnosis, evidence and remaining acceptance work. Established general improvements persist in source, capability instructions and regression tests; world coordinates and account state remain private to their world.
+For developer-session continuity, the maintainer's private working-state note links the current objective, incident diagnosis, evidence and remaining acceptance work. Established general improvements persist in source, capability instructions and regression tests; world coordinates and account state remain private to their world.
 
 A stored lesson being retrieved does not prove it improves performance. Measuring that requires paired held-out trials with and without experience, across more tasks and conditions. Weight training remains paused.
 
@@ -41,7 +41,7 @@ MC_LAB_EXPERIMENT=yes node --env-file=.env test/autonomy-lab.js
 
 The live fixture resets only HarnessTest and isolated elevated pads. It uses the selected Astra subscription profile, raw logs for an oak platform, a narrow site and cobblestone for a new higher lookout, a controller reload and bot reconnect between tasks, and a separate compound equipment request. There are no supplied blueprints or operator interventions during requests. Independent assertions cover blocks, access, deck space, material/budget limits, fresh geometry, prior-build preservation, experience retrieval and carried supplies.
 
-These are bounded peaceful Java 1.21.4 cases with supplied resources and prepared sites. They do not establish general survival, quarrying/site preparation, farming, combat, all-version support or 2b2t readiness. See the archive's `workstreams/minecraft/results-summary.md` for actual outcomes, timings and failures.
+These are bounded peaceful Java 1.21.4 cases with supplied resources and prepared sites. They do not establish general survival, quarrying/site preparation, farming, combat, all-version support or 2b2t readiness. Actual outcomes, timings and failures are kept in the maintainer's private results record.
 
 
 The first [paired experience pilot: scope and evidence limits](../docs/STATUS.md) found no reliable benefit. Construction succeeded in both arms; an equipment failure exposed an inventory-crafting synchronization gap. After repair, both equipment arms passed. Keep lessons provisional and separate executor reliability from reasoning comparisons.
