@@ -207,6 +207,8 @@ function tunnel({mobs=[],items=[],timeOfDay=6000,cells=new Map()}={}){
  return {bot,cells}
 }
 const SWORD={name:'iron_sword',count:1,maxDurability:250,durabilityUsed:0}
+// A rod lying where a kill fell (an item entity, as mineflayer has it).
+const rod=(bot,at,id=40+Object.keys(bot.entities).length)=>{bot.entities[id]={id,name:'item',type:'object',position:new Vec3(at.x,at.y,at.z),getDroppedItem:()=>({name:'blaze_rod',count:1})}}
 test('the hut opened to confront carries the way it faces through the runner to the skill',async()=>{
  // The controller built goal.toward; the runner's unhut case dropped it and the
  // task goal validator returned {} for unhut, so the wall facing the mob never opened.
@@ -329,7 +331,7 @@ test('health lost to fire inside a closed hut is a burn, not a breach; a drop wh
 // quiet minute, on 16 health, and only within eight blocks of the hut (tripPickup).
 test('on a trip the wait leaves the rods while a shooter was near in the last minute, and walks only for kills near the hut',async()=>{
  const site={at:{x:5.5,y:63,z:.5}}
- const kill=(bot,c)=>{delete bot.entities[1];c.runner.task={result:{item:'blaze',receipt:'killed',count:1,shots:3,at:site.at}}}
+ const kill=(bot,c)=>{delete bot.entities[1];rod(bot,site.at);c.runner.task={result:{item:'blaze',receipt:'killed',count:1,shots:3,at:site.at}}}
  const recent=portWait({shot:kill,trip:true})
  await Teammate.prototype.waitInBurrow.call(recent.c,1,new AbortController().signal,recent.bot,false)
  assert.ok(!recent.executed.some(x=>x.action==='collect'),recent.executed.map(x=>x.action).join(' '))
@@ -337,7 +339,7 @@ test('on a trip the wait leaves the rods while a shooter was near in the last mi
  assert.deepEqual(recent.c.killSites.map(k=>k.at),[site.at],'kept for later');assert.equal(recent.c.killSites[0].trip,true,'a kill on the trip')
  // No shooter near for the whole wait: only the kill within eight blocks of the hut is walked for.
  const quiet=portWait({shot:kill,trip:true});delete quiet.bot.entities[1]
- quiet.c.killSites=[{at:site.at,time:Date.now()},{at:{x:14.5,y:64,z:.5},time:Date.now()}]
+ quiet.c.killSites=[{at:site.at,time:Date.now()},{at:{x:14.5,y:64,z:.5},time:Date.now()}];rod(quiet.bot,site.at);rod(quiet.bot,{x:14.5,y:64,z:.5})
  await Teammate.prototype.waitInBurrow.call(quiet.c,1,new AbortController().signal,quiet.bot,false)
  assert.deepEqual(quiet.executed.find(x=>x.action==='collect')?.goal.at,[site.at],quiet.said.join(' | '))
  assert.deepEqual(quiet.c.killSites.map(k=>k.at),[{x:14.5,y:64,z:.5}],'the far one is left')
@@ -367,6 +369,8 @@ test('with kills to fetch on a trip the hut holds quiet a minute after the last 
  const pending=({seenAgo,limitMs,age=0,onlyFar=false})=>{
   const w=portWait({shot:noShot,trip:true,limitMs});delete w.bot.entities[1]
   w.c.killSites=[{at:site,time:Date.now()-age,trip:true},{at:far,time:Date.now(),trip:true}].slice(onlyFar?1:0);w.c.shooterSeenAt=Date.now()-seenAgo
+  // Lab run 166, 16 October: a site counts only while a rod lies at it.
+  rod(w.bot,site);rod(w.bot,far)
   const at={};const execute=w.c.execute;w.c.execute=async function(command){at[command.action]??=Date.now();return execute.call(this,command)}
   return {...w,at}
  }
@@ -389,6 +393,18 @@ test('with kills to fetch on a trip the hut holds quiet a minute after the last 
  const said=[],c={requestProgress:{id:'rods',status:'interrupted',kittedTrip:{at:'t'}},killSites:[{at:site,time:Date.now(),trip:true},{at:far,time:Date.now()}],runner:{},say:t=>said.push(t),persist(){},cancel(){}}
  assert.equal(Teammate.prototype.tripEnded.call(c,'danger sent me home through the portal'),true)
  assert.deepEqual(c.killSites.map(k=>k.at),[far])
+})
+// Lab run 166, 16 October: at a blaze bay a hopper floor carried every rod off within a second,
+// and the hut held "quiet before fetching what fell" for more than ten minutes over nothing.
+// With no rod at either site it does not hold, walks for nothing, says nothing about leaving
+// what fell, and forgets both sites it can see are empty.
+test('with every rod carried off the hut does not hold quiet, walks for nothing and forgets the empty sites',async()=>{
+ const w=portWait({shot:noShot,trip:true,limitMs:2000});delete w.bot.entities[1]
+ w.c.killSites=[{at:{x:5.5,y:63,z:.5},time:Date.now(),trip:true},{at:{x:14.5,y:64,z:.5},time:Date.now(),trip:true}];w.c.shooterSeenAt=Date.now()-20000
+ await run(w)
+ assert.ok(!w.said.some(t=>/Holding the hut quiet|Leaving what fell/.test(t)),w.said.join(' | '))
+ assert.ok(w.executed.some(x=>x.action==='unhut'),w.said.join(' | '));assert.ok(!w.executed.some(x=>x.action==='collect'),w.said.join(' | '))
+ assert.deepEqual(w.c.killSites,[],'nothing lies at either site')
 })
 // Lab run 156, 15 October: broken off at 10 health and burning, the bot walled in and burned
 // to death. In the Nether the wait opens no port toward a shooter until it is ready: hurt,

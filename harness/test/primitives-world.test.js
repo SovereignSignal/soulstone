@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { Vec3 } from 'vec3'
 import minecraftData from 'minecraft-data'
 import { validatePlan, schema } from '../src/companion/planner.js'
-import { validatePlaceAtGoal, validateCollectGoal, validateAttackGoal, placeAt, collectDrops, attackEntity } from '../src/primitives-world.js'
+import { validatePlaceAtGoal, validateCollectGoal, validateAttackGoal, placeAt, collectDrops, attackEntity, liveSites } from '../src/primitives-world.js'
 import { EventEmitter } from 'node:events'
 import { validateTaskGoal } from '../src/task-store.js'
 import { Runner } from '../src/runner.js'
@@ -427,6 +427,19 @@ test('collect with kill positions picks up only what fell there, and gaining not
   await assert.rejects(() => collectDrops(empty, { kind: 'collect', goal }, deps()), /Collected nothing where the kill fell/)
   assert.deepEqual(validateTaskGoal('collect', { item: '', count: 64, at: [{ x: 1, y: 2, z: 3 }] }).at, [{ x: 1, y: 2, z: 3 }])
   assert.throws(() => validateCollectGoal({ item: '', count: 1, at: [{ x: 'a' }] }), /kill positions/)
+})
+
+// Lab run 166, 16 October: at a blaze bay with a hopper floor every rod was carried off within a
+// second, and the hut held for more than ten minutes over kill sites with nothing at them. A site
+// counts only while a wanted drop lies there; one the bot can observe with nothing there is gone.
+test('a kill site counts only while a wanted drop lies at it; one out of view is kept but does not count', () => {
+  const A = { at: { x: 5.5, y: 64, z: 0.5 } }, B = { at: { x: -6.5, y: 64, z: 3.5 } }, C = { at: { x: 40.5, y: 64, z: 0.5 } }
+  const bot = { entity: { position: new Vec3(0.5, 64, 0.5) }, entities: { 7: dropEntity(7, 'blaze_rod', 1, 6.5, 63.8, 1.2) },
+    blockAt: p => Math.abs(p.x) > 32 ? null : air(p) }
+  assert.deepEqual(liveSites(bot, [A, B, C], ['blaze_rod']), { keep: [A, C], live: [A] })
+  bot.entities[8] = dropEntity(8, 'rotten_flesh', 1, -6.5, 64, 3.5)
+  assert.deepEqual(liveSites(bot, [A, B, C], ['blaze_rod']).live, [A], 'a drop the request does not want is nothing')
+  assert.deepEqual(liveSites(bot, [A, B, C], []), { keep: [A, B, C], live: [] }, 'with nothing wanted nothing counts, and nothing is judged gone')
 })
 
 test('collect at kill positions with a list of items leaves everything else where it lies', async () => {

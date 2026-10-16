@@ -428,6 +428,8 @@ test('a planned shot picks up what its kill dropped and reports it; one told not
  assert.equal(left.collected,undefined);assert.ok(!told.bot.inventory.items().some(i=>i.name==='blaze_rod'))
 })
 
+// The rod a blaze kill leaves, as mineflayer has it: a site is walked to only while one lies there (lab run 166).
+const ROD=(x,y,z)=>({id:50,name:'item',type:'object',position:new Vec3(x,y,z),getDroppedItem:()=>({name:'blaze_rod',count:1})})
 test('self-defense shoots without stopping to pick up, then collects where its kills fell once the area is clear',async()=>{
  // Lab run 101: a self-defense kill left the rod on the bricks; the request
  // resumed, more fights came, and the rod was never picked up.
@@ -435,7 +437,7 @@ test('self-defense shoots without stopping to pick up, then collects where its k
  bot.world={...bot.world,getColumn:()=>({}),raycast:()=>null}
  class KillingRunner extends ShootRunner{
   command(c){super.command(c);const task=this.task
-   if(c.action==='shoot')queueMicrotask(()=>{delete bot.entities[7];task.status='completed';task.result={item:'blaze',count:1,receipt:'killed',shots:2,at:{x:0.5,y:64,z:12.5}};this.emit('event',{type:'task_finished',task})})
+   if(c.action==='shoot')queueMicrotask(()=>{delete bot.entities[7];bot.entities[50]=ROD(0.8,64,12.5);task.status='completed';task.result={item:'blaze',count:1,receipt:'killed',shots:2,at:{x:0.5,y:64,z:12.5}};this.emit('event',{type:'task_finished',task})})
    if(c.action==='collect')queueMicrotask(()=>{task.status='completed';task.result={receipt:'collected',item:'',gained:1,items:{blaze_rod:1}};this.emit('event',{type:'task_finished',task})})
   }
  }
@@ -459,7 +461,7 @@ test('a fight that wins a rod the request asks for continues the request even af
  const items=bot.inventory.items()
  class KillingRunner extends ShootRunner{
   command(c){super.command(c);const task=this.task
-   if(c.action==='shoot')queueMicrotask(()=>{delete bot.entities[7];task.status='completed';task.result={item:'blaze',count:1,receipt:'killed',shots:2,at:{x:0.5,y:64,z:12.5}};this.emit('event',{type:'task_finished',task})})
+   if(c.action==='shoot')queueMicrotask(()=>{delete bot.entities[7];bot.entities[50]=ROD(0.8,64,12.5);task.status='completed';task.result={item:'blaze',count:1,receipt:'killed',shots:2,at:{x:0.5,y:64,z:12.5}};this.emit('event',{type:'task_finished',task})})
    if(c.action==='collect')queueMicrotask(()=>{items.push({name:'blaze_rod',count:1});task.status='completed';task.result={receipt:'collected',item:'',gained:1,items:{blaze_rod:1}};this.emit('event',{type:'task_finished',task})})
   }
  }
@@ -507,6 +509,7 @@ test('kills whose fight ended in shelter are picked up when the bot comes out, w
  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-sites-')),'state.json'))
  c.requestProgress={id:'q',request:'collect 3 blaze rods',status:'interrupted',completed:[],feedback:[],goal:null}
  c.killSites=[{at:{x:1,y:64,z:9},time:Date.now()-10000},{at:{x:5,y:64,z:9},time:Date.now()-400000}]
+ bot.entities[50]=ROD(1.3,64,9.2)
  const got=await c.collectKillSites(new AbortController().signal,bot,c.requestProgress)
  const collect=r.commands.find(x=>x.action==='collect')
  assert.ok(collect,'collects');assert.deepEqual(collect.goal.at,[{x:1,y:64,z:9}],'only sites whose drops have not despawned');assert.deepEqual(collect.goal.items,['blaze_rod'])

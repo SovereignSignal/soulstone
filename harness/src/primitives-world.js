@@ -205,6 +205,22 @@ export function killDrops(bot, at, o = KILL_DROPS) {
     .filter(({ entity, stack }) => stack && (!o.items || o.items.includes(stack.name)) && entity.position && Math.hypot(entity.position.x - at.x, entity.position.z - at.z) <= o.radius && entity.position.y <= at.y + o.above && entity.position.y >= at.y - o.below)
     .map(({ entity, stack }) => ({ id: entity.id, name: stack.name, count: stack.count || 1, position: entity.position }))
 }
+// Lab run 166, 16 October: at a blaze bay with a hopper floor every rod the port's kills dropped
+// was carried off within a second, and the hut held "quiet before fetching what fell" for more
+// than ten minutes over sites with nothing at them. A kill site counts only while a wanted drop
+// is seen there, by the collector's own test. One in loaded ground within SITE_TRACK of the bot
+// with nothing there is gone; a far or unloaded one is kept, unknown, but does not count.
+export const SITE_TRACK = 16
+export function liveSites(bot, sites, wanted) {
+  const here = bot?.entity?.position, keep = [], live = []
+  for (const k of sites || []) {
+    if (!wanted?.length) { keep.push(k); continue }
+    if (killDrops(bot, k.at, { ...KILL_DROPS, items: wanted }).length) { keep.push(k); live.push(k); continue }
+    const seen = !!here && Math.hypot(k.at.x - here.x, k.at.y - here.y, k.at.z - here.z) <= SITE_TRACK && !!bot.blockAt?.(new Vec3(k.at.x, k.at.y, k.at.z).floored())
+    if (!seen) keep.push(k)
+  }
+  return { keep, live }
+}
 export async function collectKillDrops(bot, points, { check, stage, progress, movements }, options = {}) {
   const o = { ...KILL_DROPS, ...options }, started = Date.now(), before = inventoryCounts(bot)
   const near = () => { const seen = new Map(); for (const at of points) for (const d of killDrops(bot, at, o)) seen.set(d.id, d); return [...seen.values()] }

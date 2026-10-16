@@ -182,7 +182,7 @@ test('after a melee kill the bot picks up what the request is made from: string 
  const f=controllerFixture(),at={x:2,y:64,z:0}
  f.c.requestProgress={id:'bow',request:'Make a bow and 32 arrows',status:'running',feedback:[],completed:[],goal:{criteria:[{kind:'inventory',item:'bow',count:1},{kind:'inventory',item:'arrow',count:32}]}}
  f.c.resume=async()=>{}
- f.c.execute=async cmd=>{f.runner.commands.push(cmd);if(cmd.action==='defend'){delete f.bot.entities[7];f.runner.task={result:{receipt:'target_death_observed',attacks:2,at}}}else f.runner.task={result:{receipt:'collected',item:'',gained:1,items:{string:1}}}}
+ f.c.execute=async cmd=>{f.runner.commands.push(cmd);if(cmd.action==='defend'){delete f.bot.entities[7];f.bot.entities[50]={id:50,name:'item',type:'object',position:new Vec3(2.3,64,.4),getDroppedItem:()=>({name:'string',count:1})};f.runner.task={result:{receipt:'target_death_observed',attacks:2,at}}}else f.runner.task={result:{receipt:'collected',item:'',gained:1,items:{string:1}}}}
  await f.c.seekSafety(THREAT_INTERRUPTION)
  const collect=f.runner.commands.find(c=>c.action==='collect')
  assert.ok(collect,f.runner.commands.map(c=>c.action).join(' '))
