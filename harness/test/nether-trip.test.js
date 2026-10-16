@@ -296,8 +296,9 @@ test('on a trip in a one-wide tunnel the open ends are walled before any burrow;
 // the bot home with one rod. On a trip the portal is for an ended trip or a hurt bot.
 const SPRINTS=['use_portal','flee','climb','descend']
 // The tick's own retry: the episode failed, a retry is due, the danger is still there.
+// With the retries spent the work resumes and the safety record is cleared.
 async function tickRetry(r,c){
- const n=r.commands.length;c.safety.failedAt=0;r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,80))
+ const n=r.commands.length;if(c.safety)c.safety.failedAt=0;r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,80))
  return chain({commands:r.commands.slice(n)})
 }
 test('on a kitted trip whose hut and burrow both fail, the portal is not tried again: the episode fails and its retry walls in again',async()=>{
@@ -331,6 +332,33 @@ test('a trip whose cover fails retries it while strong, and once hurt below the 
  bot.health=8
  const hurt=await retry()
  assert.equal(hurt[0],'use_portal','hurt: home, '+acts()+' :: '+c.messages.map(m=>m.text).join(' | '))
+ assert.equal(bot.game.dimension,'minecraft:overworld')
+ c.cancel?.(true)
+})
+// Review of lab run 165's fix, 16 October: cover that cannot be built is not held forever.
+// The last of the bounded retries goes home; and once the retries are spent, a fall below
+// the trip's health starts a fresh episode, since by the trip's own rule it is over.
+const failing=n=>({hut:Array(n).fill('Hut incomplete: 3 of 10 blocks missing (0,65,1)'),burrow:Array(n).fill('No safe burrow here')})
+test('a kitted trip whose cover fails on every retry goes home through the portal on the last one',async()=>{
+ const {bot,r,c}=tunnelTeammate({portalNear:true,fails:failing(4)})
+ c.threatJudge={control:false,judge:async()=>null}
+ await c.seekSafety(THREAT_INTERRUPTION);assert.deepEqual(chain(r),['hut','burrow'])
+ for(const n of [1,2]){assert.deepEqual(await tickRetry(r,c),['hut','burrow'],`retry ${n}: `+chain(r).join(' '));assert.equal(c.safety.retries,n)}
+ const last=await tickRetry(r,c)
+ assert.deepEqual(last,['hut','burrow','use_portal'],'the last retry: '+chain(r).join(' ')+' :: '+c.messages.map(m=>m.text).join(' | '))
+ assert.equal(bot.game.dimension,'minecraft:overworld')
+ c.cancel?.(true)
+})
+test('with the retries spent at health 13, falling to 11 below the trip line starts a fresh episode that goes home',async()=>{
+ const {bot,r,c}=tunnelTeammate({portalNear:true,health:13,fails:{...failing(4),use_portal:['No path to the portal']}})
+ c.threatJudge={control:false,judge:async()=>null}
+ await c.seekSafety(THREAT_INTERRUPTION)
+ for(let n=0;n<3;n++)await tickRetry(r,c)
+ assert.ok(c.unsafeSignature,'the retries are spent');assert.equal(bot.game.dimension,'minecraft:the_nether','the last retry finds no way home: '+chain(r).join(' '))
+ assert.deepEqual(await tickRetry(r,c),[],'nothing changed, nothing tried')
+ bot.health=11
+ const fresh=await tickRetry(r,c)
+ assert.equal(fresh[0],'use_portal','below the trip line: home, '+chain(r).join(' ')+' :: '+c.messages.map(m=>m.text).join(' | '))
  assert.equal(bot.game.dimension,'minecraft:overworld')
  c.cancel?.(true)
 })

@@ -129,7 +129,7 @@ import { randomUUID } from 'node:crypto'
 import { validatePlan } from './planner.js'
 import {hutSite,portalRoomSpot} from '../hut.js'
 import {rangedDefenseDecision,bowCanAnswer} from '../archery.js'
-import {onTrip,tripKit,walkOnThreat,portReady,tripPickup,sitesNearHut,PICKUP,PORT_HEALTH,PORT_FOOD} from '../nether-trip.js'
+import {onTrip,tripKit,walkOnThreat,portReady,tripPickup,sitesNearHut,PICKUP,PORT_HEALTH,PORT_FOOD,TRIP_HEALTH} from '../nether-trip.js'
 import {deliveredCount,satisfiedStep,currentRequestTask} from './progress.js'
 
 const designKey=design=>JSON.stringify((design||[]).map(b=>[b.x,b.y,b.z,b.block]).sort((a,b)=>a[0]-b[0]||a[1]-b[1]||a[2]-b[2]||a[3].localeCompare(b[3])))
@@ -529,8 +529,10 @@ export class Teammate extends EventEmitter {
     let shelter='none'
     if(base){try{shelter=shelteredObservation(b,base).passed?'inside':inspectRetreatShelter(b,base,{occupants:true})?'usable':'unusable'}catch(error){shelter=String(error.message).slice(0,60)}}
     const s=survivalObservation(b)
+    // The trip's health line ends a Nether trip by its own rule, and inside one health bucket
+    // (10 to 14) crossing it changed nothing here: the spent bot neither went home nor took cover.
     return JSON.stringify({pickaxe:items.some(i=>/_pickaxe$/.test(i.name)),placeable:Math.min(placeable,16),shelter,
-      hostile:(s.nearbyThreats||[]).some(t=>t.risk==='potential_hostile'&&t.distance<=16),health:Math.round((s.health??0)/4),food:(s.carriedFood||[]).length>0})
+      hostile:(s.nearbyThreats||[]).some(t=>t.risk==='potential_hostile'&&t.distance<=16),health:Math.round((s.health??0)/4),tripHealth:(s.health??0)>=TRIP_HEALTH,food:(s.carriedFood||[]).length>0})
   }
   // One plain sentence naming each blocker and what would clear it, instead of
   // four generic lines per attempt repeated until the operator gives up.
@@ -923,8 +925,9 @@ export class Teammate extends EventEmitter {
       // way, 107 with two blaze rods). With a portal in reach, try it again instead.
       // Lab run 165, 15 October: kitted, health 20, the hut one block short and the burrow
       // refused by a dropper floor, this walk took the bot home with one rod. On a trip the
-      // portal is for an ended trip or a hurt bot (the first walk above).
-      if(!this.safety.retreat&&!trip&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})){
+      // portal is for an ended trip or a hurt bot (the first walk above), or for the last of
+      // the bounded retries: cover that cannot be built here is not held for ever.
+      if(!this.safety.retreat&&(!trip||this.safety.retries>=SAFETY_RETRIES)&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})){
         const attempt={name:'portal_home',status:'trying'};this.safety.attempts.push(attempt);this.persist()
         this.say('Nowhere to wall in here. Trying the portal again.')
         try{
