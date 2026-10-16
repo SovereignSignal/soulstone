@@ -605,3 +605,26 @@ test('a wither skeleton in the open front of a covered column is struck in place
  const hut=acts.find(x=>x.action==='hut');assert.ok(hut,acts.map(x=>x.action).join(' '));assert.ok(!hut.goal?.portalRoom)
  assert.ok(!acts.some(x=>['use_portal','flee','shoot'].includes(x.action)),acts.map(x=>x.action).join(' '))
 })
+// Blaze death, 16 October 18:44Z: three shelter-watch failures spent the alarm's retries, nothing re-armed, and the
+// bot stood a minute in an opened hut with blazes near. With the retries spent and the danger still there, the tick
+// runs the trip's last resort (the portal) once; off a trip it marks the situation unsafe so the standoff resume owns it.
+function spentWatch(opts){
+ const t=tunnelTeammate(opts)
+ t.c.threatJudge={control:false,judge:async()=>null}
+ t.c.safety={status:'failed',reason:THREAT_INTERRUPTION,startedAt:'2026-10-16T18:43:00.000Z',retries:3,failedAt:0,error:'Emergency shelter is open or exceeds the verified cavity limit',retreat:{shelterName:'hut',surface:{x:0,y:64,z:0}}};t.c.phase='blocked'
+ t.c.requestProgress.status='interrupted'
+ return t
+}
+test('after the retries on shelter-watch failures, with a hostile still pressing, a trip runs its last resort instead of standing still',async()=>{
+ const {r,c}=spentWatch({portalNear:true})
+ r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,120))
+ const acts=chain(r);c.cancel?.(true)
+ assert.ok(acts.includes('use_portal'),acts.join(' ')+' :: '+c.messages.map(m=>m.text).join(' | '))
+})
+test('off a trip a spent shelter watch never leaves "I have stopped" as the last word: the standoff resume carries on',async()=>{
+ const {r,c}=spentWatch({kit:false});let resumed=0;c.resume=async()=>{resumed++}
+ r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,30))
+ assert.ok(c.unsafeSignature,'the situation is marked unsafe')
+ r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,30))
+ assert.equal(resumed,1);c.cancel?.(true)
+})

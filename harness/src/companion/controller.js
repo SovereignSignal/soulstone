@@ -415,6 +415,14 @@ export class Teammate extends EventEmitter {
         // A failed recovery never leaves the bot standing still while the danger
         // persists: after a short pause the chain runs again, a bounded number of times.
         else if(reason&&this.safety?.status==='failed'&&this.safety.error!=='Agent died'&&!this.snapshot().dead&&(this.safety.retries||0)<SAFETY_RETRIES&&Date.now()-(this.safety.failedAt||0)>=3000){const retries=(this.safety.retries||0)+1,resumeInterrupted=this.safety.resumeRequestId===this.requestProgress?.id&&this.requestProgress?.status==='interrupted'&&canResume(this.requestProgress);this.safety=null;void this.seekSafety(reason,{retries,resumeInterrupted})}
+        // Blaze death, 16 October 18:44Z: three shelter-watch failures spent the retries and nothing re-armed, so the
+        // bot stood a minute in an opened hut with blazes near. With the retries spent and the danger still there, a
+        // trip runs its last resort once (seekSafety lastResort: the portal walk); otherwise, or after it, the
+        // situation is marked unsafe as seekSafety's own last failure does, and the standoff resume above owns it.
+        else if(reason&&this.safety?.status==='failed'&&this.safety.error!=='Agent died'&&!this.unsafeSignature&&!this.snapshot().dead&&(this.safety.retries||0)>=SAFETY_RETRIES&&Date.now()-(this.safety.failedAt||0)>=3000){
+          if(!this.safety.lastResort&&onTrip(runner.bot,canResume(this.requestProgress))){const resumeInterrupted=this.safety.resumeRequestId===this.requestProgress?.id&&this.requestProgress?.status==='interrupted'&&canResume(this.requestProgress);this.safety=null;void this.seekSafety(reason,{retries:SAFETY_RETRIES,resumeInterrupted,lastResort:true})}
+          else{this.unsafeSignature={reason,key:this.safetyBlockKey(),at:Date.now()};this.runner.log?.('safety_unsafe',{reason,error:this.safety.error});this.persist()}
+        }
       }
       if(['task_started','task_finished'].includes(e.type)&&e.task?.goal?.project){this.projects.base=structuredClone(e.task.goal.project);this.persist()}
       if(['task_started','task_finished'].includes(e.type)&&e.task?.kind==='construct'&&e.task.goal?.name){this.projects[e.task.goal.name]={construction:structuredClone(e.task.goal),progress:structuredClone(e.task.progress||null),result:structuredClone(e.task.result||null),status:e.task.status,dimension:this.projects[e.task.goal.name]?.dimension||dimensionOf(runner.bot)||'overworld'};this.persist()}
@@ -616,7 +624,7 @@ export class Teammate extends EventEmitter {
     const items=bot?.inventory?.items?.()||[]
     return {contextMode:this.threatContextMode,evidence:this.threatContextMode==='legacy'?null:recoveryContext(this,bot),weapon:meleeWeapon(bot)?.name||null,armour:wornArmour(bot),tools:items.filter(i=>/_(pickaxe|axe|shovel|sword|hoe)$/.test(i.name)).map(i=>i.name),inventory:items.reduce((m,i)=>({...m,[i.name]:(m[i.name]||0)+i.count}),{}),sheltered,shelterAvailable,baseDistance}
   }
-  async seekSafety(reason,{retries=0,resumeInterrupted=false}={}) {
+  async seekSafety(reason,{retries=0,resumeInterrupted=false,lastResort=false}={}) {
     if(this.safety&&(!URGENT.has(reason)||this.safety.reason===reason||this.safety.status==='cancelled'))return
     // A recovery that already failed, with nothing changed that could make it
     // succeed, must not run again: it produces the same messages and no safety,
@@ -627,7 +635,7 @@ export class Teammate extends EventEmitter {
     this.interrupt('Safety interruption: '+reason)
     const epoch=this.epoch,abort=this.abort=new AbortController()
     this.unsafeSignature=null
-    this.safety={status:'retreating',reason,startedAt:new Date().toISOString(),retries,resumeRequestId:interruptedActiveRequest?this.requestProgress?.id:null};this.phase='retreating'
+    this.safety={status:'retreating',reason,startedAt:new Date().toISOString(),retries,...(lastResort?{lastResort:true}:{}),resumeRequestId:interruptedActiveRequest?this.requestProgress?.id:null};this.phase='retreating'
     this.say(reason+'. '+(reason===WATER_EMERGENCY?'I am stopping work and swimming up for air.':reason===FIRE_EMERGENCY?'I am stopping work to put the fire out.':reason===PORTAL_EMERGENCY?'I am stepping out before it carries me to the Nether.':reason===THREAT_INTERRUPTION?'I am pausing work and assessing self-defense.':'I am pausing work and looking for a verified lit shelter.'))
     try{
       this.dispatch({action:'stop'})
@@ -729,7 +737,7 @@ export class Teammate extends EventEmitter {
         // Live rehearsal, 16 October (18:21Z): in a bore column on the fortress bridge the alarm defended against a
         // wither skeleton at the open front, the follow took the bot out and off the edge into the lava sea. On a
         // trip in a covered column nothing paths: a melee mob in reach is struck in place, then the column is closed.
-        const inColumn=inNether(recoveryBot)&&!!coveredColumn(recoveryBot)&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))
+        const inColumn=!lastResort&&inNether(recoveryBot)&&!!coveredColumn(recoveryBot)&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))
         if(inColumn){
           const strike=decision.engage?decision:corneredDecision(recoveryBot),mob=strike.engage?recoveryBot.entities?.[strike.target.targetId]:null
           if(mob?.position&&recoveryBot.entity.position.distanceTo(mob.position)<=2.9){
@@ -875,10 +883,10 @@ export class Teammate extends EventEmitter {
       // few steps away is walked back to and closed, when the hostiles leave time for the steps.
       // Live rehearsal, 16 October (18:18Z): in a covered bore column on a trip the portal step-back left the
       // tunnel's far end open on the bridge. There the hut closes the column where the bot stands (hut.js).
-      const tunnelled=inNether(recoveryBot)&&!portalRoom&&!!coveredColumn(recoveryBot)&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))
+      const tunnelled=!lastResort&&inNether(recoveryBot)&&!portalRoom&&!!coveredColumn(recoveryBot)&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))
       const roomSpot=inNether(recoveryBot)&&!portalRoom&&!tunnelled?portalRoomSpot(recoveryBot):null
       const stepsBack=roomSpot?recoveryBot.entity.position.distanceTo(roomSpot.offset(.5,0,.5)):0
-      const wallInFirst=(portalRoom||!!roomSpot)&&nearest>=PORTAL_ROOM_STANDOFF+Math.ceil(stepsBack)
+      const wallInFirst=!lastResort&&(portalRoom||!!roomSpot)&&nearest>=PORTAL_ROOM_STANDOFF+Math.ceil(stepsBack)
       // Why the room was or was not chosen (run 106: hurt beside the portal, it went home and the journal could not say why).
       if(inNether(recoveryBot))this.runner.log?.('nether_shelter',{reason,wallInFirst,portalRoom,site:roomSite?.ok?(roomSite.portal?'portal_room':'plain_hut'):roomSite?.reason,roomSpot:roomSpot?`${roomSpot.x},${roomSpot.y},${roomSpot.z}`:null,stepsBack:Math.round(stepsBack*10)/10,nearestMelee:Number.isFinite(nearest)?nearest:null,position:(p=>p&&{x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,z:Math.round(p.z*10)/10})(recoveryBot.entity?.position)})
       // On a trip with the kit and health, the portal is not the answer to a hostile:
@@ -887,7 +895,8 @@ export class Teammate extends EventEmitter {
       // The trip is the request's existence, not the planner's moment: a request interrupted
       // by the last alarm and waiting to resume is still the trip (lab run 144, 14 October:
       // "Resume is available", the next blaze, requestActive false, the portal walk, dead).
-      const trip=!wallInFirst&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))
+      // The trip's last resort (the tick, below its retries) is the walk home: not the trip's cover again.
+      const trip=!lastResort&&!wallInFirst&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))
       // Said either way: run 144 (14 October) went home from the spawner with the kit on and
       // the journal could not say which condition the trip mode failed.
       if(inNether(recoveryBot))this.runner.log?.('nether_trip',{reason,trip,wallInFirst,coverFirst,requestActive:!!interruptedActiveRequest,requestStatus:this.requestProgress?.status||null,health:recoveryBot.health,kit:tripKit(recoveryBot)})
