@@ -567,3 +567,10 @@ test('with a few blocks of several kinds the hut uses every one, each emptied st
  const walls=[...w.cells.values()]
  assert.deepEqual(['stone_bricks','dirt','cobblestone'].map(n=>walls.filter(x=>x===n).length),[1,1,8])
 })
+test('the hut walls in with plain ground blocks before anything built or bought: cobblestone first, the planks and iron blocks kept',async()=>{
+ const w=world({logs:0});w.inventory.push({name:'oak_planks',count:64},{name:'iron_block',count:9},{name:'cobblestone',count:10})
+ const clicks=laggingStacks(w)
+ assert.equal((await wallIn(w.bot,{kind:'hut',goal:{}},api)).receipt,'walled_in')
+ assert.deepEqual([...new Set(clicks.map(c=>c.held))],['cobblestone'])
+ assert.deepEqual(['oak_planks','iron_block'].map(n=>w.inventory.find(i=>i.name===n)?.count),[64,9])
+})

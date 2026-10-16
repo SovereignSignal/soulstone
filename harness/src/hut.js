@@ -25,8 +25,13 @@ const key=p=>`${p.x},${p.y},${p.z}`
 // behind in the cave when it opened a side to leave).
 // Lab run 165, 15 October: in slot order the hut spent a single dirt block ahead of a
 // stack of cobblestone, and the cell after it was clicked with the spent dirt. The
-// biggest stack goes first, so a ten-block hut rarely empties a stack mid-build. The burrow, fillCell and the pathfinder keep slot order.
-export const hutMaterials=bot=>scaffoldItems(bot).sort((a,b)=>b.count-a.count)
+// biggest stack goes first, so a ten-block hut rarely empties a stack mid-build.
+// Plain ground blocks go before anything built or bought, so a hut never spends logs,
+// planks or iron blocks while cobblestone is carried (review of run 165, 16 October).
+// An explicit list: isNatural (natural.js) also admits ores, glowstone and ancient debris.
+// The burrow, fillCell and the pathfinder keep slot order.
+const PLAIN=new Set(['cobblestone','cobbled_deepslate','netherrack','dirt','stone','deepslate','blackstone','basalt'])
+export const hutMaterials=bot=>scaffoldItems(bot).sort((a,b)=>PLAIN.has(b.name)-PLAIN.has(a.name)||b.count-a.count)
 // Run 84, 9 October: arriving in the Nether among hoglins, the bot beside the
 // portal could not wall in ("Cannot wall through nether_portal") and the only
 // shelter left was going home. Beside a portal the hut becomes a portal room:
