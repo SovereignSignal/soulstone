@@ -1,4 +1,5 @@
 import {fullCube} from './construction.js'
+import {claimPlaced} from './natural.js'
 
 const falling = new Set(['sand','red_sand','gravel','suspicious_sand','suspicious_gravel'])
 // Automatic movement must preserve portal material for explicit construction.
@@ -24,7 +25,8 @@ export async function fillCell(bot,cell,{check,progress=()=>{},item=scaffoldItem
   check()
   const end=Date.now()+1500;while(Date.now()<end&&!closed()){check();await new Promise(r=>setTimeout(r,50))}
  }
- return closed()
+ if(!closed())return false
+ claimPlaced(bot,cell);return true
 }
 
 // A plain full cube the bot may dig through on its own account: natural rock

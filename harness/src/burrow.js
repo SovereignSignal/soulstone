@@ -1,6 +1,7 @@
 import {bowCanAnswer} from './bow-readiness.js'
 import {observedSightline} from './visibility.js'
 import {scaffoldItems,fillCell,plainCube} from './scaffold.js'
+import {claimPlaced} from './natural.js'
 // Emergency burrow: the shelter of last resort for a spawn with no base and no
 // weapon. Seal the verified shaft as soon as three cells give headroom,
 // deepen under the cap, then watch protection and surface clearance.
@@ -123,7 +124,8 @@ async function placeCap(bot,cap,cells,{check,progress}){
   try{await settle(capped,'cap',{check,ms:1500})}catch{}
   if(capped())break
  }
- return capped()
+ if(!capped())return false
+ claimPlaced(bot,cap);return true
 }
 // The last shaft each bot dug. Lab run 57, 5 October: a mob came back while
 // the bot was digging out, and every fresh burrow started at the bottom of the
@@ -382,7 +384,7 @@ export async function climbOut(bot,surface,{check,stage,progress},{attempts=16}=
   const end=Date.now()+1500;let placed=false
   while(Date.now()<end&&!placed){
    check()
-   if(bot.entity.position.y-feet.y>=0.9){try{await bot.placeBlock(floor,new Vec3(0,1,0))}catch{}placed=solid(bot,bot.blockAt(feet))}
+   if(bot.entity.position.y-feet.y>=0.9){try{await bot.placeBlock(floor,new Vec3(0,1,0))}catch{}placed=solid(bot,bot.blockAt(feet));if(placed)claimPlaced(bot,feet)}
    if(!placed)await delay(30)
   }
   bot.setControlState('jump',false)

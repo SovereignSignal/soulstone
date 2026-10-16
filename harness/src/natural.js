@@ -27,6 +27,12 @@ import {readFileSync,writeFileSync,mkdirSync} from 'node:fs'
 import {dirname} from 'node:path'
 import {dimensionOf} from './dimension.js'
 export const OWN_LIMIT=4096,OWN_TTL_MS=2*3600*1000
+// Lab run 162, 15 October: through the version bridge placeBlock can give up on
+// the update while the block lands a moment later, inside the placing skill's
+// own settle, and the dig step then refused the bot's re-closed firing port. A
+// placement into an empty cell that has not landed when placeBlock returns is
+// held for PENDING_MS; the skill that sees the block land claims it (claimPlaced).
+export const PENDING_MS=10000
 // Keyed by dimension and cell, holding the block seen there after placing:
 // a cell counts only in its own dimension, only while it still holds that
 // block, and only for two hours (it is for scaffolding, hut walls and
@@ -36,7 +42,7 @@ export const OWN_LIMIT=4096,OWN_TTL_MS=2*3600*1000
 const cellKey=(p,dimension)=>`${dimension||'overworld'}|${p.x},${p.y},${p.z}`
 export class OwnBlocks {
  constructor(path=null){
-  this.path=path;this.cells=new Map()
+  this.path=path;this.cells=new Map();this.pending=new Map()
   try{if(path)for(const e of JSON.parse(readFileSync(path,'utf8')))if(Array.isArray(e)&&typeof e[0]==='string'&&typeof e[1]?.name==='string'&&Number.isFinite(e[1]?.at))this.cells.set(e[0],{name:e[1].name,at:e[1].at})}catch{}
  }
  has(p,name,dimension){const e=p&&name?this.cells.get(cellKey(p,dimension)):null;return !!e&&e.name===name&&Date.now()-e.at<OWN_TTL_MS}
@@ -47,10 +53,18 @@ export class OwnBlocks {
   this.save()
  }
  forget(p,dimension){if(this.cells.delete(cellKey(p,dimension)))this.save()}
+ // A placement sent into an empty cell that has not landed yet; not saved, as it lives only seconds.
+ expect(p,dimension){const now=Date.now();for(const [k,at] of this.pending)if(now-at>=PENDING_MS)this.pending.delete(k);this.pending.set(cellKey(p,dimension),now)}
+ claim(p,block,dimension){
+  const k=cellKey(p,dimension),at=this.pending.get(k)
+  if(at==null||Date.now()-at>=PENDING_MS||!block||block.boundingBox!=='block')return false
+  this.pending.delete(k);this.add(p,block.name,dimension);return true
+ }
  save(){if(this.path)try{mkdirSync(dirname(this.path),{recursive:true});writeFileSync(this.path,JSON.stringify([...this.cells]))}catch{}}
 }
-// Wraps placeBlock, which every placement goes through, the pathfinder's
-// towering included.
+// Wraps placeBlock, which the bot's own cubes go through, the pathfinder's
+// towering included. Oriented build pieces (building-blocks.js) and the use
+// action (use-item.js) place through mineflayer's lower calls and are not recorded.
 export function trackOwnPlacements(bot,own){
  bot.ownBlocks=own
  if(bot._ownPlacementsTracked||typeof bot.placeBlock!=='function')return
@@ -59,7 +73,11 @@ export function trackOwnPlacements(bot,own){
  bot.placeBlock=async(ref,face,...rest)=>{
   const p=ref?.position&&face?ref.position.plus(face):null,before=p?bot.blockAt?.(p):null,empty=!before||before.boundingBox!=='block'
   try{return await place(ref,face,...rest)}finally{
-   if(p&&empty){const b=bot.blockAt?.(p);if(b&&b.boundingBox==='block')own.add(p,b.name,dimensionOf(bot))}}}
+   if(p&&empty){const b=bot.blockAt?.(p);if(b&&b.boundingBox==='block')own.add(p,b.name,dimensionOf(bot));else own.expect(p,dimensionOf(bot))}}}
  bot.on?.('blockUpdate',(old,now)=>{const at=now?.position||old?.position,e=own.entry(at,dimensionOf(bot));if(e&&(now?.boundingBox!=='block'||now?.name!==e.name))own.forget(at,dimensionOf(bot))})
 }
+// Every skill that judges a placement by the block being there, rather than by
+// placeBlock's answer, calls this once it sees the block: the hut's walls and
+// re-closed port, fillCell's scaffolding and plugs, the burrow's cap and climb.
+export const claimPlaced=(bot,cell)=>!!bot?.ownBlocks?.claim&&!!cell&&bot.ownBlocks.claim(cell,bot.blockAt?.(cell),dimensionOf(bot))
 export const breakable=(bot,block)=>isNatural(block?.name)||!!bot?.ownBlocks?.has(block?.position,block?.name,dimensionOf(bot))

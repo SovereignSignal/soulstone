@@ -10,6 +10,7 @@ import {centreOn,DoorAwareMovements} from './navigation.js'
 import {SHOOTERS_ONLY,FIRE_BLOCKS} from './survival.js'
 import {hop} from './portal-guard.js'
 import {inNether} from './dimension.js'
+import {claimPlaced} from './natural.js'
 import pathfinding from 'mineflayer-pathfinder'
 const {goals}=pathfinding
 import {Vec3} from 'vec3'
@@ -172,7 +173,7 @@ export async function wallIn(bot,task,{check,stage,progress}){
    // until the bot jumps the server ignores its placements. One hop, then the retry.
    if(!hopped&&inNether(bot)&&!solid(bot,bot.blockAt(target))){hopped=true;await hop(bot,{check});check()}
   }
-  if(solid(bot,bot.blockAt(target)))placed++
+  if(solid(bot,bot.blockAt(target))){placed++;claimPlaced(bot,target)}
  }
  const missing=placements.filter(({target})=>!solid(bot,bot.blockAt(target))).map(({target})=>key(target))
  if(missing.length)throw new Error(`Hut incomplete: ${missing.length} of ${placements.length} blocks missing (${missing.slice(0,3).join('; ')})${centred?'':'; could not stand clear of the wall line'}`)

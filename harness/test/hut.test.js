@@ -368,3 +368,50 @@ test('a closed hut with fire in its cavity fails the shelter inspection',async()
  w.cells.set(new Vec3(10,64,10).toString(),'fire')
  assert.throws(()=>inspectEmergencyShelter(w.bot),/Emergency shelter contains fire/)
 })
+
+// Lab run 162, 15 October: the firing-port loop dug its port, shot, and closed it again
+// with the hut, re-placing the wall from carried cobblestone. Through the version bridge
+// a placement's update can come late, so placeBlock threw while the block landed inside
+// the hut's own settle. Nothing recorded it, and the planner's dig step then refused the
+// bot's own wall: "cobblestone at -41,60,-8 is not natural ground".
+import {mkdtempSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+import {OwnBlocks,trackOwnPlacements} from '../src/natural.js'
+import {refuseDigCell} from '../src/primitives.js'
+// The bridge: placeBlock gives up on the update, the block lands a moment later, and no update arrives.
+function bridged(w,own){
+ const place=w.bot.placeBlock,ee=new EventEmitter();let late=true
+ w.bot.on=ee.on.bind(ee);w.bot.emit=ee.emit.bind(ee)
+ w.bot.placeBlock=async(ref,face)=>{if(!late)return place(ref,face);setTimeout(()=>place(ref,face),80);throw new Error('Event blockUpdate did not fire within timeout of 5000ms')}
+ // mineflayer's dig announces the cell turning to air, as the server's update does.
+ const dig=w.bot.dig;w.bot.dig=async block=>{const old=w.bot.blockAt(block.position);await dig(block);w.bot.emit('blockUpdate',old,w.bot.blockAt(block.position))}
+ trackOwnPlacements(w.bot,own)
+ return {set late(v){late=v}}
+}
+test('a hut whose placements land late still records its cobblestone walls as its own to dig',async()=>{
+ const w=world({logs:0});w.inventory.push({name:'cobblestone',count:20})
+ const own=new OwnBlocks(null);bridged(w,own)
+ assert.equal((await wallIn(w.bot,{kind:'hut',goal:{}},api)).receipt,'walled_in')
+ assert.equal(w.placed.length,10)
+ for(const cell of w.placed){const p=new Vec3(...cell.slice(1,-1).split(',').map(Number))
+  assert.equal(w.bot.blockAt(p).name,'cobblestone');assert.equal(refuseDigCell(w.bot,p),null,`its own wall at ${cell}`)}
+ w.cells.set(new Vec3(14,64,10).toString(),'cobblestone')
+ assert.match(refuseDigCell(w.bot,new Vec3(14,64,10)),/cobblestone at 14,64,10 is not natural ground/,'a player\'s cobblestone stays refused')
+})
+test('a firing port closed again with cobblestone is the bot\'s own to dig, across a restart too',async()=>{
+ const w=tunnelHut();w.inventory.splice(0,w.inventory.length,{name:'cobblestone',count:21})
+ const path=join(mkdtempSync(join(tmpdir(),'mc-port-')),'own-blocks.json'),own=new OwnBlocks(path),bridge=bridged(w,own)
+ bridge.late=false;await executeSkill(w.bot,{kind:'hut',goal:{}},api)
+ blazeAt(w.bot,13.5,63,10.5)
+ const port=await unwall(w.bot,{kind:'unhut',goal:{toward:{x:13,z:10},shooter:'blaze'}},api)
+ assert.deepEqual(port.opened,[{x:11,y:65,z:10}])
+ w.bot.entities={};bridge.late=true
+ assert.equal((await wallIn(w.bot,{kind:'hut',goal:{}},api)).receipt,'walled_in')
+ const cell=new Vec3(11,65,10)
+ assert.equal(w.bot.blockAt(cell).name,'cobblestone')
+ assert.equal(refuseDigCell(w.bot,cell),null,'the re-closed port is its own')
+ assert.equal(new OwnBlocks(path).has(cell,'cobblestone','the_nether'),true,'remembered across a restart')
+ w.cells.set(new Vec3(11,64,11).toString(),'cobblestone')
+ assert.match(refuseDigCell(w.bot,new Vec3(11,64,11)),/not natural ground/,'a player\'s cobblestone in the wall line stays refused')
+})

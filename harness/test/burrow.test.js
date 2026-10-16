@@ -813,3 +813,36 @@ test('on a trip a wither skeleton below rock that a capped flood has not met in 
  for(let y=59;y<=63;y++)w.cells.set(new Vec3(22,y,10).toString(),'air')
  assert.equal(burrowClearance(w.bot,{exits,trip:true}).clear,false,'a short route out of the rock')
 })
+// Lab run 162, 15 October (the hut's port): through the version bridge placeBlock can give up
+// on the update while the block lands a moment later. The cap and the plug judge themselves by
+// the block being there, and what they placed is the bot's own to dig out again.
+import {OwnBlocks,trackOwnPlacements} from '../src/natural.js'
+import {refuseDigCell} from '../src/primitives.js'
+test('a cap and plug that land after placeBlock gave up are recorded as the bot\'s own',async()=>{
+ const w=world('stone');w.inventory.push({name:'wooden_pickaxe',count:1},{name:'cobblestone',count:30})
+ const place=w.bot.placeBlock
+ w.bot.placeBlock=async(ref,face)=>{setTimeout(()=>place(ref,face),80);throw new Error('Event blockUpdate did not fire within timeout of 5000ms')}
+ trackOwnPlacements(w.bot,new OwnBlocks(null))
+ const result=await burrowIn(w.bot,{kind:'burrow',goal:{}},api)
+ assert.equal(result.receipt,'burrowed_capped')
+ const cap=new Vec3(10,63,10),plug=new Vec3(10,62,10)
+ assert.equal(w.bot.blockAt(cap).name,'cobblestone');assert.equal(w.bot.blockAt(plug).name,'cobblestone')
+ assert.equal(refuseDigCell(w.bot,cap,{role:'head'}),null,'the cap is its own')
+ assert.equal(refuseDigCell(w.bot,plug,{role:'head'}),null,'the plug is its own')
+ w.cells.set(new Vec3(12,63,10).toString(),'cobblestone')
+ assert.match(refuseDigCell(w.bot,new Vec3(12,63,10)),/not natural ground/,'a player\'s cobblestone stays refused')
+})
+import {climbOut} from '../src/burrow.js'
+test('a climbing block that lands after placeBlock gave up is recorded as the bot\'s own',async()=>{
+ const w=world('stone');w.inventory.push({name:'cobblestone',count:5})
+ for(let y=60;y<=63;y++)w.cells.set(new Vec3(10,y,10).toString(),'air')
+ w.bot.entity.position=new Vec3(10.5,60,10.5)
+ w.bot.setControlState=(k,v)=>{if(k==='jump'&&v)w.bot.entity.position=w.bot.entity.position.offset(0,1,0)}
+ const place=w.bot.placeBlock
+ w.bot.placeBlock=async(ref,face)=>{setTimeout(()=>place(ref,face),80);throw new Error('Event blockUpdate did not fire within timeout of 5000ms')}
+ trackOwnPlacements(w.bot,new OwnBlocks(null))
+ await climbOut(w.bot,new Vec3(10,61,10),api)
+ const step=new Vec3(10,60,10)
+ assert.equal(w.bot.blockAt(step).name,'cobblestone')
+ assert.equal(refuseDigCell(w.bot,step),null,'the step it climbed on is its own')
+})

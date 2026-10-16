@@ -69,3 +69,25 @@ test('own cells: only placed into empty cells, forgotten on change, lapsing afte
  const realNow=Date.now;Date.now=()=>realNow()+2*3600*1000+1000
  try{assert.equal(breakable(bot,bot.blockAt(new Vec3(7,70,7))),false,'lapsed after two hours')}finally{Date.now=realNow}
 })
+
+// Lab run 162, 15 October: through the version bridge placeBlock can give up on the
+// update while the block lands a moment later, inside the placing skill's own settle.
+// The skill that sees it land claims it; the claim reaches no further than a cell the
+// bot sent a placement into while it was empty, and only for a few seconds.
+import {claimPlaced,PENDING_MS} from '../src/natural.js'
+test('a placement that lands late is claimed by the skill that saw it land, and nothing else is',async()=>{
+ const own=new OwnBlocks(null),world=new Map([['3,70,3','oak_planks']])
+ const bot=Object.assign(new EventEmitter(),{game:{dimension:'minecraft:overworld'},entity:{position:new Vec3(0.5,70,0.5)},
+  blockAt:p=>({name:world.get(`${p.x},${p.y},${p.z}`)??'air',position:p.clone(),boundingBox:world.has(`${p.x},${p.y},${p.z}`)?'block':'empty',diggable:true}),
+  async placeBlock(){throw new Error('Event blockUpdate did not fire within timeout of 5000ms')}})
+ trackOwnPlacements(bot,own)
+ for(const x of [3,5,6])await bot.placeBlock({position:new Vec3(x,69,3)},new Vec3(0,1,0)).catch(()=>{})
+ for(const x of [5,6,8])world.set(`${x},70,3`,'cobblestone')
+ assert.equal(breakable(bot,bot.blockAt(new Vec3(5,70,3))),false,'not its own before a skill sees it land')
+ assert.equal(claimPlaced(bot,new Vec3(5,70,3)),true)
+ assert.equal(breakable(bot,bot.blockAt(new Vec3(5,70,3))),true,'landed late: its own')
+ assert.equal(claimPlaced(bot,new Vec3(3,70,3)),false,'the planks were already there')
+ assert.equal(claimPlaced(bot,new Vec3(8,70,3)),false,'no placement was sent there')
+ const realNow=Date.now;Date.now=()=>realNow()+PENDING_MS+1
+ try{assert.equal(claimPlaced(bot,new Vec3(6,70,3)),false,'too long after the placement gave up')}finally{Date.now=realNow}
+})
