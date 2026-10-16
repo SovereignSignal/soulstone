@@ -73,33 +73,50 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
  const stop=(why,at,b)=>{reason=why;stoppedAt=xyz(at);if(b?.boundingBox==='block'&&!mayDig(bot,b))wall=`${b.name} at ${key(b.position)}`}
  // Close each of these cells that is not a full cube and not the tunnel itself, standing
  // centred first (a player is 0.6 wide). Returns why the first one it could not close stays open.
- const seal=async cells=>{
+ // Lowest first, so each plug has a face to go against: the floor, then the plug beside it in the
+ // column behind, or the one below it. In the open (cover) cobblestone goes first: a ghast's fireball
+ // breaks netherrack and dirt, not cobblestone (rehearsal map, 16 October).
+ const seal=async(cells,{cover=false}={})=>{
   let centred=false
-  for(const n of cells){
-   if(open.has(key(n))||solid(bot.blockAt(n)))continue
+  const place=async n=>{
    if(inProtectedSite(n,sites))return `${key(n)} is inside a saved project footprint; bore does not build there`
    if(!centred){centred=true;await centreOn(bot,here(),check)}
-   const item=hutMaterials(bot)[0]
+   const all=hutMaterials(bot),item=cover&&all.find(i=>i.name==='cobblestone')||all[0]
    if(!item)return `out of blocks to cover ${key(n)}`
    if(!await fillCell(bot,n,{check,progress,item}))return `could not close ${key(n)}`
-   plugged.push(xyz(n));progress(`Plugged ${key(n)}`)
+   plugged.push(xyz(n));progress(`Plugged ${key(n)}`);return null
+  }
+  for(const n of [...cells].sort((a,b)=>a.y-b.y)){
+   if(open.has(key(n))||solid(bot.blockAt(n)))continue
+   // Nothing beside it to place against (the first roof out over open ground): a helper on a
+   // block already standing goes in first, as the hut's roof hangs off its helper.
+   if(!AROUND.some(d=>solid(bot.blockAt(n.plus(d))))){
+    const helper=AROUND.slice(0,4).map(d=>n.plus(d)).find(q=>!open.has(key(q))&&!solid(bot.blockAt(q))&&solid(bot.blockAt(q.offset(0,-1,0))))
+    if(helper){const why=await place(helper);if(why)return why}
+   }
+   const why=await place(n);if(why)return why
   }
   return null
  }
  // The burrow's lid: at the foot of a shaft the cell two above the feet is open. The start column
  // itself stays open behind the bot by design: it is the tunnel's mouth and the way home.
- stage('walling');const lid=await seal([from.offset(0,2,0)])
- if(lid)throw new Error(`Boring stopped over the start: ${lid}`)
+ // Only at the foot of a shaft: on open ground there is nothing to hang a lid from.
+ if(AROUND.slice(0,4).every(d=>solid(bot.blockAt(from.offset(0,1,0).plus(d))))){
+  stage('walling');const lid=await seal([from.offset(0,2,0)])
+  if(lid)throw new Error(`Boring stopped over the start: ${lid}`)
+ }
  // Open space: a cell that is not a full cube, unless it is air closed in by rock and the tunnel.
  // That is a pocket inside the column, or a column an alarm left dug and closed: a bore issued
  // again from the column behind it carries on through it.
  const exposed=(p,own)=>{const b=bot.blockAt(p);return !b||!solid(b)&&(!AIR.has(b.name)||AROUND.some(d=>{const q=p.plus(d);return !open.has(key(q))&&!own.some(o=>o.equals(q))&&!solid(bot.blockAt(q))}))}
  const far=p=>Math.abs(goal.x-p.x)+Math.abs(goal.z-p.z)>SLIT_REACH
- const floored=p=>{const b=bot.blockAt(p.offset(0,-1,0));return solid(b)&&!hot(b)}
+ // A floor bore can stand on or lay: solid and not burning, or air to place one in.
+ const floored=p=>{const b=bot.blockAt(p.offset(0,-1,0));return !!b&&(AIR.has(b.name)||solid(b))&&!hot(b)}
  // Family rehearsal, 16 October: the arrival portal stands on a fortress bridge of nether bricks over
- // a lava sea, and bricks are never dug. Open air over a solid floor, far from the target, is walked
- // under cover instead: its walls and roof are built from carried blocks before the step, the bridge
- // is the floor (never built over a drop), and walking on bricks breaks nothing.
+ // a lava sea, and the bridge ends in a void well short of solid land. Bricks are never dug. Open air
+ // far from the target, level or going down, is crossed under cover instead: the floor laid where
+ // there is none, then walls and roof, all from carried blocks before the step. Walking on bricks
+ // breaks nothing; lava far below the floor is no matter.
  const airy=cells=>cells.every(q=>AIR.has(bot.blockAt(q)?.name))
  const limit=Math.min(goal.count,path.length)
  const named=p=>{const b=bot.blockAt(p);return !b?`unloaded ground at ${key(p)}`:AIR.has(b.name)?`open space at ${key(p)}`:`${b.name} at ${key(p)}`}
@@ -111,9 +128,10 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
   const front=next&&i+1<limit?columnCells(c,next).filter(q=>q.x!==c.x||q.z!==c.z):[]
   const skin=()=>cells.flatMap(p=>AROUND.map(d=>p.plus(d))).filter(q=>!cells.some(p=>p.equals(q))&&!front.some(p=>p.equals(q)))
   stage('digging');progress(`Boring column ${i+1}/${goal.count} at ${key(c)}`)
-  const cover=airy(cells)&&far(c)&&floored(c)
+  const cover=c.y<=prev.y&&airy(cells)&&far(c)&&floored(c)
+  if(!cover&&airy(cells)&&far(c)&&hot(bot.blockAt(c.offset(0,-1,0)))){stop(`${named(c.offset(0,-1,0)).replace(' at ',' under '+key(c)+' at ')}; bore again toward a point three blocks to the side`,c);break}
   if(cover){
-   const mob=Object.values(bot.entities||{}).find(e=>e!==bot.entity&&e?.position&&cells.some(q=>q.equals(e.position.floored())))
+   const mob=Object.values(bot.entities||{}).find(e=>e!==bot.entity&&e?.position&&[...cells,...skin()].some(q=>q.equals(e.position.floored())))
    if(mob){stop(`${mob.name||mob.type||'an entity'} in ${key(mob.position.floored())}; the covered walk waits for it`,c);break}
    const burn=skin().find(q=>hot(bot.blockAt(q)))
    if(burn){stop(`${named(burn)} beside ${key(c)}; bore again toward a point three blocks to the side`,c);break}
@@ -128,17 +146,17 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
    if(hot(b)){stop(`${named(ahead)} beyond ${key(c)}; bore again toward a point three blocks to the side`,c);break}
    const short=Math.abs(goal.x-c.x)+Math.abs(goal.z-c.z),walk=columnCells(c,next).filter(q=>q.x!==c.x||q.z!==c.z)
    // Far from the target, open air over a floor ahead is the next covered column, not a stop.
-   if(short>SLIT_REACH&&airy(walk)&&floored(next))beyond=null
-   else if(short>SLIT_REACH){stop(`${named(ahead)}${airy(walk)?' with no floor under it':''}, ${short} blocks short of the target; bore around it${columns?'':'. This wall is the first one: step to another wall or re-aim the bore'}`,c);break}
+   if(short>SLIT_REACH&&airy(walk)&&floored(next)&&next.y<=c.y)beyond=null
+   else if(short>SLIT_REACH){stop(`${named(ahead)}${airy(walk)?` over ${bot.blockAt(next.offset(0,-1,0))?.name??'unloaded ground'}`:''}, ${short} blocks short of the target; bore around it${columns?'':'. This wall is the first one: step to another wall or re-aim the bore'}`,c);break}
    else{stop(`${named(ahead)} beyond the wall at ${key(c)}`,c);await openSlit(c);break}
   }
   if(cover){
-   stage('walling');const why=await seal(skin())
+   stage('walling');const why=await seal(skin(),{cover:true})
    if(why){stop(`${why}; the covered walk stops before ${key(c)}`,c);break}
    try{await walkNear(bot,c,{dig:false,protectedSites:sites,check,stage,progress,movements,exact:true,timeoutMs:20000})}
    catch(error){check();stop(`did not step into ${key(c)}: ${error.message}`,c);break}
    for(const p of cells)open.add(key(p))
-   columns++;covered++;frontLeft=front;continue
+   columns++;covered++;frontLeft=front.length?[next.offset(0,-1,0),...front]:[];continue
   }
   // The family rule, lava beside, over or under, falling blocks overhead: refuseDigCell as dig judges them.
   let refused=null
@@ -164,10 +182,10 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
   if(reason)break
   try{await walkNear(bot,c,{dig:false,protectedSites:sites,check,stage,progress,movements,exact:true,timeoutMs:20000})}
   catch(error){check();stop(`did not step into ${key(c)}: ${error.message}`,c);break}
-  columns++;frontLeft=front
+  columns++;frontLeft=front.length?[next.offset(0,-1,0),...front]:[]
  }
  // Stopped facing an open column it meant to walk on: close it off before handing back.
- if(reason&&!slit&&frontLeft.length){const why=await seal([...frontLeft].sort((a,b)=>a.y-b.y));if(why)reason+=`; ${why} ahead`}
+ if(reason&&!slit&&frontLeft.length){const why=await seal(frontLeft,{cover:true});if(why)reason+=`; ${why} ahead`}
  // Three cells at head height in the wall column, centre first; its feet cell stays, so nothing
  // walks in or out. Gated as the hut's port is (portReady), and skipping what the port skips.
  async function openSlit(w){
