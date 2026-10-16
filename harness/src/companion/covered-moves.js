@@ -85,19 +85,31 @@ function admit(c,bot,v,sites){
  // Live rehearsal, 16 October 22:13Z: walking its own tunnel east along the fortress bridge, a hoglin on the roof
  // raised the alarm and the bot walled in at -64,61,-41, plugging the tunnel ahead; the bore on along its own sealed
  // tunnel was refused as open ground, done handed back into the same alarm, and it walled in again, never moving on.
- // The column beyond the wall may be a covered one as well as rock: air at feet and head, every skin cell a full cube
- // but the faces to the wall and to the next column (what bore would plug), nothing hot beside it, no mob in it.
+ // The column beyond the wall may be a covered one as well as rock: air in its cells, every skin cell a full cube
+ // but the faces to the columns before and after it (what bore would plug), nothing hot beside it, no mob in it.
  // hut.js coveredColumn reads one standing cell on either axis and gives null for a closed pocket, so the skin is read here.
  // A partly open column is still open ground.
- const beyond=path[1]?columnCells(path[0],path[1]).filter(q=>!cells.some(o=>o.equals(q))):[]
- const front=path[2]?columnCells(path[1],path[2]).filter(q=>q.x!==path[1].x||q.z!==path[1].z):[]
- const around=beyond.flatMap(p=>AROUND.map(d=>p.offset(...d))).filter(q=>!beyond.some(o=>o.equals(q)))
- const skin=around.filter(q=>![...cells,...front].some(o=>o.equals(q)))
- if(beyond.length&&beyond.every(p=>AIR.has(bot.blockAt(p)?.name))&&skin.every(q=>{const b=bot.blockAt(q);return !!b&&fullCube(bot.registry,b.name)})){
+ // Review of that fix, 16 October: only the first column was read, so a tunnel open two columns on (its end plug
+ // gone, a blaze on the bridge there) passed, and bore dug the hut wall into it: the 18:44Z shape. Every column the
+ // bore walks is read so, until the first all-rock column (bore digs that as rock, its skin sealed first); and the
+ // walk ends closed: the column after its last is rock, or it is the end of the path, whose last skin has no front.
+ const limit=Math.min(goal.count,path.length),cube=q=>{const b=bot.blockAt(q);return !!b&&fullCube(bot.registry,b.name)}
+ const openGround=q=>({reason:`open ground beyond the wall at ${key(cells.at(-1))} (${bot.blockAt(q)?.name??'unloaded'} at ${key(q)}); under cover I bore through rock only. Done hands the bore to the planner, guarded by the alarm`})
+ // A mob's box, not its floored feet: a 0.9-wide hoglin straddles into a column it does not stand in.
+ const inCell=(e,q)=>{const w=(e.width??.6)/2+.5,h=e.height??1.8;return Math.abs(e.position.x-(q.x+.5))<w&&Math.abs(e.position.z-(q.z+.5))<w&&e.position.y<q.y+1&&e.position.y+h>q.y}
+ const mobs=Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&living(e)&&e?.position)
+ for(let j=1,before=cells;j<path.length;j++){
+  const own=columnCells(path[j-1],path[j]).filter(q=>!before.some(o=>o.equals(q)))
+  if(own.every(cube))break
+  if(j>=limit)return {reason:`my tunnel runs on open at ${key(own.find(q=>!cube(q)))} past the bore's last column ${key(path[limit-1])}; under cover a bore ends at rock or a closed wall, so bore on to the tunnel's closed end`}
+  const gap=own.find(q=>!AIR.has(bot.blockAt(q)?.name));if(gap)return openGround(gap)
+  const after=path[j+1]?columnCells(path[j],path[j+1]).filter(q=>q.x!==path[j].x||q.z!==path[j].z):[]
+  const around=own.flatMap(p=>AROUND.map(d=>p.offset(...d))).filter(q=>!own.some(o=>o.equals(q)))
+  const hole=around.find(q=>![...before,...after].some(o=>o.equals(q))&&!cube(q));if(hole)return openGround(hole)
   const burn=around.find(q=>hot(bot.blockAt(q)));if(burn)return {reason:`${bot.blockAt(burn)?.name??'unloaded ground'} beside my tunnel at ${key(burn)}; under cover I bore through rock only`}
-  const mob=Object.values(bot.entities||{}).find(e=>e!==bot.entity&&living(e)&&e?.position&&beyond.some(q=>q.equals(e.position.floored())))
-  if(mob)return {reason:`${mob.name||mob.type||'an entity'} in ${key(mob.position.floored())} beyond the wall at ${key(cells.at(-1))}; under cover I bore on once it leaves my tunnel`}
- }else for(const p of beyond){const b=bot.blockAt(p);if(!b||!fullCube(bot.registry,b.name))return {reason:`open ground beyond the wall at ${key(cells.at(-1))} (${b?.name??'unloaded'} at ${key(p)}); under cover I bore through rock only. Done hands the bore to the planner, guarded by the alarm`}}
+  for(const q of [...own].sort((a,b)=>a.y-b.y)){const mob=mobs.find(e=>inCell(e,q));if(mob)return {reason:`${mob.name||mob.type||'an entity'} in ${key(q)} beyond the wall at ${key(cells.at(-1))}; under cover I bore on once it leaves my tunnel`}}
+  before=columnCells(path[j-1],path[j])
+ }
  return {command:{action:'bore',goal,timeoutMs:BORE_TIMEOUT_MS}}
 }
 // The request goes back to the planner from inside the cover, as the departed branch does, and
