@@ -19,12 +19,18 @@ import {portReady} from './nether-trip.js'
 import {FIRE_BLOCKS} from './survival.js'
 import {centreOn} from './navigation.js'
 import {inNether} from './dimension.js'
+import {shotLine,aimPoint} from './visibility.js'
 export const BORE_MAX=64,BORE_PLUGS=8,BORE_TIMEOUT_MS=600000
 // Live canary on the test world, 16 October (4e95192): boring from a closed portal room toward a
 // target 27 blocks off, open space behind the room's wall drew a slit from the safe room into the
 // open hub. A slit opens only within this many blocks of the target (the spawner room is its
 // neighbourhood); open space farther off stops the bore with the wall left whole.
 export const SLIT_REACH=6
+// Live rehearsal, 16 October 22:30Z: the slit at -36..-34,62,-10 looked over the spawner room's blazes at y 55, which sat
+// under the slit wall's own column. From the cell behind a one-high slit the eye looks down at most (eye height - 1) / 1.5,
+// about 0.41 blocks a block, and up 0.25. A slit cell opens only with a line through it to a blaze within the bow's
+// radius (archery.js SHOOT); with none the wall stays whole and the reason says how low to bore to see the nearest.
+const SLIT_SIGHT=32
 const AROUND=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0],[0,-1,0]].map(([x,y,z])=>new Vec3(x,y,z))
 const xyz=p=>({x:p.x,y:p.y,z:p.z})
 // Live, 16 October: a dropped item stopped the covered walk ("item in -81,61,-41"). Only players and
@@ -218,9 +224,23 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
   const inside=[feet,feet.offset(0,1,0)].map(key)
   const fit=p=>{const b=bot.blockAt(p);return !!b&&(AIR.has(b.name)||mayDig(bot,b))&&![p,...AROUND.map(d=>p.plus(d))].some(q=>!inside.includes(key(q))&&hot(bot.blockAt(q)))}
   if(!fit(s0)){const b=bot.blockAt(s0);reason=`no slit at ${key(s0)}: ${b&&!AIR.has(b.name)&&!mayDig(bot,b)?`${b.name} is not natural ground`:'lava, fire or unloaded ground touches it'}`;if(b&&!AIR.has(b.name)&&!mayDig(bot,b))wall=`${b.name} at ${key(s0)}`;return}
+  const eyeH=bot.entity.eyeHeight??1.62,eye=bot.entity.position.offset(0,eyeH,0),cells=[s0,s0.minus(lateral),s0.plus(lateral)]
+  const blazes=Object.values(bot.entities||{}).filter(e=>e?.name==='blaze'&&e.position&&e.position.distanceTo(bot.entity.position)<=SLIT_SIGHT).sort((a,b)=>a.position.distanceTo(bot.entity.position)-b.position.distanceTo(bot.entity.position))
+  const clear=(b,open)=>shotLine(bot,eye,b,{open}).status==='clear'
+  // Every line into a side cell passes the centre first, so the centre is judged with every fitting cell open.
+  if(!blazes.some(b=>clear(b,cells.filter(fit)))){
+   const b=blazes[0]
+   if(!b){reason=`slit sees no blaze: none within ${SLIT_SIGHT} blocks`;return}
+   const d=Math.hypot(b.position.x-eye.x,b.position.z-eye.z),slope=(eyeH-1)/1.5,aim=aimPoint(b,bot.registry).y,low=eye.y-slope*d
+   reason=aim<low?`slit sees no blaze: the nearest is ${Math.round((low-aim)*10)/10} below the window at ${Math.round(d)} blocks; bore to y <= ${Math.floor(aim+slope*d-eyeH)}`
+    :`slit sees no blaze: the nearest, ${Math.round(d)} blocks off, has ${shotLine(bot,eye,b,{open:cells.filter(fit)}).block||'a block'} in the way`
+   return
+  }
   stage('digging');slit=[]
-  for(const p of [s0,s0.minus(lateral),s0.plus(lateral)]){
+  for(const p of cells){
    check();if(!fit(p)){progress(`Slit cell ${key(p)} stays shut`);continue}
+   // A side cell is cut only when it gives some blaze a line the centre alone does not; one already open stays listed.
+   if(p!==s0&&!AIR.has(bot.blockAt(p)?.name)&&!blazes.some(b=>clear(b,[s0,p])&&!clear(b,[s0]))){progress(`Slit cell ${key(p)} stays shut: no blaze in line through it`);continue}
    try{await digOne(bot,bot.blockAt(p),check);slit.push(xyz(p))}
    catch(error){if(error?.code!=='DIG_REFUSED')throw error;progress(`Slit cell ${key(p)} stays shut: ${error.message}`)}
    if(!slit.length){reason=`no slit at ${key(s0)}: the centre would not open`;slit=null;return}

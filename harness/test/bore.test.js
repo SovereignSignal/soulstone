@@ -14,7 +14,8 @@ const registry=minecraftData('1.21.4')
 const k=(x,y,z)=>new Vec3(x,y,z).toString()
 // A Nether of netherrack with the bot standing at 0,64,0 in a two-high cell. fills: [x,y,z,name].
 // The log keeps digs, placements and steps in order; a dig drops the block it broke unless drops is false.
-function world({fills=[],items,health=20,food=20,drops=true,ground=()=>'netherrack'}={}){
+// blazes: [x,y,z] feet positions; the slit opens only toward a blaze in line (live rehearsal, 16 October 22:30Z).
+function world({fills=[],items,health=20,food=20,drops=true,ground=()=>'netherrack',blazes=[]}={}){
  const cells=new Map([[k(0,64,0),'air'],[k(0,65,0),'air'],...fills.map(([x,y,z,n])=>[k(x,y,z),n])]),log=[],hand={name:null}
  const inventory=items??[{name:'iron_pickaxe',count:1,type:registry.itemsByName.iron_pickaxe.id},{name:'cobblestone',count:32}]
  const blockAt=p=>{const at=p.floored(),name=cells.get(at.toString())??ground(at),e=registry.blocksByName[name];return {name,position:at,boundingBox:e.boundingBox,diggable:e.diggable,harvestTools:e.harvestTools}}
@@ -32,7 +33,8 @@ function world({fills=[],items,health=20,food=20,drops=true,ground=()=>'netherra
    const slot=inventory.find(i=>i.name===hand.name);if(!slot)throw new Error('must be holding an item to place')
    cells.set(p.toString(),slot.name);log.push(['place',p.toString(),slot.name,feet.toString(),ref.position.toString()]);if(--slot.count<=0)inventory.splice(inventory.indexOf(slot),1)},
   async dig(b){log.push(['dig',b.position.toString()]);if(drops){const s=inventory.find(i=>i.name===b.name);s?s.count++:inventory.push({name:b.name,count:1})}cells.set(b.position.toString(),'air')}}
- bot.world={getBlock:blockAt}
+ bot.world={getBlock:blockAt,raycast:(from,dir,range)=>{for(let d=0;d<=range;d+=.01){const b=blockAt(from.plus(dir.scaled(d)));if(b.boundingBox==='block')return b}return null}}
+ blazes.forEach((p,i)=>{bot.entities[100+i]={id:100+i,name:'blaze',type:'hostile',height:1.8,position:new Vec3(...p)}})
  trackOwnPlacements(bot,new OwnBlocks(null))
  const at=()=>bot.entity.position.floored()
  const of=kind=>log.filter(e=>e[0]===kind).map(e=>e[1])
@@ -43,6 +45,8 @@ const api={check(){},stage(){},progress(){},persist(){},movements:null}
 const bore=(w,goal,ctx=api)=>executeSkill(w.bot,{kind:'bore',goal:{x:10,y:64,z:0,count:10,slit:true,...goal}},ctx)
 // A room of air beyond the rock: x 5 to 8, y 64 to 66, z -2 to 2.
 const ROOM=[];for(let x=5;x<=8;x++)for(let y=64;y<=66;y++)for(let z=-2;z<=2;z++)ROOM.push([x,y,z,'air'])
+// Blazes in that room level with a slit at x 4: one straight ahead and one in line through each side cell.
+const BLAZES=[[7.5,64.5,.5],[7.5,64.5,-1.5],[7.5,64.5,2.5]]
 
 test('bore validates its goal and step and is registered as a skill, a label and a brief line',()=>{
  assert.deepEqual(validateBoreGoal({x:1,y:2,z:3,count:BORE_MAX}),{x:1,y:2,z:3,count:64})
@@ -140,7 +144,7 @@ test('nether bricks, a child\'s planks and a saved footprint ahead stop the bore
 })
 // Lab run 166, 16 October: the bay at -42,59,-8 with its slit at x -41, y 60, z -9 to -7.
 test('one column short of open space bore keeps the last wall and opens a three-cell slit in it, centre first',async()=>{
- const w=world({fills:ROOM})
+ const w=world({fills:ROOM,blazes:BLAZES})
  const r=await bore(w,{})
  assert.equal(r.columns,3);assert.deepEqual(w.at(),new Vec3(3,64,0));assert.deepEqual(r.stoppedAt,{x:4,y:64,z:0})
  assert.deepEqual(r.slit,[{x:4,y:65,z:0},{x:4,y:65,z:-1},{x:4,y:65,z:1}]);assert.deepEqual(w.of('dig').slice(-3),[k(4,65,0),k(4,65,-1),k(4,65,1)])
@@ -150,15 +154,15 @@ test('one column short of open space bore keeps the last wall and opens a three-
  const site=hutSite(w.bot);assert.equal(site.ok,true,site.reason);assert.equal(site.needed,3)
 })
 test('the slit skips a side touching lava or fire, and a centre of nether bricks gives no slit',async()=>{
- const lava=world({fills:[...ROOM,[4,65,-2,'lava']]});const a=await bore(lava,{})
+ const lava=world({fills:[...ROOM,[4,65,-2,'lava']],blazes:BLAZES});const a=await bore(lava,{})
  assert.deepEqual(a.slit,[{x:4,y:65,z:0},{x:4,y:65,z:1}])
- const fire=world({fills:[...ROOM,[4,66,1,'fire']]});const b=await bore(fire,{})
+ const fire=world({fills:[...ROOM,[4,66,1,'fire']],blazes:BLAZES});const b=await bore(fire,{})
  assert.deepEqual(b.slit,[{x:4,y:65,z:0},{x:4,y:65,z:-1}])
- const bricks=world({fills:[...ROOM,[4,65,0,'nether_bricks']]});const c=await bore(bricks,{})
+ const bricks=world({fills:[...ROOM,[4,65,0,'nether_bricks']],blazes:BLAZES});const c=await bore(bricks,{})
  assert.equal(c.slit,null);assert.equal(c.wall,'nether_bricks at 4,65,0');assert.match(c.reason,/nether_bricks/);assert.equal(c.columns,3)
 })
 test('hurt at the wall bore waits with no slit, and a second bore from the same cell opens it once healed',async()=>{
- const w=world({fills:ROOM,health:10})
+ const w=world({fills:ROOM,health:10,blazes:BLAZES})
  const r=await bore(w,{})
  assert.equal(r.columns,3);assert.equal(r.slit,null);assert.match(r.reason,/health 10 of 16/);assert.ok(!w.of('dig').some(c=>c.startsWith('(4,')))
  w.bot.health=20
@@ -191,14 +195,15 @@ test('a cancel after the dig of column 4 leaves the bot in column 3 with column 
 test('a column open onto a cavern stops the bore before it; a pocket closed inside the column does not',async()=>{
  await assert.rejects(bore(world({fills:[[1,65,0,'air'],[1,64,0,'air'],[1,63,0,'lava'],[1,65,1,'air'],[1,64,1,'air'],[1,64,2,'air']]}),{}),/1,6[345],0/)
  const pocket=world({fills:[[2,65,0,'cave_air']]});assert.equal((await bore(pocket,{count:3})).columns,3)
- const w=world({fills:[[3,64,0,'air'],[3,65,0,'air'],[4,64,0,'air']]});const r=await bore(w,{x:6})
- assert.equal(r.columns,1);assert.equal(r.slit.length,3);assert.deepEqual(r.beyond,{x:3,y:64,z:0,name:'air'})
+ // A blaze in the cavern's mouth: only the centre has a line to it; the side cells look into rock and stay shut.
+ const w=world({fills:[[3,64,0,'air'],[3,65,0,'air'],[4,64,0,'air']],blazes:[[3.5,64.5,.5]]});const r=await bore(w,{x:6})
+ assert.equal(r.columns,1);assert.deepEqual(r.slit,[{x:2,y:65,z:0}]);assert.deepEqual(r.beyond,{x:3,y:64,z:0,name:'air'})
 })
 // Review of 9d2770d, 16 October: magma, receipts with nothing done, the Overworld, footprints, a raised wall, the clock.
 test('a magma floor under the next column stops the bore before it, and magma beside a slit cell keeps that cell shut',async()=>{
  const w=world({fills:[[2,63,0,'magma_block']]});const r=await bore(w,{})
  assert.equal(r.columns,1);assert.match(r.reason,/magma_block under it at 2,63,0/);assert.ok(!w.of('dig').some(c=>c.startsWith('(2,')))
- const s=world({fills:[...ROOM,[4,66,-1,'magma_block']]});const a=await bore(s,{})
+ const s=world({fills:[...ROOM,[4,66,-1,'magma_block']],blazes:BLAZES});const a=await bore(s,{})
  assert.deepEqual(a.slit,[{x:4,y:65,z:0},{x:4,y:65,z:1}])
 })
 test('plugs alone are no progress: zero columns and no slit fail with the reason and name the plugs',async()=>{
@@ -231,7 +236,7 @@ test('open space beyond a wall far from the target stops the bore with the wall 
  assert.deepEqual(far.of('dig'),[]);for(const c of [k(0,64,-1),k(0,65,-1),k(-1,65,-1),k(1,65,-1)])assert.equal(far.cells.get(c),undefined,`${c} still netherrack`)
  const later=world({fills:[...ROOM,[5,63,0,'lava']]});const r=await bore(later,{x:20})
  assert.equal(r.columns,3);assert.equal(r.slit,null);assert.match(r.reason,/open space at 5,64,0 over lava, 16 blocks short of the target; bore around it/);assert.equal(later.cells.get(k(4,65,0)),undefined)
- const near=world({fills:hub});const n=await executeSkill(near.bot,{kind:'bore',goal:{x:0,y:64,z:-6,count:6,slit:true}},api)
+ const near=world({fills:hub,blazes:[[.5,64.5,-4.5],[-1.5,64.5,-3.5],[2.5,64.5,-3.5]]});const n=await executeSkill(near.bot,{kind:'bore',goal:{x:0,y:64,z:-6,count:6,slit:true}},api)
  assert.equal(n.columns,0);assert.deepEqual(n.slit,[{x:0,y:65,z:-1},{x:-1,y:65,z:-1},{x:1,y:65,z:-1}])
 })
 // Mapped on the rehearsal copy, 16 October: a bridge three wide, its floor of bricks at the
@@ -283,7 +288,7 @@ test('a bridge that meets a cliff face goes on as a tunnel into the rock',async(
 })
 const BRIDGE=[];for(let x=1;x<=5;x++){BRIDGE.push([x,63,0,'nether_bricks'],[x,63,1,'lava'],[x,63,-1,'lava'],[x,66,0,'air']);for(const y of [64,65])for(const z of [-1,0,1])BRIDGE.push([x,y,z,'air'])}
 test('near the target open ground over a floor still ends the bore at the last wall with the slit',async()=>{
- const w=world({fills:BRIDGE.filter(([x])=>x>=3),items:cobble(64)});const r=await bore(w,{x:6,count:6})
+ const w=world({fills:BRIDGE.filter(([x])=>x>=3),items:cobble(64),blazes:[[5.5,64.5,.5],[5,64.5,-.9],[5,64.5,1.9]]});const r=await bore(w,{x:6,count:6})
  assert.equal(r.covered,0);assert.equal(r.columns,1);assert.equal(r.slit.length,3)
 })
 // Live, 16 October: walled in on the bridge in its own cobblestone hut, the bot bored east and the
@@ -329,7 +334,8 @@ test('a stop on open space never points the planner at nether bricks',async()=>{
 test('near a waypoint open floored space is covered with no slit; only a bore that asks for the slit opens one',async()=>{
  const w=liveBridge(true);const r=await executeSkill(w.bot,{kind:'bore',goal:{x:7,y:64,z:0,count:7}},api)
  assert.equal(r.slit,null);assert.equal(r.covered,6)
- const s=liveBridge(true);const t=await executeSkill(s.bot,{kind:'bore',goal:{x:7,y:64,z:0,count:7,slit:true}},api)
+ const s=liveBridge(true);s.bot.entities[100]={id:100,name:'blaze',type:'hostile',height:1.8,position:new Vec3(4.5,64.5,.5)}
+ const t=await executeSkill(s.bot,{kind:'bore',goal:{x:7,y:64,z:0,count:7,slit:true}},api)
  assert.equal(t.columns,0);assert.deepEqual(t.slit,[{x:1,y:65,z:0},{x:1,y:65,z:-1},{x:1,y:65,z:1}])
 })
 // Live, 16 October 22:16Z: walking its own tunnel, bore stopped at the bot's own cobblestone plug ("not natural
@@ -349,4 +355,21 @@ test('on the live bridge, own plugs older than OWN_TTL_MS are dug and the covere
   const r=await executeSkill(w.bot,{kind:'bore',goal:{x:7,y:64,z:0,count:7}},api)
   assert.equal(r.reason,null,`head plug ${head}: ${r.reason}`);assert.equal(r.columns,7);assert.ok(w.of('dig').includes(k(1,64,0)))
  }
+})
+
+// Live rehearsal, 16 October 22:30Z: the slit at -36..-34,62,-10 looked out over the spawner room's blazes at y 55, which
+// sat under the slit wall's own column: from the cell behind a one-high slit the eye looks down at most 0.41 blocks a
+// block. The slit opens only the cells with a line to a blaze; with none it stays shut and says how low to bore.
+test('the slit opens only the cells with a line to a blaze, and with none says how far down to bore',async()=>{
+ const deep=[];for(let x=5;x<=12;x++)for(let y=56;y<=66;y++)for(let z=-2;z<=2;z++)deep.push([x,y,z,'air'])
+ // Six below the bot's feet, seven blocks from its eye: under the window.
+ const low=world({fills:deep,blazes:[[10.5,58,.5]]});const r=await bore(low,{})
+ assert.equal(r.columns,3);assert.equal(r.slit,null);assert.ok(!low.of('dig').some(c=>c.startsWith('(4,')),'nothing cut')
+ assert.match(r.reason,/slit sees no blaze: the nearest is 3.8 below the window at 7 blocks; bore to y <= 60/)
+ // Level with the slit straight ahead: the centre opens, and only the centre.
+ const ahead=world({fills:ROOM,blazes:[[7.5,64.5,.5]]});const a=await bore(ahead,{})
+ assert.deepEqual(a.slit,[{x:4,y:65,z:0}]);assert.deepEqual(ahead.of('dig').filter(c=>c.startsWith('(4,')),[k(4,65,0)])
+ // No blaze loaded: no slit, and the reason says so.
+ const empty=world({fills:ROOM});const e=await bore(empty,{})
+ assert.equal(e.slit,null);assert.match(e.reason,/slit sees no blaze: none within 32 blocks/)
 })
