@@ -1319,7 +1319,7 @@ export class Teammate extends EventEmitter {
       // A shooter the bow answers is shot through a firing port while the shelter is
       // still held, so no alarm fires, and the hut closes the port after. A port with no
       // shot is not opened again; PORT_ATTEMPTS openings without a kill and it moves away.
-      let result,confront,relocate,attempts=0,sealedLap=0
+      let result,confront,relocate,attempts=0,sealedLap=0,portShort=false
       const tried=[]
       for(;;){
         for(let watch=1;;watch++){
@@ -1359,7 +1359,9 @@ export class Teammate extends EventEmitter {
           if(!site.ok||carried<needed){
             const why=site.ok?`${carried} carried and ${needed} needed`:site.reason
             this.runner.log?.('port_held',{shooter:confront.name,carried,needed,reason:why})
-            this.say(`Not enough blocks to close the port again (${why}). Keeping the hut shut against the ${name}.`);return
+            // Held, not ended: the watch goes on judging the hut, as when leaving is refused (leave() above).
+            if(!portShort){portShort=true;this.say(`Not enough blocks to close the port again (${why}). Keeping the hut shut against the ${name}.`)}
+            attempts=0;tried.length=0;lingerSince=null;continue
           }
         }
         this.say(`A ${name} has lingered ${confront.distance} blocks away. Opening a firing port toward it.`)
