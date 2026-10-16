@@ -61,6 +61,21 @@ export function hutSite(bot){
  if(!p||!bot.entity.onGround)return {ok:false,reason:'Not standing on solid ground'}
  return hutSiteAt(bot,p.floored())
 }
+// Live rehearsal, 16 October (18:18Z): an alarm in the fifth bore column along the fortress bridge stepped
+// back to the portal to wall in, leaving the tunnel's far end open on the bridge. A bot standing in a
+// covered column (floor, roof and both sides at feet and head full cubes, only its front and back open)
+// walls in where it stands. The open cells it would close, or null.
+export function coveredColumn(bot){
+ const p=bot.entity?.position;if(!p)return null
+ const feet=p.floored(),at=c=>bot.blockAt(feet.offset(...c))
+ if(!solid(bot,at([0,-1,0]))||!solid(bot,at([0,2,0])))return null
+ for(const [ax,az] of [[1,0],[0,1]]){
+  if(![1,-1].every(s=>[0,1].every(y=>solid(bot,at([s*az,y,s*ax])))))continue
+  const open=[1,-1].flatMap(s=>[0,1].map(y=>feet.offset(s*ax,y,s*az))).filter(c=>!solid(bot,bot.blockAt(c)))
+  if(open.length)return {feet,open}
+ }
+ return null
+}
 function hutSiteAt(bot,feet){
  if(!solid(bot,bot.blockAt(feet.offset(0,-1,0))))return {ok:false,reason:'No solid floor under the bot'}
  const room=portalRoom(bot,feet)

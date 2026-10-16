@@ -181,7 +181,7 @@ import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { dirname,join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { validatePlan } from './planner.js'
-import {hutSite,portalRoomSpot,WALLS_NOT_MINE} from '../hut.js'
+import {hutSite,portalRoomSpot,coveredColumn,WALLS_NOT_MINE} from '../hut.js'
 import {rangedDefenseDecision,bowCanAnswer} from '../archery.js'
 import {onTrip,tripKit,walkOnThreat,portReady,tripPickup,sitesNearHut,PICKUP,PORT_HEALTH,PORT_FOOD,TRIP_HEALTH} from '../nether-trip.js'
 import {deliveredCount,satisfiedStep,currentRequestTask} from './progress.js'
@@ -858,7 +858,10 @@ export class Teammate extends EventEmitter {
       // Run 101 (10 October): two blocks out of its opened portal room to shoot, hoglins
       // at ten blocks sent the bot home, leaving the blaze and its rod. A portal room a
       // few steps away is walked back to and closed, when the hostiles leave time for the steps.
-      const roomSpot=inNether(recoveryBot)&&!portalRoom?portalRoomSpot(recoveryBot):null
+      // Live rehearsal, 16 October (18:18Z): in a covered bore column on a trip the portal step-back left the
+      // tunnel's far end open on the bridge. There the hut closes the column where the bot stands (hut.js).
+      const tunnelled=inNether(recoveryBot)&&!portalRoom&&!!coveredColumn(recoveryBot)&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))
+      const roomSpot=inNether(recoveryBot)&&!portalRoom&&!tunnelled?portalRoomSpot(recoveryBot):null
       const stepsBack=roomSpot?recoveryBot.entity.position.distanceTo(roomSpot.offset(.5,0,.5)):0
       const wallInFirst=(portalRoom||!!roomSpot)&&nearest>=PORTAL_ROOM_STANDOFF+Math.ceil(stepsBack)
       // Why the room was or was not chosen (run 106: hurt beside the portal, it went home and the journal could not say why).
@@ -1137,13 +1140,16 @@ export class Teammate extends EventEmitter {
     }
     const burrow=()=>shelter('burrow','No verified shelter is reachable. I am digging in to wait out the danger.',{})
     // In the Nether a portal room a step away beats a plain hut on a bridge (run 107).
-    const hut=said=>{const bot=this.runner.bot,roomGoal=inNether(bot)&&((()=>{const site=hutSite(bot);return site.ok&&site.portal})()||portalRoomSpot(bot))?{portalRoom:true}:{};return shelter('hut',said,roomGoal)}
+    // A covered bore column on a trip is closed where it stands, never by the walk back to a portal room
+    // (live rehearsal, 16 October, 18:18Z); its front, back and the roof helper are the hut's own cells.
+    const column=trip&&inNether(this.runner.bot)&&!!coveredColumn(this.runner.bot)
+    const hut=said=>{const bot=this.runner.bot,roomGoal=!column&&inNether(bot)&&((()=>{const site=hutSite(bot);return site.ok&&site.portal})()||portalRoomSpot(bot))?{portalRoom:true}:{};return shelter('hut',said,roomGoal)}
     // Lab run 150, 15 October: kitted in a one-wide covered netherrack tunnel, the burrow came
     // first, since netherrack and a pickaxe always dig, and a burrow has no port: leaving it was
     // a climb out under four blazes. Such a tunnel is a hut already but for its two open ends,
     // four blocks, so on a trip under rock those are walled first and the burrow is the fallback.
     const site=trip&&roofed(this.runner.bot)?hutSite(this.runner.bot):null
-    const order=site?.ok&&site.needed<=4?[()=>hut('Rock on every side but two. I am walling in the open ends with carried blocks.'),burrow]
+    const order=column||site?.ok&&site.needed<=4?[()=>hut('Rock on every side but two. I am walling in the open ends with carried blocks.'),burrow]
       // Ground that cannot be dug: wall in with carried blocks instead.
       :[burrow,()=>hut('The ground here cannot be dug. I am walling myself in with carried blocks.')]
     for(const step of order)if(!this.safety.retreat&&!await step())return false

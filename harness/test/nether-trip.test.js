@@ -557,3 +557,40 @@ test('a retry after the hut failed, no blocks for one, or the Overworld still sh
   assert.equal(after.acts[0],'shoot',name+': '+after.acts.join(' ')+' :: '+after.said.join(' | '))
  }
 })
+// Live rehearsal, 16 October (18:18Z): five bore columns east along the fortress bridge, an alarm at the
+// fifth, and the chain stepped back to the portal and walled in there, leaving the tunnel's far end open
+// on the bridge; the covered phase then bored the portal hut into the tunnel and the shelter failed open.
+// Standing in a covered column (floor, both sides and roof full cubes), the bot walls in where it stands.
+import {inspectEmergencyShelter} from '../src/shelter-occupants.js'
+import {COVERED_CELLS} from '../src/companion/continuity.js'
+import {coveredColumn} from '../src/hut.js'
+function bridgeTunnel(){
+ const bot=netherBot({}),r=new EventEmitter(),placed=new Set()
+ bot.entity.position=new Vec3(0.5,64,3.5)
+ // Portal in the z=-1 plane as netherBot; a tunnel at z 3 from x -4 to 0 under a roof, closed at x -5, open east onto the bridge.
+ const tunnel=p=>p.z===3&&p.x>=-4&&p.x<=0&&(p.y===64||p.y===65)
+ const rock=p=>(p.z===2||p.z===4)&&p.x>=-5&&p.x<=0&&p.y>=64&&p.y<=66||p.z===3&&p.x>=-5&&p.x<=0&&p.y===66||p.x===-5&&p.z===3&&p.y>=64&&p.y<=65
+ bot.blockAt=p=>{const frame=p.z===-1&&p.x>=-1&&p.x<=2&&p.y>=63&&p.y<=67
+  const name=placed.has(`${p.x},${p.y},${p.z}`)?'cobblestone':frame?((p.x===-1||p.x===2||p.y===63||p.y===67)?'obsidian':'nether_portal'):p.y<=63?'nether_bricks':tunnel(p)?'air':rock(p)?'netherrack':'air'
+  return {name,position:p.clone(),boundingBox:registry.blocksByName[name].boundingBox,getProperties:()=>({})}}
+ bot.entities={8:{id:8,uuid:'10000000-0000-0000-0000-000000000008',type:'mob',name:'blaze',height:1.8,position:new Vec3(9.5,64,3.5),velocity:new Vec3(0,0,0)}}
+ Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Sov',connectionId:'20000000-0000-0000-0000-000000000006',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{}})
+ r.command=c=>{r.commands.push(c);if(c.action!=='stop')r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal}}
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-trip-tunnel-')),'state.json'));c.threatJudge={control:false,judge:async()=>null}
+ c.requestProgress={id:'trip',request:'rods',status:'running',feedback:[]}
+ return {bot,r,c,placed}
+}
+test('on a trip in a covered bore column, the alarm walls in where the bot stands, not back at the portal',async()=>{
+ const {bot,r,c,placed}=bridgeTunnel()
+ assert.deepEqual(coveredColumn(bot).open.map(p=>`${p.x},${p.y},${p.z}`).sort(),['-1,64,3','-1,65,3','1,64,3','1,65,3'])
+ void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,80))
+ const acts=r.commands.filter(x=>x.action!=='stop');c.cancel?.(true)
+ assert.equal(acts[0]?.action,'hut',acts.map(x=>x.action).join(' '));assert.ok(!acts[0].goal?.portalRoom,JSON.stringify(acts[0].goal))
+ assert.ok(!acts.some(x=>['use_portal','shoot'].includes(x.action)),acts.map(x=>x.action).join(' '))
+ // The hut's own placement around that cell closes it: front, back and the roof helper.
+ for(const k of ['1,64,3','1,65,3','-1,64,3','-1,65,3','1,66,3'])placed.add(k)
+ assert.equal(inspectEmergencyShelter(bot,{limit:COVERED_CELLS}).verified,true)
+})
+test('off a covered column, the portal step-back is unchanged',()=>{
+ const bot=netherBot({});assert.equal(coveredColumn(bot),null)
+})
