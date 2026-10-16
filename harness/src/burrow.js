@@ -403,8 +403,9 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
   // away is away from it too.
   // 16 October: nor does a hidden lone shooter when waiting cannot heal (hungry, no food carried).
   // The hold then heals nothing and its watches end on a Resume the family world cannot send, so
-  // the patience runs and the bot leaves, no lower than the relocation floor.
-  const closest=near.filter(t=>!(daylight&&t.name==='phantom')&&!(unseen&&!canHeal)).reduce((m,t)=>Math.min(m,t.distance),Infinity)
+  // the patience runs and the bot leaves, no lower than the relocation floor. Under a rock roof
+  // at night the bot is not sent out into the dark on eight health: off a trip it waits for dawn.
+  const closest=near.filter(t=>!(daylight&&t.name==='phantom')&&!(unseen&&!canHeal&&(daylight||trip))).reduce((m,t)=>Math.min(m,t.distance),Infinity)
   if(lingeredMs>=relocateAfterMs&&strongEnoughToLeave(bot)&&closest>=RELOCATE_STANDOFF&&near.every(t=>t.position))
    return {clear:true,relocate:{threats:near,from:centre(near)},health:s.health,timeOfDay:s.timeOfDay,scope,
     reason:`${near.length===1?`A ${near[0].name}`:`${near.length} hostiles`} held station for ${Math.round(lingeredMs/1000)} seconds and will not disperse; surfacing to move away rather than wait them out`}

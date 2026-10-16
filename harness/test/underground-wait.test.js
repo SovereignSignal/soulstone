@@ -109,8 +109,11 @@ test('melee mobs are confronted with the sword alone as before, unless a shooter
 // Lab run 165, 15 October: a lone skeleton in shade nine blocks off, a bow and 88 arrows, and
 // the burrow opened "to confront it"; from the surface dirt was in the way and the alarm chose
 // shelter at once. The same capped shaft, with a stone column between the exits and the skeleton.
-function archerUnder({wall=true,pocket=false,mobs=[['skeleton',8.5,64,.5]]}={}){
- const bot=base(new Vec3(.5,60,.5),p=>wall&&p.x===5&&p.z===0&&p.y>=64&&p.y<=69?'stone':p.y>=64?'air':p.x===0&&p.z===0&&p.y>=60&&p.y<=62?'air':pocket&&p.x===3&&p.z===0&&p.y>=60&&p.y<=61?'air':'stone',{mobs})
+// roof: eight cells of rock high over the shaft and no sky light, so the burrow reads as underground (observations.js roofed).
+function archerUnder({wall=true,pocket=false,mobs=[['skeleton',8.5,64,.5]],roof=false,timeOfDay=6000}={}){
+ const bot=base(new Vec3(.5,60,.5),p=>roof&&p.x===0&&p.z===0&&p.y>=70&&p.y<=77?'stone':wall&&p.x===5&&p.z===0&&p.y>=64&&p.y<=69?'stone':p.y>=64?'air':p.x===0&&p.z===0&&p.y>=60&&p.y<=62?'air':pocket&&p.x===3&&p.z===0&&p.y>=60&&p.y<=61?'air':'stone',{mobs,timeOfDay})
+ // Under the roof no sky light reaches the air between, so the column reads as rock overhead.
+ if(roof){const at=bot.blockAt;bot.blockAt=p=>{const b=at(p);return b&&{...b,skyLight:0}}}
  const items=[{name:'bow',count:1,maxDurability:384,durabilityUsed:0},{name:'arrow',count:88}]
  Object.values(bot.entities).forEach((e,i)=>Object.assign(e,{uuid:`00000000-0000-0000-0000-00000000000${i+1}`,type:'hostile'}))
  bot.food=20;bot.inventory={items:()=>items,slots:[]};bot.getEquipmentDestSlot=()=>null
@@ -156,6 +159,15 @@ test('the hunger waiver is for the lone hidden shooter only: a creeper at the ri
  const c=burrowClearance(creeper,{lingeredMs:RELOCATE_PATIENCE_MS,exits:shaftExits});assert.equal(c.clear,false,c.reason);assert.equal(c.relocate,undefined)
  const zombie=hungryArcher({mobs:[['zombie',8.5,64,.5]]})
  const z=burrowClearance(zombie,{lingeredMs:RELOCATE_PATIENCE_MS,exits:shaftExits});assert.equal(z.clear,false,z.reason);assert.equal(z.relocate,undefined)
+})
+// Review of 16 October: under a rock roof the night does not hold the burrow, but the hunger
+// waiver must not send the bot out into the dark on eight health: it waits for dawn, then leaves.
+test('a hungry bot under a rock roof keeps a hidden shooter\'s hold through the night and leaves in daylight',()=>{
+ const night=hungryArcher({roof:true,timeOfDay:15000});assert.equal(roofed(night),true)
+ const n=burrowClearance(night,{lingeredMs:RELOCATE_PATIENCE_MS,exits:shaftExits})
+ assert.equal(n.clear,false,n.reason);assert.equal(n.relocate,undefined);assert.match(n.reason,/out of sight/)
+ const d=burrowClearance(hungryArcher({roof:true}),{lingeredMs:RELOCATE_PATIENCE_MS,exits:shaftExits})
+ assert.equal(d.clear,true,d.reason);assert.equal(d.relocate?.threats?.[0]?.name,'skeleton')
 })
 const burrowedAt=bot=>{const executed=[],said=[]
  const c={epoch:1,runner:{bot,ready:true,connectionId:'same',task:{result:{receipt:'surfaced'}}},safety:{status:'burrowed',retreat:{shelterName:'burrow',surface:{x:0,y:64,z:0}}},requestProgress:null,burrowWait:{quietMs:5,limitMs:1500,watches:1,relocateAfterMs:0},
