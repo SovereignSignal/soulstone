@@ -109,8 +109,8 @@ test('melee mobs are confronted with the sword alone as before, unless a shooter
 // Lab run 165, 15 October: a lone skeleton in shade nine blocks off, a bow and 88 arrows, and
 // the burrow opened "to confront it"; from the surface dirt was in the way and the alarm chose
 // shelter at once. The same capped shaft, with a stone column between the exits and the skeleton.
-function archerUnder({wall=true,mobs=[['skeleton',8.5,64,.5]]}={}){
- const bot=base(new Vec3(.5,60,.5),p=>wall&&p.x===5&&p.z===0&&p.y>=64&&p.y<=69?'stone':p.y>=64?'air':p.x===0&&p.z===0&&p.y>=60&&p.y<=62?'air':'stone',{mobs})
+function archerUnder({wall=true,pocket=false,mobs=[['skeleton',8.5,64,.5]]}={}){
+ const bot=base(new Vec3(.5,60,.5),p=>wall&&p.x===5&&p.z===0&&p.y>=64&&p.y<=69?'stone':p.y>=64?'air':p.x===0&&p.z===0&&p.y>=60&&p.y<=62?'air':pocket&&p.x===3&&p.z===0&&p.y>=60&&p.y<=61?'air':'stone',{mobs})
  const items=[{name:'bow',count:1,maxDurability:384,durabilityUsed:0},{name:'arrow',count:88}]
  Object.values(bot.entities).forEach((e,i)=>Object.assign(e,{uuid:`00000000-0000-0000-0000-00000000000${i+1}`,type:'hostile'}))
  bot.food=20;bot.inventory={items:()=>items,slots:[]};bot.getEquipmentDestSlot=()=>null
@@ -128,9 +128,21 @@ test('a hidden shooter still comes due for relocation',()=>{
  const r=burrowClearance(archerUnder({mobs:[['skeleton',10.5,64,.5]]}),{lingeredMs:241000,exits:shaftExits})
  assert.equal(r.clear,true,r.reason);assert.ok(r.relocate,r.reason);assert.equal(r.confront,undefined)
 })
-test('a hut answers a hidden shooter at its wall as before',()=>{
- const r=burrowClearance(archerUnder(),{lingeredMs:61000,exits:shaftExits,canPort:true})
- assert.equal(r.clear,true,r.reason);assert.equal(r.confront,undefined);assert.equal(r.relocate,undefined)
+// Inside the relocation standoff there is no way out but the shooter leaving or burning: the
+// burrow holds, healing, through the watches and over dusk (the daylight hold), as it was
+// built to. The 15 October skeleton was 9.1 blocks off.
+test('a hidden shooter inside the relocation standoff is held, however long it lingers',()=>{
+ const r=burrowClearance(archerUnder(),{lingeredMs:241000,exits:shaftExits})
+ assert.equal(r.clear,false,r.reason);assert.equal(r.lingering,true);assert.equal(r.relocate,undefined);assert.equal(r.confront,undefined);assert.match(r.reason,/out of sight/)
+})
+// A hut drops a hidden shooter past four blocks before the gate is asked; one closer, which it
+// keeps, is answered from the hut's port while the burrow holds it.
+test('a hidden shooter within four blocks is confronted from a hut and held by a burrow',()=>{
+ const scene=()=>archerUnder({pocket:true,mobs:[['skeleton',3.5,60,.5]]})
+ const burrow=burrowClearance(scene(),{lingeredMs:61000,exits:shaftExits})
+ assert.equal(burrow.clear,false,burrow.reason);assert.match(burrow.reason,/out of sight/)
+ const hut=burrowClearance(scene(),{lingeredMs:61000,exits:shaftExits,canPort:true})
+ assert.equal(hut.clear,true,hut.reason);assert.equal(hut.confront?.name,'skeleton')
 })
 class FakeRunner extends EventEmitter{
  constructor(bot){super();this.profile='lab';this.owner='Sov';this.ready=true;this.commands=[];this.bot=bot}

@@ -352,7 +352,8 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  // arrows, and the burrow opened "to confront it". A burrow's only shot is from the surface,
  // and from there dirt was in the way: the alarm chose shelter two hundred milliseconds after
  // "Ready for your next instruction". A shooter no exit can see is held, not confronted; the
- // relocation rule below still ends a hold that will not clear.
+ // relocation rule below still ends a hold that will not clear. Inside its ten-block standoff
+ // nothing does but the shooter leaving or burning: a burrow that can heal waits, on purpose.
  const unseen=!!lone&&!!exits&&!canPort&&SHOOTERS_ONLY.has(lone.name)&&hidden(lone)
  const ready=!portless&&(!!lone&&bowCanAnswer(bot,lone.name)&&!unseen||shooterAtWall||meleeReady)
  if(!ready){
