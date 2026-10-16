@@ -73,6 +73,37 @@ test('on a trip with the kit, an interrupted request waiting to resume is still 
  assert.ok(!trip.acts.includes('use_portal'),'no run for the portal: '+trip.acts.join(' '))
  assert.ok(trip.said.some(t=>/taking cover here rather than running for the portal/.test(t)),trip.said.join(' | '))
 })
+// Lab run 165, 15 October: a restart mid-escape left the alarm off. With the episode dropped,
+// the first tick after a restart on a trip must still decide as a trip, not walk to the portal.
+async function restartedTrip(requestProgress,opts={}){
+ const bot=netherBot(opts),r=new EventEmitter(),logged=[]
+ Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Sov',connectionId:'20000000-0000-0000-0000-000000000004',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{},log:(t,d)=>logged.push([t,d])})
+ r.command=c=>{r.commands.push(c);if(c.action!=='stop')r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal}}
+ const path=join(mkdtempSync(join(tmpdir(),'mc-trip-restart-')),'state.json')
+ const {writeFileSync}=await import('node:fs')
+ writeFileSync(path,JSON.stringify({profile:'trip-test',places:{},messages:[],projects:{},requestProgress,safety:{status:'fleeing',reason:THREAT_INTERRUPTION,startedAt:'2026-10-15T18:00:00.000Z',retries:0,resumeRequestId:null}}))
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},path);c.threatJudge={control:false,judge:async()=>null}
+ r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,80))
+ const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop');c.cancel?.(true)
+ return {acts,said:c.messages.map(m=>m.text),trip:logged.find(l=>l[0]==='nether_trip')?.[1]}
+}
+const kittedRun={id:'trip',request:'rods',status:'running',kittedTrip:{at:'2026-10-15T17:50:00.000Z',how:'crossed'},completed:[],pending:[],feedback:[]}
+test('restarted mid-escape on a kitted trip, the first alarm takes cover here and never walks to the portal',async()=>{
+ const after=await restartedTrip(kittedRun)
+ assert.equal(after.trip?.trip,true,JSON.stringify(after.trip));assert.equal(after.trip.requestStatus,'interrupted')
+ assert.ok(!after.acts.includes('use_portal'),'no run for the portal: '+after.acts.join(' '))
+ assert.ok(after.said.some(t=>/taking cover here rather than running for the portal/.test(t)),after.said.join(' | '))
+ assert.ok(!after.said.some(t=>/Going back through the portal/.test(t)),after.said.join(' | '))
+})
+test('restarted after the trip ended, or hurt, the first alarm goes home through the portal as before',async()=>{
+ const message='The Nether trip is over: I died on it. Re-kit me or give me a new instruction.'
+ const ended=await restartedTrip({...kittedRun,status:'blocked',kittedTrip:undefined,tripEnded:{reason:'I died on it',at:'2026-10-15T17:55:00.000Z'},blocker:message,reviewRequired:message})
+ const hurt=await restartedTrip(kittedRun,{health:8})
+ for(const [name,after] of [['ended',ended],['hurt',hurt]]){
+  assert.equal(after.trip?.trip,false,name);assert.equal(after.acts[0],'use_portal',name+': '+after.acts.join(' '))
+  assert.ok(after.said.some(t=>/Danger in the Nether. Going back through the portal/.test(t)),name+': '+after.said.join(' | '))
+ }
+})
 test('from cover, a group the fight rules engage is confronted nearest first, not waited out or run from',()=>{
  const bot=netherBot({hoglinAt:30});delete bot.entities[7]
  const cube=(id,z)=>({id,uuid:'10000000-0000-0000-0000-00000000000'+id,type:'mob',name:'magma_cube',position:new Vec3(0.5,64,0.5+z)})
