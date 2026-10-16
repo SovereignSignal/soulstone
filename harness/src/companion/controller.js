@@ -13,7 +13,7 @@ import {validateBoreGoal,BORE_TIMEOUT_MS} from '../bore.js'
 import {validatePlaceAtGoal,validateCollectGoal,validateAttackGoal,liveSites} from '../primitives-world.js'
 import {berryObservation} from '../foraging.js'
 import {shelteredPlanning} from './sheltered-planning.js'
-import {coveredMoves,coveredHandBack,sayEvery} from './covered-moves.js'
+import {coveredMoves,coveredHandBack,coveredGate,sayEvery} from './covered-moves.js'
 import {adaptiveRecovery} from './adaptive-recovery.js'
 import {recoveryContext,recoveryState,recentRecovery,recordRecovery} from './recovery-context.js'
 import {THREAT_INTERRUPTION,clearanceObservation,awaitClearance,openGroundClearance} from './hazard-clearance.js'
@@ -168,7 +168,7 @@ import {projectFootprints} from '../site-survey.js'
 import {reviseArchitecture} from '../construction.js'
 import {evaluateGoal,enforceProjectIntent,validateContract,constructionLimits,vacuousContract} from './goal-contract.js'
 import {ExperienceStore,experienceEvidence} from './experience.js'
-import {COVERED_CELLS,BURN_MS,PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,withinBuildReach,AUTO_RESPAWN_LIMIT,STALL_CONTINUATIONS,STALL_RETRY_MS,shouldContinueAfterBudget,canContinueAfterSafety,canContinueAfterCombat,continuationMark,noteAdvance,notePortKill,wantedItems,wantedDrops,shouldRetryPlanning,noteCriterionStall} from './continuity.js'
+import {COVERED_CELLS,COVERED_MS,BURN_MS,PLANNING_ROUNDS,ACTIVE_BUDGET_MS,canResume,progressFingerprint,interruptedEffect,buildSiteAnchor,withinBuildReach,AUTO_RESPAWN_LIMIT,STALL_CONTINUATIONS,STALL_RETRY_MS,shouldContinueAfterBudget,canContinueAfterSafety,canContinueAfterCombat,continuationMark,noteAdvance,notePortKill,wantedItems,wantedDrops,shouldRetryPlanning,noteCriterionStall} from './continuity.js'
 import {PREPARE_ACTIONS} from '../supplies.js'
 import {OBSIDIAN_ACTIONS,validateObsidianGoal} from '../obsidian.js'
 import {EXPEDITION_ACTIONS,remainingDurability,expeditionObservation} from '../prospecting.js'
@@ -1270,7 +1270,7 @@ export class Teammate extends EventEmitter {
   async waitInBurrow(epoch,signal,bot,eligible) {
     const request=this.requestProgress,safety=this.safety,connection=this.runner.connectionId
     if(eligible&&request?.status==='interrupted'){safety.resumeRequestId=request.id;this.persist()}
-    const {quietMs=20000,limitMs=14*60*1000,patienceMs,relocateAfterMs,watches=BURROW_WATCHES,burnCapMs=BURN_CAP_MS}=this.burrowWait||{}
+    const {quietMs=20000,limitMs=14*60*1000,patienceMs,relocateAfterMs,watches=BURROW_WATCHES,burnCapMs=BURN_CAP_MS,holdBoundMs=COVERED_MS}=this.burrowWait||{}
     let lingerSince=null
     // The relocate decision is derived from how long the threat has held, so
     // clearing the timer the moment it fires un-decides it on the next poll and
@@ -1383,14 +1383,36 @@ export class Teammate extends EventEmitter {
       // shot is not opened again; PORT_ATTEMPTS openings without a kill and it moves away.
       let result,confront,relocate,attempts=0,sealedLap=0,portShort=false,noLine=false
       const tried=[]
+      // Live rehearsal, 16 October 22:28Z to 23:09Z: walled in at its slit beside the spawner with blazes always in view,
+      // the wait never cleared and the port cycled every 80 seconds for forty minutes, health 20, the planner never asked
+      // again: the request's "come home after 40 minutes" lives only in its text. On a trip a hold that gains nothing (no
+      // kill through the port, no covered move) for COVERED_MS asks for a decision: the covered planner, told so, while its
+      // budget lasts; then, if that moved nothing either, the trip ends with the hut shut. Never a walk in the open from here.
+      let progressAt=Date.now()
+      const holdDue=()=>onTrip(bot,canResume(request))?progressAt+holdBoundMs:Infinity
       for(;;){
+        if(Date.now()>=holdDue()){
+          const heldMs=Date.now()-progressAt,n=Math.max(1,Math.round(heldMs/60000)),minutes=`${n} minute${n===1?'':'s'}`,covered=this.coveredMoves&&typeof this.planner.covered==='function'&&!coveredGate(this,bot,eligible)
+          this.runner.log?.('hold_bounded',{heldMs,next:covered?'covered_planner':'trip_end',kills:request?.portKills||0,coveredMoves:request?.coveredMoves||0})
+          if(covered){
+            const made=request.coveredMoves||0
+            this.say(`Nothing has changed here for ${minutes}. Choosing what to do next, under cover.`)
+            const r=await coveredMoves(this,epoch,signal,bot,{eligible,...this.coveredLimits,holdBounded:{minutes:n}})
+            if(r.status==='cancelled'||r.status==='handed_back')return
+            check();protectedHealth=bot.health
+            if((request.coveredMoves||0)>made){progressAt=Date.now();attempts=0;tried.length=0;lingerSince=null;continue}
+          }
+          if(!this.tripEnded(`I held my shelter ${minutes} with nothing gained`))this.say(`I held my shelter ${minutes} with nothing gained. I am staying walled in until you tell me what to do.`)
+          return
+        }
         for(let watch=1;;watch++){
           watchStart=Date.now()
-          result=await awaitClearance({check,observe,quietMs,limitMs,maintain:async()=>{await douseLongBurn();return topUpWhileSheltered(this,signal,bot)},onUpdate:record=>{safety.continuation={...record,watch};this.persist();this.emit('change')}})
+          result=await awaitClearance({check,observe,quietMs,limitMs:Math.max(1,Math.min(limitMs,holdDue()-Date.now())),maintain:async()=>{await douseLongBurn();return topUpWhileSheltered(this,signal,bot)},onUpdate:record=>{safety.continuation={...record,watch};this.persist();this.emit('change')}})
           check();safety.continuation={...result,watch};this.persist()
-          if(result.status==='cleared'||watch>=watches)break
+          if(result.status==='cleared'||watch>=watches||Date.now()>=holdDue())break
           this.say(`Still no clear area after ${Math.round(limitMs/60000)} minutes. I am staying dug in and watching again.`)
         }
+        if(result.status!=='cleared'&&Date.now()>=holdDue())continue
         if(result.status!=='cleared'){this.say('I am staying dug in. Resume is required because daylight and a clear area were not established in time.');return}
         confront=result.observation?.confront;relocate=result.observation?.relocate
         // Family rehearsal, 16 October: a wait held over a cave of mobs nothing could free. Said plainly
@@ -1465,6 +1487,7 @@ export class Teammate extends EventEmitter {
         // Arrows taken at the open port are not a failed shelter; from here, closed, any hit is.
         protectedHealth=bot.health
         if(shot?.receipt==='killed'){
+          progressAt=Date.now()
           if(shot.at)recordKill(this,bot,shot.at)
           // In the Nether a kill through the port resets the idle allowance, not the six-episode cap (lab run 166, 16 October).
           if(inNether(bot)&&canResume(request)&&notePortKill(request))this.persist()

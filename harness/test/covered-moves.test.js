@@ -406,3 +406,35 @@ test('the covered phase holds for a blaze with a port line, and not for one besi
  const f=fixture(async()=>wait);blazeBeside(f,[6.5,64.2,.5]);assert.equal(atPort(f.bot)?.name,'blaze')
  const g=fixture(async()=>wait);blazeBeside(g);assert.equal(atPort(g.bot),null)
 })
+
+// Live rehearsal, 16 October 22:28Z to 23:09Z: walled in at its slit beside the spawner, blazes always in view, the wait
+// never cleared and the port cycled for forty minutes at health 20; the planner was never asked again. On a trip a hold
+// that gains nothing for the bound asks the covered planner, told so, and with its budget spent the trip ends, hut shut.
+const bounded={coveredMoves:true,burrowWait:{quietMs:50,limitMs:1500,patienceMs:50,relocateAfterMs:60000,watches:2,holdBoundMs:300}}
+test('a trip hold that gains nothing for the bound asks the covered planner, told so, and never idles on',async()=>{
+ const seen=[];const f=fixture(async o=>{seen.push(o);return o.holdBounded?{action:'done',target:null,count:0,expectation:'Home under cover'}:wait});blazeBeside(f);inWait(f,bounded)
+ await Teammate.prototype.waitInBurrow.call(f.c,1,f.abort.signal,f.bot,true)
+ const held=f.events.filter(e=>e.type==='hold_bounded');assert.equal(held.length,1,f.said.join(' | '));assert.equal(held[0].next,'covered_planner')
+ assert.deepEqual(seen.at(-1).holdBounded,{minutes:1},'the planner is told the hold gained nothing');assert.equal(f.resumed.length,1,f.said.join(' | '))
+ assert.ok(!f.commands.some(x=>['unhut','shoot'].includes(x.action)),acts(f).join(' '))
+ assert.ok(f.said.includes('Nothing has changed here for 1 minute. Choosing what to do next, under cover.'),f.said.join(' | '))
+})
+test('with the covered planner spent, a trip hold that gains nothing ends the trip with the hut shut',async()=>{
+ const f=fixture(async()=>wait);blazeBeside(f);inWait(f,bounded);f.c.requestProgress.coveredCalls=COVERED_CALLS;f.c.requestProgress.kittedTrip=true;f.c.tripEnded=Teammate.prototype.tripEnded
+ await Teammate.prototype.waitInBurrow.call(f.c,1,f.abort.signal,f.bot,true)
+ assert.equal(f.events.find(e=>e.type==='hold_bounded')?.next,'trip_end',JSON.stringify(f.events))
+ assert.ok(f.said.some(t=>/^The Nether trip is over: I held my shelter 1 minute with nothing gained\./.test(t)),f.said.join(' | '))
+ assert.ok(!f.commands.some(x=>['unhut','shoot','unburrow','climb','flee','use_portal'].includes(x.action)),acts(f).join(' '))
+ assert.equal(f.resumed.length,0)
+})
+test('a trip hold that keeps killing through the port is not cut short by the bound',async()=>{
+ let kills=0
+ const f=fixture(async()=>wait,{act:(cmd,bot)=>{
+  if(cmd.action==='unhut')return {receipt:'unwalled',port:true,side:{dx:1,dz:0}}
+  if(cmd.action==='hut')return {receipt:'walled_in',surface:{x:0,y:64,z:0}}
+  if(cmd.action==='shoot'){if(++kills>=4)bot.entities={};return {receipt:'killed',shots:1,item:'blaze',at:{x:6.5,y:64,z:.5}}}}})
+ blazeBeside(f,[6.5,64.2,.5]);inWait(f,{coveredMoves:false,burrowWait:{quietMs:50,limitMs:1500,patienceMs:50,relocateAfterMs:60000,watches:1,holdBoundMs:1200}})
+ f.c.safety.covered={from:{x:0,y:64,z:0},at:{x:0,y:64,z:0},moves:[]}
+ const start=Date.now();await Teammate.prototype.waitInBurrow.call(f.c,1,f.abort.signal,f.bot,true)
+ assert.equal(kills,4,f.said.join(' | '));assert.ok(Date.now()-start>1200,'the kills ran past the bound');assert.deepEqual(f.events.filter(e=>e.type==='hold_bounded'),[])
+})

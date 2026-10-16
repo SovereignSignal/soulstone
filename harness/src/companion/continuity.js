@@ -43,6 +43,10 @@ export const COVERED_MOVES=8,COVERED_CELLS=256
 // Review of 7d69c86, 16 October: model calls in the covered phase, wait and done included, per request
 // until an explicit Resume. A drop in health while alight, or within BURN_MS of it, is a burn, not a breach.
 export const COVERED_CALLS=12,BURN_MS=6000
+// The covered phase's time budget, and the longest a trip's shelter holds with nothing gained (no kill, no covered
+// move) before it asks for a decision (live rehearsal, 16 October 22:28Z to 23:09Z: forty minutes at the slit, the port
+// cycling every 80 seconds, health 20, and the planner never asked again).
+export const COVERED_MS=600000
 // Lab runs 99 to 101, 10 October: in a blaze-rod request the fights are the
 // work, and a fight is not a planned step, so the request stopped continuing
 // after two interruptions with rods being won. A criterion item gained (its

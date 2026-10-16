@@ -7,7 +7,7 @@
 // loop owns the bot while the model thinks, and a late answer never dispatches after Stop.
 import {setTimeout as delay} from 'node:timers/promises'
 import {Vec3} from 'vec3'
-import {COVERED_MOVES,COVERED_CELLS,COVERED_CALLS,BURN_MS,canResume,canContinueAfterSafety,continuationMark} from './continuity.js'
+import {COVERED_MOVES,COVERED_CELLS,COVERED_CALLS,COVERED_MS,BURN_MS,canResume,canContinueAfterSafety,continuationMark} from './continuity.js'
 import {inspectEmergencyShelter} from '../shelter-occupants.js'
 import {fullCube} from '../construction.js'
 import {survivalObservation,fireObservation,FIRE_BLOCKS} from '../survival.js'
@@ -130,7 +130,8 @@ export function atPort(bot){
  return Object.values(bot.entities||{}).find(e=>SHOOTERS_ONLY.has(e?.name)&&e.position&&e.position.distanceTo(bot.entity.position)<=threatRadius(e.name)&&bowCanAnswer(bot,e.name)&&portSightline(bot,feet,e).status==='clear')??null
 }
 const enclosureError=e=>/^Emergency shelter|^Shelter contains|liquid/i.test(e?.message||'')
-export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*COVERED_MOVES,budgetMs=600000,decisionMs=30000,pollMs=100,waitMs=10000}={}){
+// holdBounded: {minutes} when the wait asks after a hold that gained nothing (controller.js waitInBurrow).
+export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*COVERED_MOVES,budgetMs=COVERED_MS,decisionMs=30000,pollMs=100,waitMs=10000,holdBounded=null}={}){
  const gate=coveredGate(c,bot,eligible);if(gate)return {status:'skipped',reason:gate}
  const request=c.requestProgress,safety=c.safety,connection=c.runner.connectionId,deadline=Date.now()+budgetMs
  let health=bot.health,refusals=0,burntAt=-Infinity
@@ -163,7 +164,7 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
    let deepest=0,shaft=null;for(let n=1;n<=SHAFT_MAX;n++){const r=shaftRefusal(bot,n,sites);if(r){shaft=r;break}deepest=n}
    const snapshot=c.snapshot(),state=Object.fromEntries(['position','health','survival','tools','inventory'].map(k=>[k,snapshot[k]]))
    const observed={...state,goal:request.goal,pending:(request.pending||[]).slice(0,4),feedback:(request.feedback||[]).slice(-8),recovery:recoveryContext(c,bot),enclosure:safety.protection,
-    feet:xyz(f),hut:safety.retreat.surface,shaftBelow:{deepest,refusal:shaft},lastReceipt:safety.covered?.moves?.at(-1)?.receipt??null,movesLeft:COVERED_MOVES-(request.coveredMoves||0),remainingMs:deadline-Date.now()}
+    feet:xyz(f),hut:safety.retreat.surface,shaftBelow:{deepest,refusal:shaft},lastReceipt:safety.covered?.moves?.at(-1)?.receipt??null,movesLeft:COVERED_MOVES-(request.coveredMoves||0),remainingMs:deadline-Date.now(),...(holdBounded?{holdBounded}:{})}
    trace('covered_observation',{round,observation:observed})
    request.coveredCalls=(request.coveredCalls||0)+1;c.persist()
    const abort=new AbortController(),combined=AbortSignal.any([signal,abort.signal]);let settled=false,value,error
