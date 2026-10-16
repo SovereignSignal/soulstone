@@ -18,6 +18,9 @@ import {validateBoreGoal,borePath,columnCells,BORE_TIMEOUT_MS} from '../bore.js'
 import {isNatural,NETHER_NATURAL,mayDig} from '../natural.js'
 import {projectFootprints} from '../site-survey.js'
 import {recoveryContext,recoveryState,recordRecovery} from './recovery-context.js'
+import {SHOOTERS_ONLY,threatRadius} from '../survival.js'
+import {bowCanAnswer} from '../archery.js'
+import {portSightline} from '../burrow.js'
 export const SHAFT_MAX=4
 const SIDES=[[1,0],[-1,0],[0,1],[0,-1]]
 const xyz=p=>({x:p.x,y:p.y,z:p.z})
@@ -92,6 +95,11 @@ export async function coveredHandBack(c,bot,receipt=null){
  sayEvery(c,'covered_handback',receipt?.slit?.length?'The tunnel has a slit toward the target. Carrying on with the request from here.':'Carrying on with the request from here, under cover.')
  await c.resume({automatic:true});return {status:'handed_back'}
 }
+// A shooter in its alarm radius the bow answers and a port from where the bot stands would see.
+export function atPort(bot){
+ const feet=feetOf(bot)
+ return Object.values(bot.entities||{}).find(e=>SHOOTERS_ONLY.has(e?.name)&&e.position&&e.position.distanceTo(bot.entity.position)<=threatRadius(e.name)&&bowCanAnswer(bot,e.name)&&portSightline(bot,feet,e).status==='clear')??null
+}
 export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*COVERED_MOVES,budgetMs=600000,decisionMs=30000,pollMs=100,waitMs=10000}={}){
  const gate=coveredGate(c,bot,eligible);if(gate)return {status:'skipped',reason:gate}
  const request=c.requestProgress,safety=c.safety,connection=c.runner.connectionId,deadline=Date.now()+budgetMs
@@ -117,6 +125,10 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
   for(let round=0;round<rounds&&Date.now()<deadline;round++){
    protection()
    const why=coveredGate(c,bot,eligible);if(why){journal('held',{reason:why});return {status:'held',reason:why}}
+   // Live, 18:43Z, 16 October: every bore under blazes was cancelled by the alarm within seconds, spending a model
+   // call each time. A shooter the bow answers, in sight through a port the hut would open, is the port's (the
+   // watch's firing-port branch): the phase holds without asking the model.
+   const shooter=atPort(bot);if(shooter){const reason=`a ${shooter.name.replaceAll('_',' ')} is in sight through a port; the port answers it`;journal('held',{reason});return {status:'held',reason}}
    const before=decisionState(),sites=projectFootprints(c.projects,dimensionOf(bot)),f=feetOf(bot)
    let deepest=0,shaft=null;for(let n=1;n<=SHAFT_MAX;n++){const r=shaftRefusal(bot,n,sites);if(r){shaft=r;break}deepest=n}
    const snapshot=c.snapshot(),state=Object.fromEntries(['position','health','survival','tools','inventory'].map(k=>[k,snapshot[k]]))

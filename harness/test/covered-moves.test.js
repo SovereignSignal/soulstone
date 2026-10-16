@@ -212,3 +212,24 @@ test('health lower after a held covered phase with the fire out does not fail th
  await Teammate.prototype.waitInBurrow.call(f.c,1,f.abort.signal,f.bot,true)
  assert.notEqual(f.c.safety?.status,'failed',f.said.join(' | '));assert.ok(!f.said.some(t=>/Health fell/.test(t)),f.said.join(' | '))
 })
+// Live, 18:43Z, 16 October: walled in on its own covered route twelve blocks from the spawner, blazes at
+// 6.7 to 8.3 blocks; every covered bore was cancelled by the alarm, and with safety.covered set the port
+// branch was skipped, so the bot never shot back. A shooter in sight through a port the hut would open
+// is answered from the port; the covered phase holds without a model call while one is there.
+function shooterEast(f){
+ f.cells.set('1,65,0','netherrack');f.bot.world={raycast:()=>null,getColumn:()=>({})}
+ for(let x=2;x<9;x++)for(const y of [64,65,66])f.cells.set(`${x},${y},0`,'air')
+ f.bot.entities={7:{id:7,uuid:'10000000-0000-0000-0000-000000000007',type:'mob',name:'blaze',height:1.8,position:new Vec3(6.5,64,.5),velocity:new Vec3(0,0,0)}}
+}
+test('the covered phase holds without a model call while a shooter is in sight through a port',async()=>{
+ let calls=0;const f=fixture(async()=>{calls++;return {action:'bore',target:{x:20,y:64,z:0},count:6,expectation:'Bore'}});shooterEast(f)
+ const result=await f.run();assert.equal(result.status,'held');assert.match(result.reason,/blaze/);assert.equal(calls,0);assert.deepEqual(acts(f),[])
+})
+test('with a covered route, a blaze in sight through the side port is shot from the port, and the hut closes it after',async()=>{
+ const f=fixture(async()=>wait,{act:(cmd,bot)=>{if(cmd.action==='shoot'){delete bot.entities[7];return {receipt:'killed',shots:2,item:'blaze',at:{x:6.5,y:64,z:.5}}}if(cmd.action==='unhut')return {receipt:'unwalled',port:true,side:{dx:1,dz:0}};if(cmd.action==='hut')return {receipt:'walled_in',surface:{x:0,y:64,z:0}}}})
+ shooterEast(f);inWait(f,{coveredMoves:false,burrowWait:{quietMs:50,limitMs:1500,patienceMs:50,relocateAfterMs:60000,watches:1}})
+ f.c.safety.covered={from:{x:0,y:64,z:0},at:{x:0,y:64,z:0},moves:[]}
+ await Teammate.prototype.waitInBurrow.call(f.c,1,f.abort.signal,f.bot,true)
+ const order=acts(f);assert.deepEqual(order.slice(0,3),['unhut','shoot','hut'],order.join(' ')+' :: '+f.said.join(' | '))
+ assert.equal(f.commands.find(x=>x.action==='unhut').goal.shooter,'blaze')
+})

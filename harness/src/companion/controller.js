@@ -1222,7 +1222,9 @@ export class Teammate extends EventEmitter {
       protectedHealth=bot.health
       // Any shooter loaded within its alarm radius, seen or behind rock, for the rod pickup's quiet minute.
       if(Object.values(bot.entities||{}).some(e=>SHOOTERS_ONLY.has(e?.name)&&e.position&&e.position.distanceTo(bot.entity.position)<=threatRadius(e.name)))this.shooterSeenAt=Date.now()
-      const r=burrowClearance(bot,{lingeredMs:lingerSince?Date.now()-lingerSince:0,patienceMs,relocateAfterMs,exits:shelterExits(safety.retreat),canPort:safety.retreat?.shelterName==='hut',trip:onTrip(bot,canResume(request)),feet:safety.retreat?.surface});if(r.lingering||r.confront||r.relocate)lingerSince??=Date.now();else if(r.holding)lingerSince=null
+      // On a covered route the hut is where the bot stands now, and its port opens there (live, 18:43Z, 16 October).
+      const held=safety.covered?(p=>({...safety.retreat,surface:{x:Math.floor(p.x),y:Math.floor(p.y+.2),z:Math.floor(p.z)}}))(bot.entity.position):safety.retreat
+      const r=burrowClearance(bot,{lingeredMs:lingerSince?Date.now()-lingerSince:0,patienceMs,relocateAfterMs,exits:shelterExits(held),canPort:held?.shelterName==='hut',trip:onTrip(bot,canResume(request)),feet:held?.surface});if(r.lingering||r.confront||r.relocate)lingerSince??=Date.now();else if(r.holding)lingerSince=null
       // With kills near the hut to fetch on a trip, the hut holds quiet until no shooter has been
       // near for tripPickup's minute, so the walk for them comes before going on; never so late in
       // a watch that the quiet the wait needs after it no longer fits (lab run 156, 15 October).
@@ -1328,7 +1330,10 @@ export class Teammate extends EventEmitter {
           const below=result.observation.sealed.every(t=>t.verticalOffset<0)
           if(sealedLap===1)this.say(`The mobs are ${below?'in a sealed cave under me':'walled off behind rock'} and cannot reach me.`)
         }
-        if(safety.covered||!(safety.retreat.shelterName==='hut'&&confront?.position&&SHOOTERS_ONLY.has(confront.name)&&bowCanAnswer(bot,confront.name)))break
+        // Live, 18:43Z, 16 October: walled in on its covered route with blazes at 6.7 to 8.3 blocks, the port was
+        // skipped once safety.covered was set and the bot never shot back. The port opens on the bot's own cell's
+        // walls (unhut, natural or its own blocks only) and the hut closes it after, covered route or not.
+        if(!(safety.retreat.shelterName==='hut'&&confront?.position&&SHOOTERS_ONLY.has(confront.name)&&bowCanAnswer(bot,confront.name)))break
         // Out of ports, leaving takes the same health and standoff as the wait's own
         // relocation; short of them the hut holds, and the next watch's gates decide
         // (hurt, the bow no longer answers and the bot heals). The patience runs again.
