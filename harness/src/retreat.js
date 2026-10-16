@@ -11,6 +11,7 @@ import {DoorAwareMovements} from './navigation.js'
 import {inProtectedSite} from './primitives.js'
 import {projectFootprints} from './site-survey.js'
 import {climbOut} from './burrow.js'
+import {refuseUnowned} from './natural.js'
 import {projectDimension,sameDimension} from './dimension.js'
 import {roofed} from './observations.js'
 const {goals}=pathfinding
@@ -53,6 +54,8 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
   const sites=projectFootprints({base:project},projectDimension(project)),cube=plainCube(bot)
   movement.canDig=true;movement.digCost=2
   movement.exclusionAreasBreak.push(block=>!block?.position?0:inProtectedSite(block.position,sites)||!cube(block)?100:0)
+  // 16 October: natural rock or the bot's own blocks only, never a player's build (natural.js).
+  movement.exclusionAreasBreak.push(refuseUnowned(bot))
   movement.exclusionAreasPlace.push(block=>block?.position&&inProtectedSite(block.position,sites)?100:0)
   bot.pathfinder.setMovements(movement)
   const timer=setTimeout(()=>bot.pathfinder.setGoal(null),40000)

@@ -7,6 +7,7 @@ import pathfinding from 'mineflayer-pathfinder'
 import {DoorAwareMovements} from './navigation.js'
 import {fullCube} from './construction.js'
 import {climbOut} from './burrow.js'
+import {refuseUnowned} from './natural.js'
 const {goals}=pathfinding
 export const QUARRY_DEPTH=12
 const DIGGABLE=new Set(['grass_block','dirt','coarse_dirt','podzol','rooted_dirt','mud','clay','moss_block','stone','andesite','diorite','granite','tuff','deepslate','gravel','sand','red_sand'])
@@ -102,6 +103,8 @@ export async function quarryStone(bot,{name='cobblestone',total,path=[]},{check,
    const movement=new DoorAwareMovements(bot)
    Object.assign(movement,{canDig:true,allow1by1towers:true,allowParkour:false,allowSprinting:false,maxDropDown:1,
     scafoldingBlocks:[...new Set(scaffoldItems(bot).map(i=>bot.registry.itemsByName[i.name]?.id??i.type).filter(Number.isInteger))]}) // item ids: the pathfinder matches item.type, not the block table
+   // 16 October: up the shaft, never through a player's build beside it (natural.js).
+   movement.exclusionAreasBreak.push(refuseUnowned(bot))
    bot.pathfinder.setMovements(movement)
    const timer=setTimeout(()=>bot.pathfinder.setGoal(null),60000)
    let pathError=null

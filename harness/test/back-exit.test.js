@@ -161,6 +161,8 @@ test('retreat from down the back exit climbs up through a burrow cap, leaves the
  // bottom with a cap overhead; run 22's goto could not path up the column.
  const {w,project,api,toggles,isOpen}=hut({shaftOpen:true,backExit:{cell:{x:12,y:64,z:22},bottom:56},at:[12.5,58,22.5]})
  for(let y=62;y>=59;y--)w.cells.set(new Vec3(12,y,22).toString(),'air');w.cells.set(new Vec3(12,60,22).toString(),'cobblestone') // open column with a burrow cap two above the head
+ // The cap is the bot's own, as the burrow records it (natural.js claimPlaced); a player's block would stop the climb.
+ w.bot.ownBlocks=new OwnBlocks(null);w.bot.ownBlocks.add(new Vec3(12,60,22),'cobblestone',null)
  assert.equal(insideBase(w.bot,project),true)
  const result=await retreatToShelter(w.bot,{kind:'retreat',goal:{project}},api)
  assert.equal(result.receipt,'sheltered_door_closed')
@@ -227,6 +229,7 @@ test('the leave routine itself refuses at night and with a hostile in radius, wh
 })
 
 import {inspectShelterSite,shelterLayout,finishShelter} from '../src/shelter.js'
+import {OwnBlocks} from '../src/natural.js'
 test('finishing the saved base accepts its open back exit and never walks onto it',async()=>{
  // Lab run 60, 5 October: the repair put back a creeper-cratered floor, then
  // refused its own back exit ("lacks support at -624,68,-364") before the door

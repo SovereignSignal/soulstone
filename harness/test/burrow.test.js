@@ -39,6 +39,33 @@ test('a burrow needs diggable ground, solid walls on every level and a solid flo
  const slope=world();slope.cells.set(new Vec3(11,63,10).toString(),'air');assert.equal(burrowSite(slope.bot).ok,true)
  const bare=world();for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]])bare.cells.set(new Vec3(10+dx,63,10+dz).toString(),'short_grass');assert.match(burrowSite(bare.bot).reason,/cap/)
 })
+// Review of 16 October: in the family world the ground underfoot can be a child's cobblestone
+// path. The burrow digs only what dig may break: natural ground, or a block the bot placed.
+test('a burrow never digs through a player\'s floor; its own cobblestone and natural stone still dig',()=>{
+ const path=world();path.inventory.push({name:'wooden_pickaxe',count:1});path.cells.set(new Vec3(10,63,10).toString(),'cobblestone')
+ const r=burrowSite(path.bot);assert.equal(r.ok,false);assert.match(r.reason,/cobblestone/)
+ const own=world();own.inventory.push({name:'wooden_pickaxe',count:1});own.cells.set(new Vec3(10,63,10).toString(),'cobblestone')
+ own.bot.ownBlocks=new OwnBlocks(null);own.bot.ownBlocks.add(new Vec3(10,63,10),'cobblestone',null)
+ assert.equal(burrowSite(own.bot).ok,true,'its own pillar')
+ const rock=world();rock.inventory.push({name:'wooden_pickaxe',count:1});for(let y=60;y<=63;y++)rock.cells.set(new Vec3(10,y,10).toString(),'stone')
+ assert.equal(burrowSite(rock.bot).ok,true,'a natural stone column')
+ const sand=world();sand.inventory.push({name:'wooden_pickaxe',count:1});sand.cells.set(new Vec3(10,62,10).toString(),'cobbled_deepslate')
+ assert.equal(burrowSite(sand.bot).ok,false,'nor a player\'s cobbled deepslate under the grass')
+})
+test('digging out of a burrow never tunnels through a player\'s block, and the climb refuses one overhead',async()=>{
+ const w=world();w.bot.entity.position=new Vec3(10.5,61,10.5)
+ let movement;w.bot.pathfinder={setMovements(m){movement=m},setGoal(){},async goto(g){w.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}}
+ w.bot.ownBlocks=new OwnBlocks(null);w.bot.ownBlocks.add(new Vec3(10,63,10),'cobblestone',null)
+ await unburrow(w.bot,{kind:'unburrow',goal:{surface:{x:10,y:64,z:10}}},api)
+ const cost=b=>movement.exclusionAreasBreak.reduce((n,f)=>n+f(b),0),at=(name,x,y,z)=>({name,position:new Vec3(x,y,z),boundingBox:'block'})
+ assert.ok(cost(at('oak_planks',11,64,10))>=100,'a player\'s plank');assert.equal(cost(at('dirt',11,62,10)),0,'natural ground')
+ assert.equal(cost(at('cobblestone',10,63,10)),0,'its own cap');assert.ok(cost(at('cobblestone',11,63,10))>=100,'a player\'s cobblestone')
+ // The manual climb: a player's planks two above the feet stop it, undug.
+ const c=world();for(let y=60;y<=62;y++)c.cells.set(new Vec3(10,y,10).toString(),'air');c.cells.set(new Vec3(10,62,10).toString(),'oak_planks')
+ c.inventory.push({name:'cobblestone',count:5});c.bot.entity.position=new Vec3(10.5,60,10.5);c.bot.setControlState=()=>{};c.bot.lookAt=async()=>{}
+ await assert.rejects(climbOut(c.bot,new Vec3(10,64,10),api),/oak_planks .* not mine to break/)
+ assert.deepEqual(c.dug,[])
+})
 test('a rejected column steps to a sound neighbouring column before digging',async()=>{
  const w=world();w.cells.set(new Vec3(11,62,10).toString(),'air')
  let walked

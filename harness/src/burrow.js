@@ -1,7 +1,7 @@
 import {bowCanAnswer} from './bow-readiness.js'
 import {observedSightline} from './visibility.js'
 import {scaffoldItems,fillCell,plainCube} from './scaffold.js'
-import {claimPlaced} from './natural.js'
+import {claimPlaced,mayDig,refuseUnowned} from './natural.js'
 import {plainFirst,holdToPlace} from './placement.js'
 // Emergency burrow: the shelter of last resort for a spawn with no base and no
 // weapon. Seal the verified shaft as soon as three cells give headroom,
@@ -23,6 +23,7 @@ const {goals}=pathfinding
 // trigger distance; the cap goes on the top cell so nothing can drop in.
 export const BURROW_DEPTH=4
 export const BURROW_MIN_DEPTH=3
+// Cobblestone and cobbled deepslate are never natural: they pass only as the bot's own (mayDig below).
 const HARD=new Set(['stone','andesite','diorite','granite','tuff','deepslate','sandstone','red_sandstone','cobblestone','cobbled_deepslate','terracotta','netherrack'])
 const LIQUID=new Set(['water','lava','bubble_column'])
 const GRAVITY=new Set(['sand','red_sand','gravel','suspicious_sand','suspicious_gravel'])
@@ -42,6 +43,8 @@ export function burrowSite(bot,origin=bot.entity?.position?.floored()){
   const c=feet.offset(0,-d,0),b=bot.blockAt(c)
   if(!b)return {ok:false,reason:'Ground below is not observed'}
   if(!(SOFT.has(b.name)||pickaxe&&HARD.has(b.name))){stopped=`Cannot dig ${b.name} quickly at ${key(c)}`;break}
+  // Review of 16 October: a child's cobblestone path is not ground to dig a shelter in.
+  if(!mayDig(bot,b)){stopped=`${b.name} at ${key(c)} is not natural ground and not mine`;break}
   cells.push(c)
  }
  if(cells.length<BURROW_MIN_DEPTH)return {ok:false,reason:`Only ${cells.length} diggable cells below; at least ${BURROW_MIN_DEPTH} needed (${stopped||'shallow'})`}
@@ -212,7 +215,7 @@ export async function burrowIn(bot,task,{check,stage,progress,persist=()=>{}}){
   const bottom=site.cells.at(-1)
   for(const [dx,dy,dz] of SIDES){
    const s=bottom.offset(dx,dy,dz),sb=bot.blockAt(s)
-   if(!sb||!SOFT.has(sb.name)||GRAVITY.has(sb.name)||!solid(bot,bot.blockAt(s.offset(dx,0,dz)))||!solid(bot,bot.blockAt(s.offset(0,1,0))))continue
+   if(!sb||!SOFT.has(sb.name)||GRAVITY.has(sb.name)||!mayDig(bot,sb)||!solid(bot,bot.blockAt(s.offset(dx,0,dz)))||!solid(bot,bot.blockAt(s.offset(0,1,0))))continue
    check();await bot.dig(sb);check();await delay(400);check()
    if(capItem(bot))break
   }
@@ -422,6 +425,7 @@ export async function climbOut(bot,surface,{check,stage,progress},{attempts=16}=
   const feet=bot.entity.position.floored()
   const above=bot.blockAt(feet.offset(0,2,0))
   if(above&&above.name!=='air'&&!LIQUID.has(above.name)){
+   if(fullCube(bot.registry,above.name)&&!mayDig(bot,above))throw new Error(`${above.name} at ${key(above.position)} is overhead and not mine to break; climbing stopped`)
    if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(above,{requireHarvest:false,getFromChest:false})
    check();await bot.dig(above);check()
   }
@@ -448,6 +452,7 @@ export async function unburrow(bot,task,{check,stage,progress}){
  const movement=new DoorAwareMovements(bot)
  Object.assign(movement,{canDig:true,allow1by1towers:true,allowParkour:false,allowSprinting:false,maxDropDown:1,
   scafoldingBlocks:[...new Set(scaffoldItems(bot).map(i=>bot.registry.itemsByName[i.name]?.id??i.type).filter(Number.isInteger))]}) // item ids: the pathfinder matches item.type, not the block table
+ movement.exclusionAreasBreak.push(refuseUnowned(bot))
  stage('surfacing');progress('Digging back out to the surface')
  bot.pathfinder.setMovements(movement)
  const goal=new goals.GoalBlock(surface.x,surface.y,surface.z)

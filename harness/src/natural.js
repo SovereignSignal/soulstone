@@ -85,4 +85,9 @@ export const claimPlaced=(bot,cell)=>!!bot?.ownBlocks?.claim&&!!cell&&bot.ownBlo
 // a Resume) and must still open (review of 16 October). A cell whose block changes is forgotten
 // on its blockUpdate, so a player's replacement is not taken for the bot's.
 export const ownedNow=(bot,block)=>{const e=block?.position&&block?.name?bot?.ownBlocks?.entry?.(block.position,dimensionOf(bot)):null;return !!e&&e.name===block.name}
+// What the shelters may dig to get in and out: breakable, or their own wall, cap or plug however old.
+export const mayDig=(bot,block)=>breakable(bot,block)||ownedNow(bot,block)
+// A pathfinder break rule for the shelter exits (burrow, quarry, back exit), as the walk's own
+// (primitives.js): never through a full block a player placed.
+export const refuseUnowned=bot=>block=>block?.position&&block.boundingBox==='block'&&!mayDig(bot,block)?100:0
 export const breakable=(bot,block)=>isNatural(block?.name)||inNether(bot)&&NETHER_NATURAL.has(block?.name)||!!bot?.ownBlocks?.has(block?.position,block?.name,dimensionOf(bot))
