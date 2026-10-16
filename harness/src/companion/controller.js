@@ -77,7 +77,7 @@ export const DAYLIGHT_MS=(12500-1000)/20*1000
 export const FAR_SHELTER=48
 // How far from where it closed the door a restarted bot still counts as in that shelter.
 const SHELTER_DRIFT=4
-import {isPotentialHostile,survivalObservation,fireObservation,SHOOTERS_ONLY,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS,HEALTH_EMERGENCY_LINE,outOfReach,cannotShootYet} from '../survival.js'
+import {isPotentialHostile,survivalObservation,fireObservation,SHOOTERS_ONLY,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS,HEALTH_EMERGENCY_LINE,outOfReach,cannotShootYet,sealedStill} from '../survival.js'
 // Air, fire and a portal underfoot run their own recovery at once and preempt
 // any shelter attempt: each has a clock no shelter stops.
 const URGENT=new Set([WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY])
@@ -935,7 +935,16 @@ export class Teammate extends EventEmitter {
       // On a trip with the portal within three blocks and a wither skeleton in reach, getting out beats holding (19:08Z).
       const portalId=recoveryBot.registry?.blocksByName?.nether_portal?.id
       // Not under the port's health line: about four seconds in the portal beside one nearly killed lab run 142 (review of 21a1cdc).
-      const exitNow=forceExit||tripNow&&recoveryBot.health>=PORT_HEALTH&&survivalObservation(recoveryBot).nearbyThreats.some(t=>t.name==='wither_skeleton'&&t.risk==='potential_hostile'&&t.distance<=3.5)&&!!recoveryBot.findBlock?.({matching:portalId,maxDistance:3})
+      // Live rehearsal, 16 October 22:11Z: beside the portal, its far face sealed by the bot's own seal_portal, a wither
+      // skeleton three blocks off behind that seal ("sealed:blocked") sent the bot home on every arrival. Only one that can
+      // get at the bot counts: one the shelter's test (sealedStill) shuts off is held through like any other, reach by the
+      // alarm's own flood from the bot (pressing, above), asked only when one of them is out of sight.
+      const witherAtHand=()=>{
+        const near=survivalObservation(recoveryBot).nearbyThreats.filter(t=>t.name==='wither_skeleton'&&t.risk==='potential_hostile'&&t.distance<=3.5)
+        if(near.some(t=>t.sightline?.status==='blocked')){const routes=threatRoutes(recoveryBot,near);near.forEach((t,i)=>{t.reach=routes[i].reach})}
+        return near.some(t=>!sealedStill(t))
+      }
+      const exitNow=forceExit||tripNow&&recoveryBot.health>=PORT_HEALTH&&witherAtHand()&&!!recoveryBot.findBlock?.({matching:portalId,maxDistance:3})
       const wallInFirst=!exitNow&&!lastResort&&(portalRoom||!!roomSpot)&&nearest>=PORTAL_ROOM_STANDOFF+Math.ceil(stepsBack)
       // Why the room was or was not chosen (run 106: hurt beside the portal, it went home and the journal could not say why).
       if(inNether(recoveryBot))this.runner.log?.('nether_shelter',{reason,wallInFirst,portalRoom,facesOpen:(f=>f.ok?f.needed:null)(hutSite(recoveryBot,{facesOnly:true})),site:roomSite?.ok?(roomSite.portal?'portal_room':'plain_hut'):roomSite?.reason,roomSpot:roomSpot?`${roomSpot.x},${roomSpot.y},${roomSpot.z}`:null,stepsBack:Math.round(stepsBack*10)/10,nearestMelee:Number.isFinite(nearest)?nearest:null,position:(p=>p&&{x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,z:Math.round(p.z*10)/10})(recoveryBot.entity?.position)})

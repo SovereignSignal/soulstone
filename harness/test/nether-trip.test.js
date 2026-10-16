@@ -9,7 +9,8 @@ import {Vec3} from 'vec3'
 import {tripKit,onTrip,TRIP_ARMOR,TRIP_ARROWS,portReady,tripPickup} from '../src/nether-trip.js'
 import {burrowClearance} from '../src/burrow.js'
 import {Teammate} from '../src/companion/controller.js'
-import {THREAT_INTERRUPTION} from '../src/survival.js'
+import {THREAT_INTERRUPTION,survivalObservation} from '../src/survival.js'
+import {threatRoutes} from '../src/threat-reach.js'
 import {canResume} from '../src/companion/continuity.js'
 const registry=registryFor('1.21.4')
 // Step 4, lab runs 129 to 137 (13 October): the planner said walk 47 blocks to the
@@ -663,6 +664,39 @@ test('off a trip the Nether chain is unchanged: the portal walk first',async()=>
 test('on a trip beside the portal with a wither skeleton in reach, under 16 health the bot walls in instead of crossing',async()=>{
  const hurt=await witherBridge({health:15});assert.ok(!hurt.acts.includes('use_portal'),hurt.acts.join(' '));assert.equal(hurt.acts[0],'hut',hurt.acts.join(' '))
  assert.ok(!hurt.acts.some(a=>RUNS.includes(a)),hurt.acts.join(' '))
+})
+// Live rehearsal, 16 October 22:11Z: on arrival beside the portal, its far face sealed with the bot's own cobblestone, a
+// wither skeleton three blocks off behind the rock ("wither_skeleton@3/-1:sealed:blocked") sent the bot straight home, and
+// on every arrival after while it loitered there. The portal-first exit counts only a wither skeleton that can get at the
+// bot. The world: a closed 2x2 room on the portal's near side, the far face sealed, open ground west past two blocks of rock.
+async function sealedWither({wall=true,health=20}={}){
+ // The fight lands no strike either way (through rock, defend gives up after twelve seconds), so the chain comes to the
+ // portal rule and the wall is the only difference.
+ const {bot,r,c}=tripTeammate({fails:{defend:['Cannot reach a clear melee strike; retreat required']}});bot.health=health
+ const room=p=>p.x>=0&&p.x<=1&&p.z>=0&&p.z<=1&&(p.y===64||p.y===65)
+ // The corridor runs on west past the flood's cells, so the open case is no sealed cavity shared with the mob.
+ const corridor=p=>p.x<=-3&&(p.y===64||p.y===65)
+ const gap=p=>!wall&&(p.x===-1||p.x===-2)&&p.z>=0&&p.z<=1&&(p.y===64||p.y===65)
+ bot.blockAt=p=>{const frame=p.z===-1&&p.x>=-1&&p.x<=2&&p.y>=63&&p.y<=67
+  const name=frame?((p.x===-1||p.x===2||p.y===63||p.y===67)?'obsidian':'nether_portal'):p.z===-2&&p.x>=0&&p.x<=1&&p.y>=64&&p.y<=66?'cobblestone':p.y<=63?'nether_bricks':room(p)||corridor(p)||gap(p)?'air':'netherrack'
+  return {name,position:p.clone(),boundingBox:registry.blocksByName[name].boundingBox,getProperties:()=>({})}}
+ bot.world.raycast=(from,dir,range)=>{for(let d=0.05;d<=range;d+=0.05){const cell=from.plus(dir.scaled(d)).floored(),b=bot.blockAt(cell);if(b.boundingBox==='block')return {name:b.name,position:cell}}return null}
+ bot.entities={8:{id:8,uuid:'10000000-0000-0000-0000-000000000008',type:'mob',name:'wither_skeleton',height:2.4,width:.7,position:new Vec3(-2.5,64,0.5),velocity:new Vec3(0,0,0)}}
+ c.threatJudge={control:false,judge:async()=>null}
+ const seen=survivalObservation(bot).nearbyThreats.find(x=>x.name==='wither_skeleton');seen.reach=threatRoutes(bot,[seen])[0].reach
+ void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,150))
+ const acts=r.commands.map(x=>x.action).filter(a=>a!=='stop');c.cancel?.(true);return {acts,said:c.messages.map(m=>m.text),seen}
+}
+test('on a trip beside the portal a wither skeleton three blocks off but sealed behind rock does not send the bot home',async()=>{
+ const t=await sealedWither()
+ assert.equal(t.seen?.distance,3);assert.equal(t.seen.sightline?.status,'blocked');assert.equal(t.seen.reach,'sealed')
+ assert.ok(!t.acts.includes('use_portal'),t.acts.join(' ')+' :: '+t.said.join(' | '))
+ assert.ok(!t.acts.some(a=>RUNS.includes(a)),t.acts.join(' '))
+ assert.ok(t.acts.some(a=>['hut','burrow'].includes(a)),t.acts.join(' ')+' :: '+t.said.join(' | '))
+})
+test('the same wither skeleton with an open way through the rock still takes the portal first at 16 health or more',async()=>{
+ const t=await sealedWither({wall:false});assert.equal(t.seen.sightline?.status,'clear');assert.notEqual(t.seen.reach,'sealed');assert.deepEqual(t.acts.slice(0,2),['defend','use_portal'],t.acts.join(' ')+' :: '+t.said.join(' | '))
+ const hurt=await sealedWither({wall:false,health:15});assert.ok(!hurt.acts.includes('use_portal'),hurt.acts.join(' '))
 })
 // And the last retry's walk home on a trip is for a portal within twelve blocks, not the 48 the first walk uses: farther,
 // the walk is the corridor run that killed the bot; the spent-retries path (lastResort, then unsafe) owns it instead.
