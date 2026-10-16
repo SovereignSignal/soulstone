@@ -39,12 +39,17 @@ function world({fills=[],items,health=20,food=20,drops=true,ground=()=>'netherra
  return {bot,cells,log,inventory,at,of}
 }
 const api={check(){},stage(){},progress(){},persist(){},movements:null}
-const bore=(w,goal,ctx=api)=>executeSkill(w.bot,{kind:'bore',goal:{x:10,y:64,z:0,count:10,...goal}},ctx)
+// Slit tests ask for the slit, as the final bore toward the spawner does (item slit).
+const bore=(w,goal,ctx=api)=>executeSkill(w.bot,{kind:'bore',goal:{x:10,y:64,z:0,count:10,slit:true,...goal}},ctx)
 // A room of air beyond the rock: x 5 to 8, y 64 to 66, z -2 to 2.
 const ROOM=[];for(let x=5;x<=8;x++)for(let y=64;y<=66;y++)for(let z=-2;z<=2;z++)ROOM.push([x,y,z,'air'])
 
 test('bore validates its goal and step and is registered as a skill, a label and a brief line',()=>{
  assert.deepEqual(validateBoreGoal({x:1,y:2,z:3,count:BORE_MAX}),{x:1,y:2,z:3,count:64})
+ assert.deepEqual(validateBoreGoal({x:1,y:2,z:3,count:4,slit:true}),{x:1,y:2,z:3,count:4,slit:true});assert.throws(()=>validateBoreGoal({x:1,y:2,z:3,count:4,slit:'yes'}),/slit/)
+ assert.deepEqual(validatePlan({reply:'x',steps:[{action:'bore',name:'',count:9,item:'slit',design:[],target:{x:1,y:2,z:3}}]}).steps[0],{action:'bore',name:'',count:9,item:'slit',target:{x:1,y:2,z:3}})
+ assert.throws(()=>validatePlan({reply:'x',steps:[{action:'bore',name:'',count:9,item:'stone',design:[],target:{x:1,y:2,z:3}}]}),/slit/)
+ assert.deepEqual(validateTaskGoal('bore',{x:1,y:64,z:0,count:2,slit:true}),{x:1,y:64,z:0,count:2,slit:true})
  for(const count of [0,65,1.5])assert.throws(()=>validateBoreGoal({x:1,y:2,z:3,count}),/1–64/)
  assert.throws(()=>validateBoreGoal({x:1.5,y:2,z:3,count:4}),/integer/)
  assert.throws(()=>validateBoreGoal({x:1,y:2,z:3,count:4,protectedSites:[{minX:2,maxX:1,minZ:0,maxZ:0}]}),/protected/)
@@ -58,7 +63,7 @@ test('bore validates its goal and step and is registered as a skill, a label and
  assert.deepEqual(calls,[['runSkill']])
  const controller=readFileSync(new URL('../src/companion/controller.js',import.meta.url),'utf8')
  assert.match(controller.split('\n').find(l=>l.includes('const labels={')),/bore:s=>`bore a covered tunnel \$\{s\.count\} columns toward \$\{s\.target\.x\}, /)
- assert.match(readFileSync(new URL('../src/companion/survival-capabilities.txt',import.meta.url),'utf8'),/^Action bore: name="", item="", count=1–64/m)
+ assert.match(readFileSync(new URL('../src/companion/survival-capabilities.txt',import.meta.url),'utf8'),/^Action bore: name="", item="" or "slit", count=1–64.*add item slit only on the final bore toward the spawner/m)
 })
 test('bore admits through intent and skill control',async()=>{
  const {guardIntent}=await import('../src/companion/intent.js'),{SKILL_ACTIONS}=await import('../src/companion/skill-control.js')
@@ -209,7 +214,7 @@ test('bore refuses outside the Nether, and stops rather than build inside a save
 })
 test('a wall one step above the bot gets no slit: the reason says to bore level first',async()=>{
  const room=[];for(let x=4;x<=6;x++)for(let y=65;y<=67;y++)for(let z=-1;z<=1;z++)room.push([x,y,z,'air'])
- const w=world({fills:room});const r=await executeSkill(w.bot,{kind:'bore',goal:{x:6,y:66,z:0,count:6}},api)
+ const w=world({fills:room});const r=await executeSkill(w.bot,{kind:'bore',goal:{x:6,y:66,z:0,count:6,slit:true}},api)
  assert.equal(r.columns,2);assert.equal(r.slit,null);assert.match(r.reason,/wall one step up at 3,65,0; bore level first/);assert.deepEqual(w.at(),new Vec3(2,64,0))
 })
 test('a bore cut short by its time budget says so in the receipt',async()=>{
@@ -226,7 +231,7 @@ test('open space beyond a wall far from the target stops the bore with the wall 
  assert.deepEqual(far.of('dig'),[]);for(const c of [k(0,64,-1),k(0,65,-1),k(-1,65,-1),k(1,65,-1)])assert.equal(far.cells.get(c),undefined,`${c} still netherrack`)
  const later=world({fills:[...ROOM,[5,63,0,'lava']]});const r=await bore(later,{x:20})
  assert.equal(r.columns,3);assert.equal(r.slit,null);assert.match(r.reason,/open space at 5,64,0 over lava, 16 blocks short of the target; bore around it/);assert.equal(later.cells.get(k(4,65,0)),undefined)
- const near=world({fills:hub});const n=await executeSkill(near.bot,{kind:'bore',goal:{x:0,y:64,z:-6,count:6}},api)
+ const near=world({fills:hub});const n=await executeSkill(near.bot,{kind:'bore',goal:{x:0,y:64,z:-6,count:6,slit:true}},api)
  assert.equal(n.columns,0);assert.deepEqual(n.slit,[{x:0,y:65,z:-1},{x:-1,y:65,z:-1},{x:1,y:65,z:-1}])
 })
 // Mapped on the rehearsal copy, 16 October: a bridge three wide, its floor of bricks at the
@@ -291,4 +296,39 @@ test('a column half air and half diggable over a floor is closed, dug and entere
  const b=await bore(rock,{x:20,count:6});assert.equal(b.reason,null);assert.equal(b.columns,6);assert.ok(rock.of('dig').includes(k(3,65,0)))
  const bricks=world({ground:VOID,fills:[...span(-3,8),[3,64,0,'nether_bricks']],items:cobble(64)});const c=await bore(bricks,{x:20,count:6})
  assert.ok(c.columns<3);assert.match(c.reason,/open space|not natural ground/);assert.equal(bricks.cells.get(k(3,64,0)),'nether_bricks')
+})
+// Live, 16 October 18:32Z: the bot walked its covered tunnel along the bridge to x -63 and bored on
+// toward -56,61,-41, a cell of open bridge six blocks off. Within SLIT_REACH of the target, cover was
+// off and the open column read as the end of the route ("open space at -62,62,-41; the tunnel stops
+// before it"). A target that is itself open air is a place to walk to, not a room to shoot into.
+// The RCON scan of that moment, rows z -43 to -38 at x -66 to -58, shifted so the bot stands at 0,64,0.
+function liveBridge(head){
+ const rows={66:{0:'cccc.....'},65:{'-1':'cccc.....',0:`....c....`,1:'cccc.....'},64:{'-2':'BBBBBBBBB','-1':'cccc.....',0:'....c....',1:'cccc.....',2:'BBBBBBBBB'},63:{'-2':'BBfBBfBBB','-1':'BBBBBBBBB',0:'BBBBBBBBB',1:'BBBBBBBBB',2:'BBfBBfBBB'}}
+ if(!head)rows[65][0]='.........'
+ const names={c:'cobblestone',B:'nether_bricks',f:'nether_brick_fence'},fills=[]
+ for(const [y,byZ] of Object.entries(rows))for(const [z,row] of Object.entries(byZ))[...row].forEach((ch,i)=>{if(ch!=='.')fills.push([i-3,+y,+z,names[ch]])})
+ const w=world({ground:VOID,fills,items:cobble(64)})
+ for(const [x,y,z,n] of fills)if(n==='cobblestone')w.bot.ownBlocks.add(new Vec3(x,y,z),n,'the_nether')
+ return w
+}
+test('the live bridge end: bore digs its own front plugs and walks on covered to an open target six blocks off',async()=>{
+ for(const head of [true,false]){
+  const w=liveBridge(head);guard(w)
+  const r=await executeSkill(w.bot,{kind:'bore',goal:{x:7,y:64,z:0,count:7}},api)
+  assert.equal(r.reason,null,`head plug ${head}: ${r.reason}`);assert.equal(r.columns,7);assert.equal(r.slit,null);assert.deepEqual(w.at(),new Vec3(7,64,0))
+  assert.ok(w.of('dig').includes(k(1,64,0)));assert.equal(w.cells.get(k(4,64,-2)),'nether_bricks')
+ }
+})
+test('a stop on open space never points the planner at nether bricks',async()=>{
+ const w=world({fills:[...ROOM,[5,63,0,'lava']]});const r=await bore(w,{x:20})
+ assert.match(r.reason,/never toward nether bricks/)
+})
+// Live, 16 October 18:32Z: toward the leg-1 waypoint, six blocks off, bore read the open bridge
+// past its own front plug as the end of the route and cut a slit facing it. Waypoints are not
+// firing positions: the slit opens only when the step asks for it (item slit).
+test('near a waypoint open floored space is covered with no slit; only a bore that asks for the slit opens one',async()=>{
+ const w=liveBridge(true);const r=await executeSkill(w.bot,{kind:'bore',goal:{x:7,y:64,z:0,count:7}},api)
+ assert.equal(r.slit,null);assert.equal(r.covered,6)
+ const s=liveBridge(true);const t=await executeSkill(s.bot,{kind:'bore',goal:{x:7,y:64,z:0,count:7,slit:true}},api)
+ assert.equal(t.columns,0);assert.deepEqual(t.slit,[{x:1,y:65,z:0},{x:1,y:65,z:-1},{x:1,y:65,z:1}])
 })

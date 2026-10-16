@@ -1862,7 +1862,7 @@ export class Teammate extends EventEmitter {
               else if(step.action==='trade')command={action:'trade',goal:{item:step.item||'',count:step.count||1},timeoutMs:120000}
               else if(step.action==='goto')command={action:'goto',goal:validateGotoGoal({...step.target,protectedSites:projectFootprints(this.projects,dimensionOf(this.runner.bot))}),timeoutMs:180000}
               else if(step.action==='dig')command={action:'dig',goal:validateDigGoal({...step.target,count:step.count,protectedSites:projectFootprints(this.projects,dimensionOf(this.runner.bot))}),timeoutMs:120000}
-              else if(step.action==='bore')command={action:'bore',goal:validateBoreGoal({...step.target,count:step.count,protectedSites:projectFootprints(this.projects,dimensionOf(this.runner.bot))}),timeoutMs:BORE_TIMEOUT_MS}
+              else if(step.action==='bore')command={action:'bore',goal:validateBoreGoal({...step.target,count:step.count,...(step.item==='slit'?{slit:true}:{}),protectedSites:projectFootprints(this.projects,dimensionOf(this.runner.bot))}),timeoutMs:BORE_TIMEOUT_MS}
               else if(step.action==='place_at')command={action:'place_at',goal:validatePlaceAtGoal({...step.target,item:step.item,protectedSites:projectFootprints(this.projects,dimensionOf(this.runner.bot))}),timeoutMs:90000}
               else if(step.action==='collect')command={action:'collect',goal:validateCollectGoal({item:step.item||'',count:step.count,protectedSites:projectFootprints(this.projects,dimensionOf(this.runner.bot))}),timeoutMs:120000}
               else if(step.action==='attack')command={action:'attack',goal:validateAttackGoal({type:step.item}),timeoutMs:120000}

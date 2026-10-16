@@ -38,12 +38,13 @@ export function validateBoreGoal(goal){
  if(!goal||!['x','y','z'].every(k=>Number.isSafeInteger(goal[k])))throw new Error('Bore needs a target with integer x, y and z')
  if(!Number.isInteger(goal.count)||goal.count<1||goal.count>BORE_MAX)throw new Error(`Bore count must be 1–${BORE_MAX} columns`)
  validateProtectedSites(goal.protectedSites)
- return {x:goal.x,y:goal.y,z:goal.z,count:goal.count,...(goal.protectedSites?.length?{protectedSites:goal.protectedSites}:{})}
+ if(goal.slit!==undefined&&goal.slit!==true)throw new Error('Bore slit must be true or absent')
+ return {x:goal.x,y:goal.y,z:goal.z,count:goal.count,...(goal.slit?{slit:true}:{}),...(goal.protectedSites?.length?{protectedSites:goal.protectedSites}:{})}
 }
 export function validateBoreStep(s){
- if(s.name!==''||(s.item??'')!==''||(s.design!==undefined&&(!Array.isArray(s.design)||s.design.length)))throw new Error('Bore requires empty name, item and design')
+ if(s.name!==''||!['','slit'].includes(s.item??'')||(s.design!==undefined&&(!Array.isArray(s.design)||s.design.length)))throw new Error('Bore requires an empty name and design, and item empty or slit')
  if(!s.target||Object.keys(s.target).length!==3)throw new Error('Bore needs a target with integer x, y and z')
- validateBoreGoal({...s.target,count:s.count})
+ validateBoreGoal({...s.target,count:s.count,...(s.item==='slit'?{slit:true}:{})})
 }
 // The longer horizontal axis in full, then the other: one corner, never a diagonal pair.
 // A height change is spread one step per floor(H/|dy|) columns, never two in one column.
@@ -114,7 +115,11 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
  // That is a pocket inside the column, or a column an alarm left dug and closed: a bore issued
  // again from the column behind it carries on through it.
  const exposed=(p,own)=>{const b=bot.blockAt(p);return !b||!solid(b)&&(!AIR.has(b.name)||AROUND.some(d=>{const q=p.plus(d);return !open.has(key(q))&&!own.some(o=>o.equals(q))&&!solid(bot.blockAt(q))}))}
- const far=p=>Math.abs(goal.x-p.x)+Math.abs(goal.z-p.z)>SLIT_REACH
+ // Live, 16 October 18:32Z: six blocks short of a waypoint on the open bridge, bore took the open
+ // column past its own front plug for the end of the route and cut a slit facing it. Waypoints are
+ // not firing positions: only a bore that asks for the slit (item slit, the final leg toward the
+ // spawner) keeps a last wall within SLIT_REACH; every other bore covers open floored space anywhere.
+ const far=p=>!goal.slit||Math.abs(goal.x-p.x)+Math.abs(goal.z-p.z)>SLIT_REACH
  // A floor bore can stand on or lay: solid and not burning, or air to place one in.
  const floored=p=>{const b=bot.blockAt(p.offset(0,-1,0));return !!b&&(AIR.has(b.name)||solid(b))&&!hot(b)}
  // Family rehearsal, 16 October: the arrival portal stands on a fortress bridge of nether bricks over
@@ -155,8 +160,8 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
    if(hot(b)){stop(`${named(ahead)} beyond ${key(c)}; bore again toward a point three blocks to the side`,c);break}
    const short=Math.abs(goal.x-c.x)+Math.abs(goal.z-c.z),walk=columnCells(c,next).filter(q=>q.x!==c.x||q.z!==c.z)
    // Far from the target, open air over a floor ahead is the next covered column, not a stop.
-   if(short>SLIT_REACH&&passable(walk)&&floored(next)&&next.y<=c.y)beyond=null
-   else if(short>SLIT_REACH){stop(`${named(ahead)}${passable(walk)?` over ${bot.blockAt(next.offset(0,-1,0))?.name??'unloaded ground'}`:''}, ${short} blocks short of the target; bore around it${columns?'':'. This wall is the first one: step to another wall or re-aim the bore'}`,c);break}
+   if(far(c)&&passable(walk)&&floored(next)&&next.y<=c.y)beyond=null
+   else if(far(c)){stop(`${named(ahead)}${passable(walk)?` over ${bot.blockAt(next.offset(0,-1,0))?.name??'unloaded ground'}`:''}, ${short} blocks short of the target; bore around it through rock or over a floor, never toward nether bricks${columns?'':'. This wall is the first one: step to another wall or re-aim the bore'}`,c);break}
    else{stop(`${named(ahead)} beyond the wall at ${key(c)}`,c);await openSlit(c);break}
   }
   if(cover){
