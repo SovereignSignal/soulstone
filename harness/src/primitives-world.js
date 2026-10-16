@@ -208,8 +208,9 @@ export function killDrops(bot, at, o = KILL_DROPS) {
 // Lab run 166, 16 October: at a blaze bay with a hopper floor every rod the port's kills dropped
 // was carried off within a second, and the hut held "quiet before fetching what fell" for more
 // than ten minutes over sites with nothing at them. A kill site counts only while a wanted drop
-// is seen there, by the collector's own test. One in loaded ground within SITE_TRACK of the bot
-// with nothing there is gone; a far or unloaded one is kept, unknown, but does not count.
+// is tracked there, by the collector's own test (entities are not hidden by walls). One loaded
+// and tracked with no drop (loaded ground within SITE_TRACK of the bot) is gone; a far or
+// unloaded one is kept, unknown, but does not count.
 export const SITE_TRACK = 16
 export function liveSites(bot, sites, wanted) {
   const here = bot?.entity?.position, keep = [], live = []

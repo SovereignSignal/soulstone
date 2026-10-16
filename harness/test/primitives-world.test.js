@@ -431,8 +431,8 @@ test('collect with kill positions picks up only what fell there, and gaining not
 
 // Lab run 166, 16 October: at a blaze bay with a hopper floor every rod was carried off within a
 // second, and the hut held for more than ten minutes over kill sites with nothing at them. A site
-// counts only while a wanted drop lies there; one the bot can observe with nothing there is gone.
-test('a kill site counts only while a wanted drop lies at it; one out of view is kept but does not count', () => {
+// counts only while a wanted drop lies there; one loaded and tracked with no drop is gone.
+test('a kill site counts only while a wanted drop lies at it; one not loaded or tracked is kept but does not count', () => {
   const A = { at: { x: 5.5, y: 64, z: 0.5 } }, B = { at: { x: -6.5, y: 64, z: 3.5 } }, C = { at: { x: 40.5, y: 64, z: 0.5 } }
   const bot = { entity: { position: new Vec3(0.5, 64, 0.5) }, entities: { 7: dropEntity(7, 'blaze_rod', 1, 6.5, 63.8, 1.2) },
     blockAt: p => Math.abs(p.x) > 32 ? null : air(p) }

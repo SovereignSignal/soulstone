@@ -87,8 +87,8 @@ const KILL_DROP_LIFE_MS=270000
 // the drop's life only, since the hut may hold quiet past it first (lab run 156, 15 October).
 const recordKill=(c,bot,at)=>(c.killSites??=[]).push({at,time:Date.now(),...(inNether(bot)?{trip:true}:{})})
 // within: which sites to walk for now; the rest stay for later. A trip's kills count only
-// while the bot is still in the Nether, where they fell. A site seen empty is never walked to
-// (lab run 166, 16 October: liveSites).
+// while the bot is still in the Nether, where they fell. A site loaded and tracked with no drop
+// is never walked to (lab run 166, 16 October: liveSites).
 async function collectKillSites(c,signal,bot,request,within=()=>true){
  const wanted=wantedDrops(request,bot?.registry).slice(0,8)
  const sites=liveSites(bot,(c.killSites||[]).filter(k=>k.trip?inNether(bot):Date.now()-k.time<KILL_DROP_LIFE_MS),wanted).keep
@@ -1140,8 +1140,8 @@ export class Teammate extends EventEmitter {
       // With kills near the hut to fetch on a trip, the hut holds quiet until no shooter has been
       // near for tripPickup's minute, so the walk for them comes before going on; never so late in
       // a watch that the quiet the wait needs after it no longer fits (lab run 156, 15 October).
-      // Lab run 166, 16 October: only a site a wanted drop still lies at counts, and one seen
-      // empty is forgotten here (a hopper floor took every rod and the hut held over nothing).
+      // Lab run 166, 16 October: only a site a wanted drop still lies at counts, and one loaded and
+      // tracked with no drop is forgotten here (a hopper floor took every rod and the hut held over nothing).
       const since=Date.now()-(this.shooterSeenAt??-Infinity),sites=liveSites(bot,this.killSites||[],wantedDrops(request,bot.registry))
       if(this.killSites?.length)this.killSites=sites.keep
       if(r.clear&&!r.confront&&!r.relocate&&since<PICKUP.quietMs&&Date.now()-watchStart<limitMs-quietMs-1000&&inNether(bot)&&canResume(request)&&sitesNearHut(safety.retreat?.surface,sites.live).length){

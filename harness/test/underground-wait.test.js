@@ -447,7 +447,7 @@ test('with kills to fetch on a trip the hut holds quiet a minute after the last 
 // Lab run 166, 16 October: at a blaze bay a hopper floor carried every rod off within a second,
 // and the hut held "quiet before fetching what fell" for more than ten minutes over nothing.
 // With no rod at either site it does not hold, walks for nothing, says nothing about leaving
-// what fell, and forgets both sites it can see are empty.
+// what fell, and forgets both sites, loaded and tracked with no drop.
 test('with every rod carried off the hut does not hold quiet, walks for nothing and forgets the empty sites',async()=>{
  const w=portWait({shot:noShot,trip:true,limitMs:2000});delete w.bot.entities[1]
  w.c.killSites=[{at:{x:5.5,y:63,z:.5},time:Date.now(),trip:true},{at:{x:14.5,y:64,z:.5},time:Date.now(),trip:true}];w.c.shooterSeenAt=Date.now()-20000
