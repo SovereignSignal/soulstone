@@ -713,3 +713,20 @@ test('a creature standing in a column cell to be walled: the far side is walled 
  // Gone by the end of the first pass, its cells are walled after all.
  const later=await run({leaves:true});assert.equal(later.result.receipt,'walled_in',String(later.result?.message))
 })
+
+// Live rehearsal R9, 17 October 06:42Z (death 6, "burned to a crisp while fighting Blaze"): a blaze fireball lit the open port
+// cell, and every close after it was refused, "Cannot wall in here: Cannot wall through fire at -37,61,-9". Fire is a
+// replaceable block in vanilla and a punch puts it out, so a wall cell holding fire or soul fire is punched out and walled.
+// Lava still refuses the wall.
+test('a wall cell holding fire or soul fire is punched out and walled; lava there still refuses the hut',async()=>{
+ for(const fire of ['fire','soul_fire']){
+  const w=world(),cell=new Vec3(11,65,10);w.cells.set(cell.toString(),fire)
+  assert.equal(hutSite(w.bot).ok,true,`${fire}: ${hutSite(w.bot).reason}`)
+  const result=await wallIn(w.bot,{kind:'hut',goal:{}},api)
+  assert.equal(result.receipt,'walled_in',fire);assert.equal(w.cells.get(cell.toString()),'oak_log',fire)
+  assert.ok(w.dug.includes(cell.toString()),`${fire}: punched out before the wall went in`)
+ }
+ const lava=world();lava.cells.set(new Vec3(11,65,10).toString(),'lava')
+ assert.match(hutSite(lava.bot).reason,/Cannot wall through lava at 11,65,10/)
+ await assert.rejects(wallIn(lava.bot,{kind:'hut',goal:{}},api),/Cannot wall through lava/)
+})

@@ -19,6 +19,11 @@ import {Vec3} from 'vec3'
 export const HUT_BLOCKS=10
 const REPLACEABLE=new Set(['air','cave_air','short_grass','tall_grass','fern','large_fern','dead_bush','pink_petals','snow','seagrass','vine'])
 const SIDES=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]
+// Live rehearsal R9, 17 October 06:42Z (death 6): a blaze fireball lit the open port cell and every close after it was refused,
+// "Cannot wall through fire at -37,61,-9", while the bot burned beside the open port. Fire and soul fire are replaceable in
+// vanilla (a block placed into the cell takes the fire's place) and go out to a punch (fire-safety.js, lab run 116), so a wall
+// cell holding one is walled: placeCells punches it out first. Lava and water still refuse the wall.
+const wallable=b=>REPLACEABLE.has(b.name)||FIRE_BLOCKS.has(b.name)
 const solid=(bot,b)=>!!b&&fullCube(bot.registry,b.name)
 const key=p=>`${p.x},${p.y},${p.z}`
 const xyz=p=>({x:p.x,y:p.y,z:p.z})
@@ -87,7 +92,7 @@ function hutSiteAt(bot,feet,{facesOnly=false}={}){
  const room=portalRoom(bot,feet,{facesOnly})
  if(facesOnly&&!room)return {ok:false,reason:"Stand beside the portal's bottom row to seal it"}
  if(room){
-  for(const c of room){const b=bot.blockAt(c);if(!b)return {ok:false,reason:`Cell ${key(c)} is not observed`};if(!REPLACEABLE.has(b.name)&&!solid(bot,b))return {ok:false,reason:`Cannot wall through ${b.name} at ${key(c)}`}}
+  for(const c of room){const b=bot.blockAt(c);if(!b)return {ok:false,reason:`Cell ${key(c)} is not observed`};if(!wallable(b)&&!solid(bot,b))return {ok:false,reason:`Cannot wall through ${b.name} at ${key(c)}`}}
   // Every wall stands on the ground at foot level; the cells above hang off the ones below, and the roof off the helper.
   for(const c of room)if(c.y===feet.y&&!solid(bot,bot.blockAt(c))&&!solid(bot,bot.blockAt(c.offset(0,-1,0))))return {ok:false,reason:`No ground to build the wall on at ${key(c.offset(0,-1,0))}`}
   const needed=room.filter(c=>!solid(bot,bot.blockAt(c))).length
@@ -100,7 +105,7 @@ function hutSiteAt(bot,feet,{facesOnly=false}={}){
  // kitted, a hoglin at ten on a fortress walkway, "no ground to build the wall on", home).
  const footing=[]
  for(const [dx,dy,dz] of SIDES){
-  for(const level of [0,1]){const c=feet.offset(dx,level,dz),b=bot.blockAt(c);if(!b)return {ok:false,reason:`Cell ${key(c)} is not observed`};if(!REPLACEABLE.has(b.name)&&!solid(bot,b))return {ok:false,reason:`Cannot wall through ${b.name} at ${key(c)}`}}
+  for(const level of [0,1]){const c=feet.offset(dx,level,dz),b=bot.blockAt(c);if(!b)return {ok:false,reason:`Cell ${key(c)} is not observed`};if(!wallable(b)&&!solid(bot,b))return {ok:false,reason:`Cannot wall through ${b.name} at ${key(c)}`}}
   // A wall that already stands (a shaft, a cave nook) needs no ground under it.
   const under=feet.offset(dx,-1,dz),ground=bot.blockAt(under)
   if(!solid(bot,bot.blockAt(feet.offset(dx,0,dz)))&&!solid(bot,ground)){
@@ -188,6 +193,9 @@ async function placeCells(bot,placements,{check,progress,feet,materials=()=>hutM
   if(occupant&&!last){queue.push(queue[n]);continue}
   if(occupant){occupied.push({cell:key(target),name:occupant.name||occupant.type||'entity'});progress(`${key(target)} is occupied by ${occupant.name||'an entity'}; leaving it`);continue}
   if(!materials().length)break
+  // Fire in the cell is punched out first (an instant break; mineflayer marks the cell air as it finishes). Were the punch
+  // lost, the placement below still takes the fire's place, since fire is replaceable.
+  if(FIRE_BLOCKS.has(bot.blockAt(target)?.name)){progress(`Putting out the fire at ${key(target)} before I wall it`);try{await bot.dig(bot.blockAt(target));check()}catch{check()}}
   // A planned reference that is gone (a fireball, a mob) gives way to any solid neighbour,
   // and one with a use (a chest, a dropper) to a plain one (lab run 163, placement.js).
   const reference=plainFirst([...(ref?[ref]:[]),...around(target)].map(c=>bot.blockAt(c)).filter(b=>solid(bot,b)))[0],at=reference?.position

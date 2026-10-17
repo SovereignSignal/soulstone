@@ -351,3 +351,16 @@ test('the same fall not alight, or alight with fire or lava in or touching the h
   assert.ok(f.burnt,name);assert.ok(Date.now()-start<2000,`${name}: took ${Date.now()-start} ms`)
  }
 })
+
+// Live rehearsal R9, 17 October 06:42Z (death 6, "burned to a crisp while fighting Blaze"): a fireball lit the open port cell,
+// and the close was refused for a minute, "Cannot wall through fire at -37,61,-9", while the bot burned beside the open port.
+// Fire in the port cell is punched out and the port walled shut as any other.
+test('a fire lit in the open port cell is punched out and the port closes',async()=>{
+ const f=fixture();let lit=-1
+ f.log.onShot=n=>{if(n===1){f.map.set(PORT,'fire');lit=f.log.events.length;f.bot.health=19}}
+ const error=await stand(f,1,{limitMs:1500}).then(()=>null,e=>e)
+ assert.ok(lit>=0,'the port caught fire');assert.doesNotMatch(String(error?.message),/could not close|Cannot wall through/)
+ const out=after(f,lit-1,'dig',PORT),shut=after(f,out,'place',PORT)
+ assert.ok(out>lit-1&&shut>out,JSON.stringify(f.log.events.slice(lit,lit+6)))
+ assert.equal(f.map.get(PORT),'cobblestone','walled in at the end')
+})
