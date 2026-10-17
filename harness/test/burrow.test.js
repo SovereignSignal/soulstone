@@ -863,6 +863,22 @@ test('on a trip a shooter within four blocks that no port line reaches holds the
  const both=burrowClearance(bayHut({blazes:[[2.5,63.2,.5],[3.5,64.3,.5]]}),opts);assert.equal(both.clear,true,both.reason)
  assert.equal(both.confront?.position.x,3.5,'the blaze the port can see, not the nearest')
 })
+// R8 trip, 17 October 02:20Z to 02:30Z (design of the blaze endgame): walled in over the spawner platform, hovering blazes
+// came into the port's line now and then while the resting ones sat below its window, and a wither skeleton stood 1.8 to 2.5
+// blocks off. The port shot asked every melee mob to be 12 blocks from the bot, so it never opened, and the reason given was
+// the blind blaze's ("No port has a line"). The port shot judges a melee mob from the port cell, 4 blocks, and names it.
+test('a lined blaze held by a wither skeleton beside the port says so, and a wither skeleton 8 blocks from the port does not hold it',async()=>{
+ const {shelterExits}=await import('../src/burrow.js')
+ const surface={x:0,y:64,z:0},opts={exits:shelterExits({shelterName:'hut',surface}),canPort:true,trip:true,lingeredMs:61000,feet:surface}
+ // A blaze below the port's window (blind) and one in its line, both east; the port cell is 1,65,0.
+ const withSkeleton=at=>{const bot=bayHut({blazes:[[2.5,63.2,.5],[3.5,64.3,.5]]});bot.entities[9]={id:9,uuid:'00000000-0000-0000-0000-000000000039',type:'hostile',name:'wither_skeleton',height:2.4,position:new Vec3(...at)};return bot}
+ const beside=burrowClearance(withSkeleton([2.5,63,1.5]),opts)
+ assert.equal(beside.clear,false,beside.reason);assert.equal(beside.confront,undefined)
+ assert.match(beside.reason,/^A wither skeleton 2\.9 blocks from the port holds it shut/);assert.doesNotMatch(beside.reason,/No port has a line/)
+ // Nine blocks from the bot and 8.4 from the port cell: the 12 from the bot held this; the port's 4 does not.
+ const far=burrowClearance(withSkeleton([9.5,63,.5]),opts)
+ assert.equal(far.clear,true,far.reason);assert.equal(far.confront?.position.x,3.5,'the blaze in the port\'s line')
+})
 test('on a trip a shooter an exit sees but no port line reaches is held, not confronted',async()=>{
  const {shelterExits}=await import('../src/burrow.js'),{observedSightline}=await import('../src/visibility.js')
  const surface={x:0,y:64,z:0},opts={exits:shelterExits({shelterName:'hut',surface}),canPort:true,trip:true,lingeredMs:61000,feet:surface}

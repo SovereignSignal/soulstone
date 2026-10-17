@@ -261,6 +261,10 @@ export function strongEnoughToLeave(bot){
 }
 // How far the melee mobs must be for a shooter at the wall to be answered from the opened wall.
 export const SHOOTER_CONFRONT_STANDOFF=12
+// R8 trip, 17 October 02:20Z to 02:30Z: a wither skeleton 1.8 to 2.5 blocks off and hoglins inside twelve held a hut's port shut
+// for eight minutes while blazes came into its line. A port shot opens one head-high cell, and a melee mob is judged from that
+// cell: within this many blocks of it the port stays shut. Twelve from the bot stays for a confront that leaves cover.
+export const PORT_STANDOFF=4
 // How many shooters at the wall the bow takes on in turn; more is a wait or a relocation.
 export const SHOOTERS_AT_WALL=3
 const centre=threats=>({
@@ -375,7 +379,13 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  // blazes pile up at the wall (lab run 144, 14 October: six at four blocks through the
  // window). On a trip, with the kit, shooters are answered whatever their number; the
  // ranged chain takes four at a time and the cover is judged again between chains.
- const shooterAtWall=!lone&&shooters.length>0&&(trip||shooters.length<=SHOOTERS_AT_WALL)&&shooters.includes(nearest)&&shooters.every(t=>bowCanAnswer(bot,t.name))&&near.every(t=>SHOOTERS_ONLY.has(t.name)||t.distance>=SHOOTER_CONFRONT_STANDOFF)
+ // On a trip with a port line the shot goes through the port cell the nearest lined shooter would open, and a melee mob is
+ // judged from that cell (PORT_STANDOFF); the one inside it is named, so the reason is the mob and not a missing line.
+ const portCell=portLine&&lined.length?portSightline(bot,feet,lined[0]).cells?.[0]:null
+ const fromPort=t=>Math.hypot(t.position.x-(portCell.x+.5),t.position.y-(portCell.y+.5),t.position.z-(portCell.z+.5))
+ const standsOff=t=>SHOOTERS_ONLY.has(t.name)||(portCell&&t.position?fromPort(t)>=PORT_STANDOFF:t.distance>=SHOOTER_CONFRONT_STANDOFF)
+ const holder=portCell?near.filter(t=>!standsOff(t)).sort((a,b)=>fromPort(a)-fromPort(b))[0]:null
+ const shooterAtWall=!lone&&shooters.length>0&&(trip||shooters.length<=SHOOTERS_AT_WALL)&&shooters.includes(nearest)&&shooters.every(t=>bowCanAnswer(bot,t.name))&&near.every(standsOff)
  // A sword answers nothing past arm's reach: every shooter waiting outside gets its arrows
  // in while the bot climbs out and closes, and more arrive meanwhile. A measured death:
  // iron sword, no armour, no bow, a lone skeleton at 8.9 blocks; the bot opened up, and a
@@ -395,7 +405,7 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  // nothing does but the shooter leaving or burning: a burrow that can heal waits, on purpose.
  // 16 October: one that cannot heal does not; see the standoff below.
  const unseen=!!lone&&!!exits&&!canPort&&SHOOTERS_ONLY.has(lone.name)&&hidden(lone)
- const ready=!portless&&(blind.length?lined.length>0&&lined.every(t=>bowCanAnswer(bot,t.name))&&near.every(t=>SHOOTERS_ONLY.has(t.name)||t.distance>=SHOOTER_CONFRONT_STANDOFF)
+ const ready=!portless&&(blind.length?lined.length>0&&lined.every(t=>bowCanAnswer(bot,t.name))&&near.every(standsOff)
   :!!lone&&bowCanAnswer(bot,lone.name)&&!unseen||shooterAtWall||meleeReady)
  if(!ready){
   // Neither fight nor hide. Unarmed against numbers or a crossbow, healthy, in
@@ -416,7 +426,9 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
   if(lingeredMs>=relocateAfterMs&&strongEnoughToLeave(bot)&&closest>=RELOCATE_STANDOFF&&near.every(t=>t.position))
    return {clear:true,relocate:{threats:near,from:centre(near)},health:s.health,timeOfDay:s.timeOfDay,scope,
     reason:`${near.length===1?`A ${near[0].name}`:`${near.length} hostiles`} held station for ${Math.round(lingeredMs/1000)} seconds and will not disperse; surfacing to move away rather than wait them out`}
-  return {clear:false,lingering:true,reason:portless?'A shooter waits outside and a burrow has no port; holding':blind.length?`No port has a line to the ${blind[0].name.replaceAll('_',' ')} ${blind[0].distance} blocks off; holding`:unseen?`A ${lone.name} waits out of sight of the shaft; holding`:`A potential hostile remains within 16 blocks: ${[...new Set(near.map(t=>t.name))].sort().join(', ')}`,threats:near}
+  const held=holder?`${/^[aeiou]/.test(holder.name)?'An':'A'} ${holder.name.replaceAll('_',' ')} ${Math.round(fromPort(holder)*10)/10} blocks from the port holds it shut; holding`
+   :portCell&&!lined.every(t=>bowCanAnswer(bot,t.name))?`The bow cannot answer the ${lined[0].name.replaceAll('_',' ')} in the port's line (a bow, 4 arrows and 10 health); holding`:null
+  return {clear:false,lingering:true,reason:portless?'A shooter waits outside and a burrow has no port; holding':held??(blind.length?`No port has a line to the ${blind[0].name.replaceAll('_',' ')} ${blind[0].distance} blocks off; holding`:unseen?`A ${lone.name} waits out of sight of the shaft; holding`:`A potential hostile remains within 16 blocks: ${[...new Set(near.map(t=>t.name))].sort().join(', ')}`),threats:near}
  }
  if(lingeredMs<patienceMs)return {clear:false,lingering:true,reason:`${lone?`A lone ${lone.name} lingers`:`${near.length} hostiles I can fight linger`} within 16 blocks in daylight; confronting after ${Math.round(patienceMs/1000)} seconds`,threats:near}
  return {clear:true,confront:blind.length?lined[0]:lone||nearest,health:s.health,timeOfDay:s.timeOfDay,reason:lone?`A lone ${lone.name} has lingered ${Math.round(lingeredMs/1000)} seconds into daylight; surfacing to confront it`:`${near.length} hostiles I can fight have lingered ${Math.round(lingeredMs/1000)} seconds; surfacing to fight them, nearest first`,scope}
