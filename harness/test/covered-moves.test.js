@@ -506,8 +506,10 @@ test('a covered stand with count 0 takes the request\'s stand count, or 4',async
  await plain.run();assert.deepEqual(plain.commands.find(x=>x.action==='stand')?.goal,{item:'blaze_rod',count:4},acts(plain).join(' '))
 })
 // The stand opens its own port and takes its own hits (it closes on a hit, under 16): neither is a breach of the covered move.
+// The stand's port on its task (task.portOpen) while it is open, as blaze-stand.js keeps it; shut, the record goes.
+const portOpenFor=(f,open)=>{f.c.runner.task={kind:'stand',status:'running',...(open?{portOpen:[{x:1,y:65,z:0}]}:{})}}
 test('the stand\'s own open port is not a cavity breach: no stop, no hut, the receipt comes back',async()=>{
- const f=fixture(async()=>standMove,{act:async(cmd,bot,m)=>{if(cmd.action!=='stand')return;m.set('1,65,0','air');await new Promise(r=>setTimeout(r,40));bot.health=17;m.set('1,65,0','cobblestone');return standReceipt}});blazeBeside(f)
+ const f=fixture(async()=>standMove,{act:async(cmd,bot,m)=>{if(cmd.action!=='stand')return;portOpenFor(f,true);m.set('1,65,0','air');await new Promise(r=>setTimeout(r,40));bot.health=17;m.set('1,65,0','cobblestone');portOpenFor(f,false);await new Promise(r=>setTimeout(r,30));return standReceipt}});blazeBeside(f)
  const result=await f.run()
  assert.equal(result.status,'handed_back',JSON.stringify(f.c.recoveryHistory));assert.deepEqual(acts(f),['stand'])
 })
@@ -544,4 +546,28 @@ test('off a stand cell, or on a request without blaze rods, a blaze in port line
   const result=await f.run()
   assert.equal(result.status,'held',name);assert.match(result.reason,/in sight through a port/,name);assert.equal(calls,0,name);assert.deepEqual(acts(f),[],name)
  }
+})
+
+// Review of the covered stand (Sonnet, 17 October): while the stand ran, the covered guard watched only for a changed
+// context and liquid, the alarm could not fire (the covered phase holds the safety), and the stand's heal waited up to a
+// minute for 16 health checking nothing. A wither skeleton or hoglin through a broken wall hit the bot unanswered. With the
+// port shut the guard is the covered move's: the cavity and the health line. Only the stand's own open port relaxes it.
+const wait20=ms=>new Promise(r=>setTimeout(r,ms))
+test('a hit during a stand with its port shut stops the stand on the first damage and hands the hut back to the watch',async()=>{
+ const f=fixture(async()=>standMove,{act:async(cmd,bot)=>{if(cmd.action!=='stand')return;portOpenFor(f,false);await wait20(20);bot.health=17;await wait20(60);return standReceipt}});blazeBeside(f)
+ const result=await f.run()
+ assert.equal(result.status,'held');assert.match(result.reason,/Health fell/);assert.ok(f.commands.some(x=>x.action==='stop'),acts(f).join(' '))
+})
+test('a breach of a hut wall during a stand with its port shut stops it and walls in again',async()=>{
+ const f=fixture(async()=>standMove,{act:async(cmd,bot,m)=>{if(cmd.action==='hut'){for(let x=-1;x>-300;x--)m.delete(`${x},64,0`);return {receipt:'walled_in',surface:{x:0,y:64,z:0}}}
+  if(cmd.action!=='stand')return;portOpenFor(f,false);await wait20(20);for(let x=-1;x>-300;x--)m.set(`${x},64,0`,'air');await wait20(60);return standReceipt}});blazeBeside(f)
+ await f.run({budgetMs:200})
+ const order=acts(f);assert.deepEqual(order.slice(0,2),['stand','hut'],order.join(' '))
+ assert.ok(f.commands.some(x=>x.action==='stop'));assert.ok(f.c.recoveryHistory.some(a=>a.status==='rejected'&&/opened the cavity/.test(a.reason)),JSON.stringify(f.c.recoveryHistory))
+})
+test('after a failed stand the health line restarts from where the stand left it: the next decision is asked',async()=>{
+ const seen=[];const f=fixture(async o=>{seen.push(o);return seen.length===1?standMove:wait},{act:(cmd,bot)=>{if(cmd.action!=='stand')return;bot.health=17;throw new Error('No blaze rod gained: 1 blaze killed, 1 port opened; hit at the port')}});blazeBeside(f)
+ const result=await f.run({budgetMs:80})
+ assert.ok(seen.length>=2,JSON.stringify(result));assert.ok(!/Health fell/.test(result.reason||''),JSON.stringify(result))
+ assert.ok(f.c.recoveryHistory.some(a=>a.status==='failed'&&/No blaze rod gained/.test(a.reason)),JSON.stringify(f.c.recoveryHistory))
 })

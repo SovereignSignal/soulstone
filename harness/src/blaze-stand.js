@@ -155,8 +155,16 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
  const heal=async()=>{
   stage('healing');progress(`Healing with the port shut (health ${Math.round(bot.health)})`)
   await eat(context,18)
-  for(const end=Date.now()+Math.min(o.healMs,Math.max(0,left()));Date.now()<end&&!portReady(bot).ready;){check();await delay(o.poll)}
-  return portReady(bot).ready
+  // Review of the covered stand (17 October): a mob through a broken wall hit the bot for the whole wait. Health falling
+  // while it heals, or under the trip's line, ends the wait at once: '' when ready, else why not.
+  let last=bot.health
+  for(const end=Date.now()+Math.min(o.healMs,Math.max(0,left()));Date.now()<end&&!portReady(bot).ready;){
+   check()
+   if(bot.health<last)return `hit while healing with the port shut (health ${Math.round(bot.health)})`
+   if(!(bot.health>=TRIP_HEALTH))return `health ${Math.round(bot.health)} is under ${TRIP_HEALTH} while healing`
+   last=bot.health;await delay(o.poll)
+  }
+  return portReady(bot).ready?'':`${portReady(bot).reason}, not back after ${span(o.healMs)} shut`
  }
  stage('walling');progress('Walling in for the stand')
  await wallIn(bot,{kind:'hut',goal:{}},context);check()
@@ -238,7 +246,7 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
     stage('waiting');await delay(o.poll);continue
    }
    empty=null
-   if(!portReady(bot).ready&&!await heal()){stopped=`${portReady(bot).reason}, not back after ${span(o.healMs)} shut`;break}
+   if(!portReady(bot).ready){const why=await heal();if(why){stopped=why;break}}
    const choice=await choose();check()
    if(!choice||meleeNear(choice.cells[0])){stage('waiting');await delay(o.poll);continue}
    // The port opens only with the blocks to wall in here again after it, and one to spare (controller.js's port rule).

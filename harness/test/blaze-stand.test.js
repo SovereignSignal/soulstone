@@ -311,3 +311,15 @@ test('with a mob in the port cell the pre-command hut fails twice, the goto is r
  await c.executeCommand({action:'goto',goal:{x:-36,y:60,z:-9},timeoutMs:60000},signal);c.cancel?.(true)
  assert.equal(r.commands.filter(x=>x.action!=='stop').at(-1).action,'goto');assert.equal(c.standPort,null)
 })
+
+// Review of the covered stand (Sonnet, 17 October): healing with the port shut, the stand waited up to healMs for 16
+// health checking only the runner's check, so a mob hitting the bot through a broken wall went on for a minute. A fall
+// in health while it heals, or health under the trip's 12, ends the wait at once and the stand says why.
+test('a hit while healing with the port shut ends the stand at once, not after healMs',async()=>{
+ const f=fixture({health:15}),start=Date.now()
+ setTimeout(()=>{f.bot.health=13},40)
+ await assert.rejects(stand(f,1,{healMs:5000,limitMs:20000}),/hit while healing with the port shut \(health 13\)/)
+ assert.ok(Date.now()-start<2000,`took ${Date.now()-start} ms`)
+ const g=fixture({health:15});setTimeout(()=>{g.bot.health=11.5},40)
+ const at=Date.now();await assert.rejects(stand(g,1,{healMs:5000,limitMs:20000}),/hit while healing with the port shut/);assert.ok(Date.now()-at<2000)
+})

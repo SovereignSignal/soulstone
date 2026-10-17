@@ -208,9 +208,16 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
    request.coveredMoves=(request.coveredMoves||0)+1;safety.covered??={from:structuredClone(safety.retreat.surface),at:xyz(feetOf(bot)),moves:[]};c.persist()
    const moveAbort=new AbortController(),moveSignal=AbortSignal.any([signal,moveAbort.signal]);let failure=null,receipt
    // The stand opens its own port and judges its own hits, closing on one and under the port's health (blaze-stand.js):
-   // during it only a changed context or liquid stops it here, never its open port or a hit it already answers.
+   // while that port is open (task.portOpen) only a changed context or liquid stops it here. Review of the covered stand
+   // (17 October): with the port shut the guard is every move's, the cavity and the health line, since the alarm cannot
+   // fire while the covered phase holds the safety. The health line restarts as the port shuts, after the hit that shut it.
    const standing=move.command.action==='stand'
-   const guard=standing?()=>{check();if(bot.entity.isInWater||bot.entity.isInLava)throw new Error('Entered liquid during a covered move')}:()=>protection(true)
+   let wasOpen=false
+   const guard=!standing?()=>protection(true):()=>{
+    const t=c.runner.task,open=t?.kind==='stand'&&t.status==='running'&&Array.isArray(t.portOpen)&&t.portOpen.length>0
+    if(open||wasOpen){wasOpen=open;check();if(bot.entity.isInWater||bot.entity.isInLava)throw new Error('Entered liquid during a covered move');health=bot.health;return}
+    protection(true)
+   }
    const monitor=setInterval(()=>{try{guard()}catch(e){failure??=e;moveAbort.abort();c.dispatch({action:'stop'})}},pollMs)
    let failed=null
    try{await c.execute(move.command,moveSignal);receipt=structuredClone(c.runner.task?.result??null)}
@@ -227,6 +234,7 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
     journal('rejected',{reason,expectation:value.expectation});if(++refusals>=2)return {status:'held',reason};continue
    }
    if(failure)throw failure
+   if(failed&&standing)health=bot.health
    if(failed){check();journal('failed',{reason:failed.message,expectation:value.expectation});if(++refusals>=2)return {status:'held',reason:failed.message};continue}
    // The last block dug may still be under a falling bot: land before the cavity is judged.
    for(let i=0;i<20&&!bot.entity.onGround;i++)await delay(50,undefined,{signal})
