@@ -13,7 +13,7 @@ import {setTimeout as delay} from 'node:timers/promises'
 import {Vec3} from 'vec3'
 import {inNether} from './dimension.js'
 import {tripKit,TRIP_HEALTH,TRIP_ARROWS,PORT_HEALTH,portReady} from './nether-trip.js'
-import {hutSite,hutMaterials,wallIn,unwall,firingPort} from './hut.js'
+import {hutSite,hutSiteAt,hutMaterials,wallIn,unwall,firingPort,coveredColumn} from './hut.js'
 import {weaponFor,portStrike} from './combat.js'
 import {SHOOTERS_ONLY,hostileNow,survivalObservation,fireObservation,eatFood} from './survival.js'
 import {shelterHolds} from './shelter-occupants.js'
@@ -26,6 +26,9 @@ import {ownedNow,claimPlaced} from './natural.js'
 import {holdToPlace} from './placement.js'
 import {fullCube} from './construction.js'
 import {validateStandGoal,standingIn,closePort} from './enderman-stand.js'
+import {DoorAwareMovements} from './navigation.js'
+import pathfinding from 'mineflayer-pathfinder'
+const {goals}=pathfinding
 
 // radius: blazes looked for, the bow's. limitMs: the whole stand, and timeoutMs the step's limit (the runner's idle window,
 // which each stage and progress slides forward, as for the enderman stand). arrows: the trip's floor; under it the stand
@@ -40,9 +43,10 @@ import {validateStandGoal,standingIn,closePort} from './enderman-stand.js'
 // clock, since after a cancellation the runner's check throws (review of the stand). burnMs: a fall this long after the bot
 // was last seen alight is still the burn's, as the shelter wait and the covered guard judge it (continuity.js BURN_MS: the
 // last tick can land after the flag clears). cavityCells: the closed cavity the heal verifies, up to a covered route's
-// (continuity.js COVERED_CELLS), since the stand may be walled in at a covered tunnel's end.
+// (continuity.js COVERED_CELLS), since the stand may be walled in at a covered tunnel's end. retreatDrop: health lost since a
+// failing close began that steps the bot back out of the port's cell (close), and stepMs bounds that step.
 export const BLAZE_STAND={item:'blaze_rod',radius:SHOOT.radius,limitMs:600000,timeoutMs:600000,arrows:TRIP_ARROWS,emptyMs:120000,idleMs:20000,drawInMs:15000,drawIn:4,blinkMs:1500,healMs:60000,
- meleeNear:3,digReach:4.5,settleMs:1500,drawMs:SHOOT.drawMs,spawnReach:4,spawnRise:1,closeWaitMs:10000,closeLimitMs:60000,finalCloseMs:15000,burnMs:6000,cavityCells:256,poll:50}
+ meleeNear:3,digReach:4.5,settleMs:1500,drawMs:SHOOT.drawMs,spawnReach:4,spawnRise:1,closeWaitMs:10000,closeLimitMs:60000,finalCloseMs:15000,burnMs:6000,cavityCells:256,retreatDrop:4,stepMs:4000,poll:50}
 const key=p=>`${p.x},${p.y},${p.z}`
 const round=p=>({x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,z:Math.round(p.z*10)/10})
 const plural=(n,one,many)=>`${n} ${n===1?one:many}`
@@ -142,15 +146,47 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
  // the ending uses.
  // The port's cells: the opened ones, or the chosen ones on the task when the opening was cut off inside unwall.
  const portCells=()=>port?.opened??task.portOpen??null
+ // Live rehearsal R9, 17 October 06:42Z (death 6): the close could not succeed and the bot stood a minute beside the open,
+ // burning port. In the Nether a water bucket evaporates (fire-safety.js pours none there), so the act is to leave the port's
+ // cell: into a covered neighbour (hut.js coveredColumn: floor, roof and both sides standing, as the tunnel the stand was
+ // reached by), the two across the port's line before the one behind it, whose cells hold air or the bot's own wall and
+ // where a hut closes. The bot digs its own wall, steps in (no digging, towering or placing on the way) and walls in there,
+ // which puts a wall between it and the port. The cell, or null with nothing dug when there is none; a step or wall-in that
+ // fails after the dig is null too, said, and the close goes on.
+ const stepBack=async(ctx,why)=>{
+  const here=bot.entity.position.floored(),c0=portCells()[0],px=Math.sign(c0.x-here.x),pz=Math.sign(c0.z-here.z)
+  if(Math.abs(c0.x-here.x)+Math.abs(c0.z-here.z)!==1)return null
+  const open=c=>{const b=bot.blockAt(c);return !!b&&(AIR.has(b.name)||fullCube(bot.registry,b.name)&&ownedNow(bot,b))}
+  const cell=[[pz,px],[-pz,-px],[-px,-pz]].map(([dx,dz])=>here.offset(dx,0,dz))
+   .find(c=>open(c)&&open(c.offset(0,1,0))&&coveredColumn(bot,c,{walled:true})&&hutSiteAt(bot,c).ok)
+  if(!cell)return null
+  ctx.stage('retreating');ctx.progress(`Hurt beside a port I cannot close (${why}): stepping back into the covered cell at ${key(cell)}`)
+  for(const c of [cell.offset(0,1,0),cell])await digOne(bot,bot.blockAt(c),ctx.check)
+  ctx.check()
+  const previous=bot.pathfinder.movements,movement=new DoorAwareMovements(bot)
+  Object.assign(movement,{canDig:false,allow1by1towers:false,allowParkour:false,allowSprinting:false,maxDropDown:0,scafoldingBlocks:[]})
+  bot.pathfinder.setMovements(movement)
+  const timer=setTimeout(()=>bot.pathfinder?.setGoal?.(null),o.stepMs)
+  try{await bot.pathfinder.goto(new goals.GoalBlock(cell.x,cell.y,cell.z))}catch{ctx.check()}finally{clearTimeout(timer);if(previous)bot.pathfinder.setMovements(previous)}
+  ctx.check()
+  if(!bot.entity.position.floored().equals(cell)){ctx.progress(`Could not step back into ${key(cell)}`);return null}
+  try{await wallIn(bot,{kind:'hut',goal:{}},ctx);ctx.check()}catch(error){ctx.check();ctx.progress(`Could not wall in at ${key(cell)}: ${String(error.message).slice(0,80)}`);return null}
+  return cell
+ }
  const close=async(ctx=context)=>{
   if(!portCells())return true
   ctx.stage('walling')
   for(const end=Date.now()+o.settleMs;pending.length&&bot.health>=TRIP_HEALTH&&Date.now()<end;){ctx.check();judge();await delay(o.poll)}
-  const until=Date.now()+o.closeLimitMs
-  for(let ate=0;;){
+  const until=Date.now()+o.closeLimitMs,from=bot.health
+  for(let ate=0,stepped=false;;){
    const why=await closePort(bot,portCells(),ctx,{...o,closeTries:1},{whileBlocked:async inside=>{const m=inside.find(e=>portStrike(bot,e,null,{anyHostile:true}));if(m)await strike(m,ctx.check)}})
    if(!why){port=null;record.unclosed=null;delete task.portOpen;persist();return true}
    record.unclosed=why
+   // Alight or losing health, and under the trip's line or retreatDrop down since the close began: step back, once.
+   if(!stepped&&(fireObservation(bot).onFire===true||bot.health<from)&&(bot.health<TRIP_HEALTH||from-bot.health>=o.retreatDrop)){
+    stepped=true;const opened=portCells(),cell=await stepBack(ctx,why)
+    if(cell){record.stepped=`${why}; I stepped back into the covered cell at ${key(cell)} and walled in there; the port at ${opened.map(key).join(' and ')} stays open outside it`;port=null;record.unclosed=null;delete task.portOpen;persist();return false}
+   }
    if(bot.health>=TRIP_HEALTH&&Date.now()>=until)return false
    if(bot.health<TRIP_HEALTH&&Date.now()-ate>=30000){ate=Date.now();await eat(ctx,20)}
    // Live rehearsal R9, 17 October 06:42Z (death 6): a close the hut refuses at once throws before any await on a timer, so
@@ -273,7 +309,7 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
    port=await unwall(bot,{kind:'unhut',goal:{toward:column(choice.target.position),shooter:'blaze',side:{dx:choice.side[0],dz:choice.side[2]}}},context);check()
    task.portOpen=structuredClone(port.opened);record.ports++;persist()
    const r=await session()
-   if(!await close()){stopped=`could not close the port: ${record.unclosed}`;break}
+   if(!await close()){stopped=`could not close the port: ${record.stepped??record.unclosed}`;break}
    if(r.end==='time'){stopped=ranOut();break}
    if(r.end==='hit')progress('Hit at the port. I closed it.')
    if(r.end==='melee')progress(`${a(r.mob.name).replace(/^a/,'A')} came near the port. I closed it.`)

@@ -377,3 +377,30 @@ test('a close the hut refuses at once keeps the event loop turning while it retr
  finally{clearInterval(clock);gap=Math.max(gap,Date.now()-last)}
  assert.ok(gap<150,`the event loop stalled ${gap} ms`)
 })
+
+// The same death, the other half: the close could not succeed and the bot stood beside the open, burning port for its whole
+// minute. In the Nether a water bucket evaporates (fire-safety.js pours none there), so the act is to step out of the port's
+// cell. Alight or losing health while a close fails, and under the trip's 12 or 4 down since the close began, the bot digs
+// its own wall into a covered neighbour (hut.js coveredColumn: floor, roof and both sides standing), the two across the
+// port's line before the one behind it, steps in and walls in there. The open port is left outside the new hut.
+const tunnelWest=[[-37,59,-9],[-38,59,-9],[-37,62,-9],[-38,62,-9],...[-37,-38].flatMap(x=>[60,61].flatMap(y=>[[x,y,-10],[x,y,-8]]))].map(c=>[...c,'netherrack'])
+test('burning beside a port it cannot close, the bot steps back into its covered tunnel cell and walls in there',async()=>{
+ const f=fixture({cells:tunnelWest});let burn=null
+ // Bounded: a close that never acts keeps going for ever under the trip's line, so the test cancels it at 4 s.
+ const cancelAt=Date.now()+4000;f.api.check=()=>{if(Date.now()>cancelAt)throw new Error('skill interrupted')}
+ f.bot.pathfinder.goto=async g=>{f.log.steps.push(key(g));f.bot.entity.position=new Vec3(g.x+.5,g.y,g.z+.5)}
+ f.log.onShot=n=>{if(n!==1)return;f.map.set(PORT,'lava');f.bot.health=19;f.bot.entity.metadata={0:1}
+  burn=setInterval(()=>{if(f.bot.health>8)f.bot.health-=1},20)}
+ const task={kind:'stand',goal:validateStandGoal({item:'blaze_rod',count:1})}
+ try{await assert.rejects(blazeStand(f.bot,task,f.api,{...fast,closeLimitMs:3000}).finally(f.stop),/stepped back into the covered cell at -37,60,-9 and walled in there; the port at -36,61,-8 stays open outside it/)}
+ finally{clearInterval(burn)}
+ assert.ok(at(f,'dig','-37,61,-9')>=0&&at(f,'dig','-37,60,-9')>=0,'its own wall into the tunnel dug')
+ assert.deepEqual(f.log.steps,['-37,60,-9']);assert.deepEqual(f.bot.entity.position.floored(),new Vec3(-37,60,-9))
+ for(const c of ['-36,60,-9','-36,61,-9','-38,60,-9','-38,61,-9'])assert.equal(f.map.get(c),'cobblestone',`${c} walled`)
+ assert.equal(task.portOpen,undefined,'the port is no longer the hut\'s')
+ // With no covered neighbour it does not dig out of the hut: the close goes on as before and gives up at its limit.
+ const g=fixture();let burn2=null
+ g.log.onShot=n=>{if(n!==1)return;g.map.set(PORT,'lava');g.bot.health=19;burn2=setInterval(()=>{if(g.bot.health>13)g.bot.health-=1},20)}
+ try{await assert.rejects(stand(g,1,{closeLimitMs:400}),/could not close the port: Cannot wall in here: Cannot wall through lava/)}finally{clearInterval(burn2)}
+ assert.equal(g.log.events.filter(e=>e[0]==='dig'&&e[1]!==PORT).length,0,'no wall dug')
+})

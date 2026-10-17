@@ -87,7 +87,8 @@ export function coveredColumn(bot,cell=null,{walled=false}={}){
  }
  return null
 }
-function hutSiteAt(bot,feet,{facesOnly=false}={}){
+// Exported for the blaze stand's step back (blaze-stand.js): the site of a cell the bot is not in yet.
+export function hutSiteAt(bot,feet,{facesOnly=false}={}){
  if(!solid(bot,bot.blockAt(feet.offset(0,-1,0))))return {ok:false,reason:'No solid floor under the bot'}
  const room=portalRoom(bot,feet,{facesOnly})
  if(facesOnly&&!room)return {ok:false,reason:"Stand beside the portal's bottom row to seal it"}
