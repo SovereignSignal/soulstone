@@ -77,7 +77,7 @@ export const DAYLIGHT_MS=(12500-1000)/20*1000
 export const FAR_SHELTER=48
 // How far from where it closed the door a restarted bot still counts as in that shelter.
 const SHELTER_DRIFT=4
-import {isPotentialHostile,survivalObservation,fireObservation,SHOOTERS_ONLY,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS,HEALTH_EMERGENCY_LINE,outOfReach,cannotShootYet,sealedStill} from '../survival.js'
+import {hostileNow,survivalObservation,fireObservation,SHOOTERS_ONLY,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS,HEALTH_EMERGENCY_LINE,outOfReach,cannotShootYet,sealedStill} from '../survival.js'
 // Air, fire and a portal underfoot run their own recovery at once and preempt
 // any shelter attempt: each has a clock no shelter stops.
 const URGENT=new Set([WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY])
@@ -117,7 +117,7 @@ const repairedLine=(project,repaired)=>{
 const WALL_HOLE_GUARD=8
 const wallHoleGuarded=(bot,project,missing)=>{
  const top=project.build.origin.y+Math.max(...project.build.design.map(b=>b.y)),walls=missing.filter(m=>m.cell.y!==top)
- return walls.length>0&&Object.values(bot.entities||{}).some(e=>e!==bot.entity&&isPotentialHostile(e?.name)&&e.position&&walls.some(m=>e.position.distanceTo(m.cell.offset(.5,.5,.5))<=WALL_HOLE_GUARD))
+ return walls.length>0&&Object.values(bot.entities||{}).some(e=>e!==bot.entity&&hostileNow(bot,e)&&e.position&&walls.some(m=>e.position.distanceTo(m.cell.offset(.5,.5,.5))<=WALL_HOLE_GUARD))
 }
 // Review of 16 October: a wait or base watch released because the mobs near it are sealed and out
 // of sight (sealedStill) sends the request back to the work that put the bot there, where the

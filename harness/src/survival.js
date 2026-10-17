@@ -15,6 +15,19 @@ export const isPotentialHostile=name=>hostile.has(name)
 // a piglin in its own tunnel and one hit took it from 12.6 to 4.9; the alarm counted nothing.
 const GOLDEN_ARMOUR=new Set(['golden_helmet','golden_chestplate','golden_leggings','golden_boots'])
 export const wearsGold=bot=>['head','torso','legs','feet'].some(slot=>{const i=bot?.getEquipmentDestSlot?.(slot);return Number.isInteger(i)&&GOLDEN_ARMOUR.has(bot.inventory?.slots?.[i]?.name)})
+// A conditional mob that is hostile to this bot right now: an enderman screaming for it (its `creepy`
+// flag), or an adult piglin while the bot wears no gold (a baby never attacks; an unknown age counts as
+// an adult). gold: wearsGold(bot), passed in by a caller judging many entities at once.
+const metadataIndex=(bot,mob,key)=>bot?.registry?.entitiesByName?.[mob]?.metadataKeys?.indexOf(key)??-1
+export function provoked(bot,e,gold=wearsGold(bot)){
+ if(e?.name==='enderman'){const i=metadataIndex(bot,'enderman','creepy');return i>=0&&e.metadata?.[i]===true}
+ if(e?.name==='piglin'){const i=metadataIndex(bot,'piglin','baby');return !gold&&!(i>=0&&e.metadata?.[i]===true)}
+ return false
+}
+// The one entity-level test of "a hostile to this bot": the hostile kinds by name, and a provoked
+// conditional mob. Shelter occupants and wall-hole guards ask it, as the threat list does
+// (review of 55698df: a gold-less piglin in the bot's sealed tunnel passed as a verified shelter).
+export const hostileNow=(bot,e,gold)=>!!e&&(hostile.has(e.name)||provoked(bot,e,gold))
 // Mobs that attack from a distance. A pillager opens fire at about sixteen
 // blocks, so a ten-block interruption radius let it shoot the bot for six
 // blocks of approach without any response; one killed the agent that way.
@@ -125,12 +138,9 @@ export function survivalObservation(bot) {
  // An enderman screams while it hunts a player (its `creepy` flag): from then on it
  // is a threat. As a calm `conditional` mob, a provoked one on pi3's fresh world
  // (9 October) set off nothing until the bot was at half health, two seconds from dead.
- const creepy=bot?.registry?.entitiesByName?.enderman?.metadataKeys?.indexOf('creepy')??-1
- const screaming=e=>e.name==='enderman'&&creepy>=0&&e.metadata?.[creepy]===true
- // A piglin with no gold on the bot is a melee threat, a baby never (it does not attack); an
- // unknown age counts as an adult. Gold carried in the pack calms nothing.
- const baby=bot?.registry?.entitiesByName?.piglin?.metadataKeys?.indexOf('baby')??-1,gold=wearsGold(bot)
- const angry=e=>screaming(e)||e.name==='piglin'&&!gold&&!(baby>=0&&e.metadata?.[baby]===true)
+ // A piglin with no gold on the bot is a melee threat, a baby never (provoked, above).
+ // Gold carried in the pack calms nothing.
+ const gold=wearsGold(bot),angry=e=>provoked(bot,e,gold)
  const nearbyThreats=p?Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&e.position&&(hostile.has(e.name)||conditional.has(e.name))).map(e=>({name:e.name,distance:Math.round(e.position.distanceTo(p)*10)/10,position:{x:e.position.x,y:e.position.y,z:e.position.z},risk:!angry(e)&&(conditional.has(e.name)||e.name==='spider'&&daylight)?'conditional':'potential_hostile'})).filter(e=>e.distance<=(FAR_SHOOTERS.has(e.name)?48:24)).sort((a,b)=>a.distance-b.distance).slice(0,16):[]
  for(const t of nearbyThreats){t.verticalOffset=Math.round((t.position.y-p.y)*10)/10;t.sightline=observedSightline(bot,{x:p.x,y:p.y+(bot.entity.eyeHeight||1.62),z:p.z},{x:t.position.x,y:t.position.y+1,z:t.position.z})}
  // Farm animals within 32 blocks, so the planner hunts what is actually there.

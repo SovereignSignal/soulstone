@@ -783,3 +783,19 @@ test('hurt in its own tunnel with the portal two blocks off, the portal-first ex
  const t=await hurtInTunnel({portalAt:2})
  assert.equal(t.names[0],'use_portal',t.names.join(' ')+' :: '+t.said.join(' | '))
 })
+// Review of 55698df: shelter occupants were judged by name alone, so on the covered route, where the hut and the
+// tunnel are one sealed cavity, a gold-less bot's adult piglin in the tunnel passed as a verified shelter.
+test('a gold-less adult piglin inside the sealed tunnel cavity fails the shelter inspection; gold worn or a baby does not',()=>{
+ const babyKey=registry.entitiesByName.piglin.metadataKeys.indexOf('baby'),creepy=registry.entitiesByName.enderman.metadataKeys.indexOf('creepy')
+ const inspect=({boots='iron_boots',name='piglin',flags}={})=>{
+  const {bot,placed}=bridgeTunnel();wear(bot,boots);placed.add('1,64,3');placed.add('1,65,3')
+  bot.entities={9:{id:9,type:'mob',name,height:1.95,width:.6,position:new Vec3(-2.5,64,3.5),metadata:flags}}
+  return ()=>inspectEmergencyShelter(bot,{limit:COVERED_CELLS})
+ }
+ assert.throws(inspect(),/potential hostile: piglin/)
+ assert.throws(inspect({flags:Object.assign([],{[babyKey]:false})}),/piglin/,'an adult by its flag')
+ assert.equal(inspect({boots:'golden_boots'})().verified,true,'golden boots worn')
+ assert.equal(inspect({flags:Object.assign([],{[babyKey]:true})})().verified,true,'a baby piglin')
+ assert.throws(inspect({name:'enderman',flags:Object.assign([],{[creepy]:true})}),/enderman/,'a screaming enderman')
+ assert.equal(inspect({name:'enderman'})().verified,true,'a calm enderman')
+})
