@@ -716,6 +716,13 @@ export class Teammate extends EventEmitter {
       // fled 25 blocks into the fortress corridors, "taking damage while running (20 to 1)", and withered away. On a
       // trip nothing flees or detours: cover where the bot stands, and the portal when no cover can be had.
       const tripNow=!lastResort&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))
+      // Live rehearsal, 17 October 01:17Z: a piglin's hit in the bot's own tunnel took it to 4.9, under the trip's health
+      // line, so the trip rules were off and the chain walked for the portal 40 blocks back along the tunnel with the
+      // piglin beside it, and died 1.6 s later. On a trip request (kit or not, any health) in a covered column of its
+      // own tunnel, cover comes first: the bot walls in where it stands and heals inside on carried food. Only a portal
+      // within the portal-first reach (three blocks, as exitNow and shutIn) is still taken first.
+      const holdColumn=!tripNow&&!lastResort&&inNether(recoveryBot)&&(!!interruptedActiveRequest||canResume(this.requestProgress))&&!!coveredColumn(recoveryBot)&&
+        !recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:3})
       // Live, 16 October 19:50Z: a wither skeleton shut inside the bot's own sealed tunnel sent it home on every
       // arrival. Melee mobs in one sealed cavity with the bot (the covered limit, so nothing else can join): one it can
       // fight alone, on the port's health, is fought where the bot stands; hurt or outnumbered, the portal (shutIn).
@@ -783,7 +790,8 @@ export class Teammate extends EventEmitter {
         // Live rehearsal, 16 October (18:21Z): in a bore column on the fortress bridge the alarm defended against a
         // wither skeleton at the open front, the follow took the bot out and off the edge into the lava sea. On a
         // trip in a covered column nothing paths: a melee mob in reach is struck in place, then the column is closed.
-        const inColumn=!forceExit&&!lastResort&&inNether(recoveryBot)&&!!coveredColumn(recoveryBot)&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))
+        // Under the trip's line too, in its own tunnel (holdColumn): the strike stops at the trip's 12, then the column closes.
+        const inColumn=!forceExit&&(holdColumn||!lastResort&&inNether(recoveryBot)&&!!coveredColumn(recoveryBot)&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress)))
         if(inColumn){
           const strike=decision.engage?decision:corneredDecision(recoveryBot),mob=strike.engage?recoveryBot.entities?.[strike.target.targetId]:null
           if(mob?.position&&recoveryBot.entity.position.distanceTo(mob.position)<=2.9){
@@ -929,7 +937,7 @@ export class Teammate extends EventEmitter {
       // few steps away is walked back to and closed, when the hostiles leave time for the steps.
       // Live rehearsal, 16 October (18:18Z): in a covered bore column on a trip the portal step-back left the
       // tunnel's far end open on the bridge. There the hut closes the column where the bot stands (hut.js).
-      const tunnelled=!lastResort&&inNether(recoveryBot)&&!portalRoom&&!!coveredColumn(recoveryBot)&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress))
+      const tunnelled=!portalRoom&&(holdColumn||!lastResort&&inNether(recoveryBot)&&!!coveredColumn(recoveryBot)&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress)))
       const roomSpot=inNether(recoveryBot)&&!portalRoom&&!tunnelled?portalRoomSpot(recoveryBot):null
       const stepsBack=roomSpot?recoveryBot.entity.position.distanceTo(roomSpot.offset(.5,0,.5)):0
       // On a trip with the portal within three blocks and a wither skeleton in reach, getting out beats holding (19:08Z).
@@ -955,11 +963,13 @@ export class Teammate extends EventEmitter {
       // by the last alarm and waiting to resume is still the trip (lab run 144, 14 October:
       // "Resume is available", the next blaze, requestActive false, the portal walk, dead).
       // The trip's last resort (the tick, below its retries) is the walk home: not the trip's cover again.
-      const trip=tripNow
+      // In its own tunnel off the trip's line (holdColumn) the chain holds cover as a trip does: no walk, no flee.
+      const trip=tripNow||holdColumn
       // Said either way: run 144 (14 October) went home from the spawner with the kit on and
       // the journal could not say which condition the trip mode failed.
-      if(inNether(recoveryBot))this.runner.log?.('nether_trip',{reason,trip,wallInFirst,coverFirst,requestActive:!!interruptedActiveRequest,requestStatus:this.requestProgress?.status||null,health:recoveryBot.health,kit:tripKit(recoveryBot)})
-      if(trip&&!wallInFirst&&!exitNow)this.say('Danger in the Nether. I have my kit, so I am taking cover here rather than running for the portal.')
+      if(inNether(recoveryBot))this.runner.log?.('nether_trip',{reason,trip:tripNow,holdColumn,wallInFirst,coverFirst,requestActive:!!interruptedActiveRequest,requestStatus:this.requestProgress?.status||null,health:recoveryBot.health,kit:tripKit(recoveryBot)})
+      if(tripNow&&!wallInFirst&&!exitNow)this.say('Danger in the Nether. I have my kit, so I am taking cover here rather than running for the portal.')
+      if(holdColumn)this.say('Danger in the Nether, and the portal is too far to walk to with it near. I am walling in here in my tunnel to heal.')
       if(wallInFirst)this.say('Danger in the Nether. Walling in around the portal.')
       // The room first and nothing before it: from the Nether the walk to the Overworld
       // base always refuses and nether bricks never burrow, and those 1.6 seconds under a

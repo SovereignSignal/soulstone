@@ -9,7 +9,7 @@ import {Vec3} from 'vec3'
 import {tripKit,onTrip,TRIP_ARMOR,TRIP_ARROWS,portReady,tripPickup} from '../src/nether-trip.js'
 import {burrowClearance} from '../src/burrow.js'
 import {Teammate} from '../src/companion/controller.js'
-import {THREAT_INTERRUPTION,survivalObservation} from '../src/survival.js'
+import {THREAT_INTERRUPTION,HEALTH_EMERGENCY,survivalObservation} from '../src/survival.js'
 import {threatRoutes} from '../src/threat-reach.js'
 import {canResume} from '../src/companion/continuity.js'
 const registry=registryFor('1.21.4')
@@ -285,14 +285,17 @@ function tunnelTeammate({portalNear=false,...opts}={}){
 }
 // The bow's turn at the blaze comes before the shelter chain; these pins are about the chain.
 const chain=r=>r.commands.map(x=>x.action).filter(a=>a!=='stop'&&a!=='shoot')
-async function tunnelCover(opts){
+async function tunnelCover({request=true,...opts}={}){
  const {r,c}=tunnelTeammate(opts)
+ if(!request)c.requestProgress=null
  void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,100))
  const all=chain(r),acts=all.filter(a=>a==='hut'||a==='burrow');c.cancel?.(true);return {acts,all,said:c.messages.map(m=>m.text)}
 }
-test('on a trip in a one-wide tunnel the open ends are walled before any burrow; off a trip, the burrow first as before',async()=>{
+// Without the kit the trip request still holds its tunnel (live rehearsal, 17 October 01:17Z, holdColumn): walled first.
+test('on a trip in a one-wide tunnel the open ends are walled before any burrow, kit or not; with no request, the burrow first as before',async()=>{
  const trip=await tunnelCover({});assert.equal(trip.acts[0],'hut',trip.acts.join(' ')+' :: '+trip.said.join(' | '))
- const bare=await tunnelCover({kit:false});assert.equal(bare.acts[0],'burrow',bare.acts.join(' ')+' :: '+bare.said.join(' | '))
+ const unkitted=await tunnelCover({kit:false});assert.equal(unkitted.acts[0],'hut',unkitted.acts.join(' ')+' :: '+unkitted.said.join(' | '))
+ const bare=await tunnelCover({kit:false,request:false});assert.equal(bare.acts[0],'burrow',bare.acts.join(' ')+' :: '+bare.said.join(' | '))
 })
 // Lab run 165, 15 October: kitted, health 20, 116 arrows, the hut one block short and the
 // burrow refused by a dropper floor, "Nowhere to wall in here. Trying the portal again." took
@@ -749,4 +752,34 @@ test('hurt in the sealed tunnel with the portal ten blocks off, the bot walls in
 test('the shut-in mob is followed by its entity id: a replaced entity object is not taken for the mob gone',async()=>{
  const t=await shutIn({at:-2.7,setup:(bot,w)=>setTimeout(()=>{bot.entities[1]=w(1,-2)},30)})
  assert.ok(t.acts.some(x=>x.action==='defend'&&x.goal.inPlace),t.names.join(' ')+' :: '+t.said.join(' | '))
+})
+// Live rehearsal, 17 October 01:17Z (Nether, Hard): in full iron and no gold, boring along its own tunnel, the bot took a
+// piglin's hit from 12.6 to 4.9. Under the trip's health line the trip rules were off ("trip":false) and the chain walked
+// for the portal 40 blocks back along the tunnel with the piglin beside it; it died 1.6 s later. On a trip request in a
+// covered column of its own tunnel, at any health and kit or not, the bot walls in where it stands unless the portal is
+// within the three-block portal-first reach; food is carried, so it heals inside.
+async function hurtInTunnel({reason=HEALTH_EMERGENCY,portalAt=40,kit=true,mob='piglin'}={}){
+ const {bot,r,c}=bridgeTunnel()
+ bot.health=5;wear(bot,'iron_boots')
+ if(!kit)bot.inventory.items=()=>[{name:'cobblestone',count:64,type:registry.itemsByName.cobblestone.id},{name:'cooked_porkchop',count:8}]
+ // The portal is where portalAt says, not the netherBot frame four blocks off.
+ const at=bot.blockAt;bot.blockAt=p=>{const b=at(p);return ['nether_portal','obsidian'].includes(b.name)?{...b,name:'netherrack',boundingBox:'block'}:b}
+ bot.findBlock=({matching,maxDistance})=>matching===registry.blocksByName.nether_portal.id&&maxDistance>=portalAt?{name:'nether_portal',position:new Vec3(0.5-portalAt,64,3)}:null
+ bot.entities={9:{id:9,uuid:'10000000-0000-0000-0000-000000000009',type:'mob',name:mob,height:1.95,width:.6,position:new Vec3(-1.5,64,3.5),velocity:new Vec3(0,0,0)}}
+ const seen=survivalObservation(bot).nearbyThreats[0]
+ void c.seekSafety(reason);await new Promise(res=>setTimeout(res,120))
+ const acts=r.commands.filter(x=>x.action!=='stop');c.cancel?.(true)
+ return {acts,names:acts.map(x=>x.action),said:c.messages.map(m=>m.text),seen,column:coveredColumn(bot)}
+}
+test('hurt to 5 in its own covered tunnel with a piglin two blocks off and the portal 40 back, the bot walls in where it stands',async()=>{
+ for(const [name,opts] of [['health alarm',{}],['threat alarm',{reason:THREAT_INTERRUPTION}],['no kit',{kit:false}]]){
+  const t=await hurtInTunnel(opts)
+  assert.ok(t.column,name+': a covered column');assert.equal(t.seen?.name,'piglin');assert.equal(t.seen.distance,2);assert.equal(t.seen.risk,'potential_hostile',name)
+  assert.equal(t.names[0],'hut',name+': '+t.names.join(' ')+' :: '+t.said.join(' | '));assert.ok(!t.acts[0].goal?.portalRoom,name+': '+JSON.stringify(t.acts[0].goal))
+  assert.ok(!t.names.some(a=>['use_portal','flee','travel','climb','descend','retreat'].includes(a)),name+': '+t.names.join(' '))
+ }
+})
+test('hurt in its own tunnel with the portal two blocks off, the portal-first exit stands',async()=>{
+ const t=await hurtInTunnel({portalAt:2})
+ assert.equal(t.names[0],'use_portal',t.names.join(' ')+' :: '+t.said.join(' | '))
 })
