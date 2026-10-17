@@ -1,6 +1,6 @@
 # SoulStone
 
-A Minecraft teammate for macOS. Give it a goal in text or voice, follow its progress, inspect its inventory and stop it from a native app. SoulStone can gather, craft, build, manage base supplies and explore through a bounded Mineflayer harness.
+SoulStone is an agent harness that turns a goal into bounded, checked, resumable actions. It enforces permissions, verifies each outcome, recovers from crashes and restarts, and has a stop that always works. It is tested in Minecraft because Minecraft is a hard, high-variation environment. SoulStone ships as a native Mac app you can give goals by text or voice.
 
 **Current alpha: Apple Silicon Mac, macOS 14+ build target, Minecraft Java.** Gameplay has scoped checks on Java 1.21.4, 26.2 and 26.3. Windows, Linux, Intel Mac, Bedrock and modpacks are not validated app targets. See [support and limits](docs/STATUS.md).
 
