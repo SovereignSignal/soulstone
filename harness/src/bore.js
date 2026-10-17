@@ -132,7 +132,7 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
  // a lava sea, and the bridge ends in a void well short of solid land. Bricks are never dug. Open air
  // far from the target, level or going down, is crossed under cover instead: the floor laid where
  // there is none, then walls and roof, all from carried blocks before the step. Walking on bricks
- // breaks nothing; lava far below the floor is no matter.
+ // breaks nothing; lava far below the floor is no matter. Going up one step is covered the same way (run 8, below).
  // Live, 16 October: the bot's own hut on the bridge leaves columns half wall, half air. A column
  // with some air whose other cells bore may dig (natural, or its own, refuseDigCell clean) is
  // covered too: closed first, then dug, then entered. Bricks in it still stop.
@@ -148,7 +148,11 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
   const front=next&&i+1<limit?columnCells(c,next).filter(q=>q.x!==c.x||q.z!==c.z):[]
   const skin=()=>cells.flatMap(p=>AROUND.map(d=>p.plus(d))).filter(q=>!cells.some(p=>p.equals(q))&&!front.some(p=>p.equals(q)))
   stage('digging');progress(`Boring column ${i+1}/${goal.count} at ${key(c)}`)
-  const cover=c.y<=prev.y&&passable(cells)&&far(c)&&floored(c)
+  // Run 8, 17 October 03:35:07Z: a step up into its own tunnel was refused ("open space at -36,61,-9; the tunnel stops
+  // before it"): cover ran level or down only, and the tunnel's next air cell beside the step read as open space. A step
+  // up (borePath's one per column) is covered as a level column is: its skin closed or plugged lowest first before
+  // it is dug or entered, and a skin cell seal cannot close still stops it.
+  const cover=passable(cells)&&far(c)&&floored(c)
   if(!cover&&passable(cells)&&far(c)&&hot(bot.blockAt(c.offset(0,-1,0)))){stop(`${named(c.offset(0,-1,0)).replace(' at ',' under '+key(c)+' at ')}; bore again toward a point three blocks to the side`,c);break}
   if(cover){
    const mob=Object.values(bot.entities||{}).find(e=>e!==bot.entity&&living(e)&&e?.position&&[...cells,...skin()].some(q=>q.equals(e.position.floored())))
@@ -165,8 +169,8 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
    const b=bot.blockAt(ahead);beyond=b?{...xyz(ahead),name:b.name}:null
    if(hot(b)){stop(`${named(ahead)} beyond ${key(c)}; bore again toward a point three blocks to the side`,c);break}
    const short=Math.abs(goal.x-c.x)+Math.abs(goal.z-c.z),walk=columnCells(c,next).filter(q=>q.x!==c.x||q.z!==c.z)
-   // Far from the target, open air over a floor ahead is the next covered column, not a stop.
-   if(far(c)&&passable(walk)&&floored(next)&&next.y<=c.y)beyond=null
+   // Far from the target, open air over a floor ahead is the next covered column, not a stop, one step up included.
+   if(far(c)&&passable(walk)&&floored(next))beyond=null
    else if(far(c)){stop(`${named(ahead)}${passable(walk)?` over ${bot.blockAt(next.offset(0,-1,0))?.name??'unloaded ground'}`:''}, ${short} blocks short of the target; bore around it through rock or over a floor, never toward nether bricks${columns?'':'. This wall is the first one: step to another wall or re-aim the bore'}`,c);break}
    else{stop(`${named(ahead)} beyond the wall at ${key(c)}`,c);await openSlit(c);break}
   }

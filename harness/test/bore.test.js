@@ -280,7 +280,7 @@ test('on the bridge, lava beside or under a column, an empty hand or a mob stops
  const wall=world({ground:VOID,fills:span(-3,8),items:cobble(64)});wall.bot.entities={8:{id:8,name:'magma_cube',position:new Vec3(3.5,64,1.5)}}
  const e=await bore(wall,{x:20,count:6});assert.equal(e.columns,2);assert.match(e.reason,/magma_cube in 3,64,1/)
 })
-// Spec of 16 October: cover runs level or down; a rising path meets a cliff face and digs into it.
+// Spec of 16 October: cover runs level or down (one step up too since run 8); a bridge that meets a cliff face digs into it.
 test('a bridge that meets a cliff face goes on as a tunnel into the rock',async()=>{
  const w=world({ground:p=>p.x>=4&&p.y<=70?'netherrack':VOID(p),fills:span(-3,3),items:cobble(64)})
  const r=await bore(w,{x:20,count:6})
@@ -301,6 +301,49 @@ test('a column half air and half diggable over a floor is closed, dug and entere
  const b=await bore(rock,{x:20,count:6});assert.equal(b.reason,null);assert.equal(b.columns,6);assert.ok(rock.of('dig').includes(k(3,65,0)))
  const bricks=world({ground:VOID,fills:[...span(-3,8),[3,64,0,'nether_bricks']],items:cobble(64)});const c=await bore(bricks,{x:20,count:6})
  assert.ok(c.columns<3);assert.match(c.reason,/open space|not natural ground/);assert.equal(bricks.cells.get(k(3,64,0)),'nether_bricks')
+})
+// Run 8, 17 October 03:35:07Z and 03:35:29Z: walled in at -36,59,-8 under its own tunnel, the bot bored one step up into
+// it twice, and twice bore read the tunnel's next air cell beside the column as open space ("open space at -36,61,-9;
+// the tunnel stops before it"): a covered column was admitted level or down only. goto dig:true made the step bore refused.
+// Shifted so the hut stands at 0,64,0: its own cobblestone walls and cap, the tunnel one step up at x 1 to 5, y 65 to 66.
+function underTunnel({hut=true,cavern=false,items}={}){
+ const fills=[[0,66,0,hut?'cobblestone':'air']]
+ for(let x=1;x<=5;x++)for(const y of [65,66])fills.push([x,y,0,'air'])
+ const walls=hut?[[1,64,0],[-1,64,0],[0,64,1],[0,64,-1],[1,65,0],[-1,65,0],[0,65,1],[0,65,-1],[0,66,0]]:[]
+ for(const [x,y,z] of walls)fills.push([x,y,z,'cobblestone'])
+ if(cavern)for(let x=1;x<=6;x++)for(let y=62;y<=70;y++)for(let z=-3;z<=3;z++)fills.push([x,y,z,'air'])
+ const w=world({fills,items:items??cobble(32)})
+ for(const [x,y,z] of walls)w.bot.ownBlocks.add(new Vec3(x,y,z),'cobblestone','the_nether')
+ return w
+}
+test('a step up into the bot\'s own tunnel is a covered column: closed, dug where its own blocks are, and entered',async()=>{
+ // 03:35:29Z: every cell of the step is air.
+ const air=underTunnel({hut:false});guard(air)
+ const a=await executeSkill(air.bot,{kind:'bore',goal:{x:1,y:65,z:0,count:2}},api)
+ assert.equal(a.reason,null,a.reason);assert.equal(a.columns,1);assert.equal(a.covered,1);assert.deepEqual(air.at(),new Vec3(1,65,0));assert.deepEqual(air.of('dig'),[])
+ assert.deepEqual(air.of('place'),[k(2,65,0),k(2,66,0)],'the tunnel on is plugged, lowest first, before the step')
+ // And the next bore carries on along the tunnel through its own plugs.
+ const on=await executeSkill(air.bot,{kind:'bore',goal:{x:5,y:65,z:0,count:4}},api)
+ assert.equal(on.reason,null,on.reason);assert.equal(on.columns,4);assert.deepEqual(air.at(),new Vec3(5,65,0))
+ // 03:35:07Z: from inside the hut the step is its cap and its wall, with the tunnel's air between.
+ const hut=underTunnel();guard(hut)
+ const b=await executeSkill(hut.bot,{kind:'bore',goal:{x:1,y:65,z:0,count:2}},api)
+ assert.equal(b.reason,null,b.reason);assert.equal(b.columns,1);assert.deepEqual(hut.at(),new Vec3(1,65,0))
+ assert.deepEqual(hut.of('dig'),[k(0,66,0),k(1,65,0)],'its own cap and wall');assert.ok(hut.log.findIndex(e=>e[0]==='place')<hut.log.findIndex(e=>e[0]==='dig'),'closed before it is dug')
+})
+test('a step up into open air bore cannot close still stops before it',async()=>{
+ const w=underTunnel({hut:false,cavern:true})
+ // The step column stands in a cavern: nothing touches its floor cell to place a plug against.
+ await assert.rejects(executeSkill(w.bot,{kind:'bore',goal:{x:1,y:65,z:0,count:2}},api),/could not close 1,64,0; the covered walk stops before 1,65,0|open space/)
+ assert.deepEqual(w.at(),new Vec3(0,64,0));assert.deepEqual(w.of('dig'),[]);assert.deepEqual(w.of('place'),[])
+})
+test('along its own tunnel a step up farther on is no stop two columns ahead: the walk goes on through it',async()=>{
+ const fills=[[3,66,0,'air']];for(let x=1;x<=3;x++)for(const y of [64,65])fills.push([x,y,0,'air']);for(let x=4;x<=7;x++)for(const y of [65,66])fills.push([x,y,0,'air'])
+ const w=world({fills,items:cobble(32)});guard(w)
+ const r=await executeSkill(w.bot,{kind:'bore',goal:{x:4,y:65,z:0,count:4}},api)
+ assert.equal(r.reason,null,r.reason);assert.equal(r.columns,4);assert.equal(r.covered,4);assert.deepEqual(w.at(),new Vec3(4,65,0))
+ // The cell over the head it jumps from is the third column's roof: plugged there, dug again for the step.
+ assert.deepEqual(w.of('dig'),[k(3,66,0)]);assert.ok(w.of('place').includes(k(3,66,0)))
 })
 // Live, 16 October 18:32Z: the bot walked its covered tunnel along the bridge to x -63 and bored on
 // toward -56,61,-41, a cell of open bridge six blocks off. Within SLIT_REACH of the target, cover was
