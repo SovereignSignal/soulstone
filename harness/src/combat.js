@@ -26,12 +26,14 @@ function edgeToward(bot,to){
 // A provoked enderman (dragon roadmap stage 2) has 40 health, hits for 7 and teleports to
 // whoever looked at it: sheltering from it is no answer, so it is fought in the heavy kit.
 export const DEFENDABLE_MOBS=new Set(['zombie','zombie_villager','husk','drowned','spider','cave_spider','skeleton','stray','bogged','wither_skeleton','magma_cube','enderman'])
-export const DEFENSE_HEALTH={zombie:12,zombie_villager:12,husk:12,drowned:14,spider:12,cave_spider:14,skeleton:16,stray:16,bogged:16,wither_skeleton:18,magma_cube:14,enderman:16,piglin:12}
+export const DEFENSE_HEALTH={zombie:12,zombie_villager:12,husk:12,drowned:14,spider:12,cave_spider:14,skeleton:16,stray:16,bogged:16,wither_skeleton:18,magma_cube:14,enderman:16,piglin:12,blaze:16}
 // Struck only where the bot stands (inPlace: a bore column, its sealed tunnel) and only while hostile to
 // this bot. A hit piglin turns its group, which is why the attack primitive refuses it; but a bot wearing
 // no gold is already every adult piglin's target (review of 55698df, live rehearsal 17 October 01:17Z: one
 // in the bot's own tunnel took it from 12.6 to 4.9). Never followed, never fought by a bot wearing gold.
-export const IN_PLACE_MOBS=new Set(['piglin'])
+// A blaze too (the blaze stand, after the R8 trip of 17 October): one with its head in a hut's port is a sword fight, and
+// only one killed there drops its rod on the sill, inside pickup reach. Its floor is the port's 16 (nether-trip.js).
+export const IN_PLACE_MOBS=new Set(['piglin','blaze'])
 const defendableName=(name,inPlace)=>DEFENDABLE_MOBS.has(name)||!!inPlace&&IN_PLACE_MOBS.has(name)
 const hostileToBot=(bot,e)=>!IN_PLACE_MOBS.has(e?.name)||hostileNow(bot,e)
 // HEAVY_ARMOR is the Nether kit: iron helmet, chestplate and leggings with the golden boots
@@ -89,6 +91,14 @@ export function clearStrike(bot,target){
  const aim=point(target.position).offset(0,Math.min(1.2,(target.height||1.8)/2),0)
  const vector=aim.minus(eye),length=vector.norm();if(!length||length>7)return false
  return observedSightline(bot,eye,aim).status==='clear'
+}
+// The sword through a hut's port (blaze-stand.js): an in-place mob hostile to the bot, within 2.9 with a clear strike, and,
+// given the port's column {x,z}, standing in it. A blaze knocked a block out of the port is still in reach, but a kill there
+// drops its rod beyond the wall, so the stand waits for it to come back in.
+export function portStrike(bot,target,column=null){
+ if(!IN_PLACE_MOBS.has(target?.name)||!hostileToBot(bot,target)||!knownPoint(target.position)||!knownPoint(bot.entity?.position))return false
+ if(column&&(Math.floor(target.position.x)!==column.x||Math.floor(target.position.z)!==column.z))return false
+ return distance(bot.entity.position,target.position)<=2.9&&clearStrike(bot,target)
 }
 // Cornered: every shelter refused with a mob in arm's reach. Test world,
 // 3 October 19:44Z: two zombies at 2 and 3.8 blocks, burrow, hut, retreat
