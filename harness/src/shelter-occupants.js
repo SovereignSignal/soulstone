@@ -13,12 +13,18 @@ export function occupantAt(bot, cell) {
 // Use all loaded entities, not the truncated nearby-threat summary. Bounding
 // boxes catch mobs straddling the doorway or standing on furniture.
 // Hostile to this bot, not by name alone: a gold-less bot's adult piglin and a screaming enderman count.
+// A box must reach GRAZE into a cell on every axis (run 8, 17 October 03:34:15Z): a 1.4-wide hoglin
+// diagonally outside a two-cell hut clipped the feet cell's corner by 0.002 through the cobblestone on
+// both sides, and the hut failed three times over it. A mob cannot push its box into the two solid
+// blocks of a closed corner, so past a graze it is in the cell's own space, as a straddling mob is.
+const GRAZE=.05
+const reach=(lo,hi,c)=>Math.min(hi,c+1)-Math.max(lo,c)>GRAZE
 export function assertNoHostileOccupants(bot,cells){
  const gold=wearsGold(bot)
  for(const e of Object.values(bot.entities||{})){
   if(!e.position||!hostileNow(bot,e,gold))continue
   const p=e.position,w=(e.width||.6)/2,h=e.height||1.8
-  if(cells.some(c=>p.x+w>c.x&&p.x-w<c.x+1&&p.z+w>c.z&&p.z-w<c.z+1&&p.y+h>c.y&&p.y<c.y+1))throw new Error('Shelter contains a potential hostile: '+e.name)
+  if(cells.some(c=>reach(p.x-w,p.x+w,c.x)&&reach(p.z-w,p.z+w,c.z)&&reach(p.y,p.y+h,c.y)))throw new Error('Shelter contains a potential hostile: '+e.name)
  }
 }
 

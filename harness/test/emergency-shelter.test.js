@@ -2,7 +2,7 @@ import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import minecraftData from 'minecraft-data'
 import {Vec3} from 'vec3'
-import {inspectEmergencyShelter} from '../src/shelter-occupants.js'
+import {inspectEmergencyShelter,assertNoHostileOccupants} from '../src/shelter-occupants.js'
 import {Teammate} from '../src/companion/controller.js'
 const registry=minecraftData('1.21.4')
 function cavity(){
@@ -41,4 +41,18 @@ test('Stop cancels the shelter watch without overwriting the newer safety state'
  const task=Teammate.prototype.waitInBurrow.call(c,1,abort.signal,bot,false)
  c.epoch++;c.safety={status:'cancelled'};abort.abort();await task
  assert.deepEqual(c.safety,{status:'cancelled'})
+})
+// Run 8, 17 October 03:34:15Z: a 1.4-wide hoglin on the platform floor diagonally below the
+// two-cell hut grazed the feet cell's corner by 0.002 through the cobblestone at -35,59,-8 and
+// -36,59,-7, and the inspection threw "Shelter contains a potential hostile: hoglin".
+test('a box grazing a cavity cell through the wall is no occupant; a mob straddling in from open air is',()=>{
+ const cells=new Map([['(-36, 59, -8)','air'],['(-36, 60, -8)','air']])
+ const bot={registry,entity:{position:new Vec3(-35.5,59,-7.433),onGround:true},health:20,food:20,game:{gameMode:'survival',difficulty:'hard'},time:{timeOfDay:5590},inventory:{items:()=>[]},players:{},
+  entities:{1:{name:'hoglin',width:1.4,height:1.4,position:new Vec3(-34.3017578125,58,-6.3017578125)}},
+  blockAt(p){const name=cells.get(p.toString())||'cobblestone';return {name,position:p,boundingBox:registry.blocksByName[name].boundingBox}}}
+ assert.equal(inspectEmergencyShelter(bot).verified,true,'the live graze')
+ // The same hoglin one block on, its box half a block into the hut's open east neighbour.
+ cells.set('(-35, 59, -8)','air');bot.entities[1].position=new Vec3(-34.75,59,-7.5);bot.entities[1].width=.9
+ assert.throws(()=>assertNoHostileOccupants(bot,[new Vec3(-36,59,-8),new Vec3(-36,60,-8)]),/potential hostile: hoglin/,'a straddling mob in an open neighbouring cell')
+ assert.throws(()=>inspectEmergencyShelter(bot),/potential hostile: hoglin/)
 })
