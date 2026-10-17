@@ -1,6 +1,15 @@
 import {fullCube} from './construction.js'
 import {hostileNow,wearsGold,FIRE_BLOCKS} from './survival.js'
 
+// The creature in a cell, for a placement (primitives-world.js placeAt) or a hut wall (hut.js).
+// Items, orbs and projectiles do not block a placement; creatures and vehicles do.
+const PASS_THROUGH = new Set(['item', 'experience_orb', 'area_effect_cloud', 'marker', 'interaction', 'item_display', 'block_display', 'text_display', 'lightning_bolt'])
+export function occupantAt(bot, cell) {
+  const centre = cell.offset(0.5, 0.5, 0.5)
+  return Object.values(bot.entities || {}).find(e => e && e !== bot.entity && e.position && !e.getDroppedItem?.()
+    && e.type !== 'projectile' && e.type !== 'orb' && !PASS_THROUGH.has(e.name) && e.position.distanceTo(centre) < 0.9)
+}
+
 // Use all loaded entities, not the truncated nearby-threat summary. Bounding
 // boxes catch mobs straddling the doorway or standing on furniture.
 // Hostile to this bot, not by name alone: a gold-less bot's adult piglin and a screaming enderman count.

@@ -694,3 +694,22 @@ test('a seal broken off part way places only the faces still open the next time'
  const result=await executeSkill(w.bot,{kind:'seal_portal',goal:{}},api)
  assert.equal(result.placed,3);assert.equal(w.placed.length,3);assert.equal(result.alreadySealed,false)
 })
+// Review of 55698df (live rehearsal, 17 October 01:17Z): a piglin stood in the bot's own tunnel, in the column's open
+// end. The server takes no block inside a creature, so the hut places the free cells first, the far side first, and
+// names the occupied cell instead of clicking it twice and hopping.
+test('a creature standing in a column cell to be walled: the far side is walled first and the occupied cell is named, never clicked',async()=>{
+ const run=async({leaves=false}={})=>{
+  const w=tunnelHut(),clicks=[],place=w.bot.placeBlock
+  w.bot.entities={1:{id:1,name:'piglin',type:'hostile',height:1.95,width:.6,position:new Vec3(10.5,64,11.5)}}
+  w.bot.placeBlock=async(ref,face)=>{const c=ref.position.plus(face);clicks.push(c.toString());if(Object.values(w.bot.entities).some(e=>e.position.floored().equals(c)||e.position.floored().offset(0,1,0).equals(c)))throw new Error('Block is inside an entity');await place(ref,face)
+   if(leaves&&clicks.length===2)delete w.bot.entities[1]}
+  const result=await wallIn(w.bot,{kind:'hut',goal:{}},api).catch(e=>e)
+  return {w,clicks,result}
+ }
+ const {clicks,result}=await run()
+ assert.match(String(result?.message),/Hut incomplete: 2 of \d+ blocks missing .*10,64,11 occupied by a piglin/,String(result?.message||result?.receipt))
+ assert.deepEqual(clicks.slice(0,2),[new Vec3(10,64,9).toString(),new Vec3(10,65,9).toString()],'the far side first')
+ assert.ok(!clicks.some(c=>c===new Vec3(10,64,11).toString()||c===new Vec3(10,65,11).toString()),'no click into the piglin: '+clicks.join(' '))
+ // Gone by the end of the first pass, its cells are walled after all.
+ const later=await run({leaves:true});assert.equal(later.result.receipt,'walled_in',String(later.result?.message))
+})

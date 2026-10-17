@@ -737,7 +737,8 @@ export class Teammate extends EventEmitter {
         // Followed by entity id (review of f79950b): a lookup that finds nothing is no fight, never a mob gone.
         const entity=Object.values(recoveryBot.entities||{}).find(e=>e?.name===melee[0].name&&e.position&&Number.isInteger(e.id)&&Math.hypot(e.position.x-melee[0].position.x,e.position.y-melee[0].position.y,e.position.z-melee[0].position.z)<.01)
         const portalNear=!!recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:3})
-        const lone=!!entity&&melee.length===1&&fightableAlone(recoveryBot,melee[0].name)&&recoveryBot.health>=PORT_HEALTH
+        // A piglin hostile to the bot (no gold worn) counts here as a lone wither skeleton does: struck in place only (combat.js IN_PLACE_MOBS).
+        const lone=!!entity&&melee.length===1&&fightableAlone(recoveryBot,melee[0].name,{inPlace:true})&&recoveryBot.health>=PORT_HEALTH
         return {mob:melee[0],id:entity?.id,fight:lone,portalNear}
       })()
       if(reason===THREAT_INTERRUPTION&&adaptive!=='shelter'){
@@ -771,7 +772,7 @@ export class Teammate extends EventEmitter {
           while(mob()&&Date.now()<until){
             if(recoveryBot.health<=TRIP_HEALTH)break
             if(mob().position&&recoveryBot.entity.position.distanceTo(mob().position)<=2.9){
-              const d=defenseDecision(recoveryBot),strike=d.engage?d:corneredDecision(recoveryBot)
+              const d=defenseDecision(recoveryBot,{inPlace:true}),strike=d.engage?d:corneredDecision(recoveryBot,{inPlace:true})
               if(strike.engage)try{await this.execute({action:'defend',goal:{...strike.target,connectionId:this.runner.connectionId,inPlace:true,healthFloor:TRIP_HEALTH,...(strike.cornered?{cornered:true}:{})},timeoutMs:35000},abort.signal);this.noteKill(this.runner.task?.result)}
               catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal);await delay(pollMs)}
               else await delay(pollMs)
@@ -793,8 +794,9 @@ export class Teammate extends EventEmitter {
         // Under the trip's line too, in its own tunnel (holdColumn): the strike stops at the trip's 12, then the column closes.
         const inColumn=!forceExit&&(holdColumn||!lastResort&&inNether(recoveryBot)&&!!coveredColumn(recoveryBot)&&onTrip(recoveryBot,!!interruptedActiveRequest||canResume(this.requestProgress)))
         if(inColumn){
-          const strike=decision.engage?decision:corneredDecision(recoveryBot),mob=strike.engage?recoveryBot.entities?.[strike.target.targetId]:null
-          if(mob?.position&&recoveryBot.entity.position.distanceTo(mob.position)<=2.9){
+          const strike=decision.engage?decision:corneredDecision(recoveryBot,{inPlace:true}),mob=strike.engage?recoveryBot.entities?.[strike.target.targetId]:null
+          // At or under the trip's strike line the strike would stop before its first swing (defend's healthFloor): wall in.
+          if(mob?.position&&recoveryBot.health>TRIP_HEALTH&&recoveryBot.entity.position.distanceTo(mob.position)<=2.9){
             this.say(`A ${strike.target.targetName.replaceAll('_',' ')} is at the tunnel's open end. Striking from where I stand, then walling in.`)
             try{await this.execute({action:'defend',goal:{...strike.target,connectionId:this.runner.connectionId,inPlace:true,healthFloor:TRIP_HEALTH,...(strike.cornered?{cornered:true}:{})},timeoutMs:35000},abort.signal);this.noteKill(this.runner.task?.result)}
             catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)}

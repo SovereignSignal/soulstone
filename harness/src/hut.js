@@ -5,7 +5,7 @@
 import {setTimeout as delay} from 'node:timers/promises'
 import {fullCube} from './construction.js'
 import {scaffoldItems} from './scaffold.js'
-import {assertNoHostileOccupants,inspectEmergencyShelter} from './shelter-occupants.js'
+import {assertNoHostileOccupants,inspectEmergencyShelter,occupantAt} from './shelter-occupants.js'
 import {centreOn,DoorAwareMovements} from './navigation.js'
 import {SHOOTERS_ONLY,FIRE_BLOCKS} from './survival.js'
 import {hop} from './portal-guard.js'
@@ -159,13 +159,32 @@ async function settle(predicate,{check,ms=1500,poll=50}){
 // Place each target from carried blocks: the planned reference or any solid neighbour, two clicks a cell, one hop when
 // the Nether ignores a placement, each placed block claimed as the bot's own. Shared by the hut and seal_portal.
 // Returns how many targets stand solid.
-async function placeCells(bot,placements,{check,progress,feet,materials=()=>hutMaterials(bot)}){
+// A cell a creature stands in (occupantAt; a tall one standing in the cell below fills it too) cannot take a block,
+// and clicking it spends the retries and the Nether hop for nothing (review of 55698df: the piglin in the bot's own
+// tunnel stood in the column's open end). With one there, the free cells go first, level by level and the far side
+// first; an occupied cell is tried once at the end, and one still occupied is skipped and named in occupied.
+const occupying=(bot,c)=>occupantAt(bot,c)||(e=>e&&(e.height??1.8)>1?e:null)(occupantAt(bot,c.offset(0,-1,0)))
+// The roof and its helper (two above the feet) keep their order: the roof hangs off the helper.
+function occupiedLast(bot,placements,feet){
+ const mobs=placements.map(p=>occupying(bot,p.target)).filter(Boolean)
+ if(!mobs.length)return placements
+ const near=t=>Math.min(...mobs.map(m=>Math.hypot(t.x+.5-m.position.x,t.z+.5-m.position.z)))
+ const order=placements.map((p,i)=>({p,i,y:p.target.y,d:p.target.y>=feet.y+2?0:near(p.target)}))
+ return order.sort((a,b)=>a.y-b.y||b.d-a.d||a.i-b.i).map(o=>o.p)
+}
+async function placeCells(bot,placements,{check,progress,feet,materials=()=>hutMaterials(bot),occupied=[]}){
  // A portal room's cells take whichever solid neighbour stands when their turn comes, lowest first.
  const around=target=>[[0,-1,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0]].map(([x,y,z])=>target.offset(x,y,z))
  let placed=0,hopped=false
- for(const {target,ref} of placements){
+ const queue=occupiedLast(bot,placements,feet),first=queue.length
+ for(let n=0;n<queue.length;n++){
+  // Past the first pass: the occupied cells' one try at the end.
+  const {target,ref}=queue[n],last=n>=first
   check();assertNoHostileOccupants(bot,[feet,feet.offset(0,1,0)])
   if(solid(bot,bot.blockAt(target))){placed++;continue}
+  const occupant=occupying(bot,target)
+  if(occupant&&!last){queue.push(queue[n]);continue}
+  if(occupant){occupied.push({cell:key(target),name:occupant.name||occupant.type||'entity'});progress(`${key(target)} is occupied by ${occupant.name||'an entity'}; leaving it`);continue}
   if(!materials().length)break
   // A planned reference that is gone (a fireball, a mob) gives way to any solid neighbour,
   // and one with a use (a chest, a dropper) to a plain one (lab run 163, placement.js).
@@ -214,9 +233,10 @@ export async function wallIn(bot,task,{check,stage,progress}){
   placements.push({target:feet.offset(1,2,0),ref:feet.offset(1,1,0)})
   placements.push({target:feet.offset(0,2,0),ref:feet.offset(1,2,0)})
  }
- const placed=await placeCells(bot,placements,{check,progress,feet})
+ const occupied=[],placed=await placeCells(bot,placements,{check,progress,feet,occupied})
  const missing=placements.filter(({target})=>!solid(bot,bot.blockAt(target))).map(({target})=>key(target))
- if(missing.length)throw new Error(`Hut incomplete: ${missing.length} of ${placements.length} blocks missing (${missing.slice(0,3).join('; ')})${centred?'':'; could not stand clear of the wall line'}`)
+ const taken=occupied.filter(o=>missing.includes(o.cell)).map(o=>`${o.cell} occupied by a ${o.name}`)
+ if(missing.length)throw new Error(`Hut incomplete: ${missing.length} of ${placements.length} blocks missing (${missing.slice(0,3).join('; ')})${taken.length?'; '+taken.join('; '):''}${centred?'':'; could not stand clear of the wall line'}`)
  const protection=inspectEmergencyShelter(bot)
  progress('Closed, unoccupied hut verified; watching protection and the surface')
  const p=bot.entity.position

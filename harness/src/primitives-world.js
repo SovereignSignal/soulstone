@@ -11,6 +11,7 @@ import { weaponFor, clearStrike, ENGAGE_RANGE } from './combat.js'
 import { observedSightline } from './visibility.js'
 import { inNether } from './dimension.js'
 import { interactable } from './placement.js'
+import { occupantAt } from './shelter-occupants.js'
 import { walkNear, inProtectedSite, validateProtectedSites, inventoryCounts, inventoryDelta, LIQUID, AIR, DIG_REACH, key, point } from './primitives.js'
 
 const { goals } = pathfinding
@@ -108,13 +109,8 @@ function occupiedByBot(bot, cell) {
   return cell.equals(feet) || cell.equals(feet.offset(0, 1, 0))
 }
 
-// Items, orbs and projectiles do not block a placement; creatures and vehicles do.
-const PASS_THROUGH = new Set(['item', 'experience_orb', 'area_effect_cloud', 'marker', 'interaction', 'item_display', 'block_display', 'text_display', 'lightning_bolt'])
-export function occupantAt(bot, cell) {
-  const centre = cell.offset(0.5, 0.5, 0.5)
-  return Object.values(bot.entities || {}).find(e => e && e !== bot.entity && e.position && !e.getDroppedItem?.()
-    && e.type !== 'projectile' && e.type !== 'orb' && !PASS_THROUGH.has(e.name) && e.position.distanceTo(centre) < 0.9)
-}
+// occupantAt lives with the shelter's occupant checks (shelter-occupants.js), which the hut shares.
+export { occupantAt }
 
 export async function placeAt(bot, task, { check, stage, progress, movements }) {
   const goal = validatePlaceAtGoal(task.goal)

@@ -3,7 +3,7 @@ import {Vec3} from 'vec3'
 import pathfinding from 'mineflayer-pathfinder'
 import {DoorAwareMovements} from './navigation.js'
 import {remainingDurability} from './supplies.js'
-import {survivalObservation,cannotShootYet} from './survival.js'
+import {survivalObservation,cannotShootYet,hostileNow} from './survival.js'
 import {observedSightline} from './visibility.js'
 import {inNether} from './dimension.js'
 // Live rehearsal, 16 October (18:21Z): following a wither skeleton out of a bore column on the fortress
@@ -26,7 +26,14 @@ function edgeToward(bot,to){
 // A provoked enderman (dragon roadmap stage 2) has 40 health, hits for 7 and teleports to
 // whoever looked at it: sheltering from it is no answer, so it is fought in the heavy kit.
 export const DEFENDABLE_MOBS=new Set(['zombie','zombie_villager','husk','drowned','spider','cave_spider','skeleton','stray','bogged','wither_skeleton','magma_cube','enderman'])
-export const DEFENSE_HEALTH={zombie:12,zombie_villager:12,husk:12,drowned:14,spider:12,cave_spider:14,skeleton:16,stray:16,bogged:16,wither_skeleton:18,magma_cube:14,enderman:16}
+export const DEFENSE_HEALTH={zombie:12,zombie_villager:12,husk:12,drowned:14,spider:12,cave_spider:14,skeleton:16,stray:16,bogged:16,wither_skeleton:18,magma_cube:14,enderman:16,piglin:12}
+// Struck only where the bot stands (inPlace: a bore column, its sealed tunnel) and only while hostile to
+// this bot. A hit piglin turns its group, which is why the attack primitive refuses it; but a bot wearing
+// no gold is already every adult piglin's target (review of 55698df, live rehearsal 17 October 01:17Z: one
+// in the bot's own tunnel took it from 12.6 to 4.9). Never followed, never fought by a bot wearing gold.
+export const IN_PLACE_MOBS=new Set(['piglin'])
+const defendableName=(name,inPlace)=>DEFENDABLE_MOBS.has(name)||!!inPlace&&IN_PLACE_MOBS.has(name)
+const hostileToBot=(bot,e)=>!IN_PLACE_MOBS.has(e?.name)||hostileNow(bot,e)
 // HEAVY_ARMOR is the Nether kit: iron helmet, chestplate and leggings with the golden boots
 // piglins demand, 14 points (lab run 133 refused one at 14 of 15).
 // Magma cubes too (lab run 134: a big one stood on the trail home and killed the bot).
@@ -58,8 +65,8 @@ const weapons={wooden_axe:7,golden_axe:7,stone_axe:9,iron_axe:9,diamond_axe:9,ne
 const point=p=>new Vec3(p.x,p.y,p.z)
 const distance=(a,b)=>point(a).distanceTo(point(b))
 const knownPoint=p=>p&&['x','y','z'].every(k=>Number.isFinite(p[k]))
-const identified=e=>e&&Number.isInteger(e.id)&&typeof e.uuid==='string'&&e.uuid.length>0&&['mob','hostile'].includes(e.type)&&DEFENDABLE_MOBS.has(e.name)&&knownPoint(e.position)
-const same=(e,g)=>identified(e)&&e.id===g.targetId&&e.uuid===g.targetUuid&&e.name===g.targetName
+const identified=(e,inPlace=false)=>e&&Number.isInteger(e.id)&&typeof e.uuid==='string'&&e.uuid.length>0&&['mob','hostile'].includes(e.type)&&defendableName(e.name,inPlace)&&knownPoint(e.position)
+const same=(e,g)=>identified(e,g.inPlace===true)&&e.id===g.targetId&&e.uuid===g.targetUuid&&e.name===g.targetName
 const dangerNearby=(bot,range=8)=>survivalObservation(bot).nearbyThreats.filter(e=>e.risk==='potential_hostile'&&e.distance<=range)
 // A bystander is something the sweep must not hit: a player, a villager, a pet. Another
 // hostile is not one (the pieces of a split magma cube cluster, and the sword was refused).
@@ -94,14 +101,14 @@ export function cornerWeapon(bot,target){
  return weaponFor(bot,target)||bot.inventory.items().filter(i=>(weapons[i.name]||pickaxes[i.name])&&Number.isFinite(i.maxDurability)&&remainingDurability(i)>=4)
   .sort((a,b)=>(weapons[b.name]||pickaxes[b.name])-(weapons[a.name]||pickaxes[a.name]))[0]||null
 }
-export function corneredDecision(bot){
+export function corneredDecision(bot,{inPlace=false}={}){
  const s=survivalObservation(bot),reject=reason=>({engage:false,reason})
  if(s.gameMode!=='survival'||!['easy','normal','hard'].includes(s.difficulty))return reject('Combat requires observed hostile Survival difficulty')
  if(!(s.health>CORNER_HEALTH))return reject('Too hurt even to fight cornered')
  if(!knownPoint(bot.entity?.position)||bot.entity.isInLava)return reject('Not on ground the fight can use')
- const near=dangerNearby(bot,CORNER_RANGE).filter(t=>DEFENDABLE_MOBS.has(t.name)).sort((a,b)=>a.distance-b.distance)[0]
+ const near=dangerNearby(bot,CORNER_RANGE).filter(t=>defendableName(t.name,inPlace)).sort((a,b)=>a.distance-b.distance)[0]
  if(!near)return reject('No defendable mob within reach')
- const target=Object.values(bot.entities||{}).filter(e=>identified(e)&&e.name===near.name&&distance(e.position,bot.entity.position)<=CORNER_RANGE+.5).sort((a,b)=>distance(a.position,bot.entity.position)-distance(b.position,bot.entity.position))[0]
+ const target=Object.values(bot.entities||{}).filter(e=>identified(e,inPlace)&&hostileToBot(bot,e)&&e.name===near.name&&distance(e.position,bot.entity.position)<=CORNER_RANGE+.5).sort((a,b)=>distance(a.position,bot.entity.position)-distance(b.position,bot.entity.position))[0]
  if(!target)return reject('Target identity is unavailable')
  const weapon=cornerWeapon(bot,target)
  if(!weapon)return reject('Nothing carried to fight with')
@@ -123,9 +130,9 @@ export function aloneRefusal(bot,name,{healthFloor=12,foodFloor=10,mobMargins=tr
  }
  return ''
 }
-export const fightableAlone=(bot,name)=>DEFENDABLE_MOBS.has(name)&&!aloneRefusal(bot,name)
+export const fightableAlone=(bot,name,{inPlace=false}={})=>defendableName(name,inPlace)&&!aloneRefusal(bot,name)
 // The margins are the rule's; a judged fight may lower them to floors it names.
-export function defenseDecision(bot,{healthFloor=12,foodFloor=10,mobMargins=true}={}){
+export function defenseDecision(bot,{healthFloor=12,foodFloor=10,mobMargins=true,inPlace=false}={}){
  const s=survivalObservation(bot)
  const reject=reason=>({engage:false,reason})
  if(s.gameMode!=='survival'||!['easy','normal','hard'].includes(s.difficulty))return reject('Combat requires observed hostile Survival difficulty')
@@ -133,9 +140,9 @@ export function defenseDecision(bot,{healthFloor=12,foodFloor=10,mobMargins=true
  if(!knownPoint(bot.entity?.position)||!bot.entity.onGround||bot.entity.isInWater||bot.entity.isInLava||bot.currentWindow)return reject('Not ready on stable ground with inventory closed')
  const threats=dangerNearby(bot,ENGAGE_RANGE).sort((a,b)=>a.distance-b.distance)
  const group=threats.length>1&&groupFightable(bot,threats)
- if(!group&&(threats.length!==1||threats[0].distance>ENGAGE_RANGE||!DEFENDABLE_MOBS.has(threats[0].name)))return reject('Threat type or nearby numbers exceed basic melee defense')
+ if(!group&&(threats.length!==1||threats[0].distance>ENGAGE_RANGE||!defendableName(threats[0].name,inPlace)))return reject('Threat type or nearby numbers exceed basic melee defense')
  if(mobMargins&&s.health<DEFENSE_HEALTH[threats[0].name])return reject(`Health is too low to engage a ${threats[0].name}`)
- const target=Object.values(bot.entities||{}).filter(e=>identified(e)&&e.name===threats[0].name&&distance(e.position,bot.entity.position)<=ENGAGE_RANGE).sort((a,b)=>distance(a.position,bot.entity.position)-distance(b.position,bot.entity.position))[0]
+ const target=Object.values(bot.entities||{}).filter(e=>identified(e,inPlace)&&hostileToBot(bot,e)&&e.name===threats[0].name&&distance(e.position,bot.entity.position)<=ENGAGE_RANGE).sort((a,b)=>distance(a.position,bot.entity.position)-distance(b.position,bot.entity.position))[0]
  // A blocked line (wall, doorway, roof) is not a reason to hide: the defense
  // loop closes in through doors and gives up after twelve seconds without a strike.
  if(!target)return reject('Target identity is unavailable')
@@ -147,7 +154,7 @@ export function defenseDecision(bot,{healthFloor=12,foodFloor=10,mobMargins=true
  return {engage:true,target:{targetId:target.id,targetUuid:target.uuid,targetName:target.name},weapon:weapon.name,...(group?{group:threats.length}:{})}
 }
 export function validateDefenseGoal(g){
- if(!g||!Number.isInteger(g.targetId)||g.targetId<0||typeof g.targetUuid!=='string'||!/^[\da-f-]{36}$/i.test(g.targetUuid)||!DEFENDABLE_MOBS.has(g.targetName)||typeof g.connectionId!=='string'||!/^[\da-f-]{36}$/i.test(g.connectionId))throw new Error('Defense requires an observed mob identity and current connection')
+ if(!g||!Number.isInteger(g.targetId)||g.targetId<0||typeof g.targetUuid!=='string'||!/^[\da-f-]{36}$/i.test(g.targetUuid)||!defendableName(g.targetName,g.inPlace===true)||typeof g.connectionId!=='string'||!/^[\da-f-]{36}$/i.test(g.connectionId))throw new Error('Defense requires an observed mob identity and current connection')
  return {targetId:g.targetId,targetUuid:g.targetUuid,targetName:g.targetName,connectionId:g.connectionId,...(g.cornered===true?{cornered:true}:{}),...(g.inPlace===true?{inPlace:true,...(Number.isInteger(g.healthFloor)&&g.healthFloor>0&&g.healthFloor<20?{healthFloor:g.healthFloor}:{})}:{})}
 }
 export function combatClearance(bot){
@@ -168,7 +175,7 @@ export function combatClearance(bot){
 // One identified mob per bounded action. Never chase a replacement entity or
 // replay an encounter after reconnect. Server death is distinct from disappearance.
 export async function defendAgainstMob(bot,task,{check,stage,progress,persist,movements}){
- const goal=validateDefenseGoal(task.goal),initial=goal.cornered?corneredDecision(bot):defenseDecision(bot)
+ const goal=validateDefenseGoal(task.goal),initial=goal.cornered?corneredDecision(bot,{inPlace:goal.inPlace}):defenseDecision(bot,{inPlace:goal.inPlace})
  if(!initial.engage||!same(bot.entities[goal.targetId],goal))throw new Error(initial.reason||'Combat target changed')
  const target=bot.entities[goal.targetId],anchor=point(bot.entity.position),weapon=goal.cornered?cornerWeapon(bot,target):weaponFor(bot,target)
  if(!weapon)throw new Error('No serviceable melee weapon')
@@ -184,6 +191,8 @@ export async function defendAgainstMob(bot,task,{check,stage,progress,persist,mo
   check()
   if(Date.now()>=task.deadline||Date.now()-record.startedAt>=30000)throw new Error('Combat time limit reached')
   if(bot.game?.gameMode!=='survival'||!['easy','normal','hard'].includes(bot.game?.difficulty))throw new Error('Combat difficulty or game mode changed')
+  // Gold put on, or a target that turns out calm: a piglin not hostile to the bot is never struck (IN_PLACE_MOBS).
+  if(!hostileToBot(bot,target))throw new Error(`The ${goal.targetName} is no longer hostile to me; I do not strike it`)
   if(goal.cornered?!(bot.health>CORNER_HEALTH):!(bot.health>10)||!(bot.food>6))throw new Error('Health or food requires retreat')
   // In place its caller's exit line holds (the trip's 12, review of f79950b), above combat's own floors.
   if(goal.healthFloor&&!(bot.health>goal.healthFloor))throw new Error(`Health ${bot.health} is at my ${goal.healthFloor} line; I stop striking here`)

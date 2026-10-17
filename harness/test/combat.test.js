@@ -306,3 +306,28 @@ test('defend in place with a health floor stops striking at that floor',async()=
  const {validateDefenseGoal}=await import('../src/combat.js')
  assert.equal(validateDefenseGoal({...f.task.goal}).healthFloor,12);assert.equal(validateDefenseGoal({...f.task.goal,inPlace:false,healthFloor:12}).healthFloor,undefined)
 })
+// Review of 55698df (live rehearsal, 17 October 01:17Z): a gold-less bot's adult piglin is already hostile, so the
+// "a hit turns the group" refusal does not apply to it. It is struck only in place (a bore column, a sealed tunnel:
+// inPlace), only while it is hostile to the bot, and never by a bot wearing gold.
+test('a piglin is struck only in place and only while the bot wears no gold; a baby or a gold-wearing bot is never struck',async()=>{
+ const {corneredDecision}=await import('../src/combat.js')
+ const piglin=f=>{const reg=registry('1.21.4');f.bot.entities={7:{...reg.entitiesByName.piglin,id:7,uuid,position:new Vec3(1.5,64,0)}};f.bot.game.difficulty='hard';f.task.goal.targetName='piglin';f.task.goal.inPlace=true;return reg}
+ const f=fixture();piglin(f)
+ assert.equal(defenseDecision(f.bot).engage,false,'not in the open')
+ const inPlace=defenseDecision(f.bot,{inPlace:true});assert.equal(inPlace.engage,true,inPlace.reason);assert.equal(inPlace.target.targetName,'piglin')
+ assert.equal(corneredDecision(f.bot,{inPlace:true}).engage,true);assert.equal(corneredDecision(f.bot).engage,false)
+ assert.equal(fightableAlone(f.bot,'piglin',{inPlace:true}),true);assert.equal(fightableAlone(f.bot,'piglin'),false,'never walked on or followed')
+ assert.throws(()=>validateTaskGoal('defend',{...f.task.goal,inPlace:false}),/observed mob/);assert.doesNotThrow(()=>validateTaskGoal('defend',f.task.goal))
+ // Golden boots worn: calm, never a target, in place or cornered.
+ const g=fixture();piglin(g);g.bot.getEquipmentDestSlot=s=>({head:5,torso:6,legs:7,feet:8})[s];g.bot.inventory.slots[8]={name:'golden_boots'}
+ assert.equal(defenseDecision(g.bot,{inPlace:true}).engage,false);assert.equal(corneredDecision(g.bot,{inPlace:true}).engage,false)
+ let attacks=0;g.bot.attack=()=>{attacks++}
+ await assert.rejects(defendAgainstMob(g.bot,g.task,g.context));assert.equal(attacks,0)
+ // A baby piglin never attacks, so it is never struck.
+ const b=fixture(),reg=piglin(b);b.bot.entities[7].metadata=Object.assign([],{[reg.entitiesByName.piglin.metadataKeys.indexOf('baby')]:true})
+ assert.equal(corneredDecision(b.bot,{inPlace:true}).engage,false)
+ // Gold put on mid-fight ends the strike before the next swing.
+ const m=fixture();piglin(m);let swings=0
+ m.bot.attack=()=>{swings++;m.bot.getEquipmentDestSlot=s=>({head:5,torso:6,legs:7,feet:8})[s];m.bot.inventory.slots[5]={name:'golden_helmet'}}
+ await assert.rejects(defendAgainstMob(m.bot,m.task,m.context),/no longer hostile/);assert.equal(swings,1)
+})

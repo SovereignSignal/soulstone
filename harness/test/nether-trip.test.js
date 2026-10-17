@@ -758,7 +758,7 @@ test('the shut-in mob is followed by its entity id: a replaced entity object is 
 // for the portal 40 blocks back along the tunnel with the piglin beside it; it died 1.6 s later. On a trip request in a
 // covered column of its own tunnel, at any health and kit or not, the bot walls in where it stands unless the portal is
 // within the three-block portal-first reach; food is carried, so it heals inside.
-async function hurtInTunnel({reason=HEALTH_EMERGENCY,portalAt=40,kit=true,mob='piglin'}={}){
+async function hurtInTunnel({reason=HEALTH_EMERGENCY,portalAt=40,kit=true,mob='piglin',setup=()=>{}}={}){
  const {bot,r,c}=bridgeTunnel()
  bot.health=5;wear(bot,'iron_boots')
  if(!kit)bot.inventory.items=()=>[{name:'cobblestone',count:64,type:registry.itemsByName.cobblestone.id},{name:'cooked_porkchop',count:8}]
@@ -766,6 +766,7 @@ async function hurtInTunnel({reason=HEALTH_EMERGENCY,portalAt=40,kit=true,mob='p
  const at=bot.blockAt;bot.blockAt=p=>{const b=at(p);return ['nether_portal','obsidian'].includes(b.name)?{...b,name:'netherrack',boundingBox:'block'}:b}
  bot.findBlock=({matching,maxDistance})=>matching===registry.blocksByName.nether_portal.id&&maxDistance>=portalAt?{name:'nether_portal',position:new Vec3(0.5-portalAt,64,3)}:null
  bot.entities={9:{id:9,uuid:'10000000-0000-0000-0000-000000000009',type:'mob',name:mob,height:1.95,width:.6,position:new Vec3(-1.5,64,3.5),velocity:new Vec3(0,0,0)}}
+ setup(bot)
  const seen=survivalObservation(bot).nearbyThreats[0]
  void c.seekSafety(reason);await new Promise(res=>setTimeout(res,120))
  const acts=r.commands.filter(x=>x.action!=='stop');c.cancel?.(true)
@@ -798,4 +799,24 @@ test('a gold-less adult piglin inside the sealed tunnel cavity fails the shelter
  assert.equal(inspect({flags:Object.assign([],{[babyKey]:true})})().verified,true,'a baby piglin')
  assert.throws(inspect({name:'enderman',flags:Object.assign([],{[creepy]:true})}),/enderman/,'a screaming enderman')
  assert.equal(inspect({name:'enderman'})().verified,true,'a calm enderman')
+})
+// Review of 55698df: a lone piglin hostile to a gold-less bot, in the next cell of the bot's sealed tunnel, is struck in
+// place as a lone wither skeleton is; hurt below the trip's strike line the bot walls in instead. Gold worn, it is calm.
+const piglinNext=(boots='iron_boots')=>(bot)=>{wear(bot,boots);bot.entities={1:{id:1,uuid:'10000000-0000-0000-0000-000000000011',type:'hostile',name:'piglin',height:1.95,width:.6,position:new Vec3(-0.5,64,3.5),velocity:new Vec3(0,0,0)}}}
+test('a gold-less bot shut in its tunnel with a lone piglin in the next cell strikes it in place and does not walk',async()=>{
+ for(const [name,opts] of [['full health',{}],['health 13, portal ten off',{health:13,portalAt:10}]]){
+  const t=await shutIn({...opts,setup:piglinNext()})
+  const d=t.acts.find(x=>x.action==='defend');assert.ok(d,name+': '+t.names.join(' ')+' :: '+t.said.join(' | '))
+  assert.equal(d.goal.targetName,'piglin',name);assert.equal(d.goal.inPlace,true,name)
+  assert.ok(!t.names.some(a=>['use_portal',...RUNS].includes(a)),name+': '+t.names.join(' '))
+ }
+})
+test('hurt to 5 with the piglin in the next cell, the bot walls in, strikes nothing and never walks for a far portal',async()=>{
+ const t=await hurtInTunnel({setup:bot=>{bot.entities[9].position=new Vec3(-0.5,64,3.5)}})
+ assert.equal(t.names[0],'hut',t.names.join(' ')+' :: '+t.said.join(' | '))
+ assert.ok(!t.names.some(a=>['defend','use_portal',...RUNS].includes(a)),t.names.join(' '))
+})
+test('a bot wearing golden boots never strikes a piglin in its tunnel',async()=>{
+ const t=await shutIn({setup:piglinNext('golden_boots')})
+ assert.ok(!t.acts.some(x=>x.action==='defend'||x.action==='attack'),t.names.join(' ')+' :: '+t.said.join(' | '))
 })
