@@ -147,6 +147,8 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
  const gate=coveredGate(c,bot,eligible);if(gate)return {status:'skipped',reason:gate}
  const request=c.requestProgress,safety=c.safety,connection=c.runner.connectionId,deadline=Date.now()+budgetMs
  let health=bot.health,refusals=0,burntAt=-Infinity
+ // While this phase runs the shelter is at work, not stalled (controller.js stallRetry; live rehearsal R9, 06:17:41Z).
+ c.coveredSafety=safety
  const check=()=>{if(signal.aborted||c.epoch!==epoch||c.safety!==safety||c.requestProgress!==request||!c.runner.ready||c.runner.bot!==bot||c.runner.connectionId!==connection)throw new Error('Covered moves cancelled or context changed')}
  // during: mid-move a fall leaves no floor for a moment, so the flood runs only on the ground there.
  const protection=(during=false)=>{
@@ -229,10 +231,16 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
     protection(true)
    }
    const monitor=setInterval(()=>{try{guard()}catch(e){failure??=e;moveAbort.abort();c.dispatch({action:'stop'})}},pollMs)
-   let failed=null
-   try{await c.execute(move.command,moveSignal);receipt=structuredClone(c.runner.task?.result??null)}
+   let failed=null,moveTask=null
+   try{await c.execute(move.command,moveSignal,id=>{moveTask=id});receipt=structuredClone(c.runner.task?.result??null)}
    catch(e){failed=e}
-   finally{clearInterval(monitor);moveAbort.abort()}
+   finally{
+    clearInterval(monitor);moveAbort.abort()
+    // Live rehearsal R9, 17 October 06:17:41Z: a resume aborted this phase's signal, the execute rejected at once and the
+    // monitor was cleared before its next poll could stop the task, so the stand ran on orphaned. The move's own task, still
+    // running here, is stopped as the monitor would (unless the monitor already did).
+    const t=c.runner.task;if(!failure&&moveTask!=null&&t?.id===moveTask&&t.status==='running')c.dispatch({action:'stop'})
+   }
    // Blaze death, 16 October 18:44Z: the bot's own move opened the cavity, the breach failed the shelter three
    // times and the bot stood idle in an opened hut. A breach a move makes is a refused move: stop, wall in again
    // where the bot stands, and tell the model. If walling in fails, that is a shelter failure as before.
@@ -261,5 +269,5 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
   // falling, the trip's health line) hands the hut back to the watch, whose own rules then judge it.
   if(enclosureError(e))throw e
   safety.protection=inspectEmergencyShelter(bot,{limit:COVERED_CELLS});journal('failed',{reason:e.message});return {status:'held',reason:e.message}
- }
+ }finally{if(c.coveredSafety===safety)c.coveredSafety=null}
 }

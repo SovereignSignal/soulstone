@@ -616,3 +616,20 @@ test('alight in a stand with its port shut and fire in the hut\'s cavity, the st
  await f.run({budgetMs:200})
  assert.ok(f.commands.some(x=>x.action==='stop'),acts(f).join(' '));assert.deepEqual(acts(f).slice(0,2),['stand','hut'])
 })
+
+// Live rehearsal R9, 17 October 06:17:41Z (design of the blaze endgame, round two, section 3): the stall retry's resume
+// cancelled the request, which aborted the signal the covered phase runs on. The stand's execute rejected at once, the finally
+// cleared the monitor before its next poll could stop the task, and the phase returned cancelled with the stand still
+// running, orphaned, while the planner thought. A covered move whose own signal aborts while its task runs stops that task.
+test('a covered move whose signal aborts while its task still runs stops that task',async()=>{
+ const f=fixture(async()=>standMove);blazeBeside(f)
+ f.c.execute=(cmd,signal,started=()=>{})=>{f.commands.push(cmd);f.c.runner.task={id:'9',kind:cmd.action,status:'running',goal:cmd.goal};started('9')
+  setTimeout(()=>f.abort.abort(),20)
+  return new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(new Error('Cancelled')),{once:true}))}
+ const result=await f.run()
+ assert.equal(result.status,'cancelled')
+ assert.deepEqual(f.commands.map(x=>x.action),['stand','stop'],'the running stand is stopped, once')
+ // A move that finished on its own is not stopped after it.
+ const done=fixture(async()=>standMove,{act:cmd=>cmd.action==='stand'?standReceipt:undefined});blazeBeside(done)
+ await done.run();assert.ok(!done.commands.some(x=>x.action==='stop'),done.commands.map(x=>x.action).join(' '))
+})

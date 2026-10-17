@@ -1769,6 +1769,12 @@ export class Teammate extends EventEmitter {
     // A watch that failed, whatever its last record said, leaves the retry in charge
     // (lab run 98: failed mid-watch, still marked watching, idle for 34 minutes).
     if(this.safety?.status!=='failed'&&['watching','cleared'].includes(this.safety?.continuation?.status))return false
+    // Live rehearsal R9, 17 October 06:17:41Z: walled in at the spawner, the covered phase had a blaze stand running, which
+    // sets no continuation. Ninety seconds after the hut went up this retry resumed the request over it, the resume cancelled
+    // the covered phase and nulled the shelter, and the stand ran on orphaned until the next alarm stopped it. A held shelter
+    // at work (its covered phase deciding or waiting, or a task of its running) is the shelter's to end; a failed one, or one
+    // whose watch gave up with nothing running (clearance_timeout), leaves this in charge as before.
+    if(this.safety&&this.safety.status!=='failed'&&(this.coveredSafety===this.safety||this.runner.task?.status==='running'))return false
     // A planner that asks for Resume, or says it lost its kit, has said a person must look
     // first (lab run 144, 23:26Z: "I lost the iron armour... Press Resume at daylight and
     // I'll gear up first"; this retry resumed it ninety seconds later and the bot rebuilt a
