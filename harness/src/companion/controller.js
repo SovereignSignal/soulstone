@@ -1729,7 +1729,7 @@ export class Teammate extends EventEmitter {
     // with a clear area. An explicit Resume makes that continuation eligible,
     // or re-arms a wait that timed out, instead of planning from underground.
     // The person re-engaged: the covered phase gets its moves and model calls back (covered-moves.js).
-    if(!automatic){delete this.requestProgress.coveredMoves;delete this.requestProgress.coveredCalls}
+    if(!automatic){delete this.requestProgress.coveredMoves;delete this.requestProgress.coveredCalls;delete this.requestProgress.standSkips}
     if(!automatic&&['burrow','hut'].includes(this.safety?.retreat?.shelterName)&&!this.safety.exit&&this.safety.status!=='cancelled'){
       const safety=this.safety;safety.resumeRequested=true;safety.resumeRequestId=this.requestProgress.id;this.phase='blocked';this.persist()
       this.say('I am still dug in. I will continue your request once it is daylight and the area is clear.')

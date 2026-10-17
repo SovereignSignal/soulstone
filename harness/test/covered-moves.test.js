@@ -244,10 +244,10 @@ test('model calls are capped per request; an explicit Resume resets the moves an
  assert.equal((await f.run()).status,'skipped');assert.equal(calls,0)
  const g=fixture(async()=>wait);const running=g.run({budgetMs:300,waitMs:0});let flip=0;const t=setInterval(()=>{g.bot.food=15+(flip++%2)},3)
  await running;clearInterval(t);assert.ok(g.c.requestProgress.coveredCalls<=COVERED_CALLS,String(g.c.requestProgress.coveredCalls))
- const h=fixture(async()=>wait);Object.assign(h.c.requestProgress,{coveredMoves:COVERED_MOVES,coveredCalls:COVERED_CALLS})
+ const h=fixture(async()=>wait);Object.assign(h.c.requestProgress,{coveredMoves:COVERED_MOVES,coveredCalls:COVERED_CALLS,standSkips:2})
  Object.assign(h.c,{abort:{},runner:{...h.c.runner,respawnPending:false},snapshot:()=>({dead:false}),emit(){}})
  await Teammate.prototype.resume.call(h.c,{})
- assert.equal(h.c.requestProgress.coveredMoves,undefined);assert.equal(h.c.requestProgress.coveredCalls,undefined)
+ assert.equal(h.c.requestProgress.coveredMoves,undefined);assert.equal(h.c.requestProgress.coveredCalls,undefined);assert.equal(h.c.requestProgress.standSkips,undefined)
 })
 test('the hand-back line is said once a minute, not every cycle',async()=>{
  const f=fixture(once({action:'done',target:null,count:0,expectation:'Hand back'}))
@@ -570,4 +570,26 @@ test('after a failed stand the health line restarts from where the stand left it
  const result=await f.run({budgetMs:80})
  assert.ok(seen.length>=2,JSON.stringify(result));assert.ok(!/Health fell/.test(result.reason||''),JSON.stringify(result))
  assert.ok(f.c.recoveryHistory.some(a=>a.status==='failed'&&/No blaze rod gained/.test(a.reason)),JSON.stringify(f.c.recoveryHistory))
+})
+
+// Review of the atPort skip (Sonnet, 17 October): the skip at a stand cell took any shooter, so a skeleton or a ghast in port
+// sight there was no longer answered from the port. Only a blaze is the stand's. And a backstop: two answers in a row that
+// leave the stand unused at a valid stand cell on a blaze rod request (wait or done), and the stand is dispatched directly.
+function skeletonInLine(f){blazeBeside(f);f.bot.entities[8]={id:8,uuid:'10000000-0000-0000-0000-000000000008',type:'mob',name:'skeleton',height:1.99,position:new Vec3(6.5,64.2,.5),velocity:new Vec3(0,0,0)}}
+test('at a valid stand cell a skeleton in port sight still holds the phase for the port, with no model call',async()=>{
+ const {atPort}=await import('../src/companion/covered-moves.js')
+ let calls=0;const f=fixture(async()=>{calls++;return standMove});skeletonInLine(f)
+ assert.equal(atPort(f.bot)?.name,'skeleton')
+ const result=await f.run()
+ assert.equal(result.status,'held');assert.match(result.reason,/skeleton is in sight through a port/);assert.equal(calls,0);assert.deepEqual(acts(f),[])
+})
+test('after two answers that leave the stand unused at a valid stand cell, the stand is dispatched with no model call',async()=>{
+ let calls=0;const f=fixture(async()=>{calls++;return {action:'done',target:null,count:0,expectation:'The planner calls stand'}},{act:cmd=>cmd.action==='stand'?standReceipt:undefined});blazeBeside(f)
+ const safety=structuredClone(f.c.safety),again=()=>{f.c.safety=structuredClone(safety);f.c.requestProgress.status='interrupted'}
+ assert.equal((await f.run()).status,'handed_back');again()
+ assert.equal((await f.run()).status,'handed_back');again()
+ assert.deepEqual(acts(f),[],'two done laps, no stand yet');assert.equal(calls,2)
+ const third=await f.run()
+ assert.equal(calls,2,'no third model call');assert.deepEqual(acts(f),['stand']);assert.deepEqual(f.commands.find(x=>x.action==='stand').goal,{item:'blaze_rod',count:4})
+ assert.equal(third.status,'handed_back');assert.ok(f.c.recoveryHistory.some(a=>/dispatched directly/.test(a.expectation||'')),JSON.stringify(f.c.recoveryHistory))
 })

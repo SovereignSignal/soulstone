@@ -176,22 +176,32 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
    // means the port has not answered it, so under holdBounded the planner is asked (its budget is the gate's).
    // Review of the R9 fix: at a stand cell on a blaze rod request that hold was endless, the port answering and the stand
    // never run. There the planner is asked, and is offered the stand, which opens and closes its own port.
-   const standCell=(wantedItems(request,bot.registry).some(w=>w.item==='blaze_rod')||(request.pending||[]).some(s=>s?.action==='stand'&&s.item==='blaze_rod'))&&!blazeStandRefusal(bot)
-   const shooter=!holdBounded&&!standCell&&atPort(bot);if(shooter){const reason=`a ${shooter.name.replaceAll('_',' ')} is in sight through a port; the port answers it`;journal('held',{reason});return {status:'held',reason}}
+   // Only a blaze is the stand's (Sonnet review, 17 October): any other shooter in port sight is still the port's.
+   const standRefusal=blazeStandRefusal(bot)||null,standCell=!standRefusal&&(wantedItems(request,bot.registry).some(w=>w.item==='blaze_rod')||(request.pending||[]).some(s=>s?.action==='stand'&&s.item==='blaze_rod'))
+   const inSight=!holdBounded&&atPort(bot),shooter=inSight&&!(standCell&&inSight.name==='blaze')?inSight:null;if(shooter){const reason=`a ${shooter.name.replaceAll('_',' ')} is in sight through a port; the port answers it`;journal('held',{reason});return {status:'held',reason}}
    const before=decisionState(),sites=projectFootprints(c.projects,dimensionOf(bot)),f=feetOf(bot)
    let deepest=0,shaft=null;for(let n=1;n<=SHAFT_MAX;n++){const r=shaftRefusal(bot,n,sites);if(r){shaft=r;break}deepest=n}
    const snapshot=c.snapshot(),state=Object.fromEntries(['position','health','survival','tools','inventory'].map(k=>[k,snapshot[k]]))
    const observed={...state,goal:request.goal,pending:(request.pending||[]).slice(0,4),feedback:(request.feedback||[]).slice(-8),recovery:recoveryContext(c,bot),enclosure:safety.protection,
-    feet:xyz(f),hut:safety.retreat.surface,shaftBelow:{deepest,refusal:shaft},lastReceipt:safety.covered?.moves?.at(-1)?.receipt??null,stand:{item:'blaze_rod',refusal:blazeStandRefusal(bot)||null},movesLeft:COVERED_MOVES-(request.coveredMoves||0),remainingMs:deadline-Date.now(),...(holdBounded?{holdBounded}:{})}
+    feet:xyz(f),hut:safety.retreat.surface,shaftBelow:{deepest,refusal:shaft},lastReceipt:safety.covered?.moves?.at(-1)?.receipt??null,stand:{item:'blaze_rod',refusal:standRefusal},movesLeft:COVERED_MOVES-(request.coveredMoves||0),remainingMs:deadline-Date.now(),...(holdBounded?{holdBounded}:{})}
    trace('covered_observation',{round,observation:observed})
-   request.coveredCalls=(request.coveredCalls||0)+1;c.persist()
-   const abort=new AbortController(),combined=AbortSignal.any([signal,abort.signal]);let settled=false,value,error
-   const pending=Promise.resolve().then(()=>{if(combined.aborted)throw new Error('Cancelled');return c.planner.covered(observed,combined,e=>trace('covered_model',e))}).then(v=>{value=v;settled=true},e=>{error=e;settled=true})
-   try{
-    const until=Math.min(deadline,Date.now()+decisionMs)
-    while(!settled){protection();if(Date.now()>=until)throw new Error('Covered decision budget reached');await delay(pollMs,undefined,{signal})}
-    await pending;protection();if(error)throw error
-   }finally{abort.abort()}
+   // Backstop (Sonnet review, 17 October): two answers in a row that left the stand unused at a valid stand cell on a blaze
+   // rod request (wait or done, request.standSkips) are R9's loop starting again; the stand goes out with no model call.
+   if(!standCell)request.standSkips=0
+   let value
+   if(standCell&&(request.standSkips||0)>=2){request.standSkips=0;value={action:'stand',target:null,count:0,expectation:'The stand, dispatched directly after two answers that left it unused at a stand cell'}}
+   else{
+    request.coveredCalls=(request.coveredCalls||0)+1;c.persist()
+    const abort=new AbortController(),combined=AbortSignal.any([signal,abort.signal]);let settled=false,error
+    const pending=Promise.resolve().then(()=>{if(combined.aborted)throw new Error('Cancelled');return c.planner.covered(observed,combined,e=>trace('covered_model',e))}).then(v=>{value=v;settled=true},e=>{error=e;settled=true})
+    try{
+     const until=Math.min(deadline,Date.now()+decisionMs)
+     while(!settled){protection();if(Date.now()>=until)throw new Error('Covered decision budget reached');await delay(pollMs,undefined,{signal})}
+     await pending;protection();if(error)throw error
+    }finally{abort.abort()}
+    if(standCell)request.standSkips=['wait','done'].includes(value.action)?(request.standSkips||0)+1:0
+    c.persist()
+   }
    trace('covered_decision',{round,decision:value})
    if(value.action==='done'){journal('completed',{expectation:value.expectation});return handBack(null)}
    if(value.action==='wait'){
