@@ -70,7 +70,7 @@ export function borePath(from,to){
 export const columnCells=(prev,c)=>[...(c.y<prev.y?[c.offset(0,2,0)]:c.y>prev.y?[prev.offset(0,2,0)]:[]),c.offset(0,1,0),c]
 // budgetMs: the bore stops at the top of a column once it has run this long, so a receipt comes
 // back before the runner's hard deadline ends it with none (review of 9d2770d).
-export async function boreToward(bot,task,{check,stage,progress,movements,budgetMs=BORE_TIMEOUT_MS}){
+export async function boreToward(bot,task,{check,stage,progress,movements,persist=()=>{},budgetMs=BORE_TIMEOUT_MS}){
  const goal=validateBoreGoal(task.goal),sites=goal.protectedSites||[],solid=b=>!!b&&fullCube(bot.registry,b.name)
  const here=()=>{const p=bot.entity.position;return new Vec3(Math.floor(p.x),Math.floor(p.y+.2),Math.floor(p.z))}
  check()
@@ -248,6 +248,10 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
    check();if(!fit(p)){progress(`Slit cell ${key(p)} stays shut`);continue}
    // A side cell is cut only when it gives some blaze a line the centre alone does not; one already open stays listed.
    if(p!==s0&&!AIR.has(bot.blockAt(p)?.name)&&!blazes.some(b=>clear(b,[s0,p])&&!clear(b,[s0]))){progress(`Slit cell ${key(p)} stays shut: no blaze in line through it`);continue}
+   // R8 trip, 17 October about 05:10Z: a slit cell left open became half a doorway into the tunnel once the bot dug beside
+   // it on the way home. Each cell goes on the task before its dig, as a stand's port does (blaze-stand.js), so the
+   // controller's pre-command close shuts it before the bot moves away, a cancellation mid-dig included.
+   task.slitOpen=[...(task.slitOpen||[]),xyz(p)];persist()
    try{await digOne(bot,bot.blockAt(p),check);slit.push(xyz(p))}
    catch(error){if(error?.code!=='DIG_REFUSED')throw error;progress(`Slit cell ${key(p)} stays shut: ${error.message}`)}
    if(!slit.length){reason=`no slit at ${key(s0)}: the centre would not open`;slit=null;return}

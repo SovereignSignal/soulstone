@@ -31,6 +31,11 @@ const PORTAL_ROOM_STANDOFF=6
 const PORTAL_AT_HAND=3
 // What may run while a stand's port is still open (executeCommand): the safety actions and the port cycle, none of them work
 // that walks off or digs away from the open port.
+// A bore's slit stays open for the work done through it, from where the bot stands: a shot, a stand, the hut and its
+// port, eating, crafting. Anything else may move the bot away, so the slit closes first (R8, 17 October).
+const SLIT_KEEPS=new Set(['stop','hut','douse','leave_portal','shoot','stand','unhut','eat','craft','emote','inspect'])
+// Cells farther than this from the eye cannot be placed into: dropped from the record and logged.
+const SLIT_REACH=4.5
 const STAND_PORT_SAFE=new Set(['defend','flee','retreat','burrow','unburrow','climb','descend','surface','eat','unhut','shoot','seal_portal','use_portal'])
 const TUNNEL_HAZARDS=new Set(['lava','water','bubble_column',...FIRE_BLOCKS])
 // Whether the bot, in the Nether in a covered column of its tunnel, can hold there for this alarm: a threat, a hurt bot,
@@ -463,6 +468,9 @@ export class Teammate extends EventEmitter {
       }
       // Review of the blaze stand: a stand that ends with its firing port open (done, failed or cancelled) leaves it on the
       // task (blaze-stand.js). The next command walls in first if those cells are still open (executeCommand).
+      // Tunnel end left open, R8 trip, 17 October about 05:10Z: a bore's slit cells, recorded as they open (bore.js), are
+      // closed before the bot moves away (executeCommand), as a stand's port is.
+      if(e.type==='task_finished'&&e.task?.kind==='bore'&&Array.isArray(e.task.slitOpen)&&e.task.slitOpen.length){const known=new Set((this.slitOpen||[]).map(c=>`${c.x},${c.y},${c.z}`));this.slitOpen=[...(this.slitOpen||[]),...structuredClone(e.task.slitOpen).filter(c=>!known.has(`${c.x},${c.y},${c.z}`))]}
       if(e.type==='task_finished'&&e.task?.kind==='stand')this.standPort=Array.isArray(e.task.portOpen)&&e.task.portOpen.length?structuredClone(e.task.portOpen):null
       if(['task_started','task_finished'].includes(e.type)&&e.task?.goal?.project){this.projects.base=structuredClone(e.task.goal.project);this.persist()}
       if(['task_started','task_finished'].includes(e.type)&&e.task?.kind==='construct'&&e.task.goal?.name){this.projects[e.task.goal.name]={construction:structuredClone(e.task.goal),progress:structuredClone(e.task.progress||null),result:structuredClone(e.task.result||null),status:e.task.status,dimension:this.projects[e.task.goal.name]?.dimension||dimensionOf(runner.bot)||'overworld'};this.persist()}
@@ -2254,6 +2262,28 @@ export class Teammate extends EventEmitter {
         // Children read this: plain and calm.
         this.say('Something is in the way, so I cannot close my firing port yet. I am staying right here and will try again.')
         throw new Error('My firing port is still open; staying in place until it closes')
+      }
+    }
+    // Tunnel end left open, R8 trip, 17 October about 05:10Z: goto with dig stepped up out of the pocket beside the spawner
+    // and dug the cell beside the bot's own head-height slit cell, whose cell below was spawner-room air, a two-high doorway
+    // into the one-wide tunnel; piglins walked in and blocked it on the next two trips. Before a command that may move the
+    // bot away, the slit cells still open are closed with the same tries and refusal as a stand's port. A cell out of reach
+    // (a safety walk already took the bot away, or a portal) cannot be closed from here: it is dropped and logged.
+    if(this.slitOpen&&!SLIT_KEEPS.has(command.action)){
+      const bot=this.runner.bot,cellOf=c=>new Vec3(c.x,c.y,c.z),open=()=>this.slitOpen.filter(c=>!fullCube(bot?.registry,bot?.blockAt?.(cellOf(c))?.name))
+      const eye=bot?.entity?.position?.offset(0,bot.entity.eyeHeight??1.62,0),far=open().filter(c=>!eye||cellOf(c).offset(.5,.5,.5).distanceTo(eye)>SLIT_REACH)
+      if(far.length){this.runner.log?.('slit_left_open',{cells:far,action:command.action});this.slitOpen=this.slitOpen.filter(c=>!far.includes(c))}
+      const safety=STAND_PORT_SAFE.has(command.action)
+      if(open().length)this.say('My slit in the tunnel wall is still open. Closing it before I move.')
+      for(let attempt=0;attempt<(safety?1:2)&&open().length;attempt++){
+        if(attempt){await delay(this.standPortRetryMs??2000);if(signal.aborted)throw new Error('Cancelled')}
+        try{await Teammate.prototype.executeCommand.call(this,{action:'hut',goal:{close:open()},timeoutMs:60000},signal)}catch(error){if(signal.aborted)throw error;this.runner.log?.('slit_unclosed',{attempt:attempt+1,reason:String(error.message).slice(0,120)})}
+      }
+      if(!open().length)this.slitOpen=null
+      else if(!safety){
+        // Children read this: plain and calm.
+        this.say('Something is in the way, so I cannot close my slit yet. I am staying right here and will try again.')
+        throw new Error('My slit is still open; staying in place until it closes')
       }
     }
     const deferredDeparture=['acquire','prepare'].includes(command.action)&&insideBase(this.runner.bot,this.projects.base)

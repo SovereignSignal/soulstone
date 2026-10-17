@@ -208,8 +208,22 @@ async function placeCells(bot,placements,{check,progress,feet,materials=()=>hutM
  }
  return placed
 }
+// R8 trip, 17 October about 05:10Z: a bore's slit left open beside the tunnel became a doorway once the bot moved on. The
+// controller closes cells the bot left open (task.slitOpen) with these placements, from where it stands, before it moves
+// away; cobblestone first, as the portal seal's. Idempotent: what stands is skipped.
+async function closeCells(bot,list,{check,stage,progress}){
+ if(!bot.entity.onGround)await settle(()=>bot.entity.onGround,{check})
+ const feet=bot.entity.position.floored(),cells=list.map(c=>new Vec3(c.x,c.y,c.z))
+ stage('walling');progress(`Closing ${cells.length} cells I left open`)
+ const cobble=()=>{const m=hutMaterials(bot);return [...m.filter(i=>i.name==='cobblestone'),...m.filter(i=>i.name!=='cobblestone')]}
+ const placed=await placeCells(bot,cells.map(target=>({target,ref:null})),{check,progress,feet,materials:cobble})
+ const missing=cells.filter(c=>!solid(bot,bot.blockAt(c))).map(key)
+ if(missing.length)throw new Error(`Close incomplete: ${missing.length} of ${cells.length} cells open (${missing.slice(0,3).join('; ')})`)
+ return {item:'safety',count:placed,receipt:'closed',closed:cells.map(xyz)}
+}
 export async function wallIn(bot,task,{check,stage,progress}){
  check()
+ if(Array.isArray(task.goal?.close))return closeCells(bot,task.goal.close,{check,stage,progress})
  if(task.goal?.portalRoom&&!hutSite(bot).portal){stage('walking');await stepToPortalRoom(bot,check,progress)}
  // A walk or a knockback can leave the bot a moment off the ground; judge the site once it lands.
  if(!bot.entity.onGround)await settle(()=>bot.entity.onGround,{check})

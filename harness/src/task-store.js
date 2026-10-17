@@ -30,7 +30,12 @@ export function validateGoal(goal) {
 }
 export function validateTaskGoal(kind, goal) {
   // A hut may be asked to step back to a portal first (lab run 101).
-  if(kind==='hut')return goal?.portalRoom===true?{portalRoom:true}:{}
+  // Or to close cells the bot left open, such as a bore's slit, before it moves away (R8, 17 October).
+  if(kind==='hut'){
+    const cells=Array.isArray(goal?.close)?goal.close.slice(0,8):[]
+    if(cells.length&&cells.every(c=>['x','y','z'].every(k=>Number.isSafeInteger(c?.[k]))))return {close:cells.map(c=>({x:c.x,y:c.y,z:c.z}))}
+    return goal?.portalRoom===true?{portalRoom:true}:{}
+  }
   if(kind==='seal_portal')return {}
   // The hut opens the wall facing the mob it confronts (lab run 146, 15 October: dropped here, so it never did).
   // Against a shooter it is a firing port (hut.js), skipping the sides that had no shot.

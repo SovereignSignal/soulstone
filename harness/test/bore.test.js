@@ -427,3 +427,59 @@ test('with blazes under the window the slit reason says to stand, and never name
  assert.equal(r.slit,null);assert.match(r.reason,/slit sees no blaze: the nearest is 3.8 below the window at 7 blocks/)
  assert.match(r.reason,/action stand/);assert.doesNotMatch(r.reason,/bore to y|y <=|\by \d/)
 })
+
+// Tunnel end left open, R8 trip, 17 October about 05:10Z: on the way home the bot used goto with dig to step up out of its
+// pocket beside the spawner and dug -36,60,-9, beside its own head-height slit cell -37,60,-9 (bore's openSlit) whose cell
+// below, -37,59,-9, was spawner-room air: a two-high doorway from the room into the tunnel. Piglins walked in and blocked
+// the one-wide tunnel on the next two trips. The slit's cells go on the task as they open, as a stand's port does, and the
+// controller's pre-command close shuts them before the bot moves away; a shot or a stand through the slit keeps it open.
+import {EventEmitter} from 'node:events'
+import {mkdtempSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+import {Teammate} from '../src/companion/controller.js'
+const SLIT=[{x:4,y:65,z:0},{x:4,y:65,z:-1},{x:4,y:65,z:1}]
+test('the slit\'s cells go on the bore task as they open',async()=>{
+ const w=world({fills:ROOM,blazes:BLAZES}),task={kind:'bore',goal:{x:10,y:64,z:0,count:10,slit:true}}
+ let saved=null;const r=await executeSkill(w.bot,task,{...api,persist:()=>{saved=structuredClone(task.slitOpen)}})
+ assert.deepEqual(r.slit,SLIT);assert.deepEqual(task.slitOpen,SLIT);assert.deepEqual(saved,SLIT,'persisted as they open')
+})
+test('a hut asked to close named cells closes them from where the bot stands, cobblestone first, and builds nothing else',async()=>{
+ assert.deepEqual(validateTaskGoal('hut',{close:SLIT}),{close:SLIT});assert.deepEqual(validateTaskGoal('hut',{close:[{x:1.5,y:2,z:3}]}),{})
+ const w=world({fills:ROOM,blazes:BLAZES});await bore(w,{})
+ w.inventory.push({name:'netherrack',count:40})
+ const r=await executeSkill(w.bot,{kind:'hut',goal:{close:SLIT}},api)
+ assert.equal(r.receipt,'closed');assert.deepEqual(r.closed,SLIT)
+ for(const c of SLIT)assert.equal(w.cells.get(k(c.x,c.y,c.z)),'cobblestone',JSON.stringify(c))
+ assert.deepEqual(w.of('place').sort(),SLIT.map(c=>k(c.x,c.y,c.z)).sort(),'only the slit')
+})
+function slitController(w){
+ const r=Object.assign(new EventEmitter(),{profile:'bore',owner:'Sov',ready:true,connectionId:'one',bot:w.bot,commands:[],position:()=>w.bot.entity.position,log(){},waitForIdle:async()=>{}})
+ const shutAt=[]
+ r.command=c=>{r.commands.push(c);if(c.action==='stop')return;const t=r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.action==='hut'?validateTaskGoal('hut',c.goal):c.goal}
+  if(c.action!=='hut')shutAt.push(SLIT.map(p=>w.cells.get(k(p.x,p.y,p.z))))
+  ;(c.action==='hut'?executeSkill(w.bot,t,api):Promise.resolve({receipt:c.action})).then(res=>{t.status='completed';t.result=res},e=>{t.status='failed';t.reason=e.message}).then(()=>r.emit('event',{type:'task_finished',task:t}))}
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-slit-')),'state.json'));c.standPortRetryMs=10
+ return {r,c,shutAt,acts:()=>r.commands.map(x=>x.action).filter(x=>x!=='stop')}
+}
+test('bore opens a slit, then a goto away is commanded: the slit cells are closed before the bot moves',async()=>{
+ const w=world({fills:ROOM,blazes:BLAZES}),task={id:'b',kind:'bore',goal:{x:10,y:64,z:0,count:10,slit:true}}
+ await executeSkill(w.bot,task,api);task.status='completed'
+ const {r,c,shutAt,acts}=slitController(w)
+ r.emit('event',{type:'task_finished',task})
+ const signal=new AbortController().signal
+ // A shot through the slit keeps it open.
+ await c.executeCommand({action:'shoot',goal:{entity:'blaze'},timeoutMs:60000},signal)
+ assert.deepEqual(acts(),['shoot']);assert.deepEqual(shutAt[0],['air','air','air'])
+ await c.executeCommand({action:'goto',goal:{x:0,y:64,z:0,dig:true},timeoutMs:60000},signal);c.cancel?.(true)
+ assert.deepEqual(acts(),['shoot','hut','goto']);assert.deepEqual(r.commands.find(x=>x.action==='hut').goal,{close:SLIT})
+ assert.deepEqual(shutAt[1],['cobblestone','cobblestone','cobblestone'],'shut before the goto');assert.equal(c.slitOpen,null)
+})
+test('a slit cell out of reach is dropped from the record and logged, never blocking the command',async()=>{
+ const w=world({fills:ROOM,blazes:BLAZES}),task={id:'b',kind:'bore',goal:{x:10,y:64,z:0,count:10,slit:true}}
+ await executeSkill(w.bot,task,api);task.status='completed'
+ const {r,c,acts}=slitController(w),logged=[];r.log=(type,data)=>logged.push({type,...data})
+ r.emit('event',{type:'task_finished',task});w.bot.entity.position=new Vec3(-20.5,64,.5)
+ await c.executeCommand({action:'goto',goal:{x:-30,y:64,z:0,dig:false},timeoutMs:60000},new AbortController().signal);c.cancel?.(true)
+ assert.deepEqual(acts(),['goto']);assert.equal(c.slitOpen,null);assert.ok(logged.some(e=>e.type==='slit_left_open'&&e.cells.length===3),JSON.stringify(logged))
+})
