@@ -29,7 +29,7 @@ export const SLIT_REACH=6
 // Live rehearsal, 16 October 22:30Z: the slit at -36..-34,62,-10 looked over the spawner room's blazes at y 55, which sat
 // under the slit wall's own column. From the cell behind a one-high slit the eye looks down at most (eye height - 1) / 1.5,
 // about 0.41 blocks a block, and up 0.25. A slit cell opens only with a line through it to a blaze within the bow's
-// radius (archery.js SHOOT); with none the wall stays whole and the reason says how low to bore to see the nearest.
+// radius (archery.js SHOOT); with none the wall stays whole and the reason says why, and to stand rather than bore lower.
 const SLIT_SIGHT=32
 const AROUND=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0],[0,-1,0]].map(([x,y,z])=>new Vec3(x,y,z))
 const xyz=p=>({x:p.x,y:p.y,z:p.z})
@@ -236,7 +236,10 @@ export async function boreToward(bot,task,{check,stage,progress,movements,budget
    const b=blazes[0]
    if(!b){reason=`slit sees no blaze: none within ${SLIT_SIGHT} blocks; wait, then bore again (blazes spawn near the player)`;return}
    const d=Math.hypot(b.position.x-eye.x,b.position.z-eye.z),slope=(eyeH-1)/1.5,aim=aimPoint(b,bot.registry).y,low=eye.y-slope*d
-   reason=aim<low?`slit sees no blaze: the nearest is ${Math.round((low-aim)*10)/10} below the window at ${Math.round(d)} blocks; bore to y <= ${Math.floor(aim+slope*d-eyeH)}`
+   // R8 trip, 17 October 02:19Z: "bore to y <= 59" sent the bot down into the spawner room, its eye 1.6 above resting blazes
+   // 1.4 blocks off and its pocket inside the spawner's reach. A blaze that sees the port rises to it, so the reason says to
+   // stand here and never names a y to bore down to (blaze-stand.js refuses a cell inside the spawner's reach).
+   reason=aim<low?`slit sees no blaze: the nearest is ${Math.round((low-aim)*10)/10} below the window at ${Math.round(d)} blocks; do not bore down to it, a cell level with the blazes is inside the spawner's reach. Stand here for the rods (action stand): a blaze that sees the port rises to it`
     :`slit sees no blaze: the nearest, ${Math.round(d)} blocks off, has ${shotLine(bot,eye,b,{open:cells.filter(fit)}).block||'a block'} in the way`
    return
   }

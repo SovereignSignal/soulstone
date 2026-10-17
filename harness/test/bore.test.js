@@ -402,17 +402,28 @@ test('on the live bridge, own plugs older than OWN_TTL_MS are dug and the covere
 
 // Live rehearsal, 16 October 22:30Z: the slit at -36..-34,62,-10 looked out over the spawner room's blazes at y 55, which
 // sat under the slit wall's own column: from the cell behind a one-high slit the eye looks down at most 0.41 blocks a
-// block. The slit opens only the cells with a line to a blaze; with none it stays shut and says how low to bore.
-test('the slit opens only the cells with a line to a blaze, and with none says how far down to bore',async()=>{
+// block. The slit opens only the cells with a line to a blaze; with none it stays shut and says why.
+test('the slit opens only the cells with a line to a blaze, and with none says why',async()=>{
  const deep=[];for(let x=5;x<=12;x++)for(let y=56;y<=66;y++)for(let z=-2;z<=2;z++)deep.push([x,y,z,'air'])
  // Six below the bot's feet, seven blocks from its eye: under the window.
  const low=world({fills:deep,blazes:[[10.5,58,.5]]});const r=await bore(low,{})
  assert.equal(r.columns,3);assert.equal(r.slit,null);assert.ok(!low.of('dig').some(c=>c.startsWith('(4,')),'nothing cut')
- assert.match(r.reason,/slit sees no blaze: the nearest is 3.8 below the window at 7 blocks; bore to y <= 60/)
+ assert.match(r.reason,/slit sees no blaze: the nearest is 3.8 below the window at 7 blocks; /)
  // Level with the slit straight ahead: the centre opens, and only the centre.
  const ahead=world({fills:ROOM,blazes:[[7.5,64.5,.5]]});const a=await bore(ahead,{})
  assert.deepEqual(a.slit,[{x:4,y:65,z:0}]);assert.deepEqual(ahead.of('dig').filter(c=>c.startsWith('(4,')),[k(4,65,0)])
  // No blaze loaded: no slit, and the reason says so.
  const empty=world({fills:ROOM});const e=await bore(empty,{})
  assert.equal(e.slit,null);assert.match(e.reason,/slit sees no blaze: none within 32 blocks; wait, then bore again/)
+})
+// R8 trip, 17 October 02:19Z (design of the blaze endgame): "bore to y <= 59" sent the bot down into the spawner room, its eye
+// 1.6 above resting blazes 1.4 blocks off and its pocket inside the spawner's reach (4 across, one up or down). A blaze below
+// the window that sees the port rises to it; the reason says to stand for the rods and never names a y to bore down to.
+test('with blazes under the window the slit reason says to stand, and never names a y inside the spawner\'s reach',async()=>{
+ const deep=[];for(let x=5;x<=12;x++)for(let y=56;y<=66;y++)for(let z=-2;z<=2;z++)deep.push([x,y,z,'air'])
+ // The spawner a block over the blaze's feet: its reach takes feet y 58 to 60, the y the old reason named.
+ deep.push([10,59,0,'spawner'])
+ const low=world({fills:deep,blazes:[[10.5,58,.5]]});const r=await bore(low,{})
+ assert.equal(r.slit,null);assert.match(r.reason,/slit sees no blaze: the nearest is 3.8 below the window at 7 blocks/)
+ assert.match(r.reason,/action stand/);assert.doesNotMatch(r.reason,/bore to y|y <=|\by \d/)
 })
