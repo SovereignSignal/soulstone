@@ -153,6 +153,10 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
    record.unclosed=why
    if(bot.health>=TRIP_HEALTH&&Date.now()>=until)return false
    if(bot.health<TRIP_HEALTH&&Date.now()-ate>=30000){ate=Date.now();await eat(ctx,20)}
+   // Live rehearsal R9, 17 October 06:42Z (death 6): a close the hut refuses at once throws before any await on a timer, so
+   // this loop spun on resolved promises for its whole minute. No packet was read, no tick or alarm ran and the bot's health
+   // stayed 15.875 in its own view while the server killed it. Each try waits a poll.
+   await delay(o.poll)
   }
  }
  // Shut, the bot eats if it can and waits up to healMs for the port's health (portReady: 16, not burning, food 6).

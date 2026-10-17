@@ -364,3 +364,16 @@ test('a fire lit in the open port cell is punched out and the port closes',async
  assert.ok(out>lit-1&&shut>out,JSON.stringify(f.log.events.slice(lit,lit+6)))
  assert.equal(f.map.get(PORT),'cobblestone','walled in at the end')
 })
+
+// The same death: from 06:42:36 the journal has no survival tick for a minute, and the bot's health read 15.875 until the stand
+// gave up at 06:43:36, though the server had killed it at 06:42:48. A close the hut refuses at once (wallIn throws before any
+// await that waits on a timer) only ever awaited resolved promises, so the retry loop never let the event loop turn: no
+// packet, no tick, no health, no alarm. Every try now waits a poll, so the clock keeps running while the close fails.
+test('a close the hut refuses at once keeps the event loop turning while it retries',async()=>{
+ const f=fixture();let last=Date.now(),gap=0
+ const clock=setInterval(()=>{const now=Date.now();gap=Math.max(gap,now-last);last=now},5)
+ f.log.onShot=n=>{if(n===1){f.map.set(PORT,'lava');f.bot.health=19}}
+ try{await assert.rejects(stand(f,1,{closeLimitMs:400}),/could not close the port: Cannot wall in here: Cannot wall through lava at -36,61,-8/)}
+ finally{clearInterval(clock);gap=Math.max(gap,Date.now()-last)}
+ assert.ok(gap<150,`the event loop stalled ${gap} ms`)
+})
