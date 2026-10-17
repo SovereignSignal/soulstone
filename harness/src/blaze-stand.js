@@ -42,14 +42,15 @@ import {validateStandGoal,standingIn,closePort} from './enderman-stand.js'
 // again, since a blaze that loses sight of the bot flies to where it last saw it. healMs: shut, waiting for the port's 16.
 // meleeNear: a melee mob this close to the port cell shuts it. digReach: the bot's own blocks in the port's line dug from
 // inside. settleMs: a rod's fall. spawnReach, spawnRise: a spawner's volume, 4 across and 1 up or down (vanilla).
-// closeWaitMs: one round of waiting on a mob in the port's cell (closePort). closeLimitMs: the close gives up after this long
+// closeWaitMs: one round of waiting on a mob in the port's cell (closePort). sinkRetryMs: a refused sink is tried
+// again after this long, if its conditions still hold (review of the sink). closeLimitMs: the close gives up after this long
 // at or over the trip's health; under it the close keeps going. finalCloseMs: the closing of a stand that ends, by its own
 // clock, since after a cancellation the runner's check throws (review of the stand). burnMs: a fall this long after the bot
 // was last seen alight is still the burn's, as the shelter wait and the covered guard judge it (continuity.js BURN_MS: the
 // last tick can land after the flag clears). cavityCells: the closed cavity the heal verifies, up to a covered route's
 // (continuity.js COVERED_CELLS), since the stand may be walled in at a covered tunnel's end.
 export const BLAZE_STAND={item:'blaze_rod',radius:SHOOT.radius,limitMs:600000,timeoutMs:600000,arrows:TRIP_ARROWS,emptyMs:120000,idleMs:20000,drawInMs:15000,drawIn:4,blinkMs:1500,healMs:60000,
- meleeNear:3,digReach:4.5,settleMs:1500,drawMs:SHOOT.drawMs,spawnReach:4,spawnRise:1,closeWaitMs:10000,closeLimitMs:60000,finalCloseMs:15000,burnMs:6000,cavityCells:256,poll:50}
+ meleeNear:3,sinkRetryMs:180000,digReach:4.5,settleMs:1500,drawMs:SHOOT.drawMs,spawnReach:4,spawnRise:1,closeWaitMs:10000,closeLimitMs:60000,finalCloseMs:15000,burnMs:6000,cavityCells:256,poll:50}
 const key=p=>`${p.x},${p.y},${p.z}`
 const xyz=p=>({x:p.x,y:p.y,z:p.z})
 const round=p=>({x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,z:Math.round(p.z*10)/10})
@@ -100,14 +101,16 @@ export function blazeStandRefusal(bot,o=BLAZE_STAND){
  for(const c of cavityBeyond(bot,feet,site)){const spawner=spawnerOver(bot,c,o);if(spawner)return `The portal room's cell ${key(c)} is inside the spawner's reach at ${key(spawner)} (${o.spawnReach} blocks across, ${o.spawnRise} up or down): a blaze could be made in the room. Stand in a plain hut`}
  return ''
 }
-// Only a mob that fits a port column can come through it: narrower than a block and no taller than the open column (the
-// port cell, and the cell over it when that is air). Round two (section 4.1 rule 4; R9, 06:16 to 06:17Z, hoglins milling at
-// 2.5 to 3 blocks): a 1.4-wide hoglin or a 2.4-tall wither skeleton beside the port cannot reach through it. mineflayer reads
-// every magma cube as the registry's smallest (0.52), so a big one still counts: the safe side.
+// Only a mob that fits a port column can come through it: no taller than the open column (the port cell, and the cell over
+// it when that is air). Round two (section 4.1 rule 4): a 2.4-tall wither skeleton beside the port cannot reach through it.
+// Review of the sink (Sonnet, 17 October): width is no gate. A 1.4-wide hoglin on the ledge has its box 0.2 inside the port
+// cell and its attack box reaches the bot's off centre or after a knockback, and under a dug over cell it stands on the sill
+// in the port column; under rock (a one-high column) it does not fit. mineflayer reads every magma cube as the registry's
+// smallest (0.52 tall), so a big one still counts: the safe side.
 export function fitsPort(bot,e,cell){
- const size=bot.registry?.entitiesByName?.[e?.name],width=e?.width??size?.width??.6,height=e?.height??size?.height??1.8
+ const height=e?.height??bot.registry?.entitiesByName?.[e?.name]?.height??1.8
  const open=1+(AIR.has(bot.blockAt(new Vec3(cell.x,cell.y+1,cell.z))?.name)?1:0)
- return width<1&&height<=open
+ return height<=open
 }
 // A blaze's eye, 0.85 of its height (1.53; vanilla's default eye height, unverified on a server). A mob targets what its eye
 // sees at the target's eye, so this line, not the bow's, decides whether a resting blaze ever acquires the bot.
@@ -222,7 +225,7 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
  await wallIn(bot,{kind:'hut',goal:{}},context);check()
  // feet and the hut's own cells (its floor, roof, helper and the footings under its walls: never dug to open a line) are
  // the stand's level, set again after a sink. skip: the sides never opened there.
- let feet,hutCells,skip=[],sank=null,stayed=null
+ let feet,hutCells,skip=[],sank=null,stayed=null,stayedAt=-Infinity
  const prepared=new Set()
  const level=()=>{feet=bot.entity.position.floored();hutCells=new Set([feet.offset(0,-1,0),feet.offset(0,2,0),feet.offset(1,2,0),...SIDES.flatMap(([dx,dz])=>[-1,0,1].map(y=>feet.offset(dx,y,dz)))].map(key));prepared.clear()}
  level()
@@ -265,6 +268,9 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
   for(const until=Date.now()+o.closeLimitMs;;){
    check()
    const under=plan.column.map(c=>cellOccupant(bot,c)).find(Boolean)
+   // Review of the sink: a plain stand has no covered guard, so the stand's own clock and the trip's line end the wait here.
+   if(left()<=0)return ranOut()
+   if(!(bot.health>=TRIP_HEALTH))return `health ${Math.round(bot.health)} is under ${TRIP_HEALTH}`
    let why=under?`${a(under.name||'mob')} is in the column under my floor`:''
    if(!under&&missing().length){try{await wallIn(bot,{kind:'hut',goal:{close:missing().map(xyz)}},context);check()}catch(error){check();why=error.message}}
    if(!why&&!missing().length&&!plan.column.some(c=>cellOccupant(bot,c)))break
@@ -355,14 +361,14 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
    }
    empty=null
    if(!portReady(bot).ready){const why=await heal();if(why){stopped=why;break}}
-   const plan=!sank&&!stayed&&sinkPlan()
+   const plan=!sank&&Date.now()-stayedAt>=o.sinkRetryMs&&sinkPlan()
    if(plan){
     const why=await sink(plan)
     // Children read the bot's chat: plain, short, calm.
-    if(why){stayed=why;progress(`I could not go down to the blazes (${why}). I am staying at this level.`)}
+    if(why){stayed=why;stayedAt=Date.now();progress(`I could not go down to the blazes (${why}). I am staying at this level.`)}
     // Sunk, the new hut's helper is the old east wall over the east side cell: no blaze can stand in an east port, and the
     // design names south first, then north with the kerb as its ledge (round two, section 4.1 rule 6).
-    else{sank={from:xyz(plan.from),to:xyz(plan.to)};level();skip=[{dx:1,dz:0}];persist();progress('I went down to the blazes. Walled in on their floor.')}
+    else{stayed=null;sank={from:xyz(plan.from),to:xyz(plan.to)};level();skip=[{dx:1,dz:0}];persist();progress('I went down to the blazes. Walled in on their floor.')}
     continue
    }
    const choice=await choose();check()

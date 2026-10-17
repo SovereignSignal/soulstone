@@ -150,12 +150,14 @@ test('a hit closes the port, the stand heals to 16 shut, and opens again',async(
 })
 
 // Round two (design of the blaze endgame, section 4.1 rule 4): only a mob that fits the port column can come through it. A
-// 1.4-wide hoglin or a 2.4-tall wither skeleton beside the port is watched, never a reason to close (R9, 06:16 to 06:17Z:
-// hoglins milling at 2.5 to 3 blocks); a magma cube (0.52 as mineflayer reads it) or a provoked piglin is.
+// 2.4-tall wither skeleton beside the port is watched, never a reason to close; a magma cube (0.52 as mineflayer reads it)
+// or a provoked piglin is. Review of the sink (Sonnet, 17 October): a hoglin is 1.4 wide but only 1.4 tall. On the ledge its
+// box is 0.2 inside the port cell and its attack box reaches the bot's off centre or after a knockback; with the cell over
+// the port dug it stands on the sill in the port column. Only height decides: a hoglin closes the port under air, not under rock.
 const mob=(f,name,at,o={})=>f.add({name,type:'hostile',...registrySize(name),position:new Vec3(...at),...o})
 const registrySize=name=>({width:registry.entitiesByName[name].width,height:registry.entitiesByName[name].height})
-test('a hoglin two blocks from the port does not close it; a magma cube does; a wither skeleton does not',async()=>{
- for(const [name,closes] of [['hoglin',false],['magma_cube',true],['wither_skeleton',false]]){
+test('a hoglin or a magma cube two blocks from the port closes it; a wither skeleton does not',async()=>{
+ for(const [name,closes] of [['hoglin',true],['magma_cube',true],['wither_skeleton',false]]){
   const f=fixture();let m=null,closedWith=false
   f.log.onShot=n=>{const b=Object.values(f.bot.entities).find(e=>e.name==='blaze');if(n===1)m=mob(f,name,[-35.5,60,-5.5]);if(n===3&&b){b.dropAt=[-35.5,61,-7.5];f.kill(b)}}
   const place=f.bot.placeBlock;f.bot.placeBlock=async(ref,face)=>{await place(ref,face);if(m&&f.bot.entities[m.id]&&f.log.shots<3&&f.map.get(PORT)==='cobblestone')closedWith=true}
@@ -201,7 +203,7 @@ test('the planner, the task store and the skill admit stand for 1 to 8 blaze rod
  assert.throws(()=>validateTaskGoal('stand',{item:'blaze_rod',count:0}),/1 to 8/)
  // The brief: stand for rods at or above the blazes' floor, and never bore down into the room.
  const brief=readFileSync(new URL('../src/companion/survival-capabilities.txt',import.meta.url),'utf8')
- assert.match(brief,/^Action stand for blaze rods: name="", item="blaze_rod", count=1–8.*at or above the floor the blazes rest on.*closes the column below itself from inside and drops to stand on the floor.*any blaze within reach.*a hoglin or wither skeleton beside the port cannot reach through it.*never steps out.*partial means some rods, never none/m)
+ assert.match(brief,/^Action stand for blaze rods: name="", item="blaze_rod", count=1–8.*at or above the floor the blazes rest on.*closes the column below itself from inside and drops to stand on the floor.*any blaze within reach.*a hoglin when the cell over the port is open.*a wither skeleton is too tall for it.*never steps out.*partial means some rods, never none/m)
  const nether=brief.split('\n').find(l=>l.startsWith('THE NETHER'))
  assert.match(nether,/then stand for the rods\. Never bore down into the room/);assert.doesNotMatch(nether,/picking up rods between waves/)
  // The skill table sends a rod stand to the blaze stand, which refuses here outside the Nether.
@@ -226,6 +228,18 @@ test('a blaze at the port does not interrupt a blaze stand; it still interrupts 
  assert.equal(await tick({kind:'goto'}),THREAT_INTERRUPTION)
  assert.equal(await tick({item:'ender_pearl'}),THREAT_INTERRUPTION,'a pearl stand is not fighting blazes')
  assert.equal(await tick({mob:'hoglin'}),THREAT_INTERRUPTION)
+})
+
+test('a hoglin on the ledge with the cell over the port dug closes the port; with rock over the port, a hoglin two off does not',async()=>{
+ const said=[],f=fixture();f.api.progress=m=>said.push(m)
+ f.log.onShot=n=>{if(n===1){const h=mob(f,'hoglin',[-35.5,60,-6.5]);setTimeout(()=>{delete f.bot.entities[h.id]},150)}}
+ await assert.rejects(stand(f,1,{limitMs:600}))
+ assert.ok(said.some(m=>/A hoglin came near the port\. I closed it\./.test(m)),said.join(' | '))
+ // Natural rock over the port: the column is one high, and a 1.4-tall hoglin cannot stand in it.
+ const g=fixture({cells:[[-36,62,-8,'netherrack']]})
+ g.log.onShot=n=>{const b=Object.values(g.bot.entities).find(e=>e.name==='blaze');if(n===1)mob(g,'hoglin',[-35.5,60,-5.5]);if(n===3&&b){b.dropAt=[-35.5,61,-7.5];g.kill(b)}}
+ const r=await stand(g)
+ assert.equal(r.rods,1);assert.equal(r.ports,1,'the port stayed open');assert.equal(g.map.get('-36,62,-8'),'netherrack')
 })
 
 // Round two (section 4.1 rule 5): at eye level a blaze at the wall melees the bot through the port, so waiting for it to come
@@ -427,6 +441,11 @@ test('a side cell a hoglin stands in is waited on, not dug; past the close limit
  assert.ok(said.some(m=>/-37,5[89],-9/.test(m)&&/stay/.test(m)),said.join(' | '))
  assert.equal(at(f,'dig','-36,59,-9'),-1,'the floor stays');assert.ok(!f.log.events.some(e=>e[0]==='dig'&&/^-37,5[89],-9$/.test(e[1])),'never dug toward it')
  assert.equal(f.bot.entity.position.y,60,'the stand stays up')
+ // Review of the sink: a refusal is not for good. Once the hoglin has gone, the sink is tried again after sinkRetryMs.
+ const h=r9({blazes:RESTING}),hog=h.add({name:'hoglin',type:'hostile',width:1.4,height:1.4,position:new Vec3(-37.2,58,-8.5)})
+ setTimeout(()=>{delete h.bot.entities[hog.id]},400)
+ await stand(h,1,{limitMs:2500,sinkRetryMs:600}).catch(()=>{})
+ assert.ok(at(h,'dig','-36,59,-9')>=0,'sank on the retry');assert.equal(h.bot.entity.position.y,58)
  // A blaze in the column under the floor is waited on too: the floor never goes over it.
  const g=r9({blazes:[...RESTING,{at:[-35.5,58,-8.5]}]})
  await assert.rejects(stand(g,1,{limitMs:1500}));assert.equal(at(g,'dig','-36,59,-9'),-1);assert.equal(g.bot.entity.position.y,60)
@@ -477,4 +496,15 @@ test('eye-to-eye line from feet 58 to a resting blaze 1.0 beyond the sill is cle
  }
  const far=fixture({own:hut(60),blazes:[{at:[-35.5,58,-8.5+5.3]}]});far.stop()
  assert.equal(blazeEyeLine(far.bot,new Vec3(-36,60,-9),Object.values(far.bot.entities).find(e=>e.name==='blaze')).status,'clear','D 5.3')
+})
+
+// Review of the sink: a plain stand (no covered phase guarding it) waited up to closeLimitMs in the sink's loop with no eye on
+// the stand's clock or the trip's health line. Both end the wait at once.
+test('a sink waiting on a side cell ends with the stand\'s time or under the trip\'s health, not after the close limit',async()=>{
+ const hog=f=>f.add({name:'hoglin',type:'hostile',width:1.4,height:1.4,position:new Vec3(-37.2,58,-8.5)})
+ const f=r9({blazes:RESTING});hog(f);const start=Date.now()
+ await assert.rejects(stand(f,1,{limitMs:500,closeLimitMs:20000}),/ran out/);assert.ok(Date.now()-start<2500,`took ${Date.now()-start} ms`)
+ const g=r9({blazes:RESTING});hog(g);g.api.stage=s=>{if(s==='sinking')setTimeout(()=>{g.bot.health=11},100)};const at2=Date.now()
+ await assert.rejects(stand(g,1,{limitMs:20000,closeLimitMs:20000}),/health 11 is under 12/);assert.ok(Date.now()-at2<2500,`took ${Date.now()-at2} ms`)
+ assert.equal(g.bot.entity.position.y,60)
 })
