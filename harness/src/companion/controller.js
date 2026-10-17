@@ -27,12 +27,15 @@ import {setTimeout as delay} from 'node:timers/promises'
 const BURROW_WATCHES=4
 // How far off the nearest hostile must be for a portal room to go up before it arrives.
 const PORTAL_ROOM_STANDOFF=6
+// The portal-first reach: a portal this close is stepped into rather than walked to (exitNow, shutIn, the own-tunnel cap).
+const PORTAL_AT_HAND=3
 // How a shelter that will not clear moves away: through the portal when in the
 // Nether with one in reach, toward the middle of the island in the End, where
 // every way outward ends in the void, otherwise by running from the threats.
-export function relocateWay(bot){
+// reach: how far a portal may be (PORTAL_AT_HAND from the bot's own tunnel, safety.ownTunnel).
+export function relocateWay(bot,{reach=48}={}){
  if(inEnd(bot))return 'centre'
- return inNether(bot)&&bot?.findBlock?.({matching:bot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})?'portal':'flee'
+ return inNether(bot)&&bot?.findBlock?.({matching:bot.registry?.blocksByName?.nether_portal?.id,maxDistance:reach})?'portal':'flee'
 }
 // Where a move toward 0,0 ends: up to `reach` blocks in, stopping `keep` short of
 // the exit fountain, on a cell with ground under it within `climb` of the bot's
@@ -408,7 +411,15 @@ export class Teammate extends EventEmitter {
         // Safety is unreachable here and the chain has stopped trying. Idling fixes
         // none of the blockers and the work usually does, so let saved work continue.
         // Owned by the tick rather than the failure handler, which races the retries.
-        if(this.safety?.status==='failed'&&this.unsafeSignature&&!this.standoffResuming&&!this.snapshot().dead&&canResume(this.requestProgress)){
+        // Review of 55698df: in the Nether, hurt below the trip line in its own tunnel (safety.ownTunnel), carrying on is a bore
+        // or a walk at that health. It holds instead, eating what it carries, until health is back to TRIP_HEALTH or the
+        // hold bound (COVERED_MS) since the unsafe mark has passed; then the standoff resume carries on as before.
+        const tunnelHurt=this.safety?.ownTunnel&&inNether(runner.bot)&&Number.isFinite(runner.bot.health)&&runner.bot.health<TRIP_HEALTH&&Date.now()-(this.unsafeSignature?.at||0)<COVERED_MS
+        if(this.safety?.status==='failed'&&this.unsafeSignature&&tunnelHurt&&!this.standoffResuming&&!this.snapshot().dead&&canResume(this.requestProgress)){
+          if(!this.safety.tunnelHurtSaid){this.safety.tunnelHurtSaid=true;this.persist();this.say(`I am hurt (health ${Math.round(runner.bot.health)}) in my tunnel. Staying here and eating until I am at ${TRIP_HEALTH} before I carry on.`)}
+          void topUpWhileSheltered(this,new AbortController().signal,runner.bot)
+        }
+        else if(this.safety?.status==='failed'&&this.unsafeSignature&&!this.standoffResuming&&!this.snapshot().dead&&canResume(this.requestProgress)){
           this.standoffResuming=true
           void this.resume({automatic:true}).catch(error=>this.say('I could not continue the saved request: '+error.message)).finally(()=>{this.standoffResuming=false})
         }
@@ -721,8 +732,12 @@ export class Teammate extends EventEmitter {
       // piglin beside it, and died 1.6 s later. On a trip request (kit or not, any health) in a covered column of its
       // own tunnel, cover comes first: the bot walls in where it stands and heals inside on carried food. Only a portal
       // within the portal-first reach (three blocks, as exitNow and shutIn) is still taken first.
-      const holdColumn=!tripNow&&!lastResort&&inNether(recoveryBot)&&(!!interruptedActiveRequest||canResume(this.requestProgress))&&!!coveredColumn(recoveryBot)&&
-        !recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:3})
+      // Review of 55698df: in its own tunnel (ownTunnel) no walk goes for a portal more than PORTAL_AT_HAND off, the trip's
+      // last resort included: past it the bot walls in, and the shelter wait it hands to (safety.ownTunnel) holds.
+      const ownTunnel=inNether(recoveryBot)&&(!!interruptedActiveRequest||canResume(this.requestProgress))&&!!coveredColumn(recoveryBot)
+      if(ownTunnel){this.safety.ownTunnel=true;this.persist()}
+      const portalReach=ownTunnel?PORTAL_AT_HAND:null
+      const holdColumn=!tripNow&&ownTunnel&&!recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:PORTAL_AT_HAND})
       // Live, 16 October 19:50Z: a wither skeleton shut inside the bot's own sealed tunnel sent it home on every
       // arrival. Melee mobs in one sealed cavity with the bot (the covered limit, so nothing else can join): one it can
       // fight alone, on the port's health, is fought where the bot stands; hurt or outnumbered, the portal (shutIn).
@@ -736,7 +751,7 @@ export class Teammate extends EventEmitter {
         if(!melee.some(inside))return null
         // Followed by entity id (review of f79950b): a lookup that finds nothing is no fight, never a mob gone.
         const entity=Object.values(recoveryBot.entities||{}).find(e=>e?.name===melee[0].name&&e.position&&Number.isInteger(e.id)&&Math.hypot(e.position.x-melee[0].position.x,e.position.y-melee[0].position.y,e.position.z-melee[0].position.z)<.01)
-        const portalNear=!!recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:3})
+        const portalNear=!!recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:PORTAL_AT_HAND})
         // A piglin hostile to the bot (no gold worn) counts here as a lone wither skeleton does: struck in place only (combat.js IN_PLACE_MOBS).
         const lone=!!entity&&melee.length===1&&fightableAlone(recoveryBot,melee[0].name,{inPlace:true})&&recoveryBot.health>=PORT_HEALTH
         return {mob:melee[0],id:entity?.id,fight:lone,portalNear}
@@ -954,7 +969,7 @@ export class Teammate extends EventEmitter {
         if(near.some(t=>t.sightline?.status==='blocked')){const routes=threatRoutes(recoveryBot,near);near.forEach((t,i)=>{t.reach=routes[i].reach})}
         return near.some(t=>!sealedStill(t))
       }
-      const exitNow=forceExit||tripNow&&recoveryBot.health>=PORT_HEALTH&&witherAtHand()&&!!recoveryBot.findBlock?.({matching:portalId,maxDistance:3})
+      const exitNow=forceExit||tripNow&&recoveryBot.health>=PORT_HEALTH&&witherAtHand()&&!!recoveryBot.findBlock?.({matching:portalId,maxDistance:PORTAL_AT_HAND})
       const wallInFirst=!exitNow&&!lastResort&&(portalRoom||!!roomSpot)&&nearest>=PORTAL_ROOM_STANDOFF+Math.ceil(stepsBack)
       // Why the room was or was not chosen (run 106: hurt beside the portal, it went home and the journal could not say why).
       if(inNether(recoveryBot))this.runner.log?.('nether_shelter',{reason,wallInFirst,portalRoom,facesOpen:(f=>f.ok?f.needed:null)(hutSite(recoveryBot,{facesOnly:true})),site:roomSite?.ok?(roomSite.portal?'portal_room':'plain_hut'):roomSite?.reason,roomSpot:roomSpot?`${roomSpot.x},${roomSpot.y},${roomSpot.z}`:null,stepsBack:Math.round(stepsBack*10)/10,nearestMelee:Number.isFinite(nearest)?nearest:null,position:(p=>p&&{x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,z:Math.round(p.z*10)/10})(recoveryBot.entity?.position)})
@@ -1007,7 +1022,7 @@ export class Teammate extends EventEmitter {
         catch(error){if(epoch!==this.epoch||abort.signal.aborted)return;attempt.status='failed';attempt.reason=error.message;this.dispatch({action:'stop'});await this.runner.waitForIdle?.(abort.signal)}
         if(epoch!==this.epoch||abort.signal.aborted)return
       }
-      if(!this.safety.retreat&&(!trip||exitNow)&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:48})){
+      if(!this.safety.retreat&&(!trip||exitNow)&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:portalReach??48})){
         const attempt={name:'portal_home',status:'trying'};this.safety.attempts=[attempt];this.persist()
         this.say('Danger in the Nether. Going back through the portal.')
         try{
@@ -1092,7 +1107,7 @@ export class Teammate extends EventEmitter {
       // portal is for an ended trip or a hurt bot (the first walk above), or for the last of
       // the bounded retries: cover that cannot be built here is not held for ever.
       // On a trip the last retry's walk is to a portal within twelve blocks: farther it is the corridor run (review of 21a1cdc).
-      if(!this.safety.retreat&&(!trip||this.safety.retries>=SAFETY_RETRIES)&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:trip?12:48})){
+      if(!this.safety.retreat&&(!trip||this.safety.retries>=SAFETY_RETRIES)&&inNether(recoveryBot)&&recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:portalReach??(trip?12:48)})){
         const attempt={name:'portal_home',status:'trying'};this.safety.attempts.push(attempt);this.persist()
         this.say('Nowhere to wall in here. Trying the portal again.')
         try{
@@ -1401,7 +1416,14 @@ export class Teammate extends EventEmitter {
       // kill through the port, no covered move) for COVERED_MS asks for a decision: the covered planner, told so, while its
       // budget lasts; then, if that moved nothing either, the trip ends with the hut shut. Never a walk in the open from here.
       let progressAt=Date.now()
-      const holdDue=()=>onTrip(bot,canResume(request))?progressAt+holdBoundMs:Infinity
+      // In its own tunnel (safety.ownTunnel) the bound holds hurt or short of the kit too: that hold has no way out of its
+      // own, since no walk leaves it for a portal past PORTAL_AT_HAND (review of 55698df).
+      const holdDue=()=>onTrip(bot,canResume(request))||safety.ownTunnel?progressAt+holdBoundMs:Infinity
+      // The wait's relocation, by the request's going on or by leaving: from its own tunnel only a portal at hand is a way out.
+      const resumesNow=()=>(eligible||safety.resumeRequested)&&canResume(request)&&(safety.resumeRequested||canContinueAfterSafety(request))
+      const goesOn=r=>!!r&&resumesNow()&&onTrip(bot,canResume(request))&&strongEnoughToLeave(bot)&&r.threats.every(t=>t.distance>=RELOCATE_STANDOFF)
+      const leaveWay=()=>relocateWay(bot,safety.ownTunnel?{reach:PORTAL_AT_HAND}:{})
+      let tunnelHeld=false
       for(;;){
         if(Date.now()>=holdDue()){
           const heldMs=Date.now()-progressAt,n=Math.max(1,Math.round(heldMs/60000)),minutes=`${n} minute${n===1?'':'s'}`,covered=this.coveredMoves&&typeof this.planner.covered==='function'&&!coveredGate(this,bot,eligible)
@@ -1438,12 +1460,22 @@ export class Teammate extends EventEmitter {
         // Live, 18:43Z, 16 October: walled in on its covered route with blazes at 6.7 to 8.3 blocks, the port was
         // skipped once safety.covered was set and the bot never shot back. The port opens on the bot's own cell's
         // walls (unhut, natural or its own blocks only) and the hut closes it after, covered route or not.
-        if(!(safety.retreat.shelterName==='hut'&&confront?.position&&SHOOTERS_ONLY.has(confront.name)&&bowCanAnswer(bot,confront.name)))break
+        if(!(safety.retreat.shelterName==='hut'&&confront?.position&&SHOOTERS_ONLY.has(confront.name)&&bowCanAnswer(bot,confront.name))){
+          // Leaving the bot's own tunnel for a portal past PORTAL_AT_HAND, or by a flee, is the walk that killed it
+          // (live rehearsal, 17 October 01:17Z): the hut holds, its patience starts again, and the hold bound ends it.
+          if(relocate&&!goesOn(relocate)&&safety.ownTunnel&&leaveWay()!=='portal'){
+            if(!tunnelHeld){tunnelHeld=true;this.say('The portal is too far to walk to from my tunnel. Staying walled in here.')}
+            this.runner.log?.('tunnel_hold',{threats:relocate.threats.map(t=>`${t.name}@${t.distance}`)});relocate=null;lingerSince=null;continue
+          }
+          break
+        }
         // Out of ports, leaving takes the same health and standoff as the wait's own
         // relocation; short of them the hut holds, and the next watch's gates decide
         // (hurt, the bow no longer answers and the bot heals). The patience runs again.
         const name=confront.name.replaceAll('_',' '),leave=()=>{
-          if(strongEnoughToLeave(bot)&&confront.distance>=RELOCATE_STANDOFF){relocate={threats:[confront],from:confront.position};confront=null;return true}
+          // From its own tunnel the leaving is only the going on or a portal at hand (the own-tunnel hold, below).
+          const stays=safety.ownTunnel&&!goesOn({threats:[confront]})&&leaveWay()!=='portal'
+          if(strongEnoughToLeave(bot)&&confront.distance>=RELOCATE_STANDOFF&&!stays){relocate={threats:[confront],from:confront.position};confront=null;return true}
           this.say(`I will not walk out with the ${name} ${confront.distance} blocks away. Holding the hut and watching again.`)
           attempts=0;tried.length=0;lingerSince=null;return false
         }
@@ -1529,8 +1561,7 @@ export class Teammate extends EventEmitter {
       // hut opens toward the request's next place, or away from the mob, and the planner
       // carries on with the alarm still guarding the walk.
       // Going on is only going on if the request resumes after: otherwise an opened hut and a mob near.
-      const resumes=(eligible||safety.resumeRequested)&&canResume(request)&&(safety.resumeRequested||canContinueAfterSafety(request))
-      let goOn=!!relocate&&resumes&&onTrip(bot,canResume(request))&&strongEnoughToLeave(bot)&&relocate.threats.every(t=>t.distance>=RELOCATE_STANDOFF)
+      let goOn=goesOn(relocate)
       const here=bot.entity.position,mobs=goOn?relocate.threats.map(t=>t.position):[]
       // The next place the request walks to, unless it lies past a mob; then straight away from them.
       const next=goOn&&[request.inFlight?.step,...(request.pending||[])].find(s=>Number.isFinite(s?.target?.x)&&Number.isFinite(s?.target?.z))?.target
@@ -1569,7 +1600,7 @@ export class Teammate extends EventEmitter {
       // the pit exit before a sprint has anywhere to go, which is why moving away
       // from danger climbs first everywhere else the harness does it.
       let ended=false
-      if(relocate&&!goOn&&relocateWay(bot)==='portal'){
+      if(relocate&&!goOn&&leaveWay()==='portal'){
         // Lab run 100: in the Nether "leaving the area" fled 32 blocks deeper into a
         // fortress and met a wither skeleton. With the portal in reach, home is away.
         try{await this.execute({action:'use_portal',goal:{},timeoutMs:45000},signal);check();safety.relocated=structuredClone(this.runner.task.result);this.persist();await eatAfterPortalEscape(this,signal,bot);check();ended=this.tripEnded('danger sent me home through the portal')}

@@ -758,9 +758,9 @@ test('the shut-in mob is followed by its entity id: a replaced entity object is 
 // for the portal 40 blocks back along the tunnel with the piglin beside it; it died 1.6 s later. On a trip request in a
 // covered column of its own tunnel, at any health and kit or not, the bot walls in where it stands unless the portal is
 // within the three-block portal-first reach; food is carried, so it heals inside.
-async function hurtInTunnel({reason=HEALTH_EMERGENCY,portalAt=40,kit=true,mob='piglin',setup=()=>{}}={}){
+async function hurtInTunnel({reason=HEALTH_EMERGENCY,portalAt=40,kit=true,mob='piglin',setup=()=>{},health=5,seek={}}={}){
  const {bot,r,c}=bridgeTunnel()
- bot.health=5;wear(bot,'iron_boots')
+ bot.health=health;wear(bot,'iron_boots')
  if(!kit)bot.inventory.items=()=>[{name:'cobblestone',count:64,type:registry.itemsByName.cobblestone.id},{name:'cooked_porkchop',count:8}]
  // The portal is where portalAt says, not the netherBot frame four blocks off.
  const at=bot.blockAt;bot.blockAt=p=>{const b=at(p);return ['nether_portal','obsidian'].includes(b.name)?{...b,name:'netherrack',boundingBox:'block'}:b}
@@ -768,9 +768,9 @@ async function hurtInTunnel({reason=HEALTH_EMERGENCY,portalAt=40,kit=true,mob='p
  bot.entities={9:{id:9,uuid:'10000000-0000-0000-0000-000000000009',type:'mob',name:mob,height:1.95,width:.6,position:new Vec3(-1.5,64,3.5),velocity:new Vec3(0,0,0)}}
  setup(bot)
  const seen=survivalObservation(bot).nearbyThreats[0]
- void c.seekSafety(reason);await new Promise(res=>setTimeout(res,120))
- const acts=r.commands.filter(x=>x.action!=='stop');c.cancel?.(true)
- return {acts,names:acts.map(x=>x.action),said:c.messages.map(m=>m.text),seen,column:coveredColumn(bot)}
+ void c.seekSafety(reason,seek);await new Promise(res=>setTimeout(res,120))
+ const acts=r.commands.filter(x=>x.action!=='stop'),ownTunnel=c.safety?.ownTunnel;c.cancel?.(true)
+ return {acts,names:acts.map(x=>x.action),said:c.messages.map(m=>m.text),seen,column:coveredColumn(bot),ownTunnel}
 }
 test('hurt to 5 in its own covered tunnel with a piglin two blocks off and the portal 40 back, the bot walls in where it stands',async()=>{
  for(const [name,opts] of [['health alarm',{}],['threat alarm',{reason:THREAT_INTERRUPTION}],['no kit',{kit:false}]]){
@@ -819,4 +819,55 @@ test('hurt to 5 with the piglin in the next cell, the bot walls in, strikes noth
 test('a bot wearing golden boots never strikes a piglin in its tunnel',async()=>{
  const t=await shutIn({setup:piglinNext('golden_boots')})
  assert.ok(!t.acts.some(x=>x.action==='defend'||x.action==='attack'),t.names.join(' ')+' :: '+t.said.join(' | '))
+})
+// Review of 55698df: in its own tunnel on a trip request no path may walk for a portal more than three blocks off.
+// The trip's last resort (retries spent), the last retry's twelve-block walk and the shelter wait's relocation each
+// walked; beyond three blocks each now walls in or holds. The chain marks the episode (safety.ownTunnel) for the wait.
+test('the trip\'s last resort in its own tunnel, a hoglin beside it and the portal 40 back, walls in and never walks',async()=>{
+ const t=await hurtInTunnel({health:20,mob:'hoglin',reason:THREAT_INTERRUPTION,seek:{retries:3,lastResort:true},setup:bot=>{bot.entities[9].position=new Vec3(-0.5,64,3.5)}})
+ assert.equal(t.names[0],'hut',t.names.join(' ')+' :: '+t.said.join(' | '));assert.ok(!t.names.some(a=>['use_portal',...RUNS].includes(a)),t.names.join(' '))
+ assert.equal(t.ownTunnel,true,'the episode is marked for the wait')
+ const near=await hurtInTunnel({health:20,mob:'hoglin',reason:THREAT_INTERRUPTION,portalAt:2,seek:{retries:3,lastResort:true},setup:bot=>{bot.entities[9].position=new Vec3(-0.5,64,3.5)}})
+ assert.equal(near.names[0],'use_portal','the portal within three blocks is still the way out: '+near.names.join(' '))
+})
+function tunnelHold({health=16,kit=true,portalAt=40,spent=true}={}){
+ const t=lingeringHut({health}),{bot,c,r}=t,logged=[]
+ r.log=(type,data)=>logged.push([type,data])
+ if(!kit)bot.inventory.items=()=>[{name:'cobblestone',count:64,type:registry.itemsByName.cobblestone.id},{name:'cooked_porkchop',count:8}]
+ bot.findBlock=({matching,maxDistance})=>matching===registry.blocksByName.nether_portal.id&&maxDistance>=portalAt?{name:'nether_portal',position:new Vec3(0.5-portalAt,64,0)}:null
+ c.safety.ownTunnel=true
+ if(spent)c.requestProgress.safetyContinuations=[{requestId:'trip',resumeSerial:0}]
+ return {...t,logged}
+}
+test('walled in its own tunnel with a mob that will not move on and the portal 40 back, the wait holds: no portal walk, no flee',async()=>{
+ const t=tunnelHold();t.c.burrowWait.holdBoundMs=2500;await t.run()
+ const acts=t.commands.map(x=>x.action);assert.ok(!acts.some(a=>['use_portal','unhut',...RUNS].includes(a)),acts.join(' ')+' :: '+t.c.messages.map(m=>m.text).join(' | '))
+ const near=tunnelHold({portalAt:2});await near.run()
+ assert.ok(near.commands.some(x=>x.action==='use_portal'),'within three blocks the portal is still the way out: '+near.commands.map(x=>x.action).join(' '))
+})
+test('hurt and without the kit, a hold in its own tunnel eats, reaches the hold bound and stays shut rather than holding for ever',async()=>{
+ const t=tunnelHold({health:5,kit:false});t.bot.food=10;t.c.burrowWait={...t.c.burrowWait,limitMs:400,watches:4,holdBoundMs:500}
+ await t.run()
+ const acts=t.commands.map(x=>x.action),said=t.c.messages.map(m=>m.text).join(' | ')
+ assert.ok(acts.includes('eat'),'eats while it holds: '+acts.join(' '))
+ assert.ok(t.logged.some(([type])=>type==='hold_bounded'),said)
+ assert.ok(/held my shelter|The Nether trip is over/.test(said),said)
+ assert.ok(!acts.some(a=>['use_portal','unhut',...RUNS].includes(a)),acts.join(' '))
+})
+// The standoff resume (the tick, after the retries and the unsafe mark) resumed the saved request at any health: in the
+// Nether, hurt below the trip line in its own tunnel, it holds instead until health is back to 12 or the hold bound passes.
+test('hurt to 5 in its own tunnel after the retries, the standoff resume waits for health 12 before carrying on',async()=>{
+ const {bot,r,c}=bridgeTunnel();bot.entities={};bot.health=5;wear(bot,'iron_boots')
+ c.threatJudge={control:false,judge:async()=>null};let resumed=0;c.resume=async()=>{resumed++}
+ c.requestProgress.status='interrupted'
+ c.safety={status:'failed',reason:HEALTH_EMERGENCY,startedAt:'2026-10-17T01:18:00.000Z',retries:3,failedAt:0,error:'No verified shelter reached',ownTunnel:true};c.phase='blocked'
+ c.unsafeSignature={reason:HEALTH_EMERGENCY,key:c.safetyBlockKey(),at:Date.now()}
+ r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,30))
+ assert.equal(resumed,0,'no bore or walk at health 5: '+c.messages.map(m=>m.text).join(' | '))
+ bot.health=12;r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,30))
+ assert.equal(resumed,1,'healed to the trip line, it carries on');c.cancel?.(true)
+ // Past the hold bound it carries on as before, healed or not.
+ const late=bridgeTunnel();late.bot.entities={};late.bot.health=5;let lateResumed=0;late.c.resume=async()=>{lateResumed++};late.c.requestProgress.status='interrupted';late.c.threatJudge={control:false,judge:async()=>null}
+ late.c.safety={...c.safety};late.c.phase='blocked';late.c.unsafeSignature={reason:HEALTH_EMERGENCY,key:late.c.safetyBlockKey(),at:Date.now()-11*60*1000}
+ late.r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,30));assert.equal(lateResumed,1);late.c.cancel?.(true)
 })
