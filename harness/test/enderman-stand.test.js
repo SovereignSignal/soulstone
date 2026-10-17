@@ -111,7 +111,8 @@ test('the planner, the task store, intent and skill control admit stand for 1 to
  const plan=validatePlan({reply:'Pearls',steps:[step]});assert.equal(plan.steps[0].action,'stand')
  assert.throws(()=>validatePlan({reply:'',steps:[{...step,count:9}]}),/stand/)
  assert.throws(()=>validatePlan({reply:'',steps:[{...step,count:0}]}),/stand/)
- assert.throws(()=>validatePlan({reply:'',steps:[{...step,item:'blaze_rod'}]}),/stand/)
+ // Blaze rods have their own stand (blaze-stand.js); any other item is refused.
+ assert.throws(()=>validatePlan({reply:'',steps:[{...step,item:'diamond'}]}),/stand/)
  assert.deepEqual(validateTaskGoal('stand',{item:'ender_pearl',count:4}),{item:'ender_pearl',count:4})
  assert.throws(()=>validateTaskGoal('stand',{item:'ender_pearl',count:9}),/1 to 8/)
  assert.deepEqual(guardIntent(plan,'take a stand and bring 4 pearls home'),plan)

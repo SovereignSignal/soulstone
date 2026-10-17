@@ -365,10 +365,10 @@ export class Teammate extends EventEmitter {
         const openSky=!!runner.bot?.entity?.position&&!roofed(runner.bot)
         // Idle: nothing running and nothing being planned. Only an idle bot is sent home at night with a base.
         const idle=runner.task?.status!=='running'&&['ready','blocked'].includes(this.phase)
-        // A stand provokes endermen on purpose and fights them at its port (enderman-stand.js):
-        // they are its work, not an alarm. Anything else hostile, health and fire still are.
-        const standing=runner.task?.kind==='stand'&&runner.task.status==='running'
-        const raw=emergencyReason({...observation,...(standing?{nearbyThreats:observation.nearbyThreats.filter(t=>t.name!=='enderman')}:{}),shelterAvailable,sheltered,recentDamageMs,roofed:underRock,openSky,idle})
+        // A stand provokes endermen on purpose and fights them at its port (enderman-stand.js), and the blaze stand fights
+        // blazes there (blaze-stand.js): the stand's own mob is its work, not an alarm. Anything else hostile, health and fire still are.
+        const standing=runner.task?.kind==='stand'&&runner.task.status==='running'?(runner.task.goal?.item==='blaze_rod'?'blaze':'enderman'):null
+        const raw=emergencyReason({...observation,...(standing?{nearbyThreats:observation.nearbyThreats.filter(t=>t.name!==standing)}:{}),shelterAvailable,sheltered,recentDamageMs,roofed:underRock,openSky,idle})
         const reason=crossing&&(raw===PORTAL_EMERGENCY||raw===THREAT_INTERRUPTION&&['entering','leaving_portal','arrival_hop'].includes(runner.work?.stage))?null
          :(shooting||covering)&&raw===FIRE_EMERGENCY&&observation.inLava!==true&&observation.health>HEALTH_EMERGENCY_LINE?null:raw
         // The journal should show the times rock was the reason work carried on.

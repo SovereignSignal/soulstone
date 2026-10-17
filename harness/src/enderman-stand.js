@@ -30,10 +30,28 @@ const round=p=>({x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,z:Math.round(p.
 const cell=p=>`${p.x},${p.y},${p.z}`
 const a=name=>{const n=name.replaceAll('_',' ');return `${/^[aeiou]/.test(n)?'an':'a'} ${n}`}
 
+// The stand is fought for one of two drops: ender pearls from endermen (here) and blaze rods from blazes (blaze-stand.js).
+const STAND_ITEMS={ender_pearl:'ender pearls',blaze_rod:'blaze rods'}
 export function validateStandGoal(goal){
- if(goal?.item!==STAND.item)throw new Error('stand takes item ender_pearl: it is fought for endermen only')
- if(!Number.isInteger(goal.count)||goal.count<1||goal.count>STAND.max)throw new Error(`stand needs a count of 1 to ${STAND.max} ender pearls`)
- return {item:STAND.item,count:goal.count}
+ if(!Object.hasOwn(STAND_ITEMS,goal?.item))throw new Error('stand takes item ender_pearl (endermen) or blaze_rod (blazes)')
+ if(!Number.isInteger(goal.count)||goal.count<1||goal.count>STAND.max)throw new Error(`stand needs a count of 1 to ${STAND.max} ${STAND_ITEMS[goal.item]}`)
+ return {item:goal.item,count:goal.count}
+}
+// Whatever living stands in a port's cells: the server will not place a block in it.
+export const standingIn=(bot,cells)=>Object.values(bot.entities||{}).filter(e=>e&&e!==bot.entity&&e.position&&!e.getDroppedItem?.()&&!['item','experience_orb'].includes(e.name)&&e.type!=='projectile'&&
+ (cells||[]).some(c=>Math.abs(e.position.x-(c.x+.5))<.5+(e.width??.6)/2&&Math.abs(e.position.z-(c.z+.5))<.5+(e.width??.6)/2&&e.position.y<c.y+1&&e.position.y+(e.height??1.8)>c.y))
+// wallIn puts back whatever of the hut is missing, which is the port. A mob in the port refuses the blocks, so the close
+// waits for it to clear and tries again, a bounded number of times. '' once closed, else why not. whileBlocked: what the
+// caller does each poll while something stands in the port (the blaze stand strikes a blaze there).
+export async function closePort(bot,cells,context,o,{whileBlocked=async()=>{}}={}){
+ const {check}=context;let why=''
+ for(let attempt=0;attempt<o.closeTries;attempt++){
+  for(const end=Date.now()+o.closeWaitMs;Date.now()<end&&standingIn(bot,cells).length;){check();await whileBlocked(standingIn(bot,cells));await delay(o.poll)}
+  const blocking=standingIn(bot,cells)[0];if(blocking){why=`${a(blocking.name)} stands in it`;continue}
+  try{await wallIn(bot,{kind:'hut',goal:{}},context);check();return ''}
+  catch(error){check();why=error.message}
+ }
+ return why||'it would not close'
 }
 
 // The `creepy` flag is an enderman screaming at someone (survival.js reads it the same way).
@@ -59,6 +77,7 @@ export function standRefusal(bot,o=STAND){
 
 export async function enderStand(bot,task,{check,stage,progress,persist=()=>{},movements},options={}){
  const o={...STAND,...options},goal=validateStandGoal(task.goal)
+ if(goal.item!==o.item)throw new Error('The enderman stand takes item ender_pearl')
  const refused=standRefusal(bot,o);if(refused)throw new Error(refused)
  const before=inventoryCounts(bot),started=Date.now(),context={check,stage,progress,persist,movements}
  const record={kills:0,ports:0,crowds:0,missed:[],unclosed:null},tried=new Set()
@@ -68,21 +87,12 @@ export async function enderStand(bot,task,{check,stage,progress,persist=()=>{},m
  const floor=DEFENSE_HEALTH.enderman
  let port=null,stopped=null
  const here=()=>bot.entity.position.floored()
- // Whatever living stands in the port's cells: the server will not place a block in it.
- const inPort=()=>Object.values(bot.entities||{}).filter(e=>e&&e!==bot.entity&&e.position&&!e.getDroppedItem?.()&&!['item','experience_orb'].includes(e.name)&&e.type!=='projectile'&&
-  (port?.opened||[]).some(c=>Math.abs(e.position.x-(c.x+.5))<.5+(e.width??.6)/2&&Math.abs(e.position.z-(c.z+.5))<.5+(e.width??.6)/2&&e.position.y<c.y+1&&e.position.y+(e.height??1.8)>c.y))
- // wallIn puts back whatever of the hut is missing, which is the port. A mob in the port
- // refuses the blocks, so the close waits for it to clear and tries again, a bounded number
- // of times; one that cannot close says why rather than failing the pearls already won.
+ // A close that cannot finish says why rather than failing the pearls already won (closePort).
  const close=async()=>{
   if(!port)return true
-  stage('walling');let why=''
-  for(let attempt=0;attempt<o.closeTries;attempt++){
-   for(const end=Date.now()+o.closeWaitMs;Date.now()<end&&inPort().length;){check();await delay(o.poll)}
-   const blocking=inPort()[0];if(blocking){why=`${a(blocking.name)} stands in it`;continue}
-   try{await wallIn(bot,{kind:'hut',goal:{}},context);check();port=null;return true}
-   catch(error){check();why=error.message}
-  }
+  stage('walling')
+  const why=await closePort(bot,port.opened,context,o)
+  if(!why){port=null;return true}
   record.unclosed=why;return false
  }
  // One step, walked as the bow's covered step is: no digging, towering or placing, and the
