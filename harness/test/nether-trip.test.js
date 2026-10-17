@@ -864,10 +864,39 @@ test('hurt to 5 in its own tunnel after the retries, the standoff resume waits f
  c.unsafeSignature={reason:HEALTH_EMERGENCY,key:c.safetyBlockKey(),at:Date.now()}
  r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,30))
  assert.equal(resumed,0,'no bore or walk at health 5: '+c.messages.map(m=>m.text).join(' | '))
+ // Nothing to eat: it says it is resting, not eating (children read the chat).
+ const line=c.messages.map(m=>m.text).find(t=>/in my tunnel/.test(t))||'';assert.match(line,/resting/,line);assert.doesNotMatch(line,/eating/,line)
  bot.health=12;r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,30))
  assert.equal(resumed,1,'healed to the trip line, it carries on');c.cancel?.(true)
- // Past the hold bound it carries on as before, healed or not.
+ // Past the hold bound and still under the trip line it never resumes the bore or walk at that health: it stops there.
  const late=bridgeTunnel();late.bot.entities={};late.bot.health=5;let lateResumed=0;late.c.resume=async()=>{lateResumed++};late.c.requestProgress.status='interrupted';late.c.threatJudge={control:false,judge:async()=>null}
- late.c.safety={...c.safety};late.c.phase='blocked';late.c.unsafeSignature={reason:HEALTH_EMERGENCY,key:late.c.safetyBlockKey(),at:Date.now()-11*60*1000}
- late.r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,30));assert.equal(lateResumed,1);late.c.cancel?.(true)
+ late.c.safety={...c.safety,tunnelHurtSaid:undefined};late.c.phase='blocked';late.c.unsafeSignature={reason:HEALTH_EMERGENCY,key:late.c.safetyBlockKey(),at:Date.now()-11*60*1000}
+ for(let i=0;i<2;i++){late.r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,30))}
+ assert.equal(lateResumed,0,late.c.messages.map(m=>m.text).join(' | '))
+ assert.equal(late.c.messages.filter(m=>/The Nether trip is over|until you tell me/.test(m.text)).length,1,late.c.messages.map(m=>m.text).join(' | '));late.c.cancel?.(true)
+ // With food carried the line says it is eating.
+ const fed=bridgeTunnel();fed.bot.entities={};fed.bot.health=5;const kit=fed.bot.inventory.items();fed.bot.inventory.items=()=>[...kit,{name:'cooked_porkchop',count:8}];fed.c.resume=async()=>{};fed.c.requestProgress.status='interrupted';fed.c.threatJudge={control:false,judge:async()=>null}
+ fed.c.safety={...c.safety,tunnelHurtSaid:undefined};fed.c.phase='blocked';fed.c.unsafeSignature={reason:HEALTH_EMERGENCY,key:fed.c.safetyBlockKey(),at:Date.now()}
+ fed.r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,30))
+ assert.match(fed.c.messages.map(m=>m.text).find(t=>/in my tunnel/.test(t))||'',/eating/);fed.c.cancel?.(true)
+})
+// Re-review of c463b9a: the own-tunnel hold is for a threat or a hurt bot that can heal where it stands. Starving with
+// nothing to eat, or with lava in the column, cover only waits for death: the portal walk stands as before. And a
+// tunnel broken under the wait no longer holds the bot to the three-block cap.
+test('starving in its own tunnel with nothing to eat, the portal walk stands as before',async()=>{
+ const t=await hurtInTunnel({kit:false,setup:bot=>{bot.entities={};bot.food=0;bot.inventory.items=()=>[{name:'cobblestone',count:64,type:registry.itemsByName.cobblestone.id}]}})
+ assert.equal(t.names[0],'use_portal',t.names.join(' ')+' :: '+t.said.join(' | '));assert.notEqual(t.ownTunnel,true)
+})
+test('with lava in its column the own-tunnel hold does not apply: the portal walk stands as before',async()=>{
+ const t=await hurtInTunnel({setup:bot=>{bot.entities={};const at=bot.blockAt;bot.blockAt=p=>p.x===-1&&p.y===64&&p.z===3?{name:'lava',position:p.clone(),boundingBox:'empty',getProperties:()=>({level:0})}:at(p)}})
+ assert.equal(t.names[0],'use_portal',t.names.join(' ')+' :: '+t.said.join(' | '));assert.notEqual(t.ownTunnel,true)
+})
+test('a tunnel broken around the waiting bot lifts the own-tunnel cap: the wait leaves for the portal 40 back as before',async()=>{
+ const t=tunnelHold();t.c.burrowWait.holdBoundMs=2500
+ // A wither breaks the column's sides: still a closed cavity, no longer a covered column.
+ const room=new Set(['0,64,0','0,65,0','1,64,0','1,65,0','0,64,1','0,65,1'])
+ setTimeout(()=>{t.bot.blockAt=p=>{const name=room.has(`${p.x},${p.y},${p.z}`)?'air':'netherrack';return {name,position:p.clone(),boundingBox:registry.blocksByName[name].boundingBox,getProperties:()=>({})}}},20)
+ const safety=t.c.safety;await t.run()
+ assert.equal(safety.ownTunnel,undefined,'the flag clears');assert.ok(t.logged.some(([type])=>type==='own_tunnel_lifted'))
+ assert.ok(t.commands.some(x=>x.action==='use_portal'),t.commands.map(x=>x.action).join(' ')+' :: '+t.c.messages.map(m=>m.text).join(' | '))
 })

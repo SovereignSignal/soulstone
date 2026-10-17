@@ -69,14 +69,15 @@ export function hutSite(bot,opts={}){
 // covered column (floor, roof and both sides at feet and head full cubes, only its front and back open)
 // walls in where it stands. The open cells it would close, or null.
 // cell: judge that standing cell instead of the bot's own (leavePortal, 19:25Z).
-export function coveredColumn(bot,cell=null){
+// walled: a column already closed at both ends counts too, with nothing open (the own-tunnel wait, controller.js).
+export function coveredColumn(bot,cell=null,{walled=false}={}){
  const p=bot.entity?.position;if(!p&&!cell)return null
  const feet=cell??p.floored(),at=c=>bot.blockAt(feet.offset(...c))
  if(!solid(bot,at([0,-1,0]))||!solid(bot,at([0,2,0])))return null
  for(const [ax,az] of [[1,0],[0,1]]){
   if(![1,-1].every(s=>[0,1].every(y=>solid(bot,at([s*az,y,s*ax])))))continue
   const open=[1,-1].flatMap(s=>[0,1].map(y=>feet.offset(s*ax,y,s*az))).filter(c=>!solid(bot,bot.blockAt(c)))
-  if(open.length)return {feet,open}
+  if(open.length||walled)return {feet,open}
  }
  return null
 }

@@ -29,6 +29,7 @@ const BURROW_WATCHES=4
 const PORTAL_ROOM_STANDOFF=6
 // The portal-first reach: a portal this close is stepped into rather than walked to (exitNow, shutIn, the own-tunnel cap).
 const PORTAL_AT_HAND=3
+const TUNNEL_LIQUIDS=new Set(['lava','water','bubble_column'])
 // How a shelter that will not clear moves away: through the portal when in the
 // Nether with one in reach, toward the middle of the island in the End, where
 // every way outward ends in the void, otherwise by running from the threats.
@@ -412,12 +413,21 @@ export class Teammate extends EventEmitter {
         // none of the blockers and the work usually does, so let saved work continue.
         // Owned by the tick rather than the failure handler, which races the retries.
         // Review of 55698df: in the Nether, hurt below the trip line in its own tunnel (safety.ownTunnel), carrying on is a bore
-        // or a walk at that health. It holds instead, eating what it carries, until health is back to TRIP_HEALTH or the
-        // hold bound (COVERED_MS) since the unsafe mark has passed; then the standoff resume carries on as before.
-        const tunnelHurt=this.safety?.ownTunnel&&inNether(runner.bot)&&Number.isFinite(runner.bot.health)&&runner.bot.health<TRIP_HEALTH&&Date.now()-(this.unsafeSignature?.at||0)<COVERED_MS
+        // or a walk at that health. It holds instead, eating what it carries, until health is back to TRIP_HEALTH. Still under
+        // it when the hold bound (COVERED_MS) since the unsafe mark has passed, it heals nowhere here: the trip ends where it
+        // stands (re-review of c463b9a), or with no kitted trip to end it waits to be told, and never resumes the bore or walk.
+        const tunnelHurt=this.safety?.ownTunnel&&inNether(runner.bot)&&Number.isFinite(runner.bot.health)&&runner.bot.health<TRIP_HEALTH
         if(this.safety?.status==='failed'&&this.unsafeSignature&&tunnelHurt&&!this.standoffResuming&&!this.snapshot().dead&&canResume(this.requestProgress)){
-          if(!this.safety.tunnelHurtSaid){this.safety.tunnelHurtSaid=true;this.persist();this.say(`I am hurt (health ${Math.round(runner.bot.health)}) in my tunnel. Staying here and eating until I am at ${TRIP_HEALTH} before I carry on.`)}
-          void topUpWhileSheltered(this,new AbortController().signal,runner.bot)
+          if(Date.now()-(this.unsafeSignature.at||0)>=COVERED_MS){
+            if(!this.safety.tunnelHurtEnded){this.safety.tunnelHurtEnded=true;this.persist()
+              const minutes=Math.max(1,Math.round((Date.now()-this.unsafeSignature.at)/60000))
+              if(!this.tripEnded(`I stayed hurt in my tunnel for ${minutes} minutes and could not heal`))this.say('I am still hurt and cannot heal here. I am staying in my tunnel until you tell me what to do.')}
+          }else{
+            // Children read this: plain, and "eating" only with food to eat.
+            const food=survivalObservation(runner.bot).carriedFood.length>0
+            if(!this.safety.tunnelHurtSaid){this.safety.tunnelHurtSaid=true;this.persist();this.say(`I am hurt, so I am staying here in my tunnel and ${food?'eating':'resting'} until my health is back to ${TRIP_HEALTH}.`)}
+            if(food)void topUpWhileSheltered(this,new AbortController().signal,runner.bot)
+          }
         }
         else if(this.safety?.status==='failed'&&this.unsafeSignature&&!this.standoffResuming&&!this.snapshot().dead&&canResume(this.requestProgress)){
           this.standoffResuming=true
@@ -734,7 +744,13 @@ export class Teammate extends EventEmitter {
       // within the portal-first reach (three blocks, as exitNow and shutIn) is still taken first.
       // Review of 55698df: in its own tunnel (ownTunnel) no walk goes for a portal more than PORTAL_AT_HAND off, the trip's
       // last resort included: past it the bot walls in, and the shelter wait it hands to (safety.ownTunnel) holds.
-      const ownTunnel=inNether(recoveryBot)&&(!!interruptedActiveRequest||canResume(this.requestProgress))&&!!coveredColumn(recoveryBot)
+      // Only against a threat or for a hurt bot that can heal where it stands (re-review of c463b9a): not burning, not in
+      // lava, fire or water, no liquid in the column's open ends, and food carried or hunger at the 18 that heals. Starving
+      // with nothing to eat, or with lava coming in, cover only waits for death and the portal walk stands as before.
+      const column=[THREAT_INTERRUPTION,HEALTH_EMERGENCY].includes(reason)&&inNether(recoveryBot)?coveredColumn(recoveryBot):null,here=column?survivalObservation(recoveryBot):null
+      const canHoldHere=!!here&&here.onFire!==true&&here.inLava!==true&&here.inFire!==true&&here.headSubmerged!==true&&here.inWater!==true&&
+        !column.open.some(c=>TUNNEL_LIQUIDS.has(recoveryBot.blockAt(c)?.name))&&(here.carriedFood.length>0||Number.isFinite(here.food)&&here.food>=18)
+      const ownTunnel=canHoldHere&&(!!interruptedActiveRequest||canResume(this.requestProgress))
       if(ownTunnel){this.safety.ownTunnel=true;this.persist()}
       const portalReach=ownTunnel?PORTAL_AT_HAND:null
       const holdColumn=!tripNow&&ownTunnel&&!recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:PORTAL_AT_HAND})
@@ -1306,8 +1322,12 @@ export class Teammate extends EventEmitter {
     // Keep elapsed patience until clearance succeeds; night starts a fresh wait.
     let protectedHealth=bot.health,portWait=null,burntAt=-Infinity,fireSince=null,doused=false,watchStart=Date.now()
     const observe=()=>{
+      // The own-tunnel hold lasts while the bot stands in its column, walled or not; a wither or a ghast that breaks
+      // the column, or fire or liquid in the hut, lifts it, and the wait's ways out are the ordinary ones again.
+      if(safety.ownTunnel&&!coveredColumn(bot,null,{walled:true})){delete safety.ownTunnel;this.runner.log?.('own_tunnel_lifted',{reason:'not in a covered column'});this.persist()}
       // A covered route (covered-moves.js) is one cavity from the hut to the tunnel's end.
-      safety.protection=inspectEmergencyShelter(bot,safety.covered?{limit:COVERED_CELLS}:undefined)
+      try{safety.protection=inspectEmergencyShelter(bot,safety.covered?{limit:COVERED_CELLS}:undefined)}
+      catch(error){if(safety.ownTunnel&&/liquid|fire/.test(error.message)){delete safety.ownTunnel;this.runner.log?.('own_tunnel_lifted',{reason:error.message});this.persist()}throw error}
       // Lab run 156, 15 October: alight from the port, the bot closed the hut and the fire ticks
       // read as a breach. A drop while burning, or within BURN_MS of it (the last tick can land
       // after the flag clears), is a burn: the hut is kept and the wait goes on. The inspection
