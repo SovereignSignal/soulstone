@@ -237,9 +237,9 @@ export async function boreToward(bot,task,{check,stage,progress,movements,persis
    if(!b){reason=`slit sees no blaze: none within ${SLIT_SIGHT} blocks; wait, then bore again (blazes spawn near the player)`;return}
    const d=Math.hypot(b.position.x-eye.x,b.position.z-eye.z),slope=(eyeH-1)/1.5,aim=aimPoint(b,bot.registry).y,low=eye.y-slope*d
    // R8 trip, 17 October 02:19Z: "bore to y <= 59" sent the bot down into the spawner room, its eye 1.6 above resting blazes
-   // 1.4 blocks off and its pocket inside the spawner's reach. A blaze that sees the port rises to it, so the reason says to
-   // stand here and never names a y to bore down to (blaze-stand.js refuses a cell inside the spawner's reach).
-   reason=aim<low?`slit sees no blaze: the nearest is ${Math.round((low-aim)*10)/10} below the window at ${Math.round(d)} blocks; do not bore down to it, a cell level with the blazes is inside the spawner's reach. Stand here for the rods (action stand): a blaze that sees the port rises to it`
+   // 1.4 blocks off. The reason says to stand here and never names a y to bore down to. Round two (R9): the stand itself goes
+   // down to blazes resting below its window, closing the column under it from inside, so an open bore never has to.
+   reason=aim<low?`slit sees no blaze: the nearest is ${Math.round((low-aim)*10)/10} below the window at ${Math.round(d)} blocks; do not bore down to it, an open bore into the room is a doorway. Stand here for the rods (action stand): it goes down to the blazes' level inside its own closed walls`
     :`slit sees no blaze: the nearest, ${Math.round(d)} blocks off, has ${shotLine(bot,eye,b,{open:cells.filter(fit)}).block||'a block'} in the way`
    return
   }

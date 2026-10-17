@@ -9,20 +9,27 @@
 // Unverified vanilla blaze behaviour this leans on (to check on pi2 before the family world): a targeting blaze floats
 // its eye to the bot's, one that loses sight flies to where it last saw the bot, and one blocked at the bot's feet level
 // by the ledge rises to the sill and from there pursues into the port.
+// Round two, after live rehearsal R9 (17 October 06:04Z to 06:19Z): the blazes rested on the platform floor two below the
+// hut, under its walls, and no line ran either way through a head port, so none ever targeted the bot. The stand now sinks
+// to their floor inside its own walls when every blaze rests below its window (sinkPlan, sink), the bot's own cell is no
+// longer refused for the spawner's reach, only a mob that fits the port closes it, and any blaze in reach is struck.
+// Unverified, round two section 6: acquisition needs eye-to-eye sight, a blaze's eye is 0.85 of its height, a spawn needs
+// room clear of every entity, a hoglin's or wither skeleton's reach does not cross a one-block wall, and Paper accepts a
+// placement on a face the bot cannot see (the sink's side cells go on hidden faces).
 import {setTimeout as delay} from 'node:timers/promises'
 import {Vec3} from 'vec3'
 import {inNether} from './dimension.js'
 import {tripKit,TRIP_HEALTH,TRIP_ARROWS,PORT_HEALTH,portReady} from './nether-trip.js'
-import {hutSite,hutMaterials,wallIn,unwall,firingPort} from './hut.js'
+import {hutSite,hutMaterials,wallIn,unwall,firingPort,cellOccupant} from './hut.js'
 import {weaponFor,portStrike} from './combat.js'
-import {SHOOTERS_ONLY,hostileNow,survivalObservation,fireObservation,eatFood} from './survival.js'
+import {SHOOTERS_ONLY,FIRE_BLOCKS,hostileNow,survivalObservation,fireObservation,eatFood} from './survival.js'
 import {shelterHolds} from './shelter-occupants.js'
-import {shotLine} from './visibility.js'
+import {shotLine,observedSightline} from './visibility.js'
 import {portSightline} from './burrow.js'
 import {looseArrow,SHOOT} from './archery.js'
 import {killDrops,KILL_DROPS} from './primitives-world.js'
 import {inventoryCounts,inventoryDelta,refuseDigCell,digOne,AIR} from './primitives.js'
-import {ownedNow,claimPlaced} from './natural.js'
+import {ownedNow,breakable,claimPlaced} from './natural.js'
 import {holdToPlace} from './placement.js'
 import {fullCube} from './construction.js'
 import {validateStandGoal,standingIn,closePort} from './enderman-stand.js'
@@ -44,6 +51,7 @@ import {validateStandGoal,standingIn,closePort} from './enderman-stand.js'
 export const BLAZE_STAND={item:'blaze_rod',radius:SHOOT.radius,limitMs:600000,timeoutMs:600000,arrows:TRIP_ARROWS,emptyMs:120000,idleMs:20000,drawInMs:15000,drawIn:4,blinkMs:1500,healMs:60000,
  meleeNear:3,digReach:4.5,settleMs:1500,drawMs:SHOOT.drawMs,spawnReach:4,spawnRise:1,closeWaitMs:10000,closeLimitMs:60000,finalCloseMs:15000,burnMs:6000,cavityCells:256,poll:50}
 const key=p=>`${p.x},${p.y},${p.z}`
+const xyz=p=>({x:p.x,y:p.y,z:p.z})
 const round=p=>({x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,z:Math.round(p.z*10)/10})
 const plural=(n,one,many)=>`${n} ${n===1?one:many}`
 const span=ms=>ms>=60000?plural(Math.round(ms/60000),'minute','minutes'):plural(Math.round(ms/1000),'second','seconds')
@@ -100,6 +108,16 @@ export function fitsPort(bot,e,cell){
  const size=bot.registry?.entitiesByName?.[e?.name],width=e?.width??size?.width??.6,height=e?.height??size?.height??1.8
  const open=1+(AIR.has(bot.blockAt(new Vec3(cell.x,cell.y+1,cell.z))?.name)?1:0)
  return width<1&&height<=open
+}
+// A blaze's eye, 0.85 of its height (1.53; vanilla's default eye height, unverified on a server). A mob targets what its eye
+// sees at the target's eye, so this line, not the bow's, decides whether a resting blaze ever acquires the bot.
+export const blazeEye=b=>b.position.offset(0,(b.height??1.8)*.85,0)
+// The eye-to-eye line from feet through the head port that side would open (hut.js firingPort, the port cell read as air),
+// as burrow.js portSightline gives the bow's. Round two, section 1.2: through a head port whose sill is the feet-level wall,
+// from two above a resting blaze this clears the sill only from 5.05 blocks; level with it, at any distance.
+export function blazeEyeLine(bot,feet,b,{skip=[]}={}){
+ const port=firingPort(bot,feet,{toward:column(b.position),shooter:'blaze',skip});if(!port)return {status:'blocked'}
+ return {...observedSightline(bot,feet.offset(.5,bot.entity?.eyeHeight??1.62,.5),blazeEye(b),{open:port.cells}),side:port.side,cells:port.cells}
 }
 
 export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},movements},options={}){
@@ -202,10 +220,61 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
  }
  stage('walling');progress('Walling in for the stand')
  await wallIn(bot,{kind:'hut',goal:{}},context);check()
- const feet=bot.entity.position.floored()
- // The hut's own cells, its floor and the footings under its walls: never dug to open a line.
- const hutCells=new Set([feet.offset(0,-1,0),feet.offset(0,2,0),feet.offset(1,2,0),...[[1,0],[-1,0],[0,1],[0,-1]].flatMap(([dx,dz])=>[-1,0,1].map(y=>feet.offset(dx,y,dz)))].map(key))
+ // feet and the hut's own cells (its floor, roof, helper and the footings under its walls: never dug to open a line) are
+ // the stand's level, set again after a sink. skip: the sides never opened there.
+ let feet,hutCells,skip=[],sank=null,stayed=null
  const prepared=new Set()
+ const level=()=>{feet=bot.entity.position.floored();hutCells=new Set([feet.offset(0,-1,0),feet.offset(0,2,0),feet.offset(1,2,0),...SIDES.flatMap(([dx,dz])=>[-1,0,1].map(y=>feet.offset(dx,y,dz)))].map(key));prepared.clear()}
+ level()
+ // Round two (live rehearsal R9, 17 October 06:16 to 06:18Z): the hut floated two above the platform floor and every blaze
+ // rested on that floor under its walls, eyes 2.1 below the bot's: through a head port no line either way inside 5 blocks,
+ // so none ever targeted the bot. Standing on the floor, the eyes are level, and the head-high port's sill (the feet-level
+ // wall) stays above both the blazes' fireball line and their resting bodies. The sink: with the port shut, no blaze in
+ // line by the bow's or the eye's line, every loaded blaze's eye below the sill, a floor the bot may dig over air, and
+ // solid ground one or two below that floor, the column under the hut is closed from inside (the four side cells at each
+ // level between, each on any solid face it has, hut.js closeCells), the floor dug, and the bot lands on the ground inside
+ // its own walls and roofs over (wallIn). Nothing opens the cavity: every side cell stands before the floor goes. A cell a
+ // mob stands in, or a mob in the column itself, is waited on, never dug toward; past closeLimitMs the sink is refused,
+ // said, and the stand goes on where it is. The ring's blocks, the roof and one to spare are counted first.
+ const sinkPlan=()=>{
+  const near=blazes(bot,o.radius);if(!near.length)return null
+  if(near.some(b=>portSightline(bot,feet,b,{skip}).status==='clear'||blazeEyeLine(bot,feet,b,{skip}).status==='clear'))return null
+  if(!near.every(b=>blazeEye(b).y<feet.y+1))return null
+  const floor=feet.offset(0,-1,0),fb=bot.blockAt(floor)
+  if(!fullCube(bot.registry,fb?.name)||!(ownedNow(bot,fb)||breakable(bot,fb))||refuseDigCell(bot,floor,{role:'head',ownAnyAge:true}))return null
+  let ground=null
+  for(let d=2;d<=3&&!ground;d++){const c=feet.offset(0,-d,0),b=bot.blockAt(c);if(fullCube(bot.registry,b?.name))ground=c;else if(!AIR.has(b?.name))return null}
+  if(!ground||bot.blockAt(ground)?.name==='magma_block')return null
+  const to=ground.offset(0,1,0),column=[],ring=[]
+  for(let y=to.y;y<floor.y;y++)column.push(new Vec3(feet.x,y,feet.z))
+  for(let y=feet.y-1;y>=to.y;y--)for(const [dx,dz] of SIDES)ring.push(feet.offset(dx,y-feet.y,dz))
+  return {from:feet,to,floor,column,ring}
+ }
+ // '' once the bot stands walled in on the ground, else why it stayed.
+ const sink=async plan=>{
+  const solid=c=>fullCube(bot.registry,bot.blockAt(c)?.name),missing=()=>plan.ring.filter(c=>!solid(c))
+  const odd=missing().find(c=>{const n=bot.blockAt(c)?.name;return !AIR.has(n)&&!FIRE_BLOCKS.has(n)})
+  if(odd)return `${bot.blockAt(odd)?.name??'unloaded ground'} at ${key(odd)} beside the column under me`
+  const carried=hutMaterials(bot).reduce((n,i)=>n+i.count,0),needed=missing().length+2
+  if(carried<needed)return `${needed} blocks needed to close the column under me and ${carried} carried`
+  stage('sinking');progress(`The blazes are below my window. Closing the column under me to go down to ${key(plan.to)}`)
+  for(const until=Date.now()+o.closeLimitMs;;){
+   check()
+   const under=plan.column.map(c=>cellOccupant(bot,c)).find(Boolean)
+   let why=under?`${a(under.name||'mob')} is in the column under my floor`:''
+   if(!under&&missing().length){try{await wallIn(bot,{kind:'hut',goal:{close:missing().map(xyz)}},context);check()}catch(error){check();why=error.message}}
+   if(!why&&!missing().length&&!plan.column.some(c=>cellOccupant(bot,c)))break
+   if(Date.now()>=until)return why||'the column under me would not close'
+   // Live rehearsal R9 (death 6): every retry loop waits a poll, so packets, ticks and alarms run while it waits.
+   await delay(o.poll)
+  }
+  stage('sinking');progress(`Digging my floor at ${key(plan.floor)} to drop to ${key(plan.to)}`)
+  await digOne(bot,bot.blockAt(plan.floor),check);check()
+  for(const end=Date.now()+2000;!(bot.entity.onGround&&bot.entity.position.floored().equals(plan.to))&&Date.now()<end;){check();await delay(o.poll)}
+  if(!bot.entity.position.floored().equals(plan.to))throw new Error(`I dug my floor but did not land at ${key(plan.to)}`)
+  await wallIn(bot,{kind:'hut',goal:{}},context);check()
+  return ''
+ }
  // Port preparation, once a side, with the port shut. The bot's own blocks within dig reach that stop a line from the eye
  // through the port cell to a loaded blaze are dug (a natural block in a line is left, and that line goes without), and so
  // is its own block over the port cell, so a blaze can come onto the sill. With air over the port, one block is placed at
@@ -216,7 +285,7 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
   const mine=c=>{const b=bot.blockAt(c);return !!b&&!hutCells.has(key(c))&&!c.equals(ledge)&&ownedNow(bot,b)&&c.offset(.5,.5,.5).distanceTo(eye())<=o.digReach&&!refuseDigCell(bot,c,{role:'head',ownAnyAge:true})}
   const dig=async c=>{stage('preparing');progress(`Digging my own block at ${key(c)} out of the port's line`);await digOne(bot,bot.blockAt(c),check);check()}
   for(let n=0;n<8;n++){
-   const plug=blazes(bot,o.radius).map(b=>portSightline(bot,feet,b)).find(l=>l.status==='blocked'&&l.side?.[0]===dx&&l.side?.[2]===dz&&l.cell&&mine(new Vec3(l.cell.x,l.cell.y,l.cell.z)))
+   const plug=blazes(bot,o.radius).map(b=>portSightline(bot,feet,b,{skip})).find(l=>l.status==='blocked'&&l.side?.[0]===dx&&l.side?.[2]===dz&&l.cell&&mine(new Vec3(l.cell.x,l.cell.y,l.cell.z)))
    if(!plug)break
    await dig(new Vec3(plug.cell.x,plug.cell.y,plug.cell.z))
   }
@@ -232,8 +301,8 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
  // prepared the first time it is seen; then the nearest blaze with a clear line, a side with air over its port first.
  const choose=async()=>{
   const near=blazes(bot,o.radius)
-  for(const b of near){const l=portSightline(bot,feet,b),k=l.side&&`${l.side[0]},${l.side[2]}`;if(k&&!prepared.has(k)){prepared.add(k);await prepare(l)}}
-  const lined=near.map(b=>({b,l:portSightline(bot,feet,b)})).filter(x=>x.l.status==='clear')
+  for(const b of near){const l=portSightline(bot,feet,b,{skip}),k=l.side&&`${l.side[0]},${l.side[2]}`;if(k&&!prepared.has(k)){prepared.add(k);await prepare(l)}}
+  const lined=near.map(b=>({b,l:portSightline(bot,feet,b,{skip})})).filter(x=>x.l.status==='clear')
   const pick=lined.find(x=>AIR.has(bot.blockAt(x.l.cells[0].offset(0,1,0))?.name))??lined[0]
   return pick?{target:pick.b,side:pick.l.side,cells:pick.l.cells}:null
  }
@@ -282,6 +351,16 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
    }
    empty=null
    if(!portReady(bot).ready){const why=await heal();if(why){stopped=why;break}}
+   const plan=!sank&&!stayed&&sinkPlan()
+   if(plan){
+    const why=await sink(plan)
+    // Children read the bot's chat: plain, short, calm.
+    if(why){stayed=why;progress(`I could not go down to the blazes (${why}). I am staying at this level.`)}
+    // Sunk, the new hut's helper is the old east wall over the east side cell: no blaze can stand in an east port, and the
+    // design names south first, then north with the kerb as its ledge (round two, section 4.1 rule 6).
+    else{sank={from:xyz(plan.from),to:xyz(plan.to)};level();skip=[{dx:1,dz:0}];persist();progress('I went down to the blazes. Walled in on their floor.')}
+    continue
+   }
    const choice=await choose();check()
    if(!choice||meleeNear(choice.cells[0])){stage('waiting');await delay(o.poll);continue}
    // The port opens only with the blocks to wall in here again after it, and one to spare (controller.js's port rule).
@@ -316,9 +395,10 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
  for(const end=Date.now()+o.settleMs;pending.length&&Date.now()<end;)await delay(o.poll)
  judge(true)
  const gained=rods(),tally=`${plural(record.kills,'blaze','blazes')} killed, ${plural(record.ports,'port','ports')} opened`
+ const levelNote=sank?`; I went down to the blazes' floor at ${key(sank.to)}`:stayed?`; I could not go down to the blazes: ${stayed}`:''
  const open=task.portOpen?{portOpen:task.portOpen,unclosed:record.unclosed}:record.unclosed?{unclosed:record.unclosed}:{}
  // A kill at range is no rod, but it frees the spawner for a blaze that may come to the port: said, never counted.
- if(!gained)throw new Error(`No blaze rod gained: ${tally}; ${stopped}${record.missed.length?`; left behind: ${record.missed.join('; ')}`:''}${record.kills?'; each kill frees the spawner for another blaze':''}${task.portOpen?'; the port is still open':''}`)
+ if(!gained)throw new Error(`No blaze rod gained: ${tally}; ${stopped}${levelNote}${record.missed.length?`; left behind: ${record.missed.join('; ')}`:''}${record.kills?'; each kill frees the spawner for another blaze':''}${task.portOpen?'; the port is still open':''}`)
  return {receipt:'stand',item:o.item,count:gained,requested:goal.count,rods:gained,kills:record.kills,withoutRod:Math.max(0,record.kills-gained),ports:record.ports,cycles:record.cycles,arrows:record.arrows,arrowsLeft:arrowsCarried(bot),swings:record.swings,
-  partial:gained<goal.count,stopped,closed:!task.portOpen&&!record.unclosed,position:round(bot.entity.position),...open,...(record.missed.length?{missed:record.missed}:{})}
+  partial:gained<goal.count,stopped,closed:!task.portOpen&&!record.unclosed,position:round(bot.entity.position),...open,...(record.missed.length?{missed:record.missed}:{}),...(sank?{sank}:{}),...(stayed?{stayed}:{})}
 }

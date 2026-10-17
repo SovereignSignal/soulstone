@@ -54,7 +54,10 @@ function fixture({feet=[-36,60,-9],blazes=[{at:[-35.5,61.5,-3.5]}],cells=[],own=
    // An item lying in the cell is walled in: lost to the bot.
    for(const e of Object.values(bot.entities))if(e.name==='item'&&e.position.floored().equals(p)){delete bot.entities[e.id];log.events.push(['walled',key(p)])}
    log.events.push(['place',key(p),bot.health]);map.set(key(p),'cobblestone');inv[0].count--},
-  async dig(block){log.events.push(['dig',key(block.position)]);map.set(key(block.position),'air');if(key(block.position)===PORT)log.onOpen?.()},
+  async dig(block){log.events.push(['dig',key(block.position)]);map.set(key(block.position),'air');if(key(block.position)===PORT)log.onOpen?.();log.onDig?.(key(block.position))
+   // The block under the bot dug: it falls to the first solid block below (the stand's sink).
+   const p=bot.entity.position;let c=p.floored().offset(0,-1,0)
+   if(c.equals(block.position)){while(registry.blocksByName[name(c.offset(0,-1,0))]?.boundingBox!=='block')c=c.offset(0,-1,0);bot.entity.position=new Vec3(p.x,c.y,p.z);log.events.push(['fell',key(c)])}},
   tool:{async equipForBlock(){}},setControlState(){},clearControlStates(){},setQuickBarSlot(){},quickBarSlot:0,
   activateItem(){drawing=true},
   deactivateItem(){if(!drawing)return;drawing=false;inv[2].count--;log.shots++;log.events.push(['shot']);log.onShot?.(log.shots)},
@@ -198,7 +201,7 @@ test('the planner, the task store and the skill admit stand for 1 to 8 blaze rod
  assert.throws(()=>validateTaskGoal('stand',{item:'blaze_rod',count:0}),/1 to 8/)
  // The brief: stand for rods at or above the blazes' floor, and never bore down into the room.
  const brief=readFileSync(new URL('../src/companion/survival-capabilities.txt',import.meta.url),'utf8')
- assert.match(brief,/^Action stand for blaze rods: name="", item="blaze_rod", count=1–8.*at or above the floor the blazes rest on.*any blaze within reach.*a hoglin or wither skeleton beside the port cannot reach through it.*never steps out.*partial means some rods, never none/m)
+ assert.match(brief,/^Action stand for blaze rods: name="", item="blaze_rod", count=1–8.*at or above the floor the blazes rest on.*closes the column below itself from inside and drops to stand on the floor.*any blaze within reach.*a hoglin or wither skeleton beside the port cannot reach through it.*never steps out.*partial means some rods, never none/m)
  const nether=brief.split('\n').find(l=>l.startsWith('THE NETHER'))
  assert.match(nether,/then stand for the rods\. Never bore down into the room/);assert.doesNotMatch(nether,/picking up rods between waves/)
  // The skill table sends a rod stand to the blaze stand, which refuses here outside the Nether.
@@ -386,4 +389,80 @@ test('a close the hut refuses at once keeps the event loop turning while it retr
  try{await assert.rejects(stand(f,1,{closeLimitMs:400}),/could not close the port: Cannot wall in here: Cannot wall through lava at -36,61,-8/)}
  finally{clearInterval(clock);gap=Math.max(gap,Date.now()-last)}
  assert.ok(gap<150,`the event loop stalled ${gap} ms`)
+})
+
+// Round two (live rehearsal R9, 17 October 06:16 to 06:18Z; design of the blaze endgame round two): the hut at -36,60,-9 two
+// above the platform floor was blind. The blazes rested on the floor under its walls, eye 59.53 against the bot's 61.62, and
+// through a head port whose sill is the feet-level wall the eye-to-eye line clears the sill only from 5.05 blocks; the
+// platform is 4 by 5. Standing on the floor, the eyes are level. The R9 hut: walls at y 60 and 61, roof -36,62,-9, helper
+// -35,62,-9, floor -36,59,-9 over platform air at -36,58,-9, nether brick (netherrack here) at y 57, and the bot's own
+// cobblestone at -36,58,-8. Resting blazes at y 58 off the side cells.
+const R9_HUT=[...[60,61].flatMap(y=>[[-37,y,-9],[-35,y,-9],[-36,y,-10],[-36,y,-8]]),[-36,62,-9],[-35,62,-9],[-36,58,-8]]
+const RING=[59,58].flatMap(y=>[[-37,y,-9],[-35,y,-9],[-36,y,-10],[-36,y,-8]]).map(c=>c.join(','))
+const r9=(o={})=>fixture({own:R9_HUT,...o})
+const RESTING=[{at:[-34.2,58,-9.7]},{at:[-35.5,58,-5.5]}]
+test('with every blaze resting below the sill and solid ground two below the floor, the stand sinks: eight side cells placed from inside before the floor is dug, then the roof, and the cavity is never open',async()=>{
+ const f=r9({blazes:RESTING});let ringAtDig=null,south=null
+ f.log.onDig=c=>{if(c==='-36,59,-9')ringAtDig=RING.filter(r=>f.map.get(r)==='cobblestone')
+  // The new south port cut: the blaze two off comes to it, feet on the sill, head in the cell over it.
+  if(c==='-36,59,-8'&&f.bot.entity.position.y===58){south??=Object.values(f.bot.entities).find(e=>e.name==='blaze'&&e.position.z>-6);if(south)south.position=new Vec3(-35.5,59,-7.5)}}
+ const r=await stand(f)
+ const floor=at(f,'dig','-36,59,-9'),roof=after(f,floor,'place','-36,60,-9'),port=after(f,roof,'dig','-36,59,-8')
+ assert.ok(floor>0,JSON.stringify(f.log.events))
+ assert.deepEqual(ringAtDig?.sort(),[...RING].sort(),'all eight side cells solid when the floor goes')
+ assert.deepEqual(f.log.events.slice(0,floor).filter(e=>e[0]==='place').map(e=>e[1]).sort(),RING.filter(c=>c!=='-36,58,-8').sort(),'the seven missing placed before it')
+ assert.ok(!f.log.events.slice(0,floor).some(e=>e[0]==='dig'),'nothing dug before the floor')
+ assert.ok(roof>floor&&port>roof,'the roof before any port');assert.equal(f.log.events[floor+1][0],'fell')
+ assert.deepEqual(r.sank,{from:{x:-36,y:60,z:-9},to:{x:-36,y:58,z:-9}});assert.equal(r.rods,1);assert.equal(r.ports,1)
+ assert.deepEqual(f.bot.entity.position,new Vec3(-35.5,58,-8.5),'standing on the platform floor')
+ // At the new level the south port has the old south wall dug out over it and the ledge at feet level.
+ assert.ok(at(f,'dig','-36,60,-8')>roof&&at(f,'place','-36,58,-7')>roof)
+ assert.equal(f.map.get('-36,59,-8'),'cobblestone','closed at the end');assert.deepEqual(f.log.steps,[],'never walked')
+})
+test('a side cell a hoglin stands in is waited on, not dug; past the close limit the sink refuses with the cell named and the stand stays up',async()=>{
+ const f=r9({blazes:RESTING});const said=[];f.api.progress=m=>said.push(m)
+ f.add({name:'hoglin',type:'hostile',width:1.4,height:1.4,position:new Vec3(-37.2,58,-8.5)})
+ const error=await stand(f,1,{limitMs:1500}).then(()=>null,e=>e)
+ assert.match(String(error?.message),/No blaze rod gained/)
+ assert.ok(said.some(m=>/-37,5[89],-9/.test(m)&&/stay/.test(m)),said.join(' | '))
+ assert.equal(at(f,'dig','-36,59,-9'),-1,'the floor stays');assert.ok(!f.log.events.some(e=>e[0]==='dig'&&/^-37,5[89],-9$/.test(e[1])),'never dug toward it')
+ assert.equal(f.bot.entity.position.y,60,'the stand stays up')
+ // A blaze in the column under the floor is waited on too: the floor never goes over it.
+ const g=r9({blazes:[...RESTING,{at:[-35.5,58,-8.5]}]})
+ await assert.rejects(stand(g,1,{limitMs:1500}));assert.equal(at(g,'dig','-36,59,-9'),-1);assert.equal(g.bot.entity.position.y,60)
+})
+test('no sink while a blaze is in line, while one hovers above the sill, or with no ground within two below the floor',async()=>{
+ for(const [name,o] of [['a blaze in line',{blazes:[...RESTING,{at:[-35.5,61.5,-3.5]}]}],['a blaze above the sill',{blazes:[...RESTING,{at:[-39.7,62.2,-10.3]}]}],
+  ['air three below the floor',{blazes:RESTING,cells:[[-36,57,-9,'air']]}]]){
+  const f=r9(o);await stand(f,1,{limitMs:600}).catch(()=>{})
+  assert.equal(at(f,'dig','-36,59,-9'),-1,name);assert.equal(f.bot.entity.position.y,60,name)
+ }
+})
+// Round two (section 4.1 rule 6): sunk, the new hut's helper is the old east wall, over the east side cell, so an east port
+// has a hut block over it and no blaze can stand in it. The design names south first, north with the kerb as ledge, never east.
+test('the east side whose over cell is the hut\'s helper is not prepared or opened',async()=>{
+ // Sunk with a blaze east in line through the east port at the new level and none anywhere else.
+ const f=r9({blazes:[{at:[-32.5,58,-8.5]}]})
+ await assert.rejects(stand(f,1,{limitMs:1200}))
+ assert.ok(at(f,'dig','-36,59,-9')>=0,'it sank');assert.equal(f.bot.entity.position.y,58)
+ assert.equal(at(f,'dig','-35,59,-9'),-1,'the east port is never cut');assert.equal(f.map.get('-35,60,-9'),'cobblestone','the helper stays')
+ assert.equal(at(f,'place','-33,58,-9'),-1,'no ledge east')
+})
+// The window arithmetic of round two, section 1.2, pinned on the platform: eye 1.62 over the feet, a blaze's 1.53 (0.85 of
+// its 1.8), the sill the feet-level wall. From feet 58 a resting blaze 1.0 beyond the sill is in line eye to eye through the
+// head port; from feet 60 the sill takes the line for every distance under 5.05 and gives it back past it.
+test('eye-to-eye line from feet 58 to a resting blaze 1.0 beyond the sill is clear through the head port; from feet 60 it is blocked by the sill for every D under 5',async()=>{
+ const {blazeEyeLine}=await import('../src/blaze-stand.js')
+ const hut=y=>[[-37,y,-9],[-35,y,-9],[-36,y,-10],[-36,y,-8],[-37,y+1,-9],[-35,y+1,-9],[-36,y+1,-10],[-36,y+1,-8]]
+ const low=fixture({feet:[-36,58,-9],own:hut(58),blazes:[{at:[-35.5,58,-6]}]});low.stop()
+ const b=Object.values(low.bot.entities).find(e=>e.name==='blaze')
+ const line=blazeEyeLine(low.bot,new Vec3(-36,58,-9),b)
+ assert.equal(line.status,'clear',JSON.stringify(line));assert.deepEqual(line.cells,[new Vec3(-36,59,-8)])
+ for(const d of [2,3,4,4.9]){
+  const high=fixture({own:hut(60),blazes:[{at:[-35.5,58,-8.5+d]}]});high.stop()
+  const l=blazeEyeLine(high.bot,new Vec3(-36,60,-9),Object.values(high.bot.entities).find(e=>e.name==='blaze'))
+  assert.equal(l.status,'blocked',`D ${d}`);assert.deepEqual(l.cell,{x:-36,y:60,z:-8},`D ${d}: the sill`)
+ }
+ const far=fixture({own:hut(60),blazes:[{at:[-35.5,58,-8.5+5.3]}]});far.stop()
+ assert.equal(blazeEyeLine(far.bot,new Vec3(-36,60,-9),Object.values(far.bot.entities).find(e=>e.name==='blaze')).status,'clear','D 5.3')
 })
