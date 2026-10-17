@@ -475,3 +475,53 @@ test('off a trip a shooter no port line reaches still counts toward the port att
  await Teammate.prototype.waitInBurrow.call(on.c,1,on.abort.signal,on.bot,true)
  assert.ok(!on.commands.some(x=>['unhut','shoot','climb','flee','use_portal'].includes(x.action)),acts(on).join(' ')+' :: '+on.said.join(' | '))
 })
+
+// Live rehearsal R9, 17 October 05:17:45Z to 05:18:10Z: at the stand cell -36,60,-9 the request planner was to call stand for
+// four blaze rods. A blaze 2.3 below and a sealed-off wither skeleton raised the alarm, the bot walled in, and the covered
+// planner answered done ("I'm walled in at the planned stand cell") as its brief told it, handing back to the request planner;
+// the alarm fired again before that planner could act, the hut went up again, and done came again every 12 s, one covered
+// model call a lap, never a stand. Under cover the stand is a covered move: admitted when the stand would start at this cell
+// (blaze-stand.js blazeStandRefusal), dispatched from the hut, which the stand walls in and opens its own port from.
+const standMove={action:'stand',target:null,count:4,expectation:'Four blaze rods from the stand'}
+const standReceipt={receipt:'stand',item:'blaze_rod',count:4,rods:4,requested:4,partial:false,closed:true}
+test('walled in at a valid stand cell with a blaze in view, the covered stand is admitted and dispatched as a blaze stand, with no done lap',async()=>{
+ const seen=[];const f=fixture(async o=>{seen.push(o);return standMove},{act:cmd=>cmd.action==='stand'?standReceipt:undefined});blazeBeside(f)
+ const result=await f.run()
+ assert.equal(seen[0].stand.refusal,null,'the observation says a stand starts here')
+ const stands=f.commands.filter(x=>x.action==='stand');assert.equal(stands.length,1,acts(f).join(' ')+' :: '+JSON.stringify(f.c.recoveryHistory))
+ assert.deepEqual(stands[0].goal,{item:'blaze_rod',count:4});assert.ok(stands[0].timeoutMs>=600000)
+ assert.equal(seen.length,1,'one covered decision');assert.ok(!f.events.some(e=>e.type==='covered_decision'&&e.decision.action==='done'))
+ assert.equal(f.c.requestProgress.coveredMoves,1)
+ assert.equal(result.status,'handed_back');assert.equal(f.c.requestProgress.safetyContinuations.at(-1).receipt.receipt,'stand')
+ assert.ok(!f.commands.some(x=>['unhut','hut','stop'].includes(x.action)),acts(f).join(' '))
+})
+test('a covered stand with count 0 takes the request\'s stand count, or 4',async()=>{
+ const zero={...standMove,count:0}
+ const asked=fixture(once(zero,wait),{act:cmd=>cmd.action==='stand'?standReceipt:undefined});blazeBeside(asked)
+ asked.c.requestProgress.pending=[{action:'stand',name:'',item:'blaze_rod',count:6,design:[]}]
+ await asked.run();assert.deepEqual(asked.commands.find(x=>x.action==='stand')?.goal,{item:'blaze_rod',count:6},acts(asked).join(' '))
+ const plain=fixture(once(zero,wait),{act:cmd=>cmd.action==='stand'?standReceipt:undefined});blazeBeside(plain)
+ await plain.run();assert.deepEqual(plain.commands.find(x=>x.action==='stand')?.goal,{item:'blaze_rod',count:4},acts(plain).join(' '))
+})
+// The stand opens its own port and takes its own hits (it closes on a hit, under 16): neither is a breach of the covered move.
+test('the stand\'s own open port is not a cavity breach: no stop, no hut, the receipt comes back',async()=>{
+ const f=fixture(async()=>standMove,{act:async(cmd,bot,m)=>{if(cmd.action!=='stand')return;m.set('1,65,0','air');await new Promise(r=>setTimeout(r,40));bot.health=17;m.set('1,65,0','cobblestone');return standReceipt}});blazeBeside(f)
+ const result=await f.run()
+ assert.equal(result.status,'handed_back',JSON.stringify(f.c.recoveryHistory));assert.deepEqual(acts(f),['stand'])
+})
+test('at a cell inside the spawner\'s reach the covered stand is refused with the stand\'s reason, and nothing is dispatched',async()=>{
+ const seen=[];const f=fixture(async o=>{seen.push(o);return seen.length===1?standMove:wait});blazeBeside(f);f.cells.set('3,63,0','spawner')
+ await f.run({budgetMs:60})
+ assert.deepEqual(acts(f),[])
+ assert.match(seen[0].stand.refusal,/inside the spawner's reach at 3,63,0/)
+ assert.ok(seen[1]?.recovery.recentAttempts.some(a=>a.status==='rejected'&&/inside the spawner's reach at 3,63,0/.test(a.reason)),JSON.stringify(seen[1]?.recovery.recentAttempts))
+})
+test('the covered schema takes stand with no target and a count 0 to 8, and the prompt offers stand at a valid stand cell instead of done',async()=>{
+ for(const ok of [standMove,{...standMove,count:0},{...standMove,count:8}])assert.deepEqual(validateCovered(ok),{...ok,target:null})
+ for(const bad of [{...standMove,target:{x:0,y:64,z:0}},{...standMove,count:9},{...standMove,count:-1}])assert.throws(()=>validateCovered(bad),/Invalid covered decision/,JSON.stringify(bad))
+ const p=new LocalPlanner();let prompt='',format=null;p.structured=async(m,f)=>{prompt=m[0].content;format=f;return standMove}
+ assert.equal((await p.covered({},new AbortController().signal)).action,'stand')
+ assert.ok(format.properties.action.enum.includes('stand'))
+ const brief=prompt.split('walled in on a Nether trip')[1]
+ assert.match(brief,/stand \(/);assert.match(brief,/observation\.stand/);assert.ok(!/choose done: the planner calls stand/.test(brief),brief)
+})

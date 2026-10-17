@@ -21,6 +21,8 @@ import {recoveryContext,recoveryState,recordRecovery} from './recovery-context.j
 import {SHOOTERS_ONLY,threatRadius} from '../survival.js'
 import {bowCanAnswer} from '../archery.js'
 import {portSightline} from '../burrow.js'
+import {blazeStandRefusal} from '../blaze-stand.js'
+import {validateStandGoal,STAND} from '../enderman-stand.js'
 export const SHAFT_MAX=4
 const SIDES=[[1,0],[-1,0],[0,1],[0,-1]]
 const AROUND=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0],[0,-1,0]]
@@ -61,6 +63,16 @@ export function shaftRefusal(bot,count,sites=[]){
 // A move the harness lets through, as a command, or the reason it does not.
 function admit(c,bot,v,sites){
  const f=feetOf(bot)
+ // Live rehearsal R9, 17 October 05:17:45Z: walled in at the planned stand cell, done handed the stand to the request
+ // planner, the alarm walled the bot in again before that planner could call it, and done came back every 12 s. The
+ // stand is a covered move: admitted where the stand would start (blaze-stand.js, its own reason otherwise), dispatched
+ // from the hut, which it walls in and opens its own port from. Count 0 takes the request's stand count, or 4.
+ if(v.action==='stand'){
+  const why=blazeStandRefusal(bot);if(why)return {reason:why}
+  const asked=(c.requestProgress?.pending||[]).find(s=>s?.action==='stand'&&s.item==='blaze_rod')?.count
+  const count=v.count>=1?v.count:Number.isInteger(asked)&&asked>=1&&asked<=STAND.max?asked:4
+  return {command:{action:'stand',goal:validateStandGoal({item:'blaze_rod',count}),timeoutMs:STAND.timeoutMs}}
+ }
  if(v.action==='dig'){
   if(!Number.isInteger(v.count)||v.count<1||v.count>SHAFT_MAX)return {reason:`dig count must be 1–${SHAFT_MAX}, straight down`}
   if(v.target.x!==f.x||v.target.z!==f.z||v.target.y!==f.y-v.count)return {reason:`dig goes straight down from the feet: for count ${v.count} the target is ${key({x:f.x,y:f.y-v.count,z:f.z})}`}
@@ -167,7 +179,7 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
    let deepest=0,shaft=null;for(let n=1;n<=SHAFT_MAX;n++){const r=shaftRefusal(bot,n,sites);if(r){shaft=r;break}deepest=n}
    const snapshot=c.snapshot(),state=Object.fromEntries(['position','health','survival','tools','inventory'].map(k=>[k,snapshot[k]]))
    const observed={...state,goal:request.goal,pending:(request.pending||[]).slice(0,4),feedback:(request.feedback||[]).slice(-8),recovery:recoveryContext(c,bot),enclosure:safety.protection,
-    feet:xyz(f),hut:safety.retreat.surface,shaftBelow:{deepest,refusal:shaft},lastReceipt:safety.covered?.moves?.at(-1)?.receipt??null,movesLeft:COVERED_MOVES-(request.coveredMoves||0),remainingMs:deadline-Date.now(),...(holdBounded?{holdBounded}:{})}
+    feet:xyz(f),hut:safety.retreat.surface,shaftBelow:{deepest,refusal:shaft},lastReceipt:safety.covered?.moves?.at(-1)?.receipt??null,stand:{item:'blaze_rod',refusal:blazeStandRefusal(bot)||null},movesLeft:COVERED_MOVES-(request.coveredMoves||0),remainingMs:deadline-Date.now(),...(holdBounded?{holdBounded}:{})}
    trace('covered_observation',{round,observation:observed})
    request.coveredCalls=(request.coveredCalls||0)+1;c.persist()
    const abort=new AbortController(),combined=AbortSignal.any([signal,abort.signal]);let settled=false,value,error
@@ -192,7 +204,11 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
    // Saved before the move runs: a restart mid-bore re-arms the wait with the route's own cavity limit.
    request.coveredMoves=(request.coveredMoves||0)+1;safety.covered??={from:structuredClone(safety.retreat.surface),at:xyz(feetOf(bot)),moves:[]};c.persist()
    const moveAbort=new AbortController(),moveSignal=AbortSignal.any([signal,moveAbort.signal]);let failure=null,receipt
-   const monitor=setInterval(()=>{try{protection(true)}catch(e){failure??=e;moveAbort.abort();c.dispatch({action:'stop'})}},pollMs)
+   // The stand opens its own port and judges its own hits, closing on one and under the port's health (blaze-stand.js):
+   // during it only a changed context or liquid stops it here, never its open port or a hit it already answers.
+   const standing=move.command.action==='stand'
+   const guard=standing?()=>{check();if(bot.entity.isInWater||bot.entity.isInLava)throw new Error('Entered liquid during a covered move')}:()=>protection(true)
+   const monitor=setInterval(()=>{try{guard()}catch(e){failure??=e;moveAbort.abort();c.dispatch({action:'stop'})}},pollMs)
    let failed=null
    try{await c.execute(move.command,moveSignal);receipt=structuredClone(c.runner.task?.result??null)}
    catch(e){failed=e}
@@ -211,10 +227,11 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
    if(failed){check();journal('failed',{reason:failed.message,expectation:value.expectation});if(++refusals>=2)return {status:'held',reason:failed.message};continue}
    // The last block dug may still be under a falling bot: land before the cavity is judged.
    for(let i=0;i<20&&!bot.entity.onGround;i++)await delay(50,undefined,{signal})
+   if(standing)health=bot.health
    protection();refusals=0
    safety.covered.at=xyz(feetOf(bot));safety.covered.moves.push({action:value.action,target:value.target,count:value.count,receipt});c.persist()
    journal('completed',{expectation:value.expectation,receipt})
-   if(receipt?.slit?.length)return handBack(receipt)
+   if(receipt?.slit?.length||standing)return handBack(receipt)
   }
   journal('held',{reason:'Covered move budget exhausted'});return {status:'held'}
  }catch(e){
