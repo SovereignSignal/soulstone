@@ -332,20 +332,23 @@ test('a piglin is struck only in place and only while the bot wears no gold; a b
  await assert.rejects(defendAgainstMob(m.bot,m.task,m.context),/no longer hostile/);assert.equal(swings,1)
 })
 // The blaze stand (design of 17 October, after the R8 trip): a blaze with its head in the hut's port is a sword fight, and a
-// kill in the port column drops the rod on the sill, inside pickup reach. A blaze is struck only in place, inside that
-// column, within clear reach; it is never followed into the open.
-test('a blaze is struck only in place, inside the port column within clear reach, and never followed',async()=>{
+// kill in the port column drops the rod on the sill, inside pickup reach. A blaze is struck only at the stand's port, inside
+// that column, within clear reach (portStrike); defend never takes one on, in place or out (review of the stand).
+test('a blaze is struck only at the port, inside the port column within clear reach; defend never takes one on',async()=>{
  const {portStrike,corneredDecision}=await import('../src/combat.js')
  const blaze=f=>{f.bot.entities={7:{...registry('1.21.4').entitiesByName.blaze,id:7,uuid,type:'hostile',position:new Vec3(1.5,64,0)}};f.task.goal.targetName='blaze';f.task.goal.inPlace=true;return f.bot.entities[7]}
  const f=fixture(),b=blaze(f)
  assert.equal(defenseDecision(f.bot).engage,false,'not in the open')
- const inPlace=defenseDecision(f.bot,{inPlace:true});assert.equal(inPlace.engage,true,inPlace.reason);assert.equal(inPlace.target.targetName,'blaze')
- assert.equal(corneredDecision(f.bot,{inPlace:true}).engage,true);assert.equal(fightableAlone(f.bot,'blaze'),false,'never walked on or followed')
- assert.throws(()=>validateTaskGoal('defend',{...f.task.goal,inPlace:false}),/observed mob/);assert.doesNotThrow(()=>validateTaskGoal('defend',f.task.goal))
+ assert.equal(defenseDecision(f.bot,{inPlace:true}).engage,false,'nor in place: a bore column walls it out')
+ assert.equal(corneredDecision(f.bot,{inPlace:true}).engage,false);assert.equal(fightableAlone(f.bot,'blaze',{inPlace:true}),false)
+ assert.throws(()=>validateTaskGoal('defend',f.task.goal),/observed mob/)
  assert.equal(portStrike(f.bot,b,{x:1,z:0}),true,'inside the port column')
  assert.equal(portStrike(f.bot,b,{x:2,z:0}),false,'a cell out of it')
  b.position=new Vec3(3.5,64,0);assert.equal(portStrike(f.bot,b),false,'past 2.9')
  b.position=new Vec3(1.5,64,0);f.bot.world.raycast=()=>({name:'cobblestone',position:new Vec3(1,65,0)});assert.equal(portStrike(f.bot,b,{x:1,z:0}),false,'no clear strike')
- const e=edge();blaze(e).position=new Vec3(4,64,0)
- await assert.rejects(defendAgainstMob(e.bot,e.task,e.context),/in place/);assert.equal(e.goals.length,0,'no follow goal')
+ // Any mob hostile now, for a close it holds open: a hoglin, not a calm zombified piglin.
+ f.bot.world.raycast=()=>null;b.name='hoglin';assert.equal(portStrike(f.bot,b),false,'not a port mob');assert.equal(portStrike(f.bot,b,null,{anyHostile:true}),true)
+ b.name='zombified_piglin';assert.equal(portStrike(f.bot,b,null,{anyHostile:true}),false)
+ const e=edge();blaze(e).position=new Vec3(1.5,64,0)
+ await assert.rejects(defendAgainstMob(e.bot,e.task,e.context));assert.equal(e.goals.length,0,'no follow goal')
 })

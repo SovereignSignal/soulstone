@@ -31,9 +31,11 @@ export const DEFENSE_HEALTH={zombie:12,zombie_villager:12,husk:12,drowned:14,spi
 // this bot. A hit piglin turns its group, which is why the attack primitive refuses it; but a bot wearing
 // no gold is already every adult piglin's target (review of 55698df, live rehearsal 17 October 01:17Z: one
 // in the bot's own tunnel took it from 12.6 to 4.9). Never followed, never fought by a bot wearing gold.
-// A blaze too (the blaze stand, after the R8 trip of 17 October): one with its head in a hut's port is a sword fight, and
-// only one killed there drops its rod on the sill, inside pickup reach. Its floor is the port's 16 (nether-trip.js).
-export const IN_PLACE_MOBS=new Set(['piglin','blaze'])
+export const IN_PLACE_MOBS=new Set(['piglin'])
+// The blaze stand's port (after the R8 trip of 17 October) strikes a blaze too: one with its head in the port is a sword
+// fight, and only one killed there drops its rod on the sill, inside pickup reach. Only portStrike asks this: in a bore
+// column or the tunnel the alarm walls a blaze out, never fights it (review of the stand). Its floor is the port's 16.
+export const PORT_STRIKE_MOBS=new Set([...IN_PLACE_MOBS,'blaze'])
 const defendableName=(name,inPlace)=>DEFENDABLE_MOBS.has(name)||!!inPlace&&IN_PLACE_MOBS.has(name)
 const hostileToBot=(bot,e)=>!IN_PLACE_MOBS.has(e?.name)||hostileNow(bot,e)
 // HEAVY_ARMOR is the Nether kit: iron helmet, chestplate and leggings with the golden boots
@@ -92,11 +94,12 @@ export function clearStrike(bot,target){
  const vector=aim.minus(eye),length=vector.norm();if(!length||length>7)return false
  return observedSightline(bot,eye,aim).status==='clear'
 }
-// The sword through a hut's port (blaze-stand.js): an in-place mob hostile to the bot, within 2.9 with a clear strike, and,
-// given the port's column {x,z}, standing in it. A blaze knocked a block out of the port is still in reach, but a kill there
-// drops its rod beyond the wall, so the stand waits for it to come back in.
-export function portStrike(bot,target,column=null){
- if(!IN_PLACE_MOBS.has(target?.name)||!hostileToBot(bot,target)||!knownPoint(target.position)||!knownPoint(bot.entity?.position))return false
+// The sword through a hut's port (blaze-stand.js): a port mob hostile to the bot (PORT_STRIKE_MOBS), within 2.9 with a clear
+// strike, and, given the port's column {x,z}, standing in it. A blaze knocked a block out of the port is still in reach, but a
+// kill there drops its rod beyond the wall, so the stand waits for it to come back in. anyHostile: any mob hostile to the bot
+// now (hostileNow), for a close the mob holds open (review of the stand: a hoglin on the ledge refuses the port's block).
+export function portStrike(bot,target,column=null,{anyHostile=false}={}){
+ if(!(anyHostile?hostileNow(bot,target):PORT_STRIKE_MOBS.has(target?.name)&&hostileToBot(bot,target))||!knownPoint(target?.position)||!knownPoint(bot.entity?.position))return false
  if(column&&(Math.floor(target.position.x)!==column.x||Math.floor(target.position.z)!==column.z))return false
  return distance(bot.entity.position,target.position)<=2.9&&clearStrike(bot,target)
 }

@@ -613,6 +613,17 @@ test('a wither skeleton in the open front of a covered column is struck in place
  const hut=acts.find(x=>x.action==='hut');assert.ok(hut,acts.map(x=>x.action).join(' '));assert.ok(!hut.goal?.portalRoom)
  assert.ok(!acts.some(x=>['use_portal','flee','shoot'].includes(x.action)),acts.map(x=>x.action).join(' '))
 })
+// Review of the blaze stand: a blaze is struck with the sword only at the stand's port (combat.js PORT_STRIKE_MOBS). In a
+// covered bore column on the bridge, a blaze 2.5 blocks off the open front is walled out, as before the stand, never fought.
+test('a blaze 2.5 blocks off the open front of a covered column is walled out, not struck',async()=>{
+ const {r,c,bot}=bridgeTunnel()
+ bot.entities={8:{id:8,uuid:'10000000-0000-0000-0000-000000000008',type:'mob',name:'blaze',height:1.8,position:new Vec3(3,64,3.5),velocity:new Vec3(0,0,0)}}
+ r.command=x=>{r.commands.push(x);if(x.action==='stop')return;const task=r.task={id:String(r.commands.length),kind:x.action,status:'running',goal:x.goal}
+  setTimeout(()=>{if(r.task!==task)return;task.status='completed';task.result={receipt:x.action};r.emit('event',{type:'task_finished',task})},1)}
+ void c.seekSafety(THREAT_INTERRUPTION);await new Promise(res=>setTimeout(res,120))
+ const acts=r.commands.filter(x=>x.action!=='stop');c.cancel?.(true)
+ assert.equal(acts[0]?.action,'hut',acts.map(x=>x.action).join(' '));assert.ok(!acts.some(x=>x.action==='defend'),acts.map(x=>x.action).join(' '))
+})
 // Blaze death, 16 October 18:44Z: three shelter-watch failures spent the alarm's retries, nothing re-armed, and the
 // bot stood a minute in an opened hut with blazes near. With the retries spent and the danger still there, the tick
 // runs the trip's last resort (the portal) once; off a trip it marks the situation unsafe so the standoff resume owns it.
