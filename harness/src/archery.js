@@ -65,6 +65,36 @@ export function coveredSteps(bot,feet){
  const solid=c=>fullCube(bot.registry,bot.blockAt(c)?.name)
  return SIDES.filter(([dx,dz])=>{const c=feet.offset(dx,0,dz);return standable(bot,c)&&solid(c.offset(0,2,0))&&[0,1].every(y=>solid(c.offset(dz,y,dx))&&solid(c.offset(-dz,y,-dx)))}).map(([dx,dz])=>feet.offset(dx,0,dz))
 }
+const holdFire=e=>new Error(`Holding fire: a ${e.type==='player'?`player (${e.username||'someone'})`:e.name} is in the line of fire`)
+// Releasing a drawn bow always looses the arrow; changing the held slot cancels the draw.
+const standDown=bot=>{try{bot.setQuickBarSlot?.(((bot.quickBarSlot??0)+1)%9)}catch{}}
+// One full-draw arrow at the target's middle (aimPoint) with the lead for its motion, the bow already in hand: the bow's own
+// shot and the blaze stand's (blaze-stand.js) aim and release the same way. A protected bystander in the arc holds it,
+// before the draw and at the release. 'loosed', or 'hurt' when hurtOut turns true while it draws; a draw never outlives
+// the call (the runner's cleanup calls deactivateItem, which would loose it). name: the type the errors name.
+export async function looseArrow(bot,target,{check=()=>{},stage=()=>{},drawMs=SHOOT.drawMs,hurtOut=()=>false,name=target.name}={}){
+ const eye=()=>bot.entity.position.offset(0,bot.entity.eyeHeight??1.62,0)
+ const aim=()=>{
+  const from=eye(),{aimAt,pitch}=aimPitch.lead(from,aimPoint(target,bot.registry),target.velocity??new Vec3(0,0,0))
+  if(pitch===null)throw new Error(`The ${name} is out of bow range`)
+  return {yaw:Math.atan2(-(aimAt.x-from.x),-(aimAt.z-from.z)),pitch,aimAt}
+ }
+ let a=aim()
+ const early=lineOfFireBlocker(bot,eye(),a.aimAt,target)
+ if(early)throw holdFire(early)
+ stage('drawing');bot.activateItem();let drawn=true
+ try{
+  // Full draw takes a second; keep the aim on a moving target while it draws.
+  const end=Date.now()+drawMs
+  while(Date.now()<end){check();if(hurtOut())return 'hurt';a=aim();await bot.look(a.yaw,a.pitch,true);await delay(Math.min(100,drawMs))}
+  a=aim()
+  // Checked at the moment of release, against where the arrow is going.
+  const blocker=lineOfFireBlocker(bot,eye(),a.aimAt,target)
+  if(blocker)throw holdFire(blocker)
+  await bot.look(a.yaw,a.pitch,true);bot.deactivateItem();drawn=false
+  return 'loosed'
+ }finally{if(drawn)standDown(bot)}
+}
 export async function shootTarget(bot,task,{check,stage,progress,movements},options={}){
  // Shooting from a firing port it stays in cover (lab run 146, 15 October).
  const o={...SHOOT,...(task.goal?.stay?{repositions:0}:{}),...(task.goal?.breakOnHit===true?{breakOnHit:true}:{}),...options}
@@ -145,7 +175,7 @@ export async function shootTarget(bot,task,{check,stage,progress,movements},opti
   throw notHome(new Error(`No clear shot through the port at the nearest ${goal.type}${near?` (${Math.round(near.position.distanceTo(bot.entity.position))} blocks)`:''}: ${line?.block||lastBlock||'a block'} is in the way`))
  }
  if(!target)throw notHome(new Error(`No clear shot at any ${goal.type} within ${o.radius} blocks, nor from a spot within ${o.reposition}: ${lastBlock||'a block'} is in the way`))
- let dead=false,shots=0,drawn=false,stopped=null,lastSeen=target.position.clone?.()??target.position
+ let dead=false,shots=0,stopped=null,lastSeen=target.position.clone?.()??target.position
  // Lab run 101: 20 health to 5 in five seconds against a blaze at close range, still
  // drawing. In the Nether burning raises no alarm, so the duel must end itself: once
  // it has cost health and left half or less, break off and let the shelter decide.
@@ -165,14 +195,6 @@ export async function shootTarget(bot,task,{check,stage,progress,movements},opti
  bot.on('entityDead',killed)
  const eye=()=>bot.entity.position.offset(0,bot.entity.eyeHeight??1.62,0)
  const centre=()=>aimPoint(target,bot.registry)
- const aim=()=>{
-  const from=eye(),{aimAt,pitch}=aimPitch.lead(from,centre(),target.velocity??new Vec3(0,0,0))
-  if(pitch===null)throw new Error(`The ${goal.type} is out of bow range`)
-  return {yaw:Math.atan2(-(aimAt.x-from.x),-(aimAt.z-from.z)),pitch,aimAt}
- }
- const holdFire=e=>new Error(`Holding fire: a ${e.type==='player'?`player (${e.username||'someone'})`:e.name} is in the line of fire`)
- // Releasing a drawn bow always looses the arrow; changing the held slot cancels the draw.
- const standDown=()=>{try{bot.setQuickBarSlot?.(((bot.quickBarSlot??0)+1)%9)}catch{}}
  let failure=null
  try{
   stage('arming');await bot.equip(bow,'hand');check()
@@ -195,25 +217,13 @@ export async function shootTarget(bot,task,{check,stage,progress,movements},opti
     if(!next)throw new Error(`No clear shot at the ${goal.type}: ${sight.block||'a block'} is in the way`)
     target=next;lastSeen=target.position.clone?.()??target.position;continue
    }
-   let a=aim()
-   const early=lineOfFireBlocker(bot,eye(),a.aimAt,target)
-   if(early)throw holdFire(early)
-   stage('drawing');bot.activateItem();drawn=true
-   // Full draw takes a second; keep the aim on a moving target while it draws.
-   const end=Date.now()+o.drawMs
-   while(Date.now()<end){check();if(hurtOut()){standDown();drawn=false;throw breakOff()}a=aim();await bot.look(a.yaw,a.pitch,true);await delay(Math.min(100,o.drawMs))}
-   a=aim()
-   // Checked at the moment of release, against where the arrow is going.
-   const blocker=lineOfFireBlocker(bot,eye(),a.aimAt,target)
-   if(blocker){standDown();drawn=false;throw holdFire(blocker)}
-   await bot.look(a.yaw,a.pitch,true);bot.deactivateItem();drawn=false;shots++
+   if(await looseArrow(bot,target,{check,stage,drawMs:o.drawMs,hurtOut,name:goal.type})==='hurt')throw breakOff()
+   shots++
    progress(`Shot ${shots} at the ${goal.type}`)
    const until=Date.now()+o.settleMs
    while(!dead&&Date.now()<until){check();await delay(20)}
   }
  }catch(error){failure=error;throw error}finally{
-  // Never leave an arrow drawn: the runner's cleanup calls deactivateItem, which would loose it.
-  if(drawn)standDown()
   bot.removeListener('entityDead',killed)
   await back()
   if(failure)notHome(failure)
