@@ -9,7 +9,7 @@ import {Vec3} from 'vec3'
 import {tripKit,onTrip,TRIP_ARMOR,TRIP_ARROWS,portReady,tripPickup} from '../src/nether-trip.js'
 import {burrowClearance} from '../src/burrow.js'
 import {Teammate} from '../src/companion/controller.js'
-import {THREAT_INTERRUPTION,HEALTH_EMERGENCY,survivalObservation} from '../src/survival.js'
+import {THREAT_INTERRUPTION,HEALTH_EMERGENCY,FIRE_EMERGENCY,survivalObservation} from '../src/survival.js'
 import {threatRoutes} from '../src/threat-reach.js'
 import {canResume} from '../src/companion/continuity.js'
 const registry=registryFor('1.21.4')
@@ -899,4 +899,24 @@ test('a tunnel broken around the waiting bot lifts the own-tunnel cap: the wait 
  const safety=t.c.safety;await t.run()
  assert.equal(safety.ownTunnel,undefined,'the flag clears');assert.ok(t.logged.some(([type])=>type==='own_tunnel_lifted'))
  assert.ok(t.commands.some(x=>x.action==='use_portal'),t.commands.map(x=>x.action).join(' ')+' :: '+t.c.messages.map(m=>m.text).join(' | '))
+})
+// Being on fire from a blaze fireball burns out in seconds whatever the bot does, and a walk of up to 48 blocks under
+// blaze fire is the shape of the 16 October 18:44Z blaze death. Alight alone, in its own tunnel, the bot walls in; only
+// a fire block or lava where it stands or in the column's open ends is the fire alarm's to answer as before.
+const alight=bot=>{bot.entities={};bot.entity.metadata=[1]}
+const blockIn=(bot,name,cell)=>{const at=bot.blockAt;bot.blockAt=p=>p.x===cell.x&&p.y===cell.y&&p.z===cell.z?{name,position:p.clone(),boundingBox:'empty',getProperties:()=>({level:0})}:at(p)}
+test('on fire from a fireball in its own tunnel, the portal 40 back, the bot walls in: no douse and no portal walk',async()=>{
+ for(const [name,opts] of [['fire alarm, kitted',{reason:FIRE_EMERGENCY,health:20}],['health alarm, hurt',{reason:HEALTH_EMERGENCY,health:5}],['threat alarm, hurt',{reason:THREAT_INTERRUPTION,health:5,mob:'piglin'}]]){
+  const t=await hurtInTunnel({...opts,setup:bot=>{if(opts.mob)bot.entity.metadata=[1];else alight(bot)}})
+  assert.equal(t.names[0],'hut',name+': '+t.names.join(' ')+' :: '+t.said.join(' | '))
+  assert.ok(!t.names.some(a=>['use_portal','douse',...RUNS].includes(a)),name+': '+t.names.join(' '));assert.equal(t.ownTunnel,true,name)
+ }
+})
+test('in a fire block or lava, or with fire in the column\'s open end, the fire answer stands as on main',async()=>{
+ const lava=await hurtInTunnel({reason:FIRE_EMERGENCY,health:20,setup:bot=>{alight(bot);bot.entity.isInLava=true}})
+ assert.equal(lava.names[0],'douse','in lava: '+lava.names.join(' '));assert.notEqual(lava.ownTunnel,true)
+ const fire=await hurtInTunnel({reason:FIRE_EMERGENCY,health:20,setup:bot=>{alight(bot);blockIn(bot,'fire',{x:0,y:64,z:3})}})
+ assert.equal(fire.names[0],'douse','in a fire block: '+fire.names.join(' '))
+ const end=await hurtInTunnel({reason:HEALTH_EMERGENCY,health:5,setup:bot=>{alight(bot);blockIn(bot,'fire',{x:-1,y:64,z:3})}})
+ assert.equal(end.names[0],'use_portal','fire in the open end: '+end.names.join(' ')+' :: '+end.said.join(' | '));assert.notEqual(end.ownTunnel,true)
 })

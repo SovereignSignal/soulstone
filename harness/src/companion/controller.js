@@ -29,7 +29,20 @@ const BURROW_WATCHES=4
 const PORTAL_ROOM_STANDOFF=6
 // The portal-first reach: a portal this close is stepped into rather than walked to (exitNow, shutIn, the own-tunnel cap).
 const PORTAL_AT_HAND=3
-const TUNNEL_LIQUIDS=new Set(['lava','water','bubble_column'])
+const TUNNEL_HAZARDS=new Set(['lava','water','bubble_column',...FIRE_BLOCKS])
+// Whether the bot, in the Nether in a covered column of its tunnel, can hold there for this alarm: a threat, a hurt bot,
+// or flames from a fireball alone (re-review of c463b9a: they burn out in seconds whatever the bot does, and a walk of
+// up to 48 blocks under blaze fire is the 16 October 18:44Z blaze death). Not in lava, a fire block or water, nothing
+// of the kind in the column's open ends, and food carried or hunger at the 18 that heals: starving with nothing to eat,
+// or with lava or fire coming in, cover only waits for death and the old answers stand. The caller adds the request.
+function tunnelHoldable(bot,reason){
+ if(![THREAT_INTERRUPTION,HEALTH_EMERGENCY,FIRE_EMERGENCY].includes(reason)||!inNether(bot))return false
+ const column=coveredColumn(bot);if(!column)return false
+ const here=survivalObservation(bot)
+ if(here.inLava===true||here.inFire===true||here.headSubmerged===true||here.inWater===true)return false
+ if(column.open.some(c=>TUNNEL_HAZARDS.has(bot.blockAt(c)?.name)))return false
+ return here.carriedFood.length>0||Number.isFinite(here.food)&&here.food>=18
+}
 // How a shelter that will not clear moves away: through the portal when in the
 // Nether with one in reach, toward the middle of the island in the End, where
 // every way outward ends in the void, otherwise by running from the threats.
@@ -81,7 +94,7 @@ export const DAYLIGHT_MS=(12500-1000)/20*1000
 export const FAR_SHELTER=48
 // How far from where it closed the door a restarted bot still counts as in that shelter.
 const SHELTER_DRIFT=4
-import {hostileNow,survivalObservation,fireObservation,SHOOTERS_ONLY,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS,HEALTH_EMERGENCY_LINE,outOfReach,cannotShootYet,sealedStill} from '../survival.js'
+import {hostileNow,survivalObservation,fireObservation,FIRE_BLOCKS,SHOOTERS_ONLY,emergencyReason,threatRadius,CLOSE_FLOORS,WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY,HEALTH_THREAT_RADIUS,HEALTH_EMERGENCY_LINE,outOfReach,cannotShootYet,sealedStill} from '../survival.js'
 // Air, fire and a portal underfoot run their own recovery at once and preempt
 // any shelter attempt: each has a clock no shelter stops.
 const URGENT=new Set([WATER_EMERGENCY,FIRE_EMERGENCY,PORTAL_EMERGENCY])
@@ -688,7 +701,9 @@ export class Teammate extends EventEmitter {
         }else this.say('I am out of the portal and will not walk through it. '+(canResume(request)?'Resume is available if the saved request can safely continue.':'Ready for your next instruction.'))
         return
       }
-      if(reason===FIRE_EMERGENCY){
+      // Alight from a fireball in its own tunnel, with no fire block or lava at hand, the hut is the answer, not the
+      // douse's walk to water or the portal (tunnelHoldable): the flames go out in seconds whatever the bot does.
+      if(reason===FIRE_EMERGENCY&&!(tunnelHoldable(this.runner.bot,reason)&&(!!interruptedActiveRequest||canResume(this.requestProgress)))){
         await this.execute({action:'douse',goal:{},timeoutMs:30000},abort.signal)
         if(epoch!==this.epoch||abort.signal.aborted)return
         const result=this.safety.fire=structuredClone(this.runner.task.result),request=this.requestProgress,how=result?.receipt==='not_burning'?'it had already gone out':String(result?.method||'put out').replaceAll('_',' ')
@@ -744,13 +759,7 @@ export class Teammate extends EventEmitter {
       // within the portal-first reach (three blocks, as exitNow and shutIn) is still taken first.
       // Review of 55698df: in its own tunnel (ownTunnel) no walk goes for a portal more than PORTAL_AT_HAND off, the trip's
       // last resort included: past it the bot walls in, and the shelter wait it hands to (safety.ownTunnel) holds.
-      // Only against a threat or for a hurt bot that can heal where it stands (re-review of c463b9a): not burning, not in
-      // lava, fire or water, no liquid in the column's open ends, and food carried or hunger at the 18 that heals. Starving
-      // with nothing to eat, or with lava coming in, cover only waits for death and the portal walk stands as before.
-      const column=[THREAT_INTERRUPTION,HEALTH_EMERGENCY].includes(reason)&&inNether(recoveryBot)?coveredColumn(recoveryBot):null,here=column?survivalObservation(recoveryBot):null
-      const canHoldHere=!!here&&here.onFire!==true&&here.inLava!==true&&here.inFire!==true&&here.headSubmerged!==true&&here.inWater!==true&&
-        !column.open.some(c=>TUNNEL_LIQUIDS.has(recoveryBot.blockAt(c)?.name))&&(here.carriedFood.length>0||Number.isFinite(here.food)&&here.food>=18)
-      const ownTunnel=canHoldHere&&(!!interruptedActiveRequest||canResume(this.requestProgress))
+      const ownTunnel=tunnelHoldable(recoveryBot,reason)&&(!!interruptedActiveRequest||canResume(this.requestProgress))
       if(ownTunnel){this.safety.ownTunnel=true;this.persist()}
       const portalReach=ownTunnel?PORTAL_AT_HAND:null
       const holdColumn=!tripNow&&ownTunnel&&!recoveryBot.findBlock?.({matching:recoveryBot.registry?.blocksByName?.nether_portal?.id,maxDistance:PORTAL_AT_HAND})
@@ -1166,7 +1175,8 @@ export class Teammate extends EventEmitter {
       if(['burrow','hut'].includes(this.safety.retreat.shelterName)){
         this.safety.status='burrowed';this.phase='blocked';this.persist()
         this.say((this.safety.retreat.shelterName==='hut'?'I am walled in.':this.safety.retreat.capped?'I am dug in below the surface with the shaft capped.':'I am dug in below the surface; no cap block was available.')+' I will wait for daylight and a clear area before opening up.')
-        await this.waitInBurrow(epoch,abort.signal,recoveryBot,interruptedActiveRequest&&[THREAT_INTERRUPTION,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY].includes(reason))
+        // A fireball's flames walled in in its own tunnel (tunnelHoldable) carry on from the hut like any other hold.
+        await this.waitInBurrow(epoch,abort.signal,recoveryBot,interruptedActiveRequest&&([THREAT_INTERRUPTION,NIGHT_EXPOSURE,HEALTH_EMERGENCY,FOOD_EMERGENCY].includes(reason)||reason===FIRE_EMERGENCY&&!!this.safety.ownTunnel))
         return
       }
       // A request that was blocked before the retreat is blocked after it, so the stall
