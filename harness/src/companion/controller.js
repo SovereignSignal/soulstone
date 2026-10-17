@@ -206,7 +206,7 @@ import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { dirname,join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { validatePlan } from './planner.js'
-import {hutSite,hutMaterials,portalRoomSpot,coveredColumn,WALLS_NOT_MINE} from '../hut.js'
+import {hutSite,hutMaterials,portalRoomSpot,coveredColumn,cellOccupant,WALLS_NOT_MINE} from '../hut.js'
 import {rangedDefenseDecision,bowCanAnswer} from '../archery.js'
 import {onTrip,tripKit,walkOnThreat,portReady,tripPickup,sitesNearHut,PICKUP,PORT_HEALTH,PORT_FOOD,TRIP_HEALTH} from '../nether-trip.js'
 import {deliveredCount,satisfiedStep,currentRequestTask} from './progress.js'
@@ -2267,38 +2267,57 @@ export class Teammate extends EventEmitter {
     // Tunnel end left open, R8 trip, 17 October about 05:10Z: goto with dig stepped up out of the pocket beside the spawner
     // and dug the cell beside the bot's own head-height slit cell, whose cell below was spawner-room air, a two-high doorway
     // into the one-wide tunnel; piglins walked in and blocked it on the next two trips. Before a command that may move the
-    // bot away, the slit cells still open are closed with the same tries and refusal as a stand's port. A cell out of reach
-    // (a safety walk already took the bot away, or a portal) cannot be closed from here: it is dropped and logged.
-    if(this.slitOpen&&!SLIT_KEEPS.has(command.action)){
-      const bot=this.runner.bot,cellOf=c=>new Vec3(c.x,c.y,c.z),open=()=>this.slitOpen.filter(c=>!fullCube(bot?.registry,bot?.blockAt?.(cellOf(c))?.name))
-      const eye=bot?.entity?.position?.offset(0,bot.entity.eyeHeight??1.62,0),far=open().filter(c=>!eye||cellOf(c).offset(.5,.5,.5).distanceTo(eye)>SLIT_REACH)
-      if(far.length){this.runner.log?.('slit_left_open',{cells:far,action:command.action});this.slitOpen=this.slitOpen.filter(c=>!far.includes(c))}
-      const safety=STAND_PORT_SAFE.has(command.action)
-      if(open().length)this.say('My slit in the tunnel wall is still open. Closing it before I move.')
-      for(let attempt=0;attempt<(safety?1:2)&&open().length;attempt++){
-        if(attempt){await delay(this.standPortRetryMs??2000);if(signal.aborted)throw new Error('Cancelled')}
-        try{await Teammate.prototype.executeCommand.call(this,{action:'hut',goal:{close:open()},timeoutMs:60000},signal)}catch(error){if(signal.aborted)throw error;this.runner.log?.('slit_unclosed',{attempt:attempt+1,reason:String(error.message).slice(0,120)})}
-      }
-      if(!open().length)this.slitOpen=null
-      else if(!safety){
-        // Children read this: plain and calm.
-        this.say('Something is in the way, so I cannot close my slit yet. I am staying right here and will try again.')
-        throw new Error('My slit is still open; staying in place until it closes')
-      }
-    }
+    // bot away the slit closes (closeSlit). Review of that fix (Sonnet, 17 October): a hut that steps to its portal room is
+    // such a command, and after any other command that moved the bot the slit closes then, while it is still in reach.
+    const keepsSlit=SLIT_KEEPS.has(command.action)&&!(command.action==='hut'&&command.goal?.portalRoom)
+    if(this.slitOpen&&!keepsSlit)await Teammate.prototype.closeSlit.call(this,command,signal)
+    const feetKey=()=>{const p=this.runner.bot?.entity?.position;return p?`${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`:null}
+    const from=this.slitOpen&&keepsSlit&&!(command.action==='hut'&&command.goal?.close)?feetKey():null
+    const closeAfter=async()=>{if(from&&this.slitOpen&&!signal.aborted&&feetKey()!==from){try{await Teammate.prototype.closeSlit.call(this,command,signal,{after:true})}catch(error){this.runner.log?.('slit_unclosed',{after:command.action,reason:String(error.message).slice(0,120)})}}}
     const deferredDeparture=['acquire','prepare'].includes(command.action)&&insideBase(this.runner.bot,this.projects.base)
     // The checked door exit is for work. A safety action never walks out of a
     // shelter first: fleeing a creeper at the door used to open the door on it.
     if(!deferredDeparture&&!['defend','eat','craft','stop','leave_base','burrow','unburrow','flee','hut','climb','descend','tunnel_out'].includes(command.action))await this.leaveOccupiedShelter(signal,command.action==='retreat'?(command.goal?.shelter?.name||'base'):null)
     // The planner's own leave_base is the same door with the same answer.
     if(command.action==='leave_base'&&(insideBase(this.runner.bot,this.projects.base)||occupiedAlternative(this.runner.bot,this.projects))){const refusal=departureRefusal(this.runner.bot,baseForDoor(this));if(refusal)throw refusal}
-    return new Promise((resolve, reject) => {
+    try{return await new Promise((resolve, reject) => {
       let taskId
       const cleanup = () => { this.runner.off('event', handler); signal.removeEventListener('abort', onAbort) }
       const onAbort = () => { cleanup(); reject(new Error('Cancelled')) }
       const handler = e => { if (e.type !== 'task_finished' || e.task?.id !== taskId) return; cleanup(); e.task.status === 'completed' ? resolve() : reject(new Error(e.task.reason || 'Task failed')) }
       this.runner.on('event', handler); signal.addEventListener('abort', onAbort, { once: true })
       try { if (signal.aborted) return onAbort(); this.dispatch(command); taskId = this.runner.task.id;started(taskId) } catch (e) { cleanup(); reject(e) }
-    })
+    })}finally{await closeAfter()}
+  }
+  // The slit cells still open, closed from where the bot stands: the same tries and refusal as a stand's port, in batches
+  // of eight (a hut's close goal takes eight). A cell out of reach (a safety walk already took the bot away, or a portal)
+  // cannot be closed from here: it is dropped and logged. Review of the slit close (Sonnet, 17 October): the close strikes a
+  // hostile in a cell (hut.js closeCells); after the tries, a cell a mob still holds, or no blocks left to close it, drops
+  // the record with one calm line, so the walk home is never refused for ever. after: a command already done moved the bot.
+  async closeSlit(command,signal,{after=false}={}){
+    const bot=this.runner.bot,cellOf=c=>new Vec3(c.x,c.y,c.z),open=()=>(this.slitOpen||[]).filter(c=>!fullCube(bot?.registry,bot?.blockAt?.(cellOf(c))?.name))
+    const eye=bot?.entity?.position?.offset(0,bot.entity.eyeHeight??1.62,0),far=open().filter(c=>!eye||cellOf(c).offset(.5,.5,.5).distanceTo(eye)>SLIT_REACH)
+    if(far.length){this.runner.log?.('slit_left_open',{cells:far,action:command.action,reason:'out of reach'});this.slitOpen=this.slitOpen.filter(c=>!far.includes(c))}
+    const safety=after||STAND_PORT_SAFE.has(command.action)
+    if(open().length)this.say(after?'My slit in the tunnel wall is still open. Closing it now.':'My slit in the tunnel wall is still open. Closing it before I move.')
+    for(let attempt=0;attempt<(safety?1:2)&&open().length;attempt++){
+      if(attempt){await delay(this.standPortRetryMs??2000);if(signal.aborted)throw new Error('Cancelled')}
+      for(const cells=open();cells.length;){
+        const batch=cells.splice(0,8)
+        try{await Teammate.prototype.executeCommand.call(this,{action:'hut',goal:{close:batch},timeoutMs:60000},signal)}catch(error){if(signal.aborted)throw error;this.runner.log?.('slit_unclosed',{attempt:attempt+1,reason:String(error.message).slice(0,120)})}
+      }
+    }
+    if(!open().length){this.slitOpen=null;return}
+    if(safety)return
+    const held=open().filter(c=>cellOccupant(bot,cellOf(c))),bare=!hutMaterials(bot).length
+    if(held.length||bare){
+      this.runner.log?.('slit_left_open',{cells:open(),action:command.action,reason:held.length?'occupied':'no blocks'})
+      // Children read this: plain and calm.
+      this.say(held.length?'Something is sitting in my slit, so I am leaving it open and going on.':'I have no blocks left to close my slit, so I am leaving it open and going on.')
+      this.slitOpen=null;return
+    }
+    // Children read this: plain and calm.
+    this.say('Something is in the way, so I cannot close my slit yet. I am staying right here and will try again.')
+    throw new Error('My slit is still open; staying in place until it closes')
   }
 }

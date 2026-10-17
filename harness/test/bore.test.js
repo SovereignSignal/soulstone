@@ -483,3 +483,54 @@ test('a slit cell out of reach is dropped from the record and logged, never bloc
  await c.executeCommand({action:'goto',goal:{x:-30,y:64,z:0,dig:false},timeoutMs:60000},new AbortController().signal);c.cancel?.(true)
  assert.deepEqual(acts(),['goto']);assert.equal(c.slitOpen,null);assert.ok(logged.some(e=>e.type==='slit_left_open'&&e.cells.length===3),JSON.stringify(logged))
 })
+
+// Review of the slit close (Sonnet, 17 October). A mob standing in a slit cell refused every walk home: the close had no
+// strike, and with no blocks left the refusal was for ever. A keeps-command that moves the bot (a hut stepping to its portal
+// room, leave_portal) left the slit open and the record was later dropped as out of reach. And the close goal takes 8 cells.
+const slitWorld=async()=>{
+ const w=world({fills:ROOM,blazes:BLAZES}),task={id:'b',kind:'bore',goal:{x:10,y:64,z:0,count:10,slit:true}}
+ await executeSkill(w.bot,task,api);task.status='completed'
+ const s=slitController(w),said=[],logged=[];s.c.say=m=>said.push(m);s.r.log=(type,data)=>logged.push({type,...data})
+ s.r.emit('event',{type:'task_finished',task})
+ return {w,...s,said,logged,signal:new AbortController().signal}
+}
+const shut=w=>SLIT.map(p=>w.cells.get(k(p.x,p.y,p.z)))
+test('a hostile in a slit cell is struck from the tunnel, then the slit closes and the goto runs',async()=>{
+ const s=await slitWorld(),struck=[]
+ s.w.inventory.push({name:'iron_sword',count:1,maxDurability:250,durabilityUsed:0})
+ Object.assign(s.w.bot,{async lookAt(){},attack(e){struck.push(e.name);delete s.w.bot.entities[e.id]}})
+ s.w.bot.entities[200]={id:200,name:'magma_cube',type:'hostile',height:1.04,width:1.04,position:new Vec3(4.5,65,.5)}
+ await s.c.executeCommand({action:'goto',goal:{x:0,y:64,z:0,dig:true},timeoutMs:60000},s.signal);s.c.cancel?.(true)
+ assert.deepEqual(struck,['magma_cube']);assert.deepEqual(s.acts(),['hut','goto']);assert.deepEqual(shut(s.w),['cobblestone','cobblestone','cobblestone'])
+})
+test('a slit cell a calm mob holds, or no blocks to close it, drops the record after two tries and the goto runs',async()=>{
+ const calm=await slitWorld()
+ calm.w.bot.entities[200]={id:200,name:'zombified_piglin',type:'hostile',height:1.95,position:new Vec3(4.5,64.7,.5)}
+ await calm.c.executeCommand({action:'goto',goal:{x:0,y:64,z:0,dig:true},timeoutMs:60000},calm.signal);calm.c.cancel?.(true)
+ assert.deepEqual(calm.acts(),['hut','hut','goto']);assert.equal(calm.c.slitOpen,null)
+ assert.ok(calm.logged.some(e=>e.type==='slit_left_open'&&e.reason==='occupied'),JSON.stringify(calm.logged))
+ assert.equal(calm.said.filter(m=>/leaving it/.test(m)).length,1,calm.said.join(' | '))
+ const bare=await slitWorld()
+ bare.w.inventory.splice(0,bare.w.inventory.length,{name:'iron_pickaxe',count:1,type:registry.itemsByName.iron_pickaxe.id})
+ await bare.c.executeCommand({action:'goto',goal:{x:0,y:64,z:0,dig:true},timeoutMs:60000},bare.signal);bare.c.cancel?.(true)
+ assert.equal(bare.acts().at(-1),'goto');assert.equal(bare.c.slitOpen,null)
+ assert.ok(bare.logged.some(e=>e.type==='slit_left_open'&&e.reason==='no blocks'),JSON.stringify(bare.logged))
+})
+test('a hut that steps to its portal room closes the slit first; a leave_portal that moved the bot closes it after',async()=>{
+ const room=await slitWorld(),plain=room.r.command
+ room.r.command=c=>{if(!c.goal?.portalRoom)return plain(c);room.r.commands.push(c);const t=room.r.task={id:'p',kind:'hut',status:'completed',goal:c.goal,result:{receipt:'walled_in'}};setTimeout(()=>room.r.emit('event',{type:'task_finished',task:t}),1)}
+ await room.c.executeCommand({action:'hut',goal:{portalRoom:true},timeoutMs:60000},room.signal);room.c.cancel?.(true)
+ assert.deepEqual(room.r.commands.filter(x=>x.action!=='stop').map(x=>x.goal),[{close:SLIT},{portalRoom:true}])
+ const step=await slitWorld(),command=step.r.command
+ step.r.command=c=>{if(c.action==='leave_portal')step.w.bot.entity.position=new Vec3(2.5,64,.5);return command(c)}
+ await step.c.executeCommand({action:'leave_portal',goal:{},timeoutMs:60000},step.signal);step.c.cancel?.(true)
+ assert.deepEqual(step.acts(),['leave_portal','hut']);assert.deepEqual(step.r.commands.find(x=>x.action==='hut').goal,{close:SLIT})
+ assert.deepEqual(shut(step.w),['cobblestone','cobblestone','cobblestone']);assert.equal(step.c.slitOpen,null)
+})
+test('more than eight open slit cells close in batches of eight',async()=>{
+ const s=await slitWorld(),extra=[];for(const y of [64,65])for(let z=-2;z<=2;z++)extra.push({x:5,y,z})
+ s.c.slitOpen=[...extra]
+ await s.c.executeCommand({action:'goto',goal:{x:0,y:64,z:0,dig:true},timeoutMs:60000},s.signal);s.c.cancel?.(true)
+ assert.deepEqual(s.r.commands.filter(x=>x.action==='hut').map(x=>x.goal.close.length),[8,2]);assert.equal(s.acts().at(-1),'goto')
+ for(const c of extra)assert.equal(s.w.cells.get(k(c.x,c.y,c.z)),'cobblestone',JSON.stringify(c))
+})

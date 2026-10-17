@@ -12,6 +12,7 @@ import {hop} from './portal-guard.js'
 import {inNether} from './dimension.js'
 import {claimPlaced,breakable,ownedNow} from './natural.js'
 import {plainFirst,holdToPlace} from './placement.js'
+import {weaponFor,portStrike} from './combat.js'
 import pathfinding from 'mineflayer-pathfinder'
 const {goals}=pathfinding
 import {Vec3} from 'vec3'
@@ -211,9 +212,22 @@ async function placeCells(bot,placements,{check,progress,feet,materials=()=>hutM
 // R8 trip, 17 October about 05:10Z: a bore's slit left open beside the tunnel became a doorway once the bot moved on. The
 // controller closes cells the bot left open (task.slitOpen) with these placements, from where it stands, before it moves
 // away; cobblestone first, as the portal seal's. Idempotent: what stands is skipped.
-async function closeCells(bot,list,{check,stage,progress}){
+// Review of the slit close (Sonnet, 17 October): a mob standing in a cell refused the block for ever. A mob hostile to the bot
+// in an open cell, within a clear strike, is struck first, in place, as the stand's close strikes one in its port; a calm
+// one is left, and the cell with it. strikeMs bounds the striking.
+export const CLOSE_STRIKE_MS=10000
+async function closeCells(bot,list,{check,stage,progress},{strikeMs=CLOSE_STRIKE_MS,poll=50}={}){
  if(!bot.entity.onGround)await settle(()=>bot.entity.onGround,{check})
  const feet=bot.entity.position.floored(),cells=list.map(c=>new Vec3(c.x,c.y,c.z))
+ for(let end=Date.now()+strikeMs,next=0;Date.now()<end;){
+  check()
+  const mob=cells.filter(c=>!solid(bot,bot.blockAt(c))).map(c=>occupying(bot,c)).find(e=>e&&portStrike(bot,e,null,{anyHostile:true}))
+  const weapon=mob&&weaponFor(bot,mob);if(!weapon)break
+  if(bot.heldItem?.name!==weapon.name){await bot.equip(weapon,'hand');check()}
+  await bot.lookAt(mob.position.offset(0,Math.min(1.2,(mob.height??1.8)/2),0),true);check()
+  if(Date.now()>=next&&bot.entities?.[mob.id]===mob){stage('fighting');progress(`Striking the ${mob.name||'mob'} in ${key(mob.position.floored())} before I close it`);bot.attack(mob);next=Date.now()+(weapon.name.endsWith('_axe')?1300:700)}
+  await delay(poll)
+ }
  stage('walling');progress(`Closing ${cells.length} cells I left open`)
  const cobble=()=>{const m=hutMaterials(bot);return [...m.filter(i=>i.name==='cobblestone'),...m.filter(i=>i.name!=='cobblestone')]}
  const placed=await placeCells(bot,cells.map(target=>({target,ref:null})),{check,progress,feet,materials:cobble})
@@ -276,6 +290,8 @@ const PORT_MOBS=new Set([...SHOOTERS_ONLY,'enderman'])
 const LIQUID=new Set(['water','lava','bubble_column'])
 const AROUND=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]
 // The controller tells a stuck hut by these words (waitInBurrow), so they are kept in one place.
+// Whatever stands in a cell so a block cannot go there (the controller's slit close reads it).
+export const cellOccupant=(bot,c)=>occupying(bot,c)
 export const WALLS_NOT_MINE='not natural ground and not placed by me'
 const opens=(bot,b)=>!b||REPLACEABLE.has(b.name)||breakable(bot,b)||ownedNow(bot,b)
 // Exported for the hut's watch (burrow.js portSightline), so it judges a shot only through the
