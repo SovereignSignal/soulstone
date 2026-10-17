@@ -1,5 +1,5 @@
 // Covered moves: walled in on a Nether trip, the bot digs a shaft and bores toward the work
-// without ever opening its cover. Family rehearsal, 16 October: walled in beside the arrival
+// without ever opening its cover. Play-world rehearsal, 16 October: walled in beside the arrival
 // portal at the hub, with a pillager, three wither skeletons and a zombified piglin within 24
 // blocks, the wait held "for daylight and a clear area", which never comes in the Nether. The
 // model proposes one move at a time (planner.covered); the harness admits it or refuses it with
@@ -82,7 +82,7 @@ function admit(c,bot,v,sites){
  let goal;try{goal=validateBoreGoal({...v.target,count:v.count,protectedSites:sites})}catch(error){return {reason:error.message}}
  const path=borePath(f,goal)
  if(!path.length)return {reason:`${key(goal)} is straight above or below; dig a shaft with dig`}
- // Live, 16 October: the family seed's Nether arrival is a fortress bridge of nether bricks the family rule
+ // Live, 16 October: the play-world seed's Nether arrival is a fortress bridge of nether bricks the play-world rule
  // never digs, so the first column may be the bot's own hut wall as well as rock. Blaze death, 18:44Z: a bore
  // from that hut dug its wall into open floored air, the cavity joined the fortress ground and the shelter
  // failed open. Under cover a bore goes through rock only: the column beyond the wall is full cubes too.

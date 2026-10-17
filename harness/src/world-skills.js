@@ -208,7 +208,7 @@ export async function executeWorldSkill(bot,task,context,gather) {
   if(existing?.name===name)return
   // Repairing the saved base (its own origin, its own design cells): a plain cube
   // standing where the design says something else is a patch, not an
-  // obstruction. The family base's roof had cobblestone where a plank belongs
+  // obstruction. The play-world base's roof had cobblestone where a plank belongs
   // after a pit escape, and every repair refused it as "obstructed".
   const ownBase=task.goal?.purpose==='shelter'&&task.goal?.origin&&['x','y','z'].every(k=>context.shelterProject?.build?.origin?.[k]===task.goal.origin[k])
   if(ownBase&&existing&&existing.name!=='air'&&plainCube(bot)(existing)&&count(name)){
@@ -504,7 +504,7 @@ export async function executeWorldSkill(bot,task,context,gather) {
   // Under rock a search leg tunnels at its own depth; the surface walk cannot
   // start from a tunnel (test run 45, 3 October: six legs failed in a minute).
   // A tunnelled leg costs a pickaxe use per block. Only plain pickaxes pay for
-  // it: the diamond one wore out this way in the family world (4 October).
+  // it: the diamond one wore out this way in the play world (4 October).
   const plainPickUses=()=>bot.inventory.items().filter(i=>/_pickaxe$/.test(i.name)&&!PRECIOUS.test(i.name)).reduce((n,i)=>n+Math.max(0,remainingDurability(i)-TOOL_RESERVE),0)
   const staircase=to=>digStaircase(bot,to,{check,progress,stage,protectedSites:task.goal.protectedSites||[]})
   // Under rock, short of plain pickaxes, make more from what is carried before a leg refuses.

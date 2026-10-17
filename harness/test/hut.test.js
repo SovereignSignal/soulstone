@@ -70,7 +70,7 @@ test('a dropped placement is retried once; a wall that never lands fails the hut
  await assert.rejects(wallIn(v.bot,{kind:'hut',goal:{}},api),/Hut incomplete: 2 of 10/)
 })
 test('when the burrow is refused, safety walls in, waits, opens up and continues the request',async()=>{
- const w=world({stoneFrom:62});const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov'
+ const w=world({stoneFrom:62});const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Player'
  const commands=[]
  runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'}
   const fail=c.action==='burrow';const result=c.action==='hut'?{receipt:'walled_in',shelterName:'hut',surface:{x:10,y:64,z:10}}:c.action==='unhut'?{receipt:'unwalled'}:{}
@@ -305,7 +305,7 @@ test('unhut opens the side it is given, not the one with the most pull',async()=
  blazeAt(hot.bot,13.5,63,10.5);hot.cells.set(new Vec3(10,66,11).toString(),'lava');hot.dug.length=0
  await assert.rejects(unwall(hot.bot,{kind:'unhut',goal},api),/No wall facing the blaze/);assert.deepEqual(hot.dug,[])
 })
-// 16 October: the hut leans on any wall already standing, and in the family world that can be
+// 16 October: the hut leans on any wall already standing, and in the play world that can be
 // a player's. A port, or the plain exit, opens only what the bot may break: natural ground, or a
 // block it placed itself. The bot stands at 10,64,10; a wall at x 11 is the east side.
 function besideWall(name,{own=false}={}){

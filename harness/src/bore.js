@@ -7,7 +7,7 @@
 // plugs every face a column uncovers before stepping in, stops one column short of
 // open space and keeps that column as the wall, with a three-cell slit at head
 // height (lab run 166, 16 October: the bay at -42,59,-8 had exactly that shape and
-// held twenty minutes). Lava and the family rule stop it with a named reason;
+// held twenty minutes). Lava and the play-world rule stop it with a named reason;
 // nothing is left half done, so the next bore from where it stands carries on.
 import {Vec3} from 'vec3'
 import {refuseDigCell,digOne,walkNear,inventoryCounts,inventoryDelta,validateProtectedSites,inProtectedSite,LIQUID,AIR,key} from './primitives.js'
@@ -128,7 +128,7 @@ export async function boreToward(bot,task,{check,stage,progress,movements,persis
  const far=p=>!goal.slit||Math.abs(goal.x-p.x)+Math.abs(goal.z-p.z)>SLIT_REACH
  // A floor bore can stand on or lay: solid and not burning, or air to place one in.
  const floored=p=>{const b=bot.blockAt(p.offset(0,-1,0));return !!b&&(AIR.has(b.name)||solid(b))&&!hot(b)}
- // Family rehearsal, 16 October: the arrival portal stands on a fortress bridge of nether bricks over
+ // Play-world rehearsal, 16 October: the arrival portal stands on a fortress bridge of nether bricks over
  // a lava sea, and the bridge ends in a void well short of solid land. Bricks are never dug. Open air
  // far from the target, level or going down, is crossed under cover instead: the floor laid where
  // there is none, then walls and roof, all from carried blocks before the step. Walking on bricks
@@ -188,7 +188,7 @@ export async function boreToward(bot,task,{check,stage,progress,movements,persis
    for(const p of cells)open.add(key(p))
    columns++;covered++;frontLeft=front.length?[next.offset(0,-1,0),...front]:[];continue
   }
-  // The family rule, lava beside, over or under, falling blocks overhead: refuseDigCell as dig judges them, but
+  // The play-world rule, lava beside, over or under, falling blocks overhead: refuseDigCell as dig judges them, but
   // with its own blocks of any age diggable (live, 16 October 22:16Z: its 3.6-hour-old tunnel plug stopped it).
   let refused=null
   for(const p of cells){const why=refuseDigCell(bot,p,{protectedSites:sites,role:'head',ownAnyAge:true});if(why){refused=[why,p];break}}

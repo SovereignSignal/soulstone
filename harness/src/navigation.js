@@ -107,7 +107,7 @@ export class DoorAwareMovements extends Movements {
   // Never a one-wide bridge over a drop that hurts, or over lava: run 88 bridged
   // out from a Nether fortress over the lava sea, was set alight, and fell in.
   this.exclusionAreasPlace.push(block=>block?.position&&bridgeFall(bot,block.position)==='unsafe'?100:0)
-  // Sov's limit: never step through a portal. A lit nether portal is open air to
+  // The owner's limit: never step through a portal. A lit nether portal is open air to
   // the pathfinder, so any route through a frame would end in the Nether.
   for(const name of PORTAL_BLOCKS){const id=bot.registry.blocksByName[name]?.id;if(Number.isInteger(id))this.blocksToAvoid.add(id)}
  }

@@ -132,8 +132,8 @@ test('criterion stall reports true at exactly CRITERION_STALL_ROUNDS and false o
 class FakeRunner extends EventEmitter {
   constructor(){
     super()
-    this.profile='lab';this.owner='Sov';this.ready=true;this.commands=[];this.pos={x:0,y:64,z:0}
-    this.bot={players:{Sov:{entity:{position:{x:1,y:64,z:2}}}},inventory:{items:()=>[]}}
+    this.profile='lab';this.owner='Player';this.ready=true;this.commands=[];this.pos={x:0,y:64,z:0}
+    this.bot={players:{Player:{entity:{position:{x:1,y:64,z:2}}}},inventory:{items:()=>[]}}
   }
   position(){return {...this.pos}}
   command(c){

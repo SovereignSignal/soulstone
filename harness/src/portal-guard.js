@@ -9,7 +9,7 @@ import {wayBack,standingGround} from './trail.js'
 import {plainCube} from './scaffold.js'
 const {goals}=pathfinding
 
-// Sov's limit: never step through a portal or enter the Nether. A survival
+// The owner's limit: never step through a portal or enter the Nether. A survival
 // player standing in a nether portal is carried through after four seconds,
 // so this never waits for a model or a path search: it faces the nearest
 // standing cell outside the portal and walks.

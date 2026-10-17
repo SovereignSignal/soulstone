@@ -44,9 +44,9 @@ test('the admin chooses who is heard: the owner, a named list, or anyone',()=>{
  assert.throws(()=>validateListeners({mode:'friends'}),/one of/);assert.throws(()=>validateListeners({mode:'list'}),/at least one/)
  assert.throws(()=>validateListeners({mode:'list',players:['bad name!']}),/Not a Minecraft player name/)
  assert.deepEqual(validateListeners({mode:'list',players:['Ada','ada','Bo']}).players,['Ada','Bo'])
- assert.equal(allows({mode:'owner',players:[]},'sov','Sov'),true);assert.equal(allows({mode:'owner',players:[]},'Ada','Sov'),false)
- assert.equal(allows({mode:'list',players:['Ada']},'ADA','Sov'),true);assert.equal(allows({mode:'list',players:['Ada']},'Sov','Sov'),false,'a named list is exactly the list')
- assert.equal(allows({mode:'anyone',players:[]},'Whoever','Sov'),true)
+ assert.equal(allows({mode:'owner',players:[]},'player','Player'),true);assert.equal(allows({mode:'owner',players:[]},'Ada','Player'),false)
+ assert.equal(allows({mode:'list',players:['Ada']},'ADA','Player'),true);assert.equal(allows({mode:'list',players:['Ada']},'Player','Player'),false,'a named list is exactly the list')
+ assert.equal(allows({mode:'anyone',players:[]},'Whoever','Player'),true)
  const path=join(mkdtempSync(join(tmpdir(),'mc-listen-')),'listeners.json'),l=new Listeners(path,{mode:'list',players:['Ada']})
  assert.equal(l.snapshot().mode,'list');l.save({mode:'anyone'});assert.equal(JSON.parse(readFileSync(path,'utf8')).mode,'anyone')
  assert.equal(new Listeners(path,{mode:'owner'}).snapshot().mode,'anyone','the saved choice outlives the setup default')
@@ -99,9 +99,9 @@ test('game chat gets plain lines, never the planner\'s bookkeeping',()=>{
 })
 import {busyFor} from '../src/chat-voice.js'
 import {validateAttackGoal} from '../src/primitives-world.js'
-test('kids in game chat: audience setting, plain safety words, one job at a time, pets safe, the planner told who is asking',()=>{
- // Sov, 3 October: "they will send it crazy commands ... they are 7, 10 and 15".
- assert.deepEqual(validateListeners({mode:'anyone',audience:'  kids aged 7, 10 and 15 '}),{mode:'anyone',players:[],audience:'kids aged 7, 10 and 15'})
+test('young players in game chat: audience setting, plain safety words, one job at a time, pets safe, the planner told who is asking',()=>{
+ // The owner, 3 October: "they will send it crazy commands".
+ assert.deepEqual(validateListeners({mode:'anyone',audience:'  young players '}),{mode:'anyone',players:[],audience:'young players'})
  assert.throws(()=>validateListeners({mode:'anyone',audience:'x'.repeat(121)}),/120/)
  assert.equal(gameLine('A potential hostile is within ten blocks. I am pausing work and assessing self-defense.'),'Uh oh, a monster is close! Hang on.')
  assert.equal(gameLine('A creeper is 12.8 blocks away. Sprinting clear before sheltering.'),'Creeper! Running away!')
@@ -111,13 +111,13 @@ test('kids in game chat: audience setting, plain safety words, one job at a time
  assert.equal(gameLine('I could not finish: Goal still incomplete. The milestone verification failed.'),'I could not finish that one, sorry!')
  assert.equal(gameLine('Cornered by a zombie with nowhere to shelter. Fighting with my stone axe.'),'I am trapped by a zombie! Fighting back!')
  const t=phase=>({phase,requestProgress:{status:'running',requester:'Ada'}})
- assert.match(busyFor(t('acting'),'Bo','Sov'),/busy helping Ada.*soul stop/)
- assert.equal(busyFor(t('acting'),'Ada','Sov'),null,'the same player may change their own request');assert.equal(busyFor(t('acting'),'sov','Sov'),null,'the owner overrides')
- assert.equal(busyFor(t('blocked'),'Bo','Sov'),null,'a waiting request can be replaced');assert.equal(busyFor({phase:'ready',requestProgress:null},'Bo','Sov'),null)
+ assert.match(busyFor(t('acting'),'Bo','Player'),/busy helping Ada.*soul stop/)
+ assert.equal(busyFor(t('acting'),'Ada','Player'),null,'the same player may change their own request');assert.equal(busyFor(t('acting'),'player','Player'),null,'the owner overrides')
+ assert.equal(busyFor(t('blocked'),'Bo','Player'),null,'a waiting request can be replaced');assert.equal(busyFor({phase:'ready',requestProgress:null},'Bo','Player'),null)
  for(const pet of ['wolf','cat','parrot','horse'])assert.throws(()=>validateAttackGoal({type:pet}),/pet/)
  assert.doesNotThrow(()=>validateAttackGoal({type:'zombie'}))
- const fake={requestProgress:{requester:'Ada'},runner:{listening:{current:{audience:'kids aged 7, 10 and 15'}}}}
- assert.deepEqual(Teammate.prototype.conversation.call(fake),{speaker:'Ada',channel:'game chat',audience:'kids aged 7, 10 and 15'})
+ const fake={requestProgress:{requester:'Ada'},runner:{listening:{current:{audience:'young players'}}}}
+ assert.deepEqual(Teammate.prototype.conversation.call(fake),{speaker:'Ada',channel:'game chat',audience:'young players'})
  assert.equal(Teammate.prototype.conversation.call({requestProgress:{},runner:{}}),null,'a request from the app has no conversation')
  const prompt=readFileSync(new URL('../src/companion/players-prompt.txt',import.meta.url),'utf8')
  for(const rule of ['conversation.audience','hurt or trap a player','attack a pet','ignore your instructions','personal details'])assert.ok(prompt.includes(rule),rule)
@@ -134,14 +134,14 @@ test('game chat hears how a job ends only for a fixed chat command, and never st
  assert.deepEqual(said,['Done!'])
 })
 
-test('when it cannot see the player who asked, it says so in words a kid can act on',()=>{
+test('when it cannot see the player who asked, it says so in words a young player can act on',()=>{
  assert.equal(gameLine('I could not finish: Goal still incomplete. Finish standing near the visible player who asked for the wood.'),'I cannot see you! Come closer so I can find you.')
  assert.equal(gameLine('Blocked: Ada is not visible. I will inspect the result and revise the plan.'),'I cannot see you! Come closer so I can find you.')
 })
 
 import {attachIdleCompany} from '../src/chat-control.js'
 test('with nothing to do it looks at the nearest player and greets each player once',async()=>{
- // Family world, 4 October: Sov stood beside the idle bot and saw it do nothing at all.
+ // Play world, 4 October: the owner stood beside the idle bot and saw it do nothing at all.
  const said=[],looks=[],runner={owner:'SovereignSignal',say:t=>said.push(t),task:null,listening:{allows:()=>true}}
  // Attached before login, as the runner does: the name arrives later.
  const bot=new EventEmitter();bot.entity={position:new Vec3(0,64,0)};bot.pathfinder={isMoving:()=>false}

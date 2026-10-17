@@ -1,6 +1,6 @@
 // Which tool breaks a block. The pathfinder, mineflayer-tool and the
 // expedition each picked the fastest tool, which is the diamond pickaxe. On
-// 4 October in the family world the bot's underground search legs tunnelled
+// 4 October in the play world the bot's underground search legs tunnelled
 // through plain stone with it until it wore out, its most valuable tool
 // spent on blocks an iron or stone pickaxe breaks perfectly well.
 // The economical choice: the fastest helpful tool that is not diamond or

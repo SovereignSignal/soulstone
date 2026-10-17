@@ -7,7 +7,7 @@ import {dimensionOf} from '../dimension.js'
 import {daytimeWork} from './day-routine.js'
 import {interruptedEffect} from './continuity.js'
 
-// The food floor: food is kept in the bag before it is needed. pi2, 10 October:
+// The food floor: food is kept in the bag before it is needed. lab-2, 10 October:
 // diamond reached and no deaths, but the bot went a whole day with nothing to eat.
 // Overnight its health fell from 12 to 1, and with no food and hunger 10 nothing it
 // could do raised it again; at dawn it was still asking for food at the door.
@@ -23,7 +23,7 @@ export const FOOD_HUNT_COUNT=4
 export const FOOD_RETRY_MS={gained:120000,interrupted:120000,nothing:600000}
 const MEATS=Object.values(MEAT_DROPS)
 // The errand is for the open surface. A base roof is one block overhead; more than
-// two is underground, where the hunt's legs find no path (pi2, 21:53Z: four blocks of
+// two is underground, where the hunt's legs find no path (lab-2, 21:53Z: four blocks of
 // rock over the bot's own tunnel at y 54, one block walked, "No path to the goal").
 export const SURFACE_COVER=2
 // Within this of the hunting ground the hunt's own search covers it.
@@ -60,7 +60,7 @@ export function nextFoodStep(s,done=[]){
  }
  if(!done.includes('hunt')&&foodPoints(s.inventory,s.points)<FOOD_FLOOR){
   // Nothing in sight here, and a hunting ground remembered from an earlier kill:
-  // walk there first (pi2, 21:08Z: the search legs from the base found nothing
+  // walk there first (lab-2, 21:08Z: the search legs from the base found nothing
   // while every kill had been 40 to 60 blocks west).
   const g=s.huntingGround,p=s.position
   if(!done.includes('go')&&g&&p&&!(s.animalsInSight>0)&&Math.hypot(g.x-p.x,g.z-p.z)>HUNT_GROUND_REACH)return {action:'go',goal:{x:g.x,y:g.y,z:g.z}}

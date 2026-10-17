@@ -23,12 +23,12 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
  // is a reason to leave, not a reason to be stuck inside it: leaving verifies
  // only its own door and where the bot ends up, and reports the damage it saw.
  let damage=null
- // Family rehearsal, 16 October: one dirt roof block of the shared base was gone, every retreat
+ // Play-world rehearsal, 16 October: one dirt roof block of the shared base was gone, every retreat
  // refused the base over it, and the bot dug in through its own floor with dirt in its bag. The
  // base is the bot's own build: a few air cells of it are put back from inside with the door
  // shut, each with its design block, by placing only, before the strict inspection.
  const missing=[]
- // Live, family world, 17 October 15:44Z: walled in the night before by its own hut beside the door,
+ // Live, play world, 17 October 15:44Z: walled in the night before by its own hut beside the door,
  // the bot was refused its own base at dusk by the hut's cobblestone, recorded 23 hours earlier. Its
  // own blocks in the doorway and its approach, however old (ownedNow), are dug on the way in; a
  // block the record does not hold under that name still refuses the base.
@@ -246,7 +246,7 @@ export function backExitObservation(bot,project){
 // outside cells, and one sealed off from there past the rock floors does not
 // count (lab run 32, 3 October: skeletons sealed in caves under the base held
 // the door shut by daylight after the camping creeper was gone).
-// Family rehearsal, 16 October: sealed and out of sight counts at no distance (sealedStill), as
+// Play-world rehearsal, 16 October: sealed and out of sight counts at no distance (sealedStill), as
 // in the shelter's own wait, so the door, the base hold and the base watch agree.
 export const pressingOutside=(bot,project=null)=>{
  try{return pressingThreats(bot,project,(survivalObservation(bot).nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=threatRadius(t.name)))[0]||null}catch{return null}
@@ -308,7 +308,7 @@ function sealedByDoor(bot,project){
 // Away from the sky: under rock, or where the sky's light does not reach the bot's
 // head (the foot of an open shaft has one roof block far overhead and is not
 // "roofed"; lab run 34). The base's own interior is dark too, and is not underground.
-// Gather and the food floor share this test (pi2, 10 October 22:33Z).
+// Gather and the food floor share this test (lab-2, 10 October 22:33Z).
 export function awayFromSky(bot,project){
  const head=bot.blockAt?.(bot.entity.position.floored().offset(0,1,0))
  const dark=head?.skyLight===0&&!(insideBase(bot,project)&&!inBackExit(bot,project))

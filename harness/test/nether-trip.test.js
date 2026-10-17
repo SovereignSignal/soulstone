@@ -52,7 +52,7 @@ function netherBot({health=20,kit=true,hoglinAt=3}={}){
 }
 async function firstActs({status='running',...opts}={}){
  const bot=netherBot(opts),r=new EventEmitter()
- Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Sov',connectionId:'20000000-0000-0000-0000-000000000002',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{}})
+ Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Player',connectionId:'20000000-0000-0000-0000-000000000002',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{}})
  r.command=c=>{r.commands.push(c);if(c.action!=='stop')r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal}}
  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-trip-')),'state.json'))
  c.requestProgress={id:'trip',request:'rods',status,feedback:[]}
@@ -78,7 +78,7 @@ test('on a trip with the kit, an interrupted request waiting to resume is still 
 // the first tick after a restart on a trip must still decide as a trip, not walk to the portal.
 async function restartedTrip(requestProgress,opts={}){
  const bot=netherBot(opts),r=new EventEmitter(),logged=[]
- Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Sov',connectionId:'20000000-0000-0000-0000-000000000004',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{},log:(t,d)=>logged.push([t,d])})
+ Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Player',connectionId:'20000000-0000-0000-0000-000000000004',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{},log:(t,d)=>logged.push([t,d])})
  r.command=c=>{r.commands.push(c);if(c.action!=='stop')r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal}}
  const path=join(mkdtempSync(join(tmpdir(),'mc-trip-restart-')),'state.json')
  const {writeFileSync}=await import('node:fs')
@@ -127,7 +127,7 @@ function crossTo(bot,to){const from=bot.game.dimension.replace(/^minecraft:/,'')
 // fails: reasons each action fails with, in turn, before it completes.
 function tripTeammate({fails={},cancelled=false,...opts}={}){
  const bot=netherBot(opts),r=new EventEmitter()
- Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Sov',connectionId:'20000000-0000-0000-0000-000000000003',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{}})
+ Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Player',connectionId:'20000000-0000-0000-0000-000000000003',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{}})
  r.command=c=>{r.commands.push(c);if(c.action==='stop')return
   const task=r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal},reason=fails[c.action]?.shift()
   setTimeout(()=>{if(r.task!==task)return;if(reason){task.status='failed';task.reason=reason}else{task.status='completed';task.result=c.action==='use_portal'?crossTo(bot,bot.game.dimension.endsWith('the_nether')?'overworld':'the_nether'):{receipt:c.action}};r.emit('event',{type:'task_finished',task})},1)}
@@ -226,7 +226,7 @@ test('in open Nether air the tick and the clearance agree: a wither skeleton bel
  const exits=[new Vec3(0,64,0),new Vec3(0,65,0)]
  assert.equal(burrowClearance(bot,{exits,trip:true,lingeredMs:600000}).relocate,undefined)
  assert.equal(burrowClearance(bot,{exits,trip:true}).clear,true)
- const r=new EventEmitter();Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Sov',connectionId:'20000000-0000-0000-0000-000000000004',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{},command(c){r.commands.push(c)}})
+ const r=new EventEmitter();Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Player',connectionId:'20000000-0000-0000-0000-000000000004',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{},command(c){r.commands.push(c)}})
  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-trip-tick-')),'state.json'))
  const calls=[],logs=[];c.seekSafety=async why=>{calls.push(why)};r.log=(type,data)=>logs.push([type,data])
  r.emit('event',{type:'survival_tick'})
@@ -239,7 +239,7 @@ test('in open Nether air the tick and the clearance agree: a wither skeleton bel
 function crossingTeammate(blockAt){
  const bot=netherBot({hoglinAt:30});bot.entities={8:{id:8,type:'mob',name:'wither_skeleton',position:new Vec3(10.5,64,.5)}}
  if(blockAt){const base=bot.blockAt;bot.blockAt=p=>blockAt(p)??base(p)}
- const r=new EventEmitter();Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Sov',connectionId:'20000000-0000-0000-0000-000000000005',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{},command(c){r.commands.push(c)}})
+ const r=new EventEmitter();Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Player',connectionId:'20000000-0000-0000-0000-000000000005',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{},command(c){r.commands.push(c)}})
  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-trip-arrive-')),'state.json'))
  const calls=[];c.seekSafety=async why=>{calls.push(why)}
  return {r,c,calls}
@@ -461,7 +461,7 @@ function walkOnTick({request='running',dimension='the_nether',sight='blocked',mo
  bot.blockAt=p=>{const name=tunnel.has(`${p.x},${p.y},${p.z}`)?'air':'netherrack';return {name,position:p.clone(),boundingBox:registry.blocksByName[name].boundingBox,getProperties:()=>({})}}
  bot.world={raycast:()=>sight==='blocked'?{name:'netherrack'}:null,getColumn:()=>({})}
  bot.entities=Object.fromEntries(mobs.map(m=>[m.id,m]))
- const r=new EventEmitter();Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Sov',connectionId:'20000000-0000-0000-0000-000000000006',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{},command(c){r.commands.push(c)}})
+ const r=new EventEmitter();Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Player',connectionId:'20000000-0000-0000-0000-000000000006',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{},command(c){r.commands.push(c)}})
  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-trip-walk-')),'state.json'))
  if(request)c.requestProgress={id:'trip',request:'rods',status:request,feedback:[],completed:[]}
  const calls=[],logs=[];c.seekSafety=async why=>{calls.push(why)};c.stallRetry=async()=>false;r.log=(type,data)=>logs.push([type,data])
@@ -537,7 +537,7 @@ test('a dimension change drops the trip\'s kills and the last shooter seen, and 
  assert.deepEqual(c.killSites,[home]);assert.equal(c.shooterSeenAt,null)
  clearInterval(c.dawnTimer)
 })
-// Family rehearsal, 16 October: at the Nether arrival hub the alarm fought a pillager from the
+// Play-world rehearsal, 16 October: at the Nether arrival hub the alarm fought a pillager from the
 // open twice (9 and 11 arrows, no kill) down to health 9. On a trip, on the episode's first try,
 // with blocks and ground for a hut, cover comes first and the bow answers from the hut's port.
 async function alarmActs({retries=0,blocks=true,dimension='the_nether'}={}){
@@ -545,7 +545,7 @@ async function alarmActs({retries=0,blocks=true,dimension='the_nether'}={}){
  bot.game.dimension='minecraft:'+dimension
  bot.entities={8:{id:8,uuid:'10000000-0000-0000-0000-000000000008',type:'mob',name:'blaze',height:1.8,position:new Vec3(0.5,64,12.5),velocity:new Vec3(0,0,0)}}
  if(!blocks){const items=bot.inventory.items();items.splice(items.findIndex(i=>i.name==='cobblestone'),1)}
- Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Sov',connectionId:'20000000-0000-0000-0000-000000000005',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{},log:(t,d)=>logged.push([t,d])})
+ Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Player',connectionId:'20000000-0000-0000-0000-000000000005',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{},log:(t,d)=>logged.push([t,d])})
  r.command=c=>{r.commands.push(c);if(c.action!=='stop')r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal}}
  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-trip-alarm-')),'state.json'));c.threatJudge={control:false,judge:async()=>null}
  c.requestProgress={id:'trip',request:'rods',status:'running',feedback:[]}
@@ -582,7 +582,7 @@ function bridgeTunnel(){
   const name=placed.has(`${p.x},${p.y},${p.z}`)?'cobblestone':frame?((p.x===-1||p.x===2||p.y===63||p.y===67)?'obsidian':'nether_portal'):p.y<=63?'nether_bricks':tunnel(p)?'air':rock(p)?'netherrack':'air'
   return {name,position:p.clone(),boundingBox:registry.blocksByName[name].boundingBox,getProperties:()=>({})}}
  bot.entities={8:{id:8,uuid:'10000000-0000-0000-0000-000000000008',type:'mob',name:'blaze',height:1.8,position:new Vec3(9.5,64,3.5),velocity:new Vec3(0,0,0)}}
- Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Sov',connectionId:'20000000-0000-0000-0000-000000000006',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{}})
+ Object.assign(r,{bot,ready:true,profile:'trip-test',owner:'Player',connectionId:'20000000-0000-0000-0000-000000000006',position:()=>bot.entity.position,commands:[],waitForIdle:async()=>{}})
  r.command=c=>{r.commands.push(c);if(c.action!=='stop')r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal}}
  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-trip-tunnel-')),'state.json'));c.threatJudge={control:false,judge:async()=>null}
  c.requestProgress={id:'trip',request:'rods',status:'running',feedback:[]}
@@ -875,7 +875,7 @@ test('hurt to 5 in its own tunnel after the retries, the standoff resume waits f
  c.unsafeSignature={reason:HEALTH_EMERGENCY,key:c.safetyBlockKey(),at:Date.now()}
  r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,30))
  assert.equal(resumed,0,'no bore or walk at health 5: '+c.messages.map(m=>m.text).join(' | '))
- // Nothing to eat: it says it is resting, not eating (children read the chat).
+ // Nothing to eat: it says it is resting, not eating (young players read the chat).
  const line=c.messages.map(m=>m.text).find(t=>/in my tunnel/.test(t))||'';assert.match(line,/resting/,line);assert.doesNotMatch(line,/eating/,line)
  bot.health=12;r.emit('event',{type:'survival_tick'});await new Promise(res=>setTimeout(res,30))
  assert.equal(resumed,1,'healed to the trip line, it carries on');c.cancel?.(true)

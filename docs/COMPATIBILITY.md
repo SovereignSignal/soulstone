@@ -50,6 +50,6 @@ Keep the prior app and compatibility manifest until the new version has live acc
 
 ## 26.3
 
-Since ViaProxy 3.4.13 the manifest pins routes for 26.2 and 26.3. On 13 October 2026 a bot joined a Paper 26.3 server through the 3.4.13 adapter (`harness/lab/bridge.js` with `MC_TARGET_VERSION=26.3`) and walked, dug, built and burrowed on a Raspberry Pi with no kick. 26.3 enforces one position packet per client tick; the harness sends `tick_end` for that. Longer 26.3 play is still being gathered, so 26.2 remains the version the family world is pinned to.
+Since ViaProxy 3.4.13 the manifest pins routes for 26.2 and 26.3. On 13 October 2026 a bot joined a Paper 26.3 server through the 3.4.13 adapter (`harness/lab/bridge.js` with `MC_TARGET_VERSION=26.3`) and walked, dug, built and burrowed on a Raspberry Pi with no kick. 26.3 enforces one position packet per client tick; the harness sends `tick_end` for that. Longer 26.3 play is still being gathered, so 26.2 remains the version the play world is pinned to.
 
 The earlier boundary, for the record: with ViaProxy 3.4.12 / ViaVersion 5.11.0 the staging command rejected 26.3, and this document made no claim that 26.3 gameplay passed.

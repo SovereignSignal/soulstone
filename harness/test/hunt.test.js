@@ -101,7 +101,7 @@ test('a hunt that kills nothing fails; it does not report a partial success',asy
   })
 })
 
-// pi2, 10 October 09:15 PDT: two dawn hunts asked for beef, and only cows count
+// lab-2, 10 October 09:15 PDT: two dawn hunts asked for beef, and only cows count
 // for beef. With a pig and a chicken within 64 blocks and the nearest cow past
 // 100, a hunt for food has to take whichever farm animal it finds.
 test('a hunt for meat takes the nearest farm animal of any kind and counts every raw meat',async()=>{
@@ -118,7 +118,7 @@ test('a hunt for meat takes the nearest farm animal of any kind and counts every
  await assert.rejects(huntFor(empty,{kind:'hunt',goal:{item:'meat',count:2}},{check(){},stage(){},progress(){},persist(){}}),/Found no meat/)
 })
 
-// pi2, 10 October 20:50Z: a hunt for meat west of the base gave up the moment one
+// lab-2, 10 October 20:50Z: a hunt for meat west of the base gave up the moment one
 // chicken could not be reached ("Cannot reach the chicken") with a cow and two
 // more chickens in range. One animal out of reach is not the hunt out of reach.
 test('an animal the hunt cannot reach is passed over for the next one',async()=>{
@@ -130,7 +130,7 @@ test('an animal the hunt cannot reach is passed over for the next one',async()=>
  const result=await huntFor(bot,{kind:'hunt',goal:{item:'meat',count:2}},{check(){},stage(){},progress(){},persist(){},contactMs:60})
  assert.equal(result.acquired,true);assert.equal(result.kills,1);assert.deepEqual(result.unreachable,['chicken'])
 })
-// pi2, 20:49Z: six search legs in 22 seconds, the bot 6 blocks from where it began,
+// lab-2, 20:49Z: six search legs in 22 seconds, the bot 6 blocks from where it began,
 // and the refusal said "after 6 search legs". The pathfinder's refusals were
 // swallowed; the receipt now says how far the legs got and why they stopped.
 test('search legs the pathfinder cannot walk are reported as such, not as ground searched',async()=>{

@@ -282,7 +282,7 @@ def is_terminal(request_progress):
     if not request_progress:
         return False
     status = request_progress.get('status')
-    # needs_review: every checkable criterion passed; only Sov's review remains.
+    # needs_review: every checkable criterion passed; only the owner's review remains.
     if status in ('verified', 'cancelled', 'needs_review'):
         return True
     if status in ('blocked', 'interrupted', 'paused') and request_progress.get('reviewRequired'):

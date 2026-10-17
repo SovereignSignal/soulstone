@@ -85,7 +85,7 @@ export function validatePlan(value) {
   return { reply: value.reply.trim(), steps }
 }
 const survivalInstructions=readFileSync(new URL('./survival-capabilities.txt',import.meta.url),'utf8')
-// Talking with players in game chat, children included: shared by both prompts.
+// Talking with players in game chat, young players included: shared by both prompts.
 const playersInstructions=readFileSync(new URL('./players-prompt.txt',import.meta.url),'utf8')
 const goalInstructions=readFileSync(new URL('./goal-prompt.txt',import.meta.url),'utf8')+'\n'+survivalInstructions+'\n'+playersInstructions
 const instructions = readFileSync(new URL('./teammate-prompt.txt', import.meta.url), 'utf8')+'\n'+survivalInstructions+'\n'+playersInstructions

@@ -24,7 +24,7 @@ function world(position){
   entities:{1:{id:1,name:'creeper',position:new Vec3(1.5,64,-1.3)}},
   blockAt:p=>{const name=p.y<64||shell.has(`${p.x},${p.y},${p.z}`)?'cobblestone':'air';return {name,position:p,boundingBox:name==='air'?'empty':'block',getProperties:()=>({})}},
   world:{raycast:()=>({name:'cobblestone'})},clearControlStates(){},setControlState(){}}
- const r=new EventEmitter();Object.assign(r,{profile:'lab',owner:'Sov',ready:true,connectionId:'c1',bot,commands:[],position:()=>({x:position.x,y:position.y,z:position.z}),waitForIdle:async()=>{}})
+ const r=new EventEmitter();Object.assign(r,{profile:'lab',owner:'Player',ready:true,connectionId:'c1',bot,commands:[],position:()=>({x:position.x,y:position.y,z:position.z}),waitForIdle:async()=>{}})
  r.command=c=>{r.commands.push(c.action);if(c.action==='stop')return
   r.task={id:String(r.commands.length),kind:c.action,status:'running'}
   setTimeout(()=>{r.task={...r.task,status:'completed',result:c.action==='retreat'?{item:'safety',count:1,receipt:'sheltered_door_closed'}:{item:'safety',count:1,receipt:c.action}};r.emit('event',{type:'task_finished',task:r.task})},1)}
@@ -113,7 +113,7 @@ test('Stop holds for the situation it was given in, not for the rest of the nigh
 test('killed at night, the bot comes back at daylight instead of empty-handed into the dark',async()=>{
  // Lab, 2 October: respawned at night onto a spawn point a zombie villager was
  // standing on, three times, with nothing in its hands. A dead player gets no
- // physics ticks, so this test sends none (pi2, 9 October).
+ // physics ticks, so this test sends none (lab-2, 9 October).
  const wait=ms=>new Promise(res=>setTimeout(res,ms))
  const {r,c,bot}=world(new Vec3(30.5,64,30.5));c.projects={};bot.entities={};bot.time.timeOfDay=18000;c.dawnPollMs=5
  c.phase='blocked';c.requestProgress={id:'d',request:'mine iron',status:'blocked'}
@@ -427,7 +427,7 @@ test('a planner blocker that asks for Resume or says it lost its kit waits for a
   const w=held(blocker);assert.equal(await w.c.stallRetry(),true,blocker);assert.equal(w.resumes,1,blocker)
  }
 })
-// Family rehearsal, 16 October: one dirt roof block of the shared base was gone. The tick
+// Play-world rehearsal, 16 October: one dirt roof block of the shared base was gone. The tick
 // read the base as no shelter at all, and from inside its walls the chain refused the base
 // and dug down through its own floor. A hole the bot can mend is still its home to go to.
 import {HEALTH_EMERGENCY,NIGHT_EXPOSURE} from '../src/survival.js'

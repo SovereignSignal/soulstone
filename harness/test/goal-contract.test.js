@@ -188,7 +188,7 @@ test('the goal prompt refuses only when nothing at all can be attempted',()=>{
 test('success is what was asked for; survival needs are not finishing conditions unless named',()=>{
  // Trial 12, 24 September: "craft an iron pickaxe" became a food reserve, a lit
  // shelter and the pickaxe as hard criteria, and the run spent its second hour
- // on the shelter. Sov: shelter matters, but it is a separate thing from
+ // on the shelter. The owner: shelter matters, but it is a separate thing from
  // crafting; one may require the other, and that is the survival layer's call.
  const prompt=readFileSync(new URL('../src/companion/goal-prompt.txt',import.meta.url),'utf8')
  assert.match(prompt,/Success is the outcome the request names/)

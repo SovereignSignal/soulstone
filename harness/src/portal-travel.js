@@ -1,8 +1,8 @@
 // Which dimensions the bot may enter through a portal, per world
 // (the Nether plan). Off is the harness as it was: never
-// through a portal, anywhere. The admin turns the Nether on for a world; Sov's
-// family world stays off until he says. The End has its own switch beside it
-// (dragon-roadmap.md, brief 3), off in the same way until the owner says on.
+// through a portal, anywhere. The admin turns the Nether on for a world; the owner's
+// play world stays off until he says. The End has its own switch beside it
+// (the dragon roadmap, brief 3), off in the same way until the owner says on.
 import {readFileSync,writeFileSync,mkdirSync} from 'node:fs'
 import {dirname} from 'node:path'
 export const PORTAL_TRAVEL_SETTINGS=['off','on']

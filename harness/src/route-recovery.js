@@ -63,7 +63,7 @@ export async function stepFree(bot,{check,progress}){
 // first height with a solid ledge beside it. Roofed columns are never dug.
 export const MAX_CLIMB=8
 // A ceiling inside a saved build's footprint is never an exit: on 3 October a
-// pit escape beside the family base dug up through the base's own roof, a
+// pit escape beside the play-world base dug up through the base's own roof, a
 // cobblestone patch went back in its place, and the base stopped passing its
 // own inspection. protectedSites are the saved footprints (projectFootprints).
 export function pitExit(bot,feet=bot.entity.position.floored(),{protectedSites=[]}={}){

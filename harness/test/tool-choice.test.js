@@ -7,7 +7,7 @@ const registry=minecraftData('1.21.4'),Block=blockLoader(registry)
 const block=name=>Block.fromStateId(registry.blocksByName[name].minStateId,0)
 const item=(name,used=0)=>({name,type:registry.itemsByName[name].id,maxDurability:registry.itemsByName[name].maxDurability,durabilityUsed:used,slot:36})
 const bot=items=>({inventory:{items:()=>items},entity:{effects:{}},heldItem:null})
-// Family world, 4 October: underground search legs tunnelled through stone
+// Play world, 4 October: underground search legs tunnelled through stone
 // with the diamond pickaxe until it broke.
 test('plain stone gets the best plain pickaxe, never the diamond one, while one is carried',()=>{
  const kit=[item('diamond_pickaxe'),item('iron_pickaxe'),item('stone_pickaxe')]

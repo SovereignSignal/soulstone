@@ -1,5 +1,5 @@
-// What the bot believed when the server kicked it. Twice on 9 October (pi2,
-// pi3) the server kicked it for "floating too long" just after it climbed out
+// What the bot believed when the server kicked it. Twice on 9 October (lab-2,
+// lab-3) the server kicked it for "floating too long" just after it climbed out
 // of its burrow; its own view of the ground under it is the evidence that
 // separates a block the server never had from anything else.
 const round=v=>Math.round(v*10000)/10000

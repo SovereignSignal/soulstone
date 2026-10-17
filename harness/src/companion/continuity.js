@@ -36,7 +36,7 @@ export const PLAN_RETRIES=2
 export const STALL_CONTINUATIONS=3, STALL_RETRY_MS=90000
 export const SAFETY_CONTINUATIONS=6,IDLE_CONTINUATIONS=2
 export const SHELTERED_CALLS=6
-// Family rehearsal, 16 October: walled in at the Nether hub, the wait could only end in "Resume is
+// Play-world rehearsal, 16 October: walled in at the Nether hub, the wait could only end in "Resume is
 // required". Walled in on a trip, the bot digs and bores under cover (covered-moves.js): this many
 // moves per request, and a cavity flood that follows a shaft and 64 bore columns (2 + 4 + 2 * 64).
 export const COVERED_MOVES=8,COVERED_CELLS=256

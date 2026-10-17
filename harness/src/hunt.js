@@ -15,7 +15,7 @@ const {goals}=pathfinding
 // goal naming one could never be counted or eaten. Guarded by a registry test.
 export const HUNTABLE={beef:['cow'],porkchop:['pig'],mutton:['sheep'],chicken:['chicken'],rabbit:['rabbit'],leather:['cow'],feather:['chicken'],white_wool:['sheep'],string:['spider']}
 // Food rather than one species: 'meat' takes whichever farm animal is nearest and
-// counts every raw meat (pi2, 10 October: two dawn hunts for beef walked past a pig
+// counts every raw meat (lab-2, 10 October: two dawn hunts for beef walked past a pig
 // and a chicken toward cows more than a hundred blocks off).
 export const MEAT_DROPS={cow:'beef',pig:'porkchop',sheep:'mutton',chicken:'chicken',rabbit:'rabbit'}
 export const HUNT_LEGS=6,HUNT_LEG=32

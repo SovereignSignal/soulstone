@@ -69,7 +69,7 @@ export async function resolveFurnace(bot,project,api) {
  if(!bot.inventory.items().some(i=>i.name==='furnace')){await api.acquire('furnace',1);api.check()}
  // Lazy: primitives-world reaches this module back through construction.js and building-blocks.js.
  const {placeAt,validatePlaceAtGoal,occupantAt}=await import('./primitives-world.js')
- // A cell a mob stands in is not open: pi2's hunt left a chicken in the first one,
+ // A cell a mob stands in is not open: lab-2's hunt left a chicken in the first one,
  // and the smelt failed on it twice (10 October).
  const feet=bot.entity.position.floored(),open=p=>['air','cave_air'].includes(bot.blockAt(p)?.name)&&!occupantAt(bot,p)
  const cell=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]].map(([x,z])=>feet.offset(x,0,z))

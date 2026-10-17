@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {Vec3} from 'vec3'
 import {retreatToShelter} from '../src/retreat.js'
 import {OwnBlocks,OWN_TTL_MS} from '../src/natural.js'
-// Live, family world, 17 October 15:44Z and 16:04Z: at dusk the bot, walled in the night before by
+// Live, play world, 17 October 15:44Z and 16:04Z: at dusk the bot, walled in the night before by
 // its own hut beside its base door, was refused its own base: "Shelter access obstructed by
 // cobblestone at -624,68,-364". Those were its hut walls, recorded 23 hours earlier, past OWN_TTL_MS.
 function base({record=null}={}){

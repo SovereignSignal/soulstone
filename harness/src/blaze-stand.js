@@ -6,7 +6,7 @@
 // beyond reach, the sword for one with its head in the port; close on a hit, under 16, with a melee mob at the port or
 // nothing in line; and never leave the cell. Only a blaze killed in the port column drops its rod on the sill, inside
 // pickup reach. The rods a receipt reports are the inventory's own delta: a kill with no rod is reported, never counted.
-// Unverified vanilla blaze behaviour this leans on (to check on pi2 before the family world): a targeting blaze floats
+// Unverified vanilla blaze behaviour this leans on (to check on lab-2 before the play world): a targeting blaze floats
 // its eye to the bot's, one that loses sight flies to where it last saw the bot, and one blocked at the bot's feet level
 // by the ledge rises to the sill and from there pursues into the port.
 // Round two, after live rehearsal R9 (17 October 06:04Z to 06:19Z): the blazes rested on the platform floor two below the
@@ -364,7 +364,7 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
    const plan=!sank&&Date.now()-stayedAt>=o.sinkRetryMs&&sinkPlan()
    if(plan){
     const why=await sink(plan)
-    // Children read the bot's chat: plain, short, calm.
+    // Players of any age read the bot's chat: plain, short, calm.
     if(why){stayed=why;stayedAt=Date.now();progress(`I could not go down to the blazes (${why}). I am staying at this level.`)}
     // Sunk, the new hut's helper is the old east wall over the east side cell: no blaze can stand in an east port, and the
     // design names south first, then north with the kerb as its ledge (round two, section 4.1 rule 6).

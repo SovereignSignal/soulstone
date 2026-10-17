@@ -334,7 +334,7 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  if(exits&&near.length){
   // From the shelter's own exits, by the same test the alarm uses afterwards,
   // so a hostile it ignores is never the one that sends the bot back in.
-  // Family rehearsal, 16 October: nor is one sealed and out of sight at any distance (sealedStill),
+  // Play-world rehearsal, 16 October: nor is one sealed and out of sight at any distance (sealedStill),
   // since nothing in the shelter digs, though the alarm's rock floors still count it; from the back
   // exit's foot the wait therefore ends by climbing home (controller.js). Those only the floors
   // would have held are named, for the chat.
@@ -421,7 +421,7 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
   // does not hold the standoff then. It stays in near: the patience still runs, and the walk
   // away is away from it too.
   // 16 October: nor does a hidden lone shooter when waiting cannot heal (hungry, no food carried).
-  // The hold then heals nothing and its watches end on a Resume the family world cannot send, so
+  // The hold then heals nothing and its watches end on a Resume the play world cannot send, so
   // the patience runs and the bot leaves, no lower than the relocation floor. Under a rock roof
   // at night the bot is not sent out into the dark on eight health: off a trip it waits for dawn.
   const closest=near.filter(t=>!(daylight&&t.name==='phantom')&&!(unseen&&!canHeal&&(daylight||trip))).reduce((m,t)=>Math.min(m,t.distance),Infinity)

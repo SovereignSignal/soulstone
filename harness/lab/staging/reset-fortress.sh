@@ -13,7 +13,7 @@ r "execute in minecraft:the_nether positioned -69 61 -41 run kill @e[type=item,d
 # zombie added 13 October (run 119: a zombie 4 blocks off at arrival sent the bot straight home; too close to wall in).
 for t in hoglin magma_cube zombie; do r "execute in minecraft:the_nether positioned -69 61 -41 run kill @e[type=$t,distance=..24]"; done
 for t in wither_skeleton skeleton; do r "execute in minecraft:the_nether positioned -69 61 -41 run kill @e[type=$t,distance=..40]"; done
-# Blazes left by earlier ranges never despawn and piled up run on run (13 October, pi1: 5, 7
+# Blazes left by earlier ranges never despawn and piled up run on run (13 October, lab-1: 5, 7
 # and 9 at staging, against 3 to 5 on the VM). Keep the 3 nearest the portal.
 n=$(r "execute in minecraft:the_nether positioned -69 61 -41 if entity @e[type=blaze,distance=..48]" | grep -o 'Count: [0-9]*' | grep -o '[0-9]*')
 if [ "${n:-0}" -gt 3 ]; then r "execute in minecraft:the_nether positioned -69 61 -41 run kill @e[type=blaze,distance=..48,sort=furthest,limit=$((n-3))]"; fi

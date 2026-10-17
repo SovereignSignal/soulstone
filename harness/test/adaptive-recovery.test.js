@@ -118,7 +118,7 @@ test('the recovery boundary rejects unsupported actions and unbounded explanatio
 })
 
 test('general planning receives the same recovery context after an interruption',async()=>{
- const f=fixture();f.c.runner.owner='Sov'
+ const f=fixture();f.c.runner.owner='Player'
  let observed
  const planner={model:'test',plan:async(text,state)=>{observed=state;return {reply:'Observed.',steps:[]}}}
  const c=new Teammate(f.c.runner,planner,join(mkdtempSync(join(tmpdir(),'recovery-context-')),'state.json'))

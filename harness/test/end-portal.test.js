@@ -130,7 +130,7 @@ test('from the End the only way home is the exit fountain at 0,0, whatever the s
 
 // The controller's own check before it dispatches use_portal reads the same switches.
 class PortalRunner extends EventEmitter{
- constructor(){super();this.profile='lab';this.owner='Sov';this.ready=true;this.commands=[];const s=stronghold();this.bot={...s.bot,time:{timeOfDay:6000},findBlocks:()=>[]};this.bot.blockAt=s.bot.blockAt;this.bot.findBlock=s.bot.findBlock}
+ constructor(){super();this.profile='lab';this.owner='Player';this.ready=true;this.commands=[];const s=stronghold();this.bot={...s.bot,time:{timeOfDay:6000},findBlocks:()=>[]};this.bot.blockAt=s.bot.blockAt;this.bot.findBlock=s.bot.findBlock}
  position(){return {x:0,y:30,z:0}}
  command(c){this.commands.push(c);this.task={id:String(this.commands.length),kind:c.action,status:'running',goal:c.goal}}
 }
@@ -145,7 +145,7 @@ test('a planned use_portal beside an end portal follows the End switch, not the 
 })
 
 test('the planner sees both switches, and the brief gates the End behind its own',async()=>{
- class Runner extends EventEmitter{constructor(){super();this.profile='lab';this.owner='Sov';this.ready=true;this.commands=[];this.bot={players:{},inventory:{items:()=>[]}}}position(){return {x:0,y:64,z:0}}command(c){this.commands.push(c);this.task={id:String(this.commands.length),status:'running'}}}
+ class Runner extends EventEmitter{constructor(){super();this.profile='lab';this.owner='Player';this.ready=true;this.commands=[];this.bot={players:{},inventory:{items:()=>[]}}}position(){return {x:0,y:64,z:0}}command(c){this.commands.push(c);this.task={id:String(this.commands.length),status:'running'}}}
  const r=new Runner();let observed
  const c=new Teammate(r,{model:'fake',plan:async(_,o)=>{observed=o;return {reply:'Noted.',steps:[]}}},join(mkdtempSync(join(tmpdir(),'mc-companion-')),'state.json'))
  await c.submit('where can you go')

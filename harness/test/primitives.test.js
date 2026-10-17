@@ -786,14 +786,14 @@ test('landing wait remains cancellable', async () => {
 })
 
 test('dig never breaks a building block: it says to go around', async () => {
-  // The family world is shared with players from 4 October; dig breaks only natural ground.
+  // The play world is shared with players from 4 October; dig breaks only natural ground.
   const planks = fakeBot({ fills: [[1, 64, 0, { name: 'oak_planks', boundingBox: 'block', diggable: true }], [1, 63, 0, stone]] })
   planks.canDigBlock = eyeReach(planks)
   await assert.rejects(() => digToward(planks, { kind: 'dig', goal: validateDigGoal({ x: 1, y: 64, z: 0, count: 1 }) }, deps()), /oak_planks at 1,64,0 is not natural ground.*Go around it/)
   assert.equal(planks._dug || 0, 0)
   const { isNatural } = await import('../src/natural.js')
   for (const n of ['stone', 'deepslate', 'grass_block', 'gravel', 'iron_ore', 'deepslate_diamond_ore', 'oak_leaves', 'netherrack', 'terracotta', 'nether_gold_ore']) assert.equal(isNatural(n), true, n)
-  // 16 October: coloured terracotta, amethyst and moss are what children decorate with.
+  // 16 October: coloured terracotta, amethyst and moss are what players decorate with.
   for (const n of ['oak_planks', 'oak_log', 'cobblestone', 'glass', 'white_wool', 'bricks', 'obsidian', 'chest', 'orange_glazed_terracotta', 'orange_terracotta', 'amethyst_block', 'budding_amethyst', 'moss_block', '', undefined]) assert.equal(isNatural(n), false, String(n))
 })
 

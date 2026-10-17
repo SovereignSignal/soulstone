@@ -201,29 +201,29 @@ test('the final travel stage preserves elevation when a lower route shares its h
 
 test('regroup refreshes a moving player between travel legs and records current arrival',async()=>{
  const owner={position:new Vec3(100,70,0)},visited=[]
- const bot={players:{Sov:{entity:owner}},entity:{position:new Vec3(0,70,0)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},blockAt:()=>({name:'air',boundingBox:'empty'}),pathfinder:{setMovements(){},setGoal(){},async goto(g){visited.push([g.x,g.z]);bot.entity.position=new Vec3(g.x,g.y??70,g.z);if(visited.length===1)owner.position=new Vec3(64,70,40)}}}
- const result=await travelTo(bot,{goal:{x:100,y:70,z:0,player:'Sov'}},{check(){},stage(){},progress(){}})
+ const bot={players:{Player:{entity:owner}},entity:{position:new Vec3(0,70,0)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},blockAt:()=>({name:'air',boundingBox:'empty'}),pathfinder:{setMovements(){},setGoal(){},async goto(g){visited.push([g.x,g.z]);bot.entity.position=new Vec3(g.x,g.y??70,g.z);if(visited.length===1)owner.position=new Vec3(64,70,40)}}}
+ const result=await travelTo(bot,{goal:{x:100,y:70,z:0,player:'Player'}},{check(){},stage(){},progress(){}})
  assert.deepEqual(result.target,{x:64,y:70,z:40});assert.ok(bot.entity.position.distanceTo(owner.position)<=3)
- assert.deepEqual(validateTaskGoal('travel',{x:1,y:70,z:2,player:'Sov'}),{x:1,y:70,z:2,player:'Sov'})
+ assert.deepEqual(validateTaskGoal('travel',{x:1,y:70,z:2,player:'Player'}),{x:1,y:70,z:2,player:'Player'})
  assert.throws(()=>validateTravelGoal({x:1,y:70,z:2,player:'not a player'}),/player/)
 })
 
 test('regroup refuses stale coordinates when the observed player disappears',async()=>{
  const bot={players:{},entity:{position:new Vec3(0,70,0)}}
- await assert.rejects(travelTo(bot,{goal:{x:100,y:70,z:0,player:'Sov'}},{check(){},stage(){},progress(){}}),/Cannot currently see Sov/)
+ await assert.rejects(travelTo(bot,{goal:{x:100,y:70,z:0,player:'Player'}},{check(){},stage(){},progress(){}}),/Cannot currently see Player/)
 })
 
 test('regroup cannot claim arrival when the player moves during final elevation approach',async()=>{
  const owner={position:new Vec3(0,80,0)}
- const bot={players:{Sov:{entity:owner}},entity:{position:new Vec3(0,70,0)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},blockAt:()=>({name:'air',boundingBox:'empty'}),pathfinder:{setMovements(){},setGoal(){},async goto(g){bot.entity.position=new Vec3(g.x,g.y,g.z);owner.position=new Vec3(20,80,0)}}}
- await assert.rejects(travelTo(bot,{goal:{x:0,y:80,z:0,player:'Sov'}},{check(){},stage(){},progress(){}}),/moved during the final approach/)
+ const bot={players:{Player:{entity:owner}},entity:{position:new Vec3(0,70,0)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},blockAt:()=>({name:'air',boundingBox:'empty'}),pathfinder:{setMovements(){},setGoal(){},async goto(g){bot.entity.position=new Vec3(g.x,g.y,g.z);owner.position=new Vec3(20,80,0)}}}
+ await assert.rejects(travelTo(bot,{goal:{x:0,y:80,z:0,player:'Player'}},{check(){},stage(){},progress(){}}),/moved during the final approach/)
 })
 
 
 test('nearby regroup first plans the full destination height instead of a horizontal valley waypoint',async()=>{
  const owner={position:new Vec3(90,112,0)},visited=[]
- const bot={players:{Sov:{entity:owner}},entity:{position:new Vec3(0,87,0)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},blockAt:()=>({name:'air',boundingBox:'empty'}),pathfinder:{setMovements(){},setGoal(){},async goto(g){visited.push(g);assert.equal(g.y,112);bot.entity.position=new Vec3(g.x,g.y,g.z)}}}
- await travelTo(bot,{goal:{x:90,y:112,z:0,player:'Sov'}},{check(){},stage(){},progress(){}})
+ const bot={players:{Player:{entity:owner}},entity:{position:new Vec3(0,87,0)},clearControlStates(){},inventory:{items:()=>[]},registry,world:{},blockAt:()=>({name:'air',boundingBox:'empty'}),pathfinder:{setMovements(){},setGoal(){},async goto(g){visited.push(g);assert.equal(g.y,112);bot.entity.position=new Vec3(g.x,g.y,g.z)}}}
+ await travelTo(bot,{goal:{x:90,y:112,z:0,player:'Player'}},{check(){},stage(){},progress(){}})
  assert.equal(visited.length,1);assert.equal(visited[0].x,90)
 })
 

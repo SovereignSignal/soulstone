@@ -11,7 +11,7 @@ import {Teammate} from '../src/companion/controller.js'
 const registry=minecraftData('1.21.4')
 const points=name=>registry.foodsByName[name]?.foodPoints||0
 
-// pi2, 10 October: diamond reached, no deaths, and the bot went a whole day with no
+// lab-2, 10 October: diamond reached, no deaths, and the bot went a whole day with no
 // food at all. Overnight its health fell from 12 to 1, and with nothing to eat no
 // action could bring it back. It needs food in the bag before it needs to eat.
 const day=(over={})=>({inventory:{},food:20,health:20,timeOfDay:3000,dimension:'overworld',underRock:false,nearbyAnimals:[],canCook:true,points,now:1e9,last:null,...over})
@@ -58,7 +58,7 @@ test('the errand cooks raw meat first, hunts for any meat when short, cooks the 
 // Controller level: the errand runs before the request's next step, and its steps
 // are the bot's own, recorded as automatic feedback and in the journal.
 class FakeRunner extends EventEmitter{
- constructor(bot){super();this.profile='food-floor';this.owner='Sov';this.ready=true;this.connectionId='one';this.commands=[];this.bot=bot;this.logs=[]}
+ constructor(bot){super();this.profile='food-floor';this.owner='Player';this.ready=true;this.connectionId='one';this.commands=[];this.bot=bot;this.logs=[]}
  position(){const p=this.bot.entity.position;return {x:p.x,y:p.y,z:p.z}}
  command(c){this.commands.push(c);this.task={id:String(this.commands.length),kind:c.action,status:'running'}}
  log(type,data){this.logs.push([type,data])}
@@ -144,7 +144,7 @@ test('a hunt paused by a hostile is an interruption, tried again after two minut
  assert.equal(foodFloorDue(day({last:{at:1e9-3*60000,outcome:'interrupted'}})).due,true)
 })
 
-// pi2, 10 October 21:08Z: the second morning's errand hunted from the base, where
+// lab-2, 10 October 21:08Z: the second morning's errand hunted from the base, where
 // six search legs found nothing, while every kill so far had been 40 to 60 blocks
 // west. The last place a hunt killed is remembered as the hunting ground, and an
 // errand with no animal in sight walks there before hunting.
@@ -165,7 +165,7 @@ test('a hunt that kills is remembered as the hunting ground',()=>{
  assert.equal(c.places.hunting_ground.x,50.4,'a hunt that killed nothing moves nothing')
 })
 
-// pi2, 21:53Z: the errand started at y 54 in the bot's own tunnel, four blocks of
+// lab-2, 21:53Z: the errand started at y 54 in the bot's own tunnel, four blocks of
 // rock overhead (under the eight that count as roofed), and the hunt's legs got one
 // block: "No path to the goal". The errand is for the open surface: in the base the
 // roof is one block; more than two overhead is underground.
@@ -176,7 +176,7 @@ test('more than two solid blocks overhead is underground for the food errand; a 
  const a=teammate(pocket);await a.c.submit('mine 10 iron',work(),{automatic:true});assert.deepEqual(a.commands,[],'four blocks of rock overhead')
  const b=teammate(hut);await b.c.submit('mine 10 iron',work(),{automatic:true});assert.equal(b.commands[0]?.[0],'hunt','one roof block overhead')
 })
-// pi2, 22:33Z: in its own shaft one block under the surface, where the sky's light
+// lab-2, 22:33Z: in its own shaft one block under the surface, where the sky's light
 // did not reach its head, gather had just refused ("no logs underground") and the
 // errand's hunt then walked nowhere ("the legs got at most 0 blocks"). The errand
 // uses gather's own test of being away from the sky.
@@ -185,7 +185,7 @@ test('where the sky\'s light does not reach the bot\'s head the errand waits, as
  shaft.bot.blockAt=p=>{const solid=p.y<64||p.y===66;return {name:solid?'dirt':'air',boundingBox:solid?'block':'empty',position:p,skyLight:p.y<=65?0:15,getProperties:()=>({})}}
  const a=teammate(shaft);await a.c.submit('mine 10 iron',work(),{automatic:true});assert.deepEqual(a.commands,[])
 })
-// pi2, 22:35Z: gathering logs 50 blocks west of the base the bot walked past the
+// lab-2, 22:35Z: gathering logs 50 blocks west of the base the bot walked past the
 // chickens and pigs it would need the next morning, and no hunt had killed since
 // the hunting ground was first remembered. Two farm animals within 24 blocks on the
 // surface mark the hunting ground too; it moves only when 16 or more blocks off.

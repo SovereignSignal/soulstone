@@ -86,7 +86,7 @@ test('reconnected Runner refuses an old combat goal before dispatch',()=>{
 })
 function controllerFixture(){
  const f=fixture(),runner=new EventEmitter()
- Object.assign(runner,{bot:f.bot,ready:true,profile:'combat-test',owner:'Sov',connectionId:connection,position:()=>f.bot.entity.position,commands:[],waitForIdle:async()=>{}})
+ Object.assign(runner,{bot:f.bot,ready:true,profile:'combat-test',owner:'Player',connectionId:connection,position:()=>f.bot.entity.position,commands:[],waitForIdle:async()=>{}})
  runner.command=cmd=>{runner.commands.push(cmd);runner.emit('operator_command',cmd);if(cmd.action==='follow')runner.task={id:'follow',kind:'follow',status:'running',goal:{player:cmd.player}}}
  const c=new Teammate(runner,{model:'none',plan:()=>assert.fail('No model call during defense')},join(mkdtempSync(join(tmpdir(),'mc-combat-')),'teammate.json'))
  c.execute=async cmd=>{runner.commands.push(cmd);assert.equal(cmd.action,'defend');delete f.bot.entities[7];runner.task={result:{receipt:'target_death_observed',attacks:2}}}
@@ -100,7 +100,7 @@ test('supervisor chooses fighting, retains request and automatically continues a
  assert.equal(f.c.requestProgress.id,'original');assert.equal(f.c.requestProgress.feedback[0].action,'defend');assert.equal(resumed,1);assert.equal(f.c.requestProgress.combatContinuations.length,1)
 })
 test('self-defense resumes following and Stop prevents a pending combat handoff',async()=>{
- const f=controllerFixture();f.runner.task={kind:'follow',status:'running',goal:{player:'Sov'}}
+ const f=controllerFixture();f.runner.task={kind:'follow',status:'running',goal:{player:'Player'}}
  await f.c.seekSafety(THREAT_INTERRUPTION);assert.equal(f.runner.commands.at(-1).action,'follow');assert.equal(f.c.safety,null)
  const g=controllerFixture();let release;g.runner.waitForIdle=()=>new Promise(r=>release=r)
  const pending=g.c.seekSafety(THREAT_INTERRUPTION);g.c.stop();release();await pending

@@ -47,7 +47,7 @@ export async function requestPlan(profile,key,messages,schema,signal,fetcher=fet
     : {model:profile.model,messages,max_tokens:profile.maxTokens,stream:false,
       ...(profile.kind==='local'?{temperature:0.1}:{}),response_format:{type:'json_schema',json_schema:{name:'teammate_plan',strict:true,schema}}}
   // The same time to answer as the subscription planners: a local model that
-  // thinks first ran past a 120 second cut on every call (pi1, 9 October).
+  // thinks first ran past a 120 second cut on every call (lab-1, 9 October).
   const response=await fetcher(profile.url,{method:'POST',headers,body:JSON.stringify(body),redirect:'error',signal:AbortSignal.any([signal,AbortSignal.timeout(PLAN_TIMEOUT_MS)])})
   // Never echo a provider error body: it may contain credentials or input data.
   if(!response.ok)throw new Error(`${profile.label}: HTTP ${response.status}. Check the model ID, key, account access and provider limits in Models.`)

@@ -132,7 +132,7 @@ async function collectKillSites(c,signal,bot,request,within=()=>true){
 const LIVE_REQUEST=new Set(['running','blocked','interrupted','paused'])
 const comeBackFor=request=>canResume(request)||!!request?.tripEnded
 const inventoryOf=bot=>(bot?.inventory?.items?.()||[]).reduce((m,i)=>(m[i.name]=(m[i.name]||0)+i.count,m),{})
-// What the retreat put back in the base, in words for the family world's children (16 October).
+// What the retreat put back in the base, in words young players follow (16 October).
 const repairedLine=(project,repaired)=>{
  const top=Math.max(...(project?.build?.design||[]).map(b=>b.y)),roof=repaired.every(c=>c.y===(project?.build?.origin?.y??NaN)+top)
  return repaired.length===1?`One ${roof?'roof':'wall'} block was missing. I put it back.`:`${repaired.length} ${roof?'roof':'wall'} blocks were missing. I put them back.`
@@ -215,7 +215,7 @@ import {deliveredCount,satisfiedStep,currentRequestTask} from './progress.js'
 const designKey=design=>JSON.stringify((design||[]).map(b=>[b.x,b.y,b.z,b.block]).sort((a,b)=>a[0]-b[0]||a[1]-b[1]||a[2]-b[2]||a[3].localeCompare(b[3])))
 
 // Hurt and below the hunger that heals (18), with food in the bag, while
-// nothing else is running: eat during a shelter wait. Family world, 3 October:
+// nothing else is running: eat during a shelter wait. Play world, 3 October:
 // a whole night walled in at health 12 and hunger 17 with 9 berries carried.
 // Never more than once in 30 seconds; a failed bite is not a failed wait. A
 // module function, not a method: test doubles borrow the prototype's methods.
@@ -317,7 +317,7 @@ export class Teammate extends EventEmitter {
         // shelter for a few seconds rather than treat the mob beyond the wall as an
         // emergency. Blocks that never arrive stop being an excuse.
         let awaitingBase=false
-        // Family rehearsal, 16 October: one dirt roof block gone made the base no shelter at all, and
+        // Play-world rehearsal, 16 October: one dirt roof block gone made the base no shelter at all, and
         // the chain dug through its own floor. A few air cells the bot carries the blocks for are put
         // back by the retreat, so the base stays the place to go; `sheltered` below stays strict.
         if(shelterAvailable&&base.build?.design?.length){try{const missing=[];inspectRetreatShelter(runner.bot,base,{occupants:false,missing});if(missing.length)assertRepairable(runner.bot,missing);if(wallHoleGuarded(runner.bot,base,missing))throw new Error('A hostile is beside a hole in the base wall');this.unloadedSince=null}catch(error){
@@ -388,7 +388,7 @@ export class Teammate extends EventEmitter {
         // The flood's answer is the evidence for an interruption through rock; without it the log says only that a hostile was "within ten blocks".
         if(reason===THREAT_INTERRUPTION&&pressing.some(t=>t.reach)&&Date.now()-(this.routeLogAt||0)>=5000){this.routeLogAt=Date.now();runner.log?.('threat_route',{threats:pressing.slice(0,4).map(t=>`${t.name}@${t.distance}/${t.verticalOffset}:${t.reach||'-'}${Number.isFinite(t.routeSteps)?'~'+t.routeSteps:Number.isFinite(t.routeAtLeast)?'>='+t.routeAtLeast:''}:${t.sightline?.status||'-'}`)})}
         // What raised the health alarm, as the alarm counted it: the recovery record is
-        // taken a moment later and can no longer say (pi2, 10 October, two dawn hunts).
+        // taken a moment later and can no longer say (lab-2, 10 October, two dawn hunts).
         if(reason===HEALTH_EMERGENCY&&Date.now()-(this.healthLogAt||0)>=5000){this.healthLogAt=Date.now();runner.log?.('health_alarm',{health:observation.health,food:observation.food,timeOfDay:observation.timeOfDay,recentDamageMs,counted:pressing.filter(t=>t.distance<=HEALTH_THREAT_RADIUS&&!outOfReach(t)&&!cannotShootYet(t)).slice(0,4).map(t=>`${t.name}@${t.distance}/${t.verticalOffset}:${t.reach||'-'}${Number.isFinite(t.routeSteps)?'~'+t.routeSteps:Number.isFinite(t.routeAtLeast)?'>='+t.routeAtLeast:''}:${t.sightline?.status||'-'}`)})}
         if(!reason&&pressing.some(t=>t.reach==='sealed')&&Date.now()-(this.sealedLogAt||0)>=30000&&emergencyReason({...observation,nearbyThreats:observation.nearbyThreats.map(t=>({...t,reach:undefined})),shelterAvailable,sheltered,recentDamageMs,roofed:underRock})===THREAT_INTERRUPTION){this.sealedLogAt=Date.now();runner.log?.('threat_sealed',{threats:pressing.slice(0,4).map(t=>`${t.name}@${t.distance}/${t.verticalOffset}:${t.reach}`)})}
         // Stop cancels the recovery in hand and stands while that emergency lasts.
@@ -397,7 +397,7 @@ export class Teammate extends EventEmitter {
         // until a creeper found it.
         // A Stop ends the current work and the current escape; it does not switch
         // survival off for the night. After STOP_HOLD_MS the watch is back even
-        // while the danger lasts (3 October: a Stop left the walled-in family bot
+        // while the danger lasts (3 October: a Stop left the walled-in play-world bot
         // ignoring night and mobs until morning).
         if(this.safety?.status==='cancelled'&&!Number.isFinite(this.safety.at))this.safety.at=Date.now()
         if(this.safety?.status==='cancelled'&&(!reason||Date.now()-this.safety.at>=STOP_HOLD_MS)){this.safety=null;this.persist()}
@@ -449,7 +449,7 @@ export class Teammate extends EventEmitter {
               const minutes=Math.max(1,Math.round((Date.now()-this.unsafeSignature.at)/60000))
               if(!this.tripEnded(`I stayed hurt in my tunnel for ${minutes} minutes and could not heal`))this.say('I am still hurt and cannot heal here. I am staying in my tunnel until you tell me what to do.')}
           }else{
-            // Children read this: plain, and "eating" only with food to eat.
+            // Players of any age read this: plain, and "eating" only with food to eat.
             const food=survivalObservation(runner.bot).carriedFood.length>0
             if(!this.safety.tunnelHurtSaid){this.safety.tunnelHurtSaid=true;this.persist();this.say(`I am hurt, so I am staying here in my tunnel and ${food?'eating':'resting'} until my health is back to ${TRIP_HEALTH}.`)}
             if(food)void topUpWhileSheltered(this,new AbortController().signal,runner.bot)
@@ -534,7 +534,7 @@ export class Teammate extends EventEmitter {
             try{this.respawn()}catch(error){this.runner.log?.('auto_respawn_failed',{error:error.message})}
           }
         }else if(comeBackFor(this.requestProgress)){
-          // Round 3 on pi1 (9 October): killed three times in two minutes at its
+          // Round 3 on lab-1 (9 October): killed three times in two minutes at its
           // spawn, the bot then waited for a person who was not there. A whole day
           // lets the crowd move or burn; then it tries again with a fresh budget.
           this.respawnAtDawn=true;this.watchForDawn({nextSunrise:true})
@@ -560,7 +560,7 @@ export class Teammate extends EventEmitter {
     })
   }
   // A dead player gets no physics ticks, so no survival tick either: the dawn
-  // check rode on it and pi2's bot lay dead through a whole day (9 October).
+  // check rode on it and lab-2's bot lay dead through a whole day (9 October).
   // Nor does its clock move: through the bridge no time packet reached the dead
   // bot, not even a /time set. So dawn is worked out from the time of death at
   // twenty ticks a second, and a time update that does arrive counts at once.
@@ -818,7 +818,7 @@ export class Teammate extends EventEmitter {
           else this.say(`Judgement: ${chosen} (${pick.source}${j?`; Jev ${j.response} at ${Math.round(j.confidence*100)}%, rule ${verdict.verdict}`:''}).`)
           this.runner.log?.('threat_control',{chosen,source:pick.source,rule:verdict.verdict,jev:j?.response??null,confidence:j?.confidence??null,winnable:j?.winnable??null,danger:j?.danger??null})
         }else void this.threatJudge?.judge('interruption',observed,{...this.judgementContext(recoveryBot),harness:verdict.verdict,harnessReason:verdict.reason})?.then(record)
-        // Family rehearsal, 16 October: at the Nether arrival hub the alarm fought a pillager from the
+        // Play-world rehearsal, 16 October: at the Nether arrival hub the alarm fought a pillager from the
         // open twice (9 and 11 arrows, no kill) down to health 9. On a trip, on the episode's first try,
         // with blocks and ground for a hut, cover comes first and the bow answers from its port (runs
         // 146, 156, 166). A retry after a failed hut still shoots, the 10 October case below.
@@ -1422,7 +1422,7 @@ export class Teammate extends EventEmitter {
         try{await Promise.race([bot.waitForChunksToLoad(),delay(10000,undefined,{signal:loadedSignal}).then(()=>{throw new Error('Shelter chunks did not load within ten seconds')})]);check()}
         finally{waiting.abort()}
       }
-      // Family rehearsal, 16 October: walled in at the Nether hub, this wait could only end in "Resume is
+      // Play-world rehearsal, 16 October: walled in at the Nether hub, this wait could only end in "Resume is
       // required". On a trip the bot digs and bores under cover first, and hands the request back.
       if(this.coveredMoves&&typeof this.planner.covered==='function'){
         const covered=await coveredMoves(this,epoch,signal,bot,{eligible,...this.coveredLimits})
@@ -1498,7 +1498,7 @@ export class Teammate extends EventEmitter {
         if(result.status!=='cleared'&&Date.now()>=holdDue())continue
         if(result.status!=='cleared'){this.say('I am staying dug in. Resume is required because daylight and a clear area were not established in time.');return}
         confront=result.observation?.confront;relocate=result.observation?.relocate
-        // Family rehearsal, 16 October: a wait held over a cave of mobs nothing could free. Said plainly
+        // Play-world rehearsal, 16 October: a wait held over a cave of mobs nothing could free. Said plainly
         // when it was only those (sealedStill) and they no longer hold it.
         // Said the first time at a place; the second time in the window noteSealedRelease says what it does about it instead.
         if(result.observation?.sealed?.length){
@@ -1542,7 +1542,7 @@ export class Teammate extends EventEmitter {
           if(!noLine){noLine=true;this.say(`No clear shot at the ${name} ${Math.round(distance)} blocks away. Keeping the hut shut.`)}
           // Only the sides already tried had the line: offered again once leaving is refused, as when unhut finds none left.
           if(tried.length){if(leave())break;continue}
-          // Review of the port-line gate, 16 October: off a trip nothing bounds the hold (the family world's Overworld hut),
+          // Review of the port-line gate, 16 October: off a trip nothing bounds the hold (the play world's Overworld hut),
           // so no line counts as a port that missed: PORT_ATTEMPTS of them and the leave rule decides. On a trip the hold
           // stays quiet, its patience starting again, and the trip's hold bound (COVERED_MS) backs it up.
           if(!onTrip(bot,canResume(request))){if(++attempts>=PORT_ATTEMPTS&&leave())break;continue}
@@ -1632,7 +1632,7 @@ export class Teammate extends EventEmitter {
         await this.execute({action:'unhut',goal:{},timeoutMs:60000},signal);check()
       }
       safety.exit=structuredClone(this.runner.task.result);this.persist()
-      // Family rehearsal, 16 October: at the back exit's foot the way out is up. Released there, the
+      // Play-world rehearsal, 16 October: at the back exit's foot the way out is up. Released there, the
       // first working step re-fired the alarm and the bot walled in again. The retreat climbs the
       // shaft, shuts the base, caps the shaft and mends the base; the request goes on from inside.
       // If the climb fails, the request goes on from here, as before.
@@ -1686,8 +1686,8 @@ export class Teammate extends EventEmitter {
       if(epoch!==this.epoch)return
       safety.status='failed';safety.error=error.message;safety.failedAt=Date.now();safety.protection={verified:false,reason:error.message};this.phase='blocked';this.activity='';this.persist()
       if(!signal.aborted&&this.runner.ready&&this.runner.bot===bot&&this.runner.connectionId===connection)recordRecovery(this,{at:new Date().toISOString(),connectionId:connection,requestId:request?.id||null,action:'shelter_watch',status:'failed',error:error.message,after:recoveryState(bot)})
-      // 16 October: walled in by a player's walls on every side. The family world's players are
-      // children, so chat asks for help plainly and the detail stays in the log and the record.
+      // 16 October: walled in by a player's walls on every side. The play world's players include
+      // young players, so chat asks for help plainly and the detail stays in the log and the record.
       if(error.message.includes(WALLS_NOT_MINE)){this.runner.log?.('hut_walls_not_mine',{reason:error.message});this.say('I\'m stuck inside walls I didn\'t build. Please open one side for me.')}
       else this.say('Burrow recovery failed: '+error.message+'. I have stopped; safety is not established.')
     }finally{if(epoch===this.epoch){this.abort=null;this.persist();this.emit('change')}}
@@ -1899,7 +1899,7 @@ export class Teammate extends EventEmitter {
   }
   // The player a request is for: whoever asked in game, else the owner. "Come
   // here", "follow me", "give me" and "remember this spot" mean that player
-  // (3 October: Sov's children will ask, and all of it went to the owner).
+  // (3 October: players will ask, and all of it went to the owner).
   recipient(){ const r=this.requestProgress?.requester; return r&&this.runner.bot?.players?.[r]?r:this.runner.owner }
   async submit(text,continuation=null,{automatic=false,prepared=null,requester=null}={}) {
     if (typeof text !== 'string' || !text.trim() || text.length > 2000) throw new Error('Enter a message of 1–2000 characters')
@@ -2270,7 +2270,7 @@ export class Teammate extends EventEmitter {
       }
       if(!open().length)this.standPort=null
       else if(!safety){
-        // Children read this: plain and calm.
+        // Players of any age read this: plain and calm.
         this.say('Something is in the way, so I cannot close my firing port yet. I am staying right here and will try again.')
         throw new Error('My firing port is still open; staying in place until it closes')
       }
@@ -2326,11 +2326,11 @@ export class Teammate extends EventEmitter {
     const held=open().filter(c=>cellOccupant(bot,cellOf(c))),bare=!hutMaterials(bot).length
     if(held.length||bare){
       this.runner.log?.('slit_left_open',{cells:open(),action:command.action,reason:held.length?'occupied':'no blocks'})
-      // Children read this: plain and calm.
+      // Players of any age read this: plain and calm.
       this.say(held.length?'Something is sitting in my slit, so I am leaving it open and going on.':'I have no blocks left to close my slit, so I am leaving it open and going on.')
       this.slitOpen=null;return
     }
-    // Children read this: plain and calm.
+    // Players of any age read this: plain and calm.
     this.say('Something is in the way, so I cannot close my slit yet. I am staying right here and will try again.')
     throw new Error('My slit is still open; staying in place until it closes')
   }

@@ -179,7 +179,7 @@ class TerminalTests(unittest.TestCase):
     def test_needs_review_ends_the_run(self):
         # Trial 14, 24 September: every checkable criterion passed at round 10,
         # 9.5 minutes in, and the scorer would have idled 110 minutes more; trial
-        # 6 ran on past its success the same way. needs_review waits only on Sov.
+        # 6 ran on past its success the same way. needs_review waits only on the owner.
         self.assertTrue(m.is_terminal({'status': 'needs_review'}))
         self.assertEqual(m.terminal_reason({'status': 'needs_review'}), 'needs_review')
 

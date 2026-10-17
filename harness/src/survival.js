@@ -57,7 +57,7 @@ export const breachesRock=t=>WALL_BREACHING.has(t.name)||t.distance<=(t.name==='
 export const sealedOff=t=>t.reach==='sealed'&&t.sightline?.status==='blocked'&&!breachesRock(t)
 // The shelter's test, not the alarm's: sealed off and out of sight at any distance. The rock
 // floors stand for the bot's own digging, and a bot holding a shelter digs nothing; a sealed
-// creeper never fuses. Rock still does not stop WALL_BREACHING mobs. Family rehearsal, 16
+// creeper never fuses. Rock still does not stop WALL_BREACHING mobs. Play-world rehearsal, 16
 // October: walled in at the back exit's foot over a sealed cave, a zombie 2.2 blocks below and
 // two creepers at 3.7 held the wait for four watches. The alarm keeps sealedOff: at the shaft
 // foot it is the honest "do not work here".
@@ -113,7 +113,7 @@ export function fireObservation(bot){
  return {onFire,inLava:e?.isInLava===true||cells.some(b=>b?.name==='lava'),inFire:cells.some(b=>FIRE_BLOCKS.has(b?.name))}
 }
 // A survival player standing in a nether portal is carried through after four
-// seconds. Sov's limit is never to enter the Nether, so this outranks everything.
+// seconds. The owner's limit is never to enter the Nether, so this outranks everything.
 export const PORTAL_EMERGENCY='Standing in a portal'
 export const PORTAL_BLOCKS=['nether_portal','end_portal','end_gateway']
 export function portalObservation(bot){
@@ -136,7 +136,7 @@ export function survivalObservation(bot) {
  // y -16 at 2986 ticks while the clock called them neutral (lab run 58).
  const daylight=calmDaylight(bot)
  // An enderman screams while it hunts a player (its `creepy` flag): from then on it
- // is a threat. As a calm `conditional` mob, a provoked one on pi3's fresh world
+ // is a threat. As a calm `conditional` mob, a provoked one on lab-3's fresh world
  // (9 October) set off nothing until the bot was at half health, two seconds from dead.
  // A piglin with no gold on the bot is a melee threat, a baby never (provoked, above).
  // Gold carried in the pack calms nothing.
@@ -207,7 +207,7 @@ export function emergencyReason(observation){
  // is food to eat. Otherwise the planner keeps working and forages itself.
  // Judged by reach like the threat alarm and the shelter's clearance: a hostile
  // sealed behind rock or snow kept a hurt bot walling in and opening up every
- // 22 seconds on pi1's fresh world (9 October), never planning.
+ // 22 seconds on lab-1's fresh world (9 October), never planning.
  const hostileNear=!!observation.difficulty&&observation.difficulty!=='peaceful'&&((observation.nearbyThreats||[]).some(t=>t.risk==='potential_hostile'&&t.distance<=HEALTH_THREAT_RADIUS&&!outOfReach(t)&&!cannotShootYet(t))||underFire(observation))
  // Low health is an emergency only when something can be done about it: a threat
  // to escape, or nightfall with a lit base to reach that the bot is not already
@@ -225,7 +225,7 @@ export function emergencyReason(observation){
  const underAttack=Number.isFinite(observation.recentDamageMs)&&observation.recentDamageMs<=DAMAGE_WINDOW_MS
  // Hurt with no way to heal in place (nothing carried, hunger under the 18 that
  // regenerates), going in only waits for hostiles to leave, and a mob in a cave
- // beside a player never does: pi2 (10 October) was called back from every food
+ // beside a player never does: lab-2 (10 October) was called back from every food
  // errand at 1 health by a zombie nine blocks below its base. Out under open sky in
  // Overworld daylight, food is the remedy, so a hostile alone is the threat alarm's
  // to answer, within its own radius; damage, night and the Nether keep this alarm.

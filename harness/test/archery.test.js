@@ -82,7 +82,7 @@ test('a planned shoot step passes the plan check, the intent guard and the task 
 
 // Security review of 6da6e6c, 9 October: shoot checked only the target's type,
 // but an arrow flies on past a miss. A villager, a pet, a player or an armour
-// stand in or near the line of fire holds the shot; the family world has kids.
+// stand in or near the line of fire holds the shot; the play world has bystanders.
 test('a player, a pet or a villager in or beyond the line of fire holds the shot',async()=>{
  const withBystander=(name,type,pos)=>{const r=range();r.bot.entities[8]={id:8,name,type,height:1.8,position:pos,username:type==='player'?'Kid':undefined};return r}
  for(const [name,type,pos] of [['villager','passive',new Vec3(0.5,64,22)],['wolf','animal',new Vec3(1.2,64,8)],['player','player',new Vec3(0.5,64,19)],['armor_stand','living',new Vec3(0.6,64,25)]]){
@@ -221,7 +221,7 @@ import {join} from 'node:path'
 import {Teammate} from '../src/companion/controller.js'
 import {THREAT_INTERRUPTION} from '../src/survival.js'
 class ShootRunner extends EventEmitter{
- constructor(bot){super();this.profile='lab';this.owner='Sov';this.ready=true;this.commands=[];this.bot=bot;this.connectionId='3f2504e0-4f89-11d3-9a0c-0305e82c3301'}
+ constructor(bot){super();this.profile='lab';this.owner='Player';this.ready=true;this.commands=[];this.bot=bot;this.connectionId='3f2504e0-4f89-11d3-9a0c-0305e82c3301'}
  position(){return {x:0,y:64,z:0}}
  command(c){this.commands.push(c);this.task={id:String(this.commands.length),kind:c.action,status:'running',goal:c.goal}}
 }

@@ -229,7 +229,7 @@ test('lava sealed in rock is opened by digging one block above a dry rim, then p
  assert.equal(r.receipt,'obsidian_carried');assert.ok(f.count('obsidian')>=5)
  const digs=f.log.filter(l=>/^dig /.test(l))
  assert.equal(digs[0],'dig '+key(first.water),'the block over the rim first');assert.equal(digs[1],'dig '+key(first.lid),'then the lid over that lava')
- // Family run 4, 6 October: the pocket turned to obsidian and was skipped as
+ // Play-world run 4, 6 October: the pocket turned to obsidian and was skipped as
  // inaccessible; mining stands within a block and a half, and the rock over
  // the rim cell left no head room there. The cell above the poured one opens too.
  const head=first.water.offset(0,1,0)
@@ -237,7 +237,7 @@ test('lava sealed in rock is opened by digging one block above a dry rim, then p
  assert.ok(digs.every(l=>/,51,/.test(l)||l==='dig '+key(head)),'only the layer above the lava and that head room: '+digs.join(' '))
  assert.ok(!digs.some(l=>/,50,/.test(l)),'never a block at the lava\'s own level')
 })
-// Family run 3, 5 October: from y 13, three route searches to the standing
+// Play-world run 3, 5 October: from y 13, three route searches to the standing
 // cell at y 44 timed out; the staircase refused any target above.
 test('a standing cell above the bot is climbed to by the staircase, not a route search',async()=>{
  const extra={};for(let x=0;x<=2;x++)for(let z=0;z<=2;z++)extra[`${x},50,${z}`]='lava'
@@ -271,9 +271,9 @@ test('a sealed pocket is refused when liquid touches the block to dig, or the fl
  assert.ok(!sealedOpenings(g.bot).some(s=>s.stand.x===-2&&s.stand.z===1),'no standing cell over a floor that touches water')
 })
 
-// Family run 6, 6 October: the job mined seven obsidian from a ruined portal
+// Play-world run 6, 6 October: the job mined seven obsidian from a ruined portal
 // (the server confirmed the structure, netherrack beneath). It would have
-// mined a portal frame the kids built just the same.
+// mined a portal frame the players built just the same.
 test('obsidian is taken from flat pool layers and ruined portals, never from a bare frame',()=>{
  const world=new Map(),at=(x,y,z,n)=>world.set(`${x},${y},${z}`,n)
  const bot={blockAt:p=>({name:world.get(`${p.x},${p.y},${p.z}`)??'stone'})}

@@ -12,7 +12,7 @@ const ownHut=(bot,cells)=>{const own=new OwnBlocks(null);for(const c of cells)ow
 const registry=minecraftData('1.21.4'),Block=blockLoader(registry)
 const key=p=>`${p.x},${p.y},${p.z}`
 
-// Sov's limit: never step through a portal or enter the Nether. A player
+// The owner's limit: never step through a portal or enter the Nether. A player
 // standing in a nether portal is carried there after four seconds.
 function fixture(cells={}){
  const world=new Map(Object.entries(cells)),log=[]

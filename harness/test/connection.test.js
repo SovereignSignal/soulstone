@@ -53,7 +53,7 @@ test('manual reconnect leaves healthy sessions, pending attempts and intentional
 })
 
 test('a server the bot has played on is retried once a minute without end; one never joined still gives up',()=>{
-  // 3 October 2026, 03:42 PDT: the family server restarted, five tries failed
+  // 3 October 2026, 03:42 PDT: the play server restarted, five tries failed
   // in under a minute, connection_exhausted, and the bot stayed out four hours.
   const {runner,cleanup}=fixture()
   try {

@@ -62,7 +62,7 @@ test('a blocked step along one axis is taken along the other, as a player sidest
  await assert.rejects(run(world(walled),[4,61,0]),/no solid floor/,'with no ground left along the other axis it stops')
 })
 
-// Family run 3, 5 October: tunnelled down to y 13, the bot could not get back
+// Play-world run 3, 5 October: tunnelled down to y 13, the bot could not get back
 // up to the sealed pocket's standing cell at y 44; the staircase refused any
 // target above and three route searches through rock timed out.
 const pocket=(cells=new Map())=>{for(const y of [50,51])cells.set(new Vec3(0,y,0).toString(),'air');return world(cells,[0.5,50,0.5])}

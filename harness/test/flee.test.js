@@ -28,7 +28,7 @@ test('fleeing sprints to an XZ goal away from the threat and reports the distanc
 test('an unarmed bot sprints clear of a creeper before digging in',async()=>{
  const bot={registry,game:{gameMode:'survival',difficulty:'normal'},time:{timeOfDay:15000},health:20,food:20,players:{},entity:{position:new Vec3(10.5,64,10.5),onGround:true},inventory:{items:()=>[]},
   entities:{1:{id:1,name:'creeper',type:'hostile',position:new Vec3(22.5,64,10.5)}},blockAt:()=>({name:'dirt',boundingBox:'block'})}
- const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov'
+ const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Player'
  const commands=[]
  runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'}
   if(c.action==='flee')bot.entities={}
@@ -46,7 +46,7 @@ test('an unarmed bot sprints clear of a creeper before digging in',async()=>{
 test('in daylight a lone zombie the bot cannot strike is left behind on open ground, and the request continues without digging in',async()=>{
  const bot={registry,game:{gameMode:'survival',difficulty:'normal'},time:{timeOfDay:6000},health:20,food:20,players:{},entity:{position:new Vec3(10.5,64,10.5),onGround:true},inventory:{items:()=>[]},
   entities:{1:{id:1,name:'zombie',type:'hostile',position:new Vec3(16.5,64,10.5)}},blockAt:()=>({name:'dirt',boundingBox:'block'})}
- const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov'
+ const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Player'
  const commands=[]
  runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'}
   if(c.action==='flee')bot.entities={}
@@ -76,7 +76,7 @@ test('in daylight a lone zombie the bot cannot strike is left behind on open gro
 test('after sprinting clear of a daylight creeper the bot watches open ground and continues, instead of trekking back to base',async()=>{
  const bot={registry,game:{gameMode:'survival',difficulty:'normal'},time:{timeOfDay:3000},health:18,food:17,players:{},entity:{position:new Vec3(10.5,64,10.5),onGround:true},inventory:{items:()=>[]},
   entities:{1:{id:1,name:'creeper',type:'hostile',position:new Vec3(24.5,64,10.5)}},blockAt:()=>({name:'dirt',boundingBox:'block'})}
- const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov'
+ const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Player'
  const commands=[]
  runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'}
   if(c.action==='flee')bot.entities={}

@@ -126,7 +126,7 @@ test('the runner accepts a smelt with no saved base but still requires one for o
 })
 
 class FakeRunner extends EventEmitter {
- constructor(){super();this.profile='lab';this.owner='Sov';this.ready=true;this.commands=[];this.bot={players:{Sov:{entity:{position:{x:1,y:64,z:2}}}},inventory:{items:()=>[]}}}
+ constructor(){super();this.profile='lab';this.owner='Player';this.ready=true;this.commands=[];this.bot={players:{Player:{entity:{position:{x:1,y:64,z:2}}}},inventory:{items:()=>[]}}}
  position(){return {x:0,y:64,z:0}}
  command(c){this.emit('operator_command',c);this.commands.push(c);this.task={id:String(this.commands.length),status:'running'};if(c.action!=='stop'&&c.action!=='follow')setTimeout(()=>this.emit('event',{type:'task_finished',task:{...this.task,status:'completed'}}),1)}
 }
@@ -140,7 +140,7 @@ test('the teammate issues smelt with no saved base, and other station actions st
  await d.submit('store three dirt');assert.equal(s.commands.some(x=>x.action==='deposit'),false);assert.match(d.messages.at(-1).text,/No saved base/)
 })
 
-// pi2, 10 October 20:57Z: twice in a row the smelt for cooked meat failed with
+// lab-2, 10 October 20:57Z: twice in a row the smelt for cooked meat failed with
 // "chicken is standing in 50,70,699": the furnace went to the first open cell,
 // and a chicken from the hunt stood in it. A cell a mob stands in is not open.
 test('a furnace is never placed into a cell an animal is standing in; the next open cell is used',async()=>{

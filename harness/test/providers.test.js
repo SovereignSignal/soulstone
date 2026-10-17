@@ -73,7 +73,7 @@ test('all providers receive one leading system message with current observations
  }
  await planner.plan('What am I carrying?',{inventory:{stone_pickaxe:1}},[{role:'user',text:'hello'},{role:'assistant',text:'Hi'}],signal())
 })
-// Fresh-world test on pi1, 9 October: the M3's qwen3.6:35b thinks before it
+// Fresh-world test on lab-1, 9 October: a local host's qwen3.6:35b thinks before it
 // answers, and every planning call ran past a 120 second cut while the
 // subscription planners had 300. The planner is the variable under test, so
 // every provider gets the same time to answer.

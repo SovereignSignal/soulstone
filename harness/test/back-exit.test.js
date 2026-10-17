@@ -242,7 +242,7 @@ test('finishing the saved base accepts its open back exit and never walks onto i
  await assert.rejects(finishShelter(h.w.bot,o,layout,'spruce_log',api),/lacks support at 12,64,22/)
 })
 test('a repair of the saved base may clear a foreign block from its interior; otherwise it obstructs',()=>{
- // 3 October, family world: a climb left a cobblestone pillar block in the
+ // 3 October, play world: a climb left a cobblestone pillar block in the
  // cell just inside the door, and every repair refused it as "obstructed".
  const h=hut();h.w.cells.set(new Vec3(11,64,21).toString(),'cobblestone')
  const o=new Vec3(10,64,20),layout=shelterLayout(design)
@@ -260,7 +260,7 @@ test('a back exit left open by an earlier trip is dropped into, not refused, and
  assert.ok(!w.dug.some(k=>/, (61|62|63), /.test(k)),'the open cells were not dug: '+w.dug.join(' '))
  assert.equal(w.dug.length,BACK_EXIT_DEPTH-3)
 })
-// Family rehearsal, 16 October: one dirt roof block of the base was gone. The inspection
+// Play-world rehearsal, 16 October: one dirt roof block of the base was gone. The inspection
 // threw on it, every retreat refused the base, and the bot dug in through its own floor
 // with the dirt to mend it in its bag. The base is the bot's own build: a few air cells of
 // it are put back from inside, door shut, with the design's own block, and never by digging.

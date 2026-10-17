@@ -1,7 +1,7 @@
 // A staircase through rock, dug the way a player digs one. The pathfinder
 // plans a route through solid stone to an exact cell by searching, and 25 to
 // 35 blocks down that search times out before a block is broken: every
-// sealed-lava opening in the test and family worlds failed with "Took to long
+// sealed-lava opening in the test and play worlds failed with "Took to long
 // to decide path to goal!" (4 October), as did underground search legs.
 // Here each step moves one block along whichever horizontal axis has more
 // ground left to cover, and one block down while the target is lower, clearing
@@ -10,7 +10,7 @@
 // action's own checks (natural ground only, no liquid against it, nothing
 // falling overhead, a solid floor under the feet).
 // Climbing, each step clears the room above the head, then the next cell's
-// feet and head, and steps up onto the block in front (family run 3: from
+// feet and head, and steps up onto the block in front (play-world run 3: from
 // y 13 the bot could not get back up to a standing cell at y 44). A climb
 // steeper than the ground to cross first spirals in a two by two that lies
 // away from the target: each spiral step lands on rock no earlier step dug,

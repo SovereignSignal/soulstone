@@ -41,7 +41,7 @@ test('in the Nether the bot is never inside its Overworld base, and the base is 
  assert.throws(()=>inspectRetreatShelter(bot('the_nether'),base),/base is in the overworld/)
 })
 
-class Runner extends EventEmitter{constructor(){super();this.profile='lab';this.owner='Sov';this.ready=true;this.commands=[];this.bot={game:{dimension:'minecraft:the_nether'},players:{},inventory:{items:()=>[]}}}position(){return {x:1,y:70,z:2}}command(c){this.commands.push(c);this.task={id:String(this.commands.length),status:'running'}}}
+class Runner extends EventEmitter{constructor(){super();this.profile='lab';this.owner='Player';this.ready=true;this.commands=[];this.bot={game:{dimension:'minecraft:the_nether'},players:{},inventory:{items:()=>[]}}}position(){return {x:1,y:70,z:2}}command(c){this.commands.push(c);this.task={id:String(this.commands.length),status:'running'}}}
 const teammate=()=>{const r=new Runner();return [r,new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-dimension-')),'state.json'))]}
 
 test('a shelter built in the Nether does not replace the Overworld base; a construction there is stamped with it',()=>{

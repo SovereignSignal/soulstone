@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { validatePlan, schema } from '../src/companion/planner.js'
 import { Teammate } from '../src/companion/controller.js'
 class FakeRunner extends EventEmitter {
-  constructor(){ super(); this.profile='lab'; this.owner='Sov'; this.ready=true; this.commands=[]; this.bot={players:{Sov:{entity:{position:{x:1,y:64,z:2}}}},inventory:{items:()=>[]}} }
+  constructor(){ super(); this.profile='lab'; this.owner='Player'; this.ready=true; this.commands=[]; this.bot={players:{Player:{entity:{position:{x:1,y:64,z:2}}}},inventory:{items:()=>[]}} }
   position(){return {x:0,y:64,z:0}}
   command(c){this.emit('operator_command',c);this.commands.push(c);this.task={id:String(this.commands.length),status:'running'}; if(c.action!=='stop'&&c.action!=='follow')setTimeout(()=>this.emit('event',{type:'task_finished',task:{...this.task,status:'completed'}}),1)}
 }
@@ -184,7 +184,7 @@ test('a confirmed handoff is not sent again when the planner repeats the give st
  r.command=function(command){
   this.commands.push(command);this.task={id:String(this.commands.length),status:'running'}
   if(command.action==='give'){
-   this.task.result={item:'stone_pickaxe',count:1,player:'Sov',receipt:'recipient_pickup'}
+   this.task.result={item:'stone_pickaxe',count:1,player:'Player',receipt:'recipient_pickup'}
    const task={...this.task,status:'completed'};queueMicrotask(()=>this.emit('event',{type:'task_finished',task}))
   }
  }
@@ -204,7 +204,7 @@ test('uncertain handoff stops planning instead of dropping a second item',async(
 test('completed meeting capture survives replanning after the owner moves',async()=>{
  let calls=0
  const [r,c]=setup(async()=>++calls===1?{reply:'Saving',steps:[{action:'remember',name:'meeting'},{action:'inspect'}]}:{reply:'Return',steps:[{action:'remember',name:'meeting'},{action:'return',name:'meeting'}]})
- const original=c.planner.plan;c.planner.plan=async(...args)=>{if(calls===1)r.bot.players.Sov.entity.position={x:30,y:64,z:30};return original(...args)}
+ const original=c.planner.plan;c.planner.plan=async(...args)=>{if(calls===1)r.bot.players.Player.entity.position={x:30,y:64,z:30};return original(...args)}
  await c.submit('collect supplies and return here')
  assert.deepEqual(c.places.meeting,{x:1,y:64,z:2,dimension:'overworld'});assert.deepEqual(r.commands.find(x=>x.action==='navigate').goal,{x:1,y:64,z:2})
 })
@@ -562,7 +562,7 @@ test('a death during a resumable request respawns without waiting for an operato
  assert.equal(respawns,1,'the agent brings itself back')
 })
 
-// Fresh-world test on pi2, 9 October: killed at night, the bot said it would
+// Fresh-world test on lab-2, 9 October: killed at night, the bot said it would
 // come back at daylight and then lay dead through the whole day. The dawn
 // check ran on the survival tick, which comes from physics ticks, and a dead
 // player has none. Daylight is watched on a clock of its own.
@@ -603,7 +603,7 @@ test('automatic respawn is bounded so a spawn camp cannot loop it',async()=>{
  c.cancel?.(true)
 })
 
-// Fresh-world round 3 on pi1, 9 October: a creeper, a pillager and a creeper
+// Fresh-world round 3 on lab-1, 9 October: a creeper, a pillager and a creeper
 // killed the empty-handed bot three times in two minutes at its spawn. After
 // the budget it waited for a person who was not there, and lay dead for the
 // rest of the run. It now waits for the next sunrise, a whole day for the
@@ -661,7 +661,7 @@ test('fire recovery preempts a shelter attempt, runs only the douse, then contin
  assert.equal(resumed,true)
 })
 test('a portal underfoot preempts even a fire and runs only the step out',async()=>{
- // Sov's limit: never enter the Nether. Four seconds in a lit portal carries a player through.
+ // The owner's limit: never enter the Nether. Four seconds in a lit portal carries a player through.
  const {PORTAL_EMERGENCY,FIRE_EMERGENCY}=await import('../src/survival.js')
  const [r,c]=setup(async()=>{throw new Error('No model call for a portal')});r.bot.setControlState=()=>{}
  c.safety={status:'retreating',reason:FIRE_EMERGENCY};c.requestProgress={id:'portal',request:'build and light a nether portal',status:'running'}
@@ -758,7 +758,7 @@ test('uncertain sheltered eating blocks manual Resume as well as automatic conti
 
 test('playing as the owner does not report a second player or follow itself',async()=>{
  const [r,c]=setup(async()=>({reply:'Following',steps:[{action:'follow',name:'',count:0}]}))
- r.bot.username='sOV'
+ r.bot.username='pLAYER'
  const state=c.snapshot();assert.equal(state.ownerVisible,false);assert.equal(state.ownerPosition,null);assert.equal(state.playingAsOwner,true)
  await c.submit('follow me')
  assert.equal(r.commands.some(x=>x.action==='follow'),false)
@@ -766,17 +766,17 @@ test('playing as the owner does not report a second player or follow itself',asy
 })
 test('playing as the owner still allows ordinary gathering through the app',async()=>{
  const [r,c]=setup(async()=>({reply:'Gathering',steps:[{action:'gather',name:'',count:1,item:'spruce_log'}]}))
- r.bot.username='Sov';await c.submit('gather one spruce log')
+ r.bot.username='Player';await c.submit('gather one spruce log')
  assert.equal(r.commands.some(x=>x.action==='gather'),true)
  assert.equal(c.phase,'ready')
 })
 
 import {buildSiteAnchor} from '../src/companion/continuity.js'
 test('a shelter site anchors to the owner in view, else to the agent itself',()=>{
- const runner={owner:'Sov',bot:{players:{Sov:{entity:{position:{x:1,y:64,z:2}}}}},position:()=>({x:9,y:70,z:9})}
+ const runner={owner:'Player',bot:{players:{Player:{entity:{position:{x:1,y:64,z:2}}}}},position:()=>({x:9,y:70,z:9})}
  assert.deepEqual(buildSiteAnchor(runner),{near:{x:1,y:64,z:2},anchor:'owner'})
  runner.bot.players={};assert.deepEqual(buildSiteAnchor(runner),{near:{x:9,y:70,z:9},anchor:'agent'})
- assert.equal(buildSiteAnchor({owner:'Sov',bot:{players:{}},position:()=>null}),null)
+ assert.equal(buildSiteAnchor({owner:'Player',bot:{players:{}},position:()=>null}),null)
 })
 
 test('Resume marks earlier failures as pre-resume and tells the planner to retry once',async()=>{
@@ -1358,23 +1358,23 @@ test('a hard restart marks saved milestone evidence stale before Resume observes
 test('plain team regroup uses current owner observations without any model call',async()=>{
  const {LocalPlanner}=await import('../src/companion/planner.js')
  const [r,c]=setup(null);c.planner=new LocalPlanner({url:'http://127.0.0.1:1/v1/chat/completions'})
- r.position=()=>({x:0,y:64,z:0});r.bot.players.Sov.entity.position={x:15,y:64,z:0}
+ r.position=()=>({x:0,y:64,z:0});r.bot.players.Player.entity.position={x:15,y:64,z:0}
  r.command=function(command){this.commands.push(command);this.task={id:String(this.commands.length),status:'running',kind:command.action,goal:command.goal};if(command.action==='travel')queueMicrotask(()=>{r.position=()=>({x:15,y:64,z:0});this.task={...this.task,status:'completed',result:{receipt:'arrived'}};this.emit('event',{type:'task_finished',task:this.task})})}
  await c.submit('come to where all of us are playing')
  assert.equal(c.phase,'ready');assert.deepEqual(r.commands.filter(x=>x.action!=='stop').map(x=>x.action),['travel'])
- assert.equal(r.commands.find(x=>x.action==='travel').goal.player,'Sov');assert.match(c.messages.at(-1).text,/regrouped with Sov/)
+ assert.equal(r.commands.find(x=>x.action==='travel').goal.player,'Player');assert.match(c.messages.at(-1).text,/regrouped with Player/)
 })
 
 test('regroup distinguishes unknown location, blocked terrain and bounded recovery without broadening intent',async()=>{
  const {regroupPlan}=await import('../src/companion/direct-plan.js')
- const o={owner:'Sov',position:{x:0,y:64,z:0},ownerPosition:{x:40,y:70,z:0},footing:{onGround:true,support:{name:'oak_leaves'}},feedback:[]}
+ const o={owner:'Player',position:{x:0,y:64,z:0},ownerPosition:{x:40,y:70,z:0},footing:{onGround:true,support:{name:'oak_leaves'}},feedback:[]}
  for(const text of ['regroup','regroup with the team','come to us','join us','meet me'])assert.equal(regroupPlan(text,o).steps[0].action,'come')
  for(const text of ['do not come to us','come to us and build a house','come to Alex','if I ask, regroup'])assert.equal(regroupPlan(text,o),null)
  assert.match(regroupPlan('regroup',{...o,ownerPosition:null}).reply,/cannot currently locate/)
  o.feedback.push({action:'come',status:'failed',reason:'No route'});assert.equal(regroupPlan('regroup',o).steps[0].action,'descend')
  o.feedback.push({action:'descend',status:'completed'});assert.equal(regroupPlan('regroup',o).steps[0].action,'come')
  o.feedback.push({action:'come',status:'failed',reason:'No route'});assert.equal(regroupPlan('regroup',o).steps.length,0)
- assert.match(regroupPlan('regroup',o).reply,/can locate Sov, but the route is blocked/)
+ assert.match(regroupPlan('regroup',o).reply,/can locate Player, but the route is blocked/)
 })
 
 test('a blocked request retries itself when the agent is healthy, bounded, instead of sitting forever',async()=>{

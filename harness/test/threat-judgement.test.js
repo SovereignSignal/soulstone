@@ -68,7 +68,7 @@ test('a threat interruption asks the judge at the moment the chain decides, with
   entities:{1:{id:1,uuid:'0'.repeat(36),type:'mob',name:'zombie',position:new Vec3(16.5,64,10.5)},2:{id:2,uuid:'1'.repeat(36),type:'mob',name:'skeleton',position:new Vec3(6.5,64,10.5)}},
   entity:{position:new Vec3(10.5,64,10.5),onGround:true},inventory:{items:()=>inventory,slots:[]},getEquipmentDestSlot:()=>null,
   blockAt:p=>({name:p.y>=64?'air':'dirt',position:p.clone(),boundingBox:p.y>=64?'empty':'block'}),pathfinder:{setGoal(){},setMovements(){},async goto(){}},clearControlStates(){},async equip(){},async dig(){},async placeBlock(){}}
- const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov'
+ const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Player'
  runner.command=c=>{if(c.action==='stop')return;runner.task={id:'t',kind:c.action,status:'running'};setTimeout(()=>{runner.task={...runner.task,status:'failed',error:'test'};runner.emit('event',{type:'task_finished',task:runner.task})},1)}
  runner.waitForIdle=async()=>{};runner.position=()=>({x:10,y:64,z:10})
  const asked=[];let release;const answered=new Promise(r=>{release=r})
@@ -134,7 +134,7 @@ function controlled(c,answers){
  return [judge,asked]
 }
 function seekScaffold(bot,{onCommand}={}){
- const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov';const commands=[];const logged=[];runner.log=(t,d)=>logged.push([t,d])
+ const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Player';const commands=[];const logged=[];runner.log=(t,d)=>logged.push([t,d])
  runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'};onCommand?.(c)
   setTimeout(()=>{runner.task={...runner.task,status:c.action==='defend'?'failed':'completed',result:{receipt:c.action},error:c.action==='defend'?'test stops the fight':undefined};runner.emit('event',{type:'task_finished',task:runner.task})},1)}
  runner.waitForIdle=async()=>{};runner.position=()=>({x:10,y:64,z:10})
@@ -166,7 +166,7 @@ test('a judged evade flees the nearest hostile and resumes the request when noth
  assert.equal(c.requestProgress.safetyContinuations[0].shelter,'open_ground');assert.ok(said.some(t=>/Judged evade/.test(t)))
 })
 test('the gate lets a judged continue keep the bot working, holds for a while, and interrupts when Jev says so or the floors do',async()=>{
- const bot=arena({health:20,food:20,distance:9});const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.profile='p';runner.owner='Sov';runner.position=()=>({x:10,y:64,z:10});const logged=[];runner.log=(t,d)=>logged.push([t,d])
+ const bot=arena({health:20,food:20,distance:9});const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.profile='p';runner.owner='Player';runner.position=()=>({x:10,y:64,z:10});const logged=[];runner.log=(t,d)=>logged.push([t,d])
  const t=new Teammate(runner,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-jev-')),'state.json'))
  let answer={response:'continue',confidence:.6,interrupt:.2,danger:.4,winnable:.5};const asked=[];let sought=[]
  t.threatJudge={control:true,floors:{...FLOORS,holdMs:60},judge:async(kind)=>{asked.push(kind);return {...answer,agrees:null}}};t.seekSafety=async r=>{sought.push(r)}

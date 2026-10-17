@@ -157,7 +157,7 @@ test('a provoked enderman at the port does not interrupt a stand; it still inter
   const f=fixture();f.stop()
   const e=Object.values(f.bot.entities)[0];e.name=mob;e.position=new Vec3(2.5,64,.5);e.metadata[CREEPY]=true
   f.bot.world={raycast:()=>null};f.bot.findBlocks=()=>[];f.bot.findBlock=()=>null;f.bot.entity.metadata={0:0}
-  const r=Object.assign(new EventEmitter(),{profile:'stand',owner:'Sov',ready:true,connectionId:'one',bot:f.bot,commands:[],position:()=>({x:0,y:64,z:0}),log(){},
+  const r=Object.assign(new EventEmitter(),{profile:'stand',owner:'Player',ready:true,connectionId:'one',bot:f.bot,commands:[],position:()=>({x:0,y:64,z:0}),log(){},
    command(c){this.commands.push(c);this.task={id:String(this.commands.length),kind:c.action,status:'running',goal:c.goal}}})
   const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-stand-')),'state.json'))
   r.task={id:'s',kind,status:'running',goal:{item:'ender_pearl',count:1}}
@@ -239,7 +239,7 @@ test('a pearl stand cancelled with its port open leaves the port on the task, an
  const task={kind:'stand',goal:validateStandGoal({item:'ender_pearl',count:1})}
  await assert.rejects(enderStand(f.bot,task,f.api,fast).finally(f.stop),/skill interrupted/)
  assert.deepEqual(task.portOpen,[{x:1,y:65,z:0},{x:1,y:64,z:0}]);assert.equal(f.cells.get('1,65,0'),'air','left open')
- const r=Object.assign(new EventEmitter(),{profile:'stand',owner:'Sov',ready:true,connectionId:'one',bot:f.bot,commands:[],position:()=>({x:0,y:64,z:0}),log(){},waitForIdle:async()=>{}})
+ const r=Object.assign(new EventEmitter(),{profile:'stand',owner:'Player',ready:true,connectionId:'one',bot:f.bot,commands:[],position:()=>({x:0,y:64,z:0}),log(){},waitForIdle:async()=>{}})
  r.command=c=>{r.commands.push(c);if(c.action==='stop')return;const t=r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal};setTimeout(()=>{if(c.action==='hut')for(const k of ['1,64,0','1,65,0'])f.cells.set(k,'netherrack');t.status='completed';t.result={receipt:c.action};r.emit('event',{type:'task_finished',task:t})},1)}
  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-stand-port-')),'state.json'))
  r.emit('event',{type:'task_finished',task:{...structuredClone(task),id:'s',status:'cancelled'}})

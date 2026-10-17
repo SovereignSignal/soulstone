@@ -191,7 +191,7 @@ test('an expedition begun from the back exit drops the saved surface trail and s
 })
 
 test('a trip begun at the back exit is home at the shaft foot, and resuming it from the surface asks for the shaft first',async()=>{
- // Family run 5, 3 October: after 2 of 8 iron the return walked the tunnel to
+ // Play-world run 5, 3 October: after 2 of 8 iron the return walked the tunnel to
  // the shaft foot and then tried for the surface waypoint through rock; the
  // next trip, started on the surface, tried to walk the tunnel from above.
  const p=structuredClone(project);p.backExit={cell:{x:31,y:64,z:31},bottom:55}

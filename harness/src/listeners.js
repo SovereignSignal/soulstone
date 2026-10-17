@@ -18,8 +18,7 @@ export function validateListeners(value={}){
   if(!players.some(q=>q.toLowerCase()===p.toLowerCase()))players.push(p)
  }
  if(mode==='list'&&!players.length)throw new Error('A named list needs at least one player')
- // Who reads the bot's game chat, in the admin's words ("kids aged 7, 10
- // and 15"). The planner writes its chat replies for them.
+ // Who reads the bot's game chat, in the admin's words ("young players"). The planner writes its chat replies for them.
  const audience=value.audience==null?'':String(value.audience).replace(/\s+/g,' ').trim()
  if(audience.length>120)throw new Error('Audience is at most 120 characters')
  return {mode,players,...(audience?{audience}:{})}

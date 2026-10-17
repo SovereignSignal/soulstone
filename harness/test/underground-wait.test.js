@@ -142,7 +142,7 @@ test('a hidden shooter inside the relocation standoff is held, however long it l
  assert.equal(r.clear,false,r.reason);assert.equal(r.lingering,true);assert.equal(r.relocate,undefined);assert.equal(r.confront,undefined);assert.match(r.reason,/out of sight/)
 })
 // 16 October: that hold is worth it only while waiting heals. Hungry with nothing to eat it heals
-// nothing, and four watches end on a Resume nobody in the family world can send, so a hidden
+// nothing, and four watches end on a Resume nobody in the play world can send, so a hidden
 // lone shooter does not hold the standoff then: the patience runs and the bot leaves.
 const hungryArcher=({food=12,health=20,...o}={})=>{const bot=archerUnder(o);bot.food=food;bot.health=health;return bot}
 test('a hidden shooter inside the standoff is held only while waiting can heal',()=>{
@@ -232,7 +232,7 @@ test('at night under the sky a phantom at the shaft changes nothing: the burrow 
  assert.equal(r.clear,false,r.reason);assert.equal(r.holding,true)
 })
 class FakeRunner extends EventEmitter{
- constructor(bot){super();this.profile='lab';this.owner='Sov';this.ready=true;this.commands=[];this.bot=bot}
+ constructor(bot){super();this.profile='lab';this.owner='Player';this.ready=true;this.commands=[];this.bot=bot}
  position(){const p=this.bot.entity.position;return {x:p.x,y:p.y,z:p.z}}
  command(c){this.commands.push(c);this.task={id:String(this.commands.length),status:'running'}}
 }
@@ -251,7 +251,7 @@ test('walled in under rock at night with a cave below, the wait clears and opens
  assert.deepEqual(executed,['unhut']);assert.equal(c.safety,null)
 })
 // Review of 16 October: a hut that leaned on a player's walls on every side cannot open. The
-// family world's players are children: chat asks plainly for help, and the detail stays in the log.
+// play world's players include young players: chat asks plainly for help, and the detail stays in the log.
 test('a hut that cannot open through walls it did not build asks for help in plain words',async()=>{
  const {bot}=deep({timeOfDay:15000,mobs:RECORDED}),said=[],logged=[],detail='Could not open a wall of the hut: all 4 sides are not natural ground and not placed by me'
  const c={epoch:1,runner:{bot,ready:true,connectionId:'same',task:{result:{}},log(type,data){logged.push([type,data])}},safety:{status:'burrowed',retreat:hut},requestProgress:null,burrowWait:{quietMs:5,limitMs:1500,watches:1},
@@ -622,7 +622,7 @@ test('a bot that did not get back into the hut from the port walls in where it s
  assert.deepEqual(safety.retreat.surface,{x:1,y:64,z:0},'the wait watches the hut it is actually in')
  assert.ok(w.said.some(t=>/not back in the hut/i.test(t)),w.said.join(' | '))
 })
-// Family rehearsal, 16 October: tunnel_out left the bot at the back exit's foot (y 59), one block
+// Play-world rehearsal, 16 October: tunnel_out left the bot at the back exit's foot (y 59), one block
 // of rock over a dark cave at y 55 to 57 under the base: three skeletons, a zombie 2.2 blocks
 // below and two creepers at 3.6, every one sealed off and out of sight. It walled in and held
 // "for daylight and a clear area" through four watches, then stopped until Resume.
@@ -668,7 +668,7 @@ test('the shaft-foot wait that clears over a sealed cave climbs home into the ba
   say:t=>fsaid.push(t),async resume(){fresumed++},async execute(command){if(command.action==='retreat')throw new Error('Climb stalled');this.runner.task={result:{item:'safety',count:1,receipt:'unwalled'}}}}
  await Teammate.prototype.waitInBurrow.call(f,1,new AbortController().signal,failed.bot,true)
  assert.equal(fresumed,1,fsaid.join(' | '))
- // Review of 16 October: chat is for the children; the detail goes to the log.
+ // Review of 16 October: chat is for the players; the detail goes to the log.
  assert.ok(fsaid.includes('I could not get back into the base. I will keep going from here.'),fsaid.join(' | '))
  assert.ok(!fsaid.some(t=>/Climb stalled/.test(t)),fsaid.join(' | '));assert.ok(logged.some(([type,data])=>type==='back_exit_climb_failed'&&/Climb stalled/.test(data.reason)),JSON.stringify(logged))
 })

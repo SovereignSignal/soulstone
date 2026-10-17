@@ -8,7 +8,7 @@ import {PortalTravel,validatePortalTravel} from '../src/portal-travel.js'
 import {Teammate} from '../src/companion/controller.js'
 
 // The Nether plan, step 1: the per-world switch. Off is
-// the harness as it was; the family world stays off until Sov turns it on.
+// the harness as it was; the play world stays off until the owner turns it on.
 test('nether travel is off unless saved on, and only off and on are accepted',()=>{
  assert.deepEqual(validatePortalTravel(),{nether:'off',end:'off'})
  assert.deepEqual(validatePortalTravel({nether:'on'}),{nether:'on',end:'off'})
@@ -23,7 +23,7 @@ test('nether travel is off unless saved on, and only off and on are accepted',()
 })
 
 test('the planner sees the portal travel setting, and off without one',async()=>{
- class Runner extends EventEmitter{constructor(){super();this.profile='lab';this.owner='Sov';this.ready=true;this.commands=[];this.bot={players:{},inventory:{items:()=>[]}}}position(){return {x:0,y:64,z:0}}command(c){this.commands.push(c);this.task={id:String(this.commands.length),status:'running'}}}
+ class Runner extends EventEmitter{constructor(){super();this.profile='lab';this.owner='Player';this.ready=true;this.commands=[];this.bot={players:{},inventory:{items:()=>[]}}}position(){return {x:0,y:64,z:0}}command(c){this.commands.push(c);this.task={id:String(this.commands.length),status:'running'}}}
  const r=new Runner()
  let observed
  const c=new Teammate(r,{model:'fake',plan:async(_,o)=>{observed=o;return {reply:'Noted.',steps:[]}}},join(mkdtempSync(join(tmpdir(),'mc-companion-')),'state.json'))
@@ -39,7 +39,7 @@ import {Vec3} from 'vec3'
 import minecraftData from 'minecraft-data'
 const registry=minecraftData('1.21.4')
 class PortalRunner extends EventEmitter{
- constructor(){super();this.profile='lab';this.owner='Sov';this.ready=true;this.commands=[]
+ constructor(){super();this.profile='lab';this.owner='Player';this.ready=true;this.commands=[]
   this.bot={registry,game:{dimension:'minecraft:overworld',gameMode:'survival',difficulty:'normal'},time:{timeOfDay:6000},health:20,food:20,entities:{},players:{},inventory:{items:()=>[]},
    entity:{position:new Vec3(0.5,64,0.5),onGround:true,metadata:{0:0}},findBlocks:()=>[],findBlock:()=>null,
    blockAt:p=>{const name=p.y===63?'stone':this.inPortal&&p.x===0&&p.z===0&&p.y>=64&&p.y<=65?'nether_portal':'air';return {name,position:p.clone(),boundingBox:name==='stone'?'block':'empty'}}}}

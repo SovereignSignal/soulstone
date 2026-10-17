@@ -1,6 +1,6 @@
 # The lab
 
-SoulStone is tested in a **test world** before anything reaches the world people play in. Every change runs there first, and so does every first-ever capability (the first Nether trip, the first fortress). The test world is a Paper server in Docker; the bot connects through a ViaProxy bridge, because the harness speaks Minecraft 1.21.4 and the servers run newer releases. As of October 2026 the lab and the family world each run on a Raspberry Pi 4 (4 GB), with the bot and the server on the same Pi.
+SoulStone is tested in a **test world** before anything reaches the world people play in. Every change runs there first, and so does every first-ever capability (the first Nether trip, the first fortress). The test world is a Paper server in Docker; the bot connects through a ViaProxy bridge, because the harness speaks Minecraft 1.21.4 and the servers run newer releases. As of October 2026 the lab and the play world each run on a Raspberry Pi 4 (4 GB), with the bot and the server on the same Pi.
 
 ## What is here
 

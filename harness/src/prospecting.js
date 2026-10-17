@@ -96,7 +96,7 @@ export async function executeExpedition(bot,task,api){
   while(state.trail.length){check();const p=state.trail.at(-1);if(invalidKnownWaypoint(bot,p)){state.trail.pop();state.routeRepairs=(state.routeRepairs||0)+1;save();continue}await walk(new goals.GoalBlock(p.x,p.y,p.z));state.trail.pop();save()}
   // A trip begun at the back exit is home at the shaft's foot: the base is
   // straight up from there, and the surface waypoint is nine blocks of rock
-  // away (family run 5, 3 October: 2 of 8 iron, then "Route blocked").
+  // away (play-world run 5, 3 October: 2 of 8 iron, then "Route blocked").
   if(state.via==='back_exit'){state.phase='at_base';state.pending=null;save();return}
   const station=project.stations?.crafting_table||project.stations?.furnace
   if(station)await walk(new goals.GoalLookAtBlock(vec(station.position),bot.world,{reach:3}))
@@ -109,7 +109,7 @@ export async function executeExpedition(bot,task,api){
  // and a new one begins at the shaft's foot (home is then the shaft).
  if(state.trail.length&&inBackExit(bot,project)&&state.via!=='back_exit'){state.trail=[];state.frontier=[];state.phase='at_base';state.pending=null;save()}
  // The other way round: a route that starts at the shaft's foot cannot be
- // walked from the surface while the shaft is capped (family run 5: two pit
+ // walked from the surface while the shaft is capped (play-world run 5: two pit
  // climbs and a failure). Say what opens it instead of walking into rock.
  if(state.via==='back_exit'&&(state.trail.length||state.frontier.length)&&!inBackExit(bot,project))throw new Error('This mining route starts at the foot of the back exit. Open it with tunnel_out from inside the base, then prospect again; the saved route continues from there')
  if(state.trail.length)await home()

@@ -277,7 +277,7 @@ test('shapeless resources have a reachable mining stance without inventing a vis
  assert.equal(miningGoal(plant,world).isEnd(new Vec3(0,64,0)),false,'plant stance must remain in pickup range')
 })
 
-// Family run 6, 6 October: mining took any exposed block of the kind within 32
+// Play-world run 6, 6 October: mining took any exposed block of the kind within 32
 // blocks. The saved base's own footprint, a portal frame among it, is never a mine.
 test('mining never takes a block inside the saved base',async()=>{
  const registry=(await import('minecraft-data')).default('1.21.4')

@@ -156,7 +156,7 @@ test('the controller saves each watched bearing in places.stronghold_bearing, an
  const bot={registry,game:{gameMode:'survival',difficulty:'normal',dimension:'overworld'},time:{timeOfDay:3000},health:20,food:20,players:{},
   entity:{position:new Vec3(.5,64,.5),onGround:true,eyeHeight:1.62,metadata:[0]},entities:{},inventory:{items:()=>[]},
   blockAt:p=>({name:p.y<64?'stone':'air',boundingBox:p.y<64?'block':'empty',position:p,getProperties:()=>({})}),world:{raycast:()=>null},findBlocks:()=>[],findBlock:()=>null}
- const r=Object.assign(new EventEmitter(),{profile:'eye',owner:'Sov',ready:true,connectionId:'one',bot,position:()=>({x:.5,y:64,z:.5}),command(){},log(){}})
+ const r=Object.assign(new EventEmitter(),{profile:'eye',owner:'Player',ready:true,connectionId:'one',bot,position:()=>({x:.5,y:64,z:.5}),command(){},log(){}})
  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-eye-')),'state.json'))
  const done=result=>r.emit('event',{type:'task_finished',task:{id:'e',kind:'throw_eye',status:'completed',goal:{},result}})
  done({receipt:'eye_unobserved',partial:true,heading:null,from:{x:0,y:70,z:0}})

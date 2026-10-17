@@ -149,7 +149,7 @@ export class Runner extends EventEmitter {
     if (++this.attempts > 5) {
       // A server this bot has played on that stops answering is down, not
       // misconfigured: keep knocking once a minute for as long as it takes.
-      // The family server restarted at 03:42 on 3 October, five tries failed in
+      // The play server restarted at 03:42 on 3 October, five tries failed in
       // under a minute, and the bot stayed out for four hours. Giving up is for
       // a connection that never worked (wrong address, account or version).
       // 16 October: a Pi reboot started the agent before the server's seventy second startup,
@@ -248,7 +248,7 @@ export class Runner extends EventEmitter {
     // Game chat hears how a job ends only for a job typed as a fixed chat
     // command (come, follow, stop); the teammate speaks for its own requests,
     // and step-by-step progress belongs in the log (3 October: "Collecting
-    // logs: 0/16" every few seconds would bury the children's chat).
+    // logs: 0/16" every few seconds would bury the players' chat).
     if (this.task?.fromChat) {
       if (status === 'completed') this.say('Done!')
       else if (status === 'failed') this.say(`I could not do that: ${String(reason || '').slice(0, 80)}`)

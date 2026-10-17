@@ -39,7 +39,7 @@ test('a burrow needs diggable ground, solid walls on every level and a solid flo
  const slope=world();slope.cells.set(new Vec3(11,63,10).toString(),'air');assert.equal(burrowSite(slope.bot).ok,true)
  const bare=world();for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]])bare.cells.set(new Vec3(10+dx,63,10+dz).toString(),'short_grass');assert.match(burrowSite(bare.bot).reason,/cap/)
 })
-// Review of 16 October: in the family world the ground underfoot can be a child's cobblestone
+// Review of 16 October: in the play world the ground underfoot can be a child's cobblestone
 // path. The burrow digs only what dig may break: natural ground, or a block the bot placed.
 test('a burrow never digs through a player\'s floor; its own cobblestone and natural stone still dig',()=>{
  const path=world();path.inventory.push({name:'wooden_pickaxe',count:1});path.cells.set(new Vec3(10,63,10).toString(),'cobblestone')
@@ -181,7 +181,7 @@ test('digging out lets the pathfinder tunnel and pillar back to the recorded sur
  assert.throws(()=>validateTaskGoal('unburrow',{}),/finite/)
 })
 test('with no shelter to retreat to, safety digs in, waits for day, digs out and continues the request',async()=>{
- const w=world();const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov'
+ const w=world();const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Player'
  const commands=[]
  runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'}
   const result=c.action==='burrow'?{receipt:'burrowed_capped',shelterName:'burrow',surface:{x:10,y:64,z:10}}:c.action==='unburrow'?{receipt:'surfaced'}:{}
@@ -269,7 +269,7 @@ test('a restart while dug in resumes the burrow wait on spawn',async()=>{
  const {mkdtempSync,writeFileSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join}=await import('node:path')
  const path=join(mkdtempSync(join(tmpdir(),'mc-burrow-')),'state.json')
  writeFileSync(path,JSON.stringify({profile:'p',places:{},messages:[],projects:{},requestProgress:{id:'r',request:'x',status:'interrupted',completed:[],pending:[],feedback:[]},safety:{status:'burrowed',reason:THREAT_INTERRUPTION,retreat:{shelterName:'burrow',surface:{x:1,y:64,z:1},capped:true}}}))
- const runner=new EventEmitter();runner.profile='p';runner.ready=true;runner.owner='Sov';runner.task=null;runner.bot=world().bot;runner.position=()=>({x:1,y:61,z:1})
+ const runner=new EventEmitter();runner.profile='p';runner.ready=true;runner.owner='Player';runner.task=null;runner.bot=world().bot;runner.position=()=>({x:1,y:61,z:1})
  const c=new Teammate(runner,{model:'fake',plan:async()=>({reply:'',steps:[]})},path)
  const calls=[];c.waitInBurrow=async(epoch,signal,bot,eligible)=>{calls.push(eligible)}
  runner.emit('event',{type:'spawn'});await new Promise(r=>setImmediate(r))
@@ -298,7 +298,7 @@ test('a restart after a failed burrow exit still resumes the exit on spawn',asyn
  const {mkdtempSync,writeFileSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join}=await import('node:path')
  const path=join(mkdtempSync(join(tmpdir(),'mc-burrow-')),'state.json')
  writeFileSync(path,JSON.stringify({profile:'p',places:{},messages:[],projects:{},requestProgress:null,safety:{status:'failed',error:'Took to long to decide path to goal!',reason:THREAT_INTERRUPTION,retreat:{shelterName:'burrow',surface:{x:1,y:64,z:1},capped:true}}}))
- const runner=new EventEmitter();runner.profile='p';runner.ready=true;runner.owner='Sov';runner.task=null;runner.bot=world().bot;runner.position=()=>({x:1,y:61,z:1})
+ const runner=new EventEmitter();runner.profile='p';runner.ready=true;runner.owner='Player';runner.task=null;runner.bot=world().bot;runner.position=()=>({x:1,y:61,z:1})
  const c=new Teammate(runner,{model:'fake',plan:async()=>({reply:'',steps:[]})},path)
  const calls=[];c.waitInBurrow=async(epoch,signal,bot,eligible)=>{calls.push(eligible)}
  runner.emit('event',{type:'spawn'});await new Promise(r=>setImmediate(r))
@@ -394,7 +394,7 @@ test('daylight judgement: a lone defendable mob that lingers is confronted after
 })
 test('a burrowed bot surfaces to confront a lone zombie that lingers through the daylight patience window, then continues the request',async()=>{
  const w=world();w.bot.entities={1:{name:'zombie',position:new Vec3(14.5,64,10.5)}}
- const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov'
+ const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Player'
  const commands=[]
  runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'}
   const result=c.action==='burrow'?{receipt:'burrowed_capped',shelterName:'burrow',surface:{x:10,y:64,z:10}}:c.action==='unburrow'?{receipt:'surfaced'}:{}
@@ -415,7 +415,7 @@ test('a burrowed bot surfaces to confront a lone zombie that lingers through the
 })
 
 test('Resume while dug in defers to the burrow wait, then continues the request at daylight even without new progress',async()=>{
- const w=world();const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov';runner.respawnPending=false
+ const w=world();const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Player';runner.respawnPending=false
  const commands=[]
  runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'}
   const result=c.action==='burrow'?{receipt:'burrowed_capped',shelterName:'burrow',surface:{x:10,y:64,z:10}}:c.action==='unburrow'?{receipt:'surfaced'}:{}
@@ -439,7 +439,7 @@ test('Resume while dug in defers to the burrow wait, then continues the request 
 
 test('when every shelter is refused with a threat near, the bot climbs out, sprints away and digs in on the new ground instead of standing still',async()=>{
  const w=world();w.bot.entities={1:{name:'creeper',position:new Vec3(22.5,64,10.5)}}
- const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov'
+ const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Player'
  const commands=[];let burrows=0,flights=0
  runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'}
   const fail=reason=>{runner.task={...runner.task,status:'failed',reason};runner.emit('event',{type:'task_finished',task:runner.task})}
@@ -490,7 +490,7 @@ test('a verified closed lit shelter answers a nearby hostile by itself; no emerg
 test('a recovery that failed with nothing changed stops repeating, names every blocker once, and yields to the operator',async()=>{
  const w=world('sandstone');w.bot.entities={1:{name:'zombie',position:new Vec3(14.5,64,10.5)}}
  w.bot.inventory.items=()=>[]
- const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov'
+ const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Player'
  const commands=[]
  runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'}
   const reason=c.action==='retreat'?'Shelter access obstructed by birch_log at -656,66,626':c.action==='burrow'?'No safe burrow here: Only 2 diggable cells below':c.action==='hut'?'Cannot wall in here: Fewer than 10 placeable blocks carried':'No pit exit judged from here'
@@ -526,7 +526,7 @@ test('when safety is unachievable the tick lets the paused request carry on, bec
  const {Teammate:T}=await import('../src/companion/controller.js')
  const bot={registry,game:{gameMode:'survival',difficulty:'normal'},time:{timeOfDay:15000},health:3,food:16,entities:{},players:{},
   entity:{position:new Vec3(10.5,64,10.5),onGround:true},inventory:{items:()=>[]},blockAt:()=>({name:'air',boundingBox:'empty'})}
- const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov';runner.command=()=>{}
+ const runner=new EventEmitter();runner.bot=bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Player';runner.command=()=>{}
  let resumed=0
  const c={runner,projects:{},epoch:1,phase:'blocked',activity:'',standoffResuming:false,
   unsafeSignature:{reason:'Night with no shelter',key:'k',at:Date.now()},
@@ -611,7 +611,7 @@ test('relocating from a hole climbs out before it runs, and puts distance behind
  // nor fighting is the answer.
  const w=world();w.bot.time.timeOfDay=6000;w.bot.health=20;w.bot.food=20
  w.bot.entities={1:{name:'pillager',position:new Vec3(22.5,69,17.5)},2:{name:'pillager',position:new Vec3(23.5,72,20.5)},3:{name:'pillager',position:new Vec3(24.5,70,19.5)}}
- const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov'
+ const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Player'
  const commands=[],fledFrom=[]
  runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'}
   if(c.action==='flee')fledFrom.push(c.goal.from)
@@ -639,7 +639,7 @@ test('an expired observation window re-arms the watch rather than ending the day
  // with a creeper ten blocks off, waiting for a person who was asleep.
  const w=world();w.bot.time.timeOfDay=13000;w.bot.health=20;w.bot.food=20
  w.bot.entities={1:{name:'creeper',position:new Vec3(14.5,64,10.5)}}
- const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Sov'
+ const runner=new EventEmitter();runner.bot=w.bot;runner.ready=true;runner.connectionId='c1';runner.profile='p';runner.owner='Player'
  const commands=[]
  runner.command=c=>{commands.push(c.action);if(c.action==='stop')return;runner.task={id:String(commands.length),kind:c.action,status:'running'}
   const result=c.action==='burrow'?{receipt:'burrowed_capped',shelterName:'burrow',surface:{x:10,y:64,z:10}}:c.action==='unburrow'?{receipt:'surfaced'}:{}
@@ -809,7 +809,7 @@ test('on a trip a hut confronts blazes its exits cannot see but its own eye sees
  // The run 166 reading: judged at the exits alone every blaze is hidden and the room reads empty.
  const exitsOnly=burrowClearance(bot,opts);assert.equal(exitsOnly.clear,true,exitsOnly.reason);assert.equal(exitsOnly.confront,undefined)
  const port=burrowClearance(bot,{...opts,feet:surface});assert.equal(port.clear,true,port.reason);assert.equal(port.confront?.name,'blaze')
- // Off a trip (the family bot's Overworld hut) nothing changes.
+ // Off a trip (the play-world bot's Overworld hut) nothing changes.
  const off=burrowClearance(bot,{...opts,trip:false,feet:surface});assert.equal(off.clear,true,off.reason);assert.equal(off.confront,undefined)
  // Rock in the line beyond the port still hides a blaze.
  const rock=bayHut({blazes:[[7.5,63.2,.5]],cells:new Map([['3,65,0','netherrack']])})
@@ -1045,7 +1045,7 @@ test('a climbing click lost with the hand left empty is made again with the bloc
  assert.deepEqual(clicks.filter(c=>!c.held),[],'no click with an empty hand')
 })
 
-// Live, family world, 17 October 16:04Z: the burrow beside the base door met cobblestone that was
+// Live, play world, 17 October 16:04Z: the burrow beside the base door met cobblestone that was
 // not in the record at all and refused it, as it must. Its own cobblestone, of any age, digs (mayDig).
 import {OWN_TTL_MS} from '../src/natural.js'
 test('a burrow counts its own cobblestone below as diggable however old the record',()=>{

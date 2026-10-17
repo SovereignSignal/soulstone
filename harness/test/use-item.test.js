@@ -303,8 +303,8 @@ import { Teammate } from '../src/companion/controller.js'
 class UseRunner extends EventEmitter {
   constructor(result) {
     super()
-    this.profile = 'lab'; this.owner = 'Sov'; this.ready = true; this.commands = []; this.result = result
-    this.bot = { players: { Sov: { entity: { position: { x: 1, y: 64, z: 2 } } } }, inventory: { items: () => [] } }
+    this.profile = 'lab'; this.owner = 'Player'; this.ready = true; this.commands = []; this.result = result
+    this.bot = { players: { Player: { entity: { position: { x: 1, y: 64, z: 2 } } } }, inventory: { items: () => [] } }
   }
   position() { return { x: 0, y: 64, z: 0 } }
   command(c) {

@@ -2,7 +2,7 @@
 // player would do about the hostiles in view. Shadow mode only: the safety chain
 // still acts on its own rules, and every judgement is logged beside the rule's
 // verdict so the two can be compared on real situations before Jev is allowed
-// to change anything. Sov's steer of 12 September: fight and survive with
+// to change anything. The owner's steer of 12 September: fight and survive with
 // judgement, not always flee and hide. The rule cannot judge; this can.
 import {execFileSync} from 'node:child_process'
 import {RANGED,CLOSE_FLOORS} from './survival.js'

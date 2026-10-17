@@ -68,7 +68,7 @@ test('a hostile sealed off behind rock interrupts only inside the close floors; 
  assert.equal(emergencyReason(at('vex',9)),THREAT_INTERRUPTION,'a vex passes through walls')
 })
 class FakeRunner extends EventEmitter{
- constructor(bot){super();this.profile='lab';this.owner='Sov';this.ready=true;this.commands=[];this.bot=bot}
+ constructor(bot){super();this.profile='lab';this.owner='Player';this.ready=true;this.commands=[];this.bot=bot}
  position(){const p=this.bot.entity.position;return {x:p.x,y:p.y,z:p.z}}
  command(c){this.commands.push(c);this.task={id:String(this.commands.length),status:'running'}}
 }
@@ -124,7 +124,7 @@ test('a sealed melee mob counts only within three blocks; a sealed creeper withi
  assert.equal(emergencyReason({...o,nearbyThreats:[sealed('warden',9)]}),THREAT_INTERRUPTION)
  assert.equal(emergencyReason({...o,nearbyThreats:[{...sealed('zombie',5),reach:'open'}]}),THREAT_INTERRUPTION,'an open route is an interruption at any distance inside the radius')
 })
-// Fresh-world test on pi1, 9 October: hurt to 9 with no food, a creeper sealed
+// Fresh-world test on lab-1, 9 October: hurt to 9 with no food, a creeper sealed
 // three blocks below behind snow. The health alarm counted any hostile within
 // sixteen blocks while the shelter's clearance judged it by reach: walled in,
 // "Daylight with no hostile nearby. Opening up.", walled in again, every 22
@@ -133,7 +133,7 @@ test('the health alarm judges a hidden hostile by reach, as the threat alarm and
  const {emergencyReason,HEALTH_EMERGENCY}=await import('../src/survival.js')
  const o={gameMode:'survival',health:9,difficulty:'normal',timeOfDay:6000,sheltered:false,shelterAvailable:false,food:17,carriedFood:[],nearbyThreats:[]}
  const hidden=(name,distance,reach)=>({risk:'potential_hostile',name,distance,reach,sightline:{status:'blocked'}})
- assert.equal(emergencyReason({...o,nearbyThreats:[hidden('creeper',9.9,'sealed')]}),null,'the pi1 creeper')
+ assert.equal(emergencyReason({...o,nearbyThreats:[hidden('creeper',9.9,'sealed')]}),null,'the lab-1 creeper')
  assert.equal(emergencyReason({...o,nearbyThreats:[hidden('zombie',13,'sealed')]}),null)
  assert.equal(emergencyReason({...o,nearbyThreats:[hidden('creeper',9.9,'open')]}),HEALTH_EMERGENCY,'a route in still counts')
  assert.equal(emergencyReason({...o,nearbyThreats:[{...hidden('zombie',13,'sealed'),sightline:{status:'clear'}}]}),HEALTH_EMERGENCY,'in sight still counts')
@@ -171,7 +171,7 @@ test('a shooter with no line of sight is no alarm until it has one; melee mobs s
  assert.equal(emergencyReason({...o,nearbyThreats:[t('blaze',2,'clear','sealed')]}),THREAT_INTERRUPTION,'in sight it counts even sealed')
  assert.equal(emergencyReason({...o,nearbyThreats:[t('skeleton',3.5,'blocked','open')]}),THREAT_INTERRUPTION,'with a way round, within four still counts')
 })
-// pi2, 10 October: two dawn hunts at 1 health were cancelled by the health alarm
+// lab-2, 10 October: two dawn hunts at 1 health were cancelled by the health alarm
 // within six seconds, and the journal could not say which hostile raised it: the
 // recovery record, taken a moment later, showed only a witch thirteen blocks down
 // behind grass. The alarm now logs what it counted when it fires.

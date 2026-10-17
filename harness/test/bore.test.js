@@ -454,7 +454,7 @@ test('a hut asked to close named cells closes them from where the bot stands, co
  assert.deepEqual(w.of('place').sort(),SLIT.map(c=>k(c.x,c.y,c.z)).sort(),'only the slit')
 })
 function slitController(w){
- const r=Object.assign(new EventEmitter(),{profile:'bore',owner:'Sov',ready:true,connectionId:'one',bot:w.bot,commands:[],position:()=>w.bot.entity.position,log(){},waitForIdle:async()=>{}})
+ const r=Object.assign(new EventEmitter(),{profile:'bore',owner:'Player',ready:true,connectionId:'one',bot:w.bot,commands:[],position:()=>w.bot.entity.position,log(){},waitForIdle:async()=>{}})
  const shutAt=[]
  r.command=c=>{r.commands.push(c);if(c.action==='stop')return;const t=r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.action==='hut'?validateTaskGoal('hut',c.goal):c.goal}
   if(c.action!=='hut')shutAt.push(SLIT.map(p=>w.cells.get(k(p.x,p.y,p.z))))

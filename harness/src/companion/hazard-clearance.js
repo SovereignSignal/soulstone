@@ -12,7 +12,7 @@ export function clearanceObservation(bot,projects,shelterName){
  if(!p||s.gameMode!=='survival'||!['easy','normal','hard'].includes(s.difficulty))return {clear:false,reason:'Survival difficulty is unavailable or changed'}
  // Readiness is worth waiting for only where waiting brings it: food in the bag, or
  // hunger high enough to regenerate (as burrowClearance). Hurt and hungry with
- // nothing to eat, nothing inside raises either (pi2, 10 October: 1 health, hunger
+ // nothing to eat, nothing inside raises either (lab-2, 10 October: 1 health, hunger
  // 10, every dawn watch timed out), so the way out is food, and that waits for
  // working daylight (day-routine's 1000 to 10000) rather than for full health.
  const canHeal=(s.carriedFood||[]).length>0||Number.isFinite(s.food)&&s.food>=18

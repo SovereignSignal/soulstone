@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run 127 (13 Oct, pi1): only blazes above the deck count (y 61 up; the bot stands at y 61 on y 60 bricks).
+# Run 127 (13 Oct, lab-1): only blazes above the deck count (y 61 up; the bot stands at y 61 on y 60 bricks).
 # A blaze at y 59.0 under the east end filled the old box from y 59, the range never summoned and run 126 gave up with nothing in sight.
 # Test world only. A blaze range on the portal bridge (Nether, x -68..-55, y60, z -43..-39).
 # While the test bot is on the bridge and no blaze is over the bridge (within 12 of its middle;

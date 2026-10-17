@@ -217,7 +217,7 @@ test('a blaze at the port does not interrupt a blaze stand; it still interrupts 
   const f=fixture({blazes:[{at:[-35.5,61,-7.5]}]});f.stop()
   const e=Object.values(f.bot.entities).find(x=>x.name==='blaze');e.name=mob
   f.bot.findBlocks=()=>[];f.bot.findBlock=()=>null;f.bot.entity.metadata={0:0}
-  const r=Object.assign(new EventEmitter(),{profile:'stand',owner:'Sov',ready:true,connectionId:'one',bot:f.bot,commands:[],position:()=>({x:-36,y:60,z:-9}),log(){},
+  const r=Object.assign(new EventEmitter(),{profile:'stand',owner:'Player',ready:true,connectionId:'one',bot:f.bot,commands:[],position:()=>({x:-36,y:60,z:-9}),log(){},
    command(c){this.commands.push(c);this.task={id:String(this.commands.length),kind:c.action,status:'running',goal:c.goal}}})
   const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-blaze-stand-')),'state.json'))
   r.task={id:'s',kind,status:'running',goal:{item,count:1}}
@@ -296,7 +296,7 @@ test('the port closes only after a kill in the port has had its rod picked up',a
 test('after a stand ends with its port open, the controller walls in before the next command',async()=>{
  const run=async open=>{
   const f=fixture();f.stop();if(!open)f.map.set(PORT,'cobblestone')
-  const r=Object.assign(new EventEmitter(),{profile:'stand',owner:'Sov',ready:true,connectionId:'one',bot:f.bot,commands:[],position:()=>({x:-36,y:60,z:-9}),log(){},waitForIdle:async()=>{}})
+  const r=Object.assign(new EventEmitter(),{profile:'stand',owner:'Player',ready:true,connectionId:'one',bot:f.bot,commands:[],position:()=>({x:-36,y:60,z:-9}),log(){},waitForIdle:async()=>{}})
   r.command=c=>{r.commands.push(c);if(c.action==='stop')return;const t=r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal};setTimeout(()=>{if(c.action==='hut')f.map.set(PORT,'cobblestone');t.status='completed';t.result={receipt:c.action};r.emit('event',{type:'task_finished',task:t})},1)}
   const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-blaze-port-')),'state.json'))
   r.emit('event',{type:'task_finished',task:{id:'s',kind:'stand',status:'cancelled',goal:{item:'blaze_rod',count:1},portOpen:[{x:-36,y:61,z:-8}]}})
@@ -323,7 +323,7 @@ test('a cancellation thrown inside unwall after the port is dug still closes the
 // again after a short wait; still open, a command that moves or digs is refused, and the port stays recorded for the next.
 test('with a mob in the port cell the pre-command hut fails twice, the goto is refused and the port stays recorded',async()=>{
  const f=fixture();f.stop()
- const r=Object.assign(new EventEmitter(),{profile:'stand',owner:'Sov',ready:true,connectionId:'one',bot:f.bot,commands:[],position:()=>({x:-36,y:60,z:-9}),log(){},waitForIdle:async()=>{}})
+ const r=Object.assign(new EventEmitter(),{profile:'stand',owner:'Player',ready:true,connectionId:'one',bot:f.bot,commands:[],position:()=>({x:-36,y:60,z:-9}),log(){},waitForIdle:async()=>{}})
  r.command=c=>{r.commands.push(c);if(c.action==='stop')return;const t=r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal}
   setTimeout(()=>{if(c.action==='hut'){t.status='failed';t.reason='Hut incomplete: -36,61,-8 occupied by a hoglin'}else{t.status='completed';t.result={receipt:c.action}}r.emit('event',{type:'task_finished',task:t})},1)}
  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-blaze-port-')),'state.json'));c.standPortRetryMs=10

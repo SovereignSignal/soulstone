@@ -14,7 +14,7 @@ import {THREAT_INTERRUPTION} from '../src/survival.js'
 // (1 of 3)") and resumed it: the resume cancelled the covered phase, nulled the held shelter and left the stand running,
 // orphaned, until the next alarm stopped it as an operator stop. A held shelter is the shelter's to end, never a stall.
 class FakeRunner extends EventEmitter{
- constructor(){super();this.profile='lab';this.owner='Sov';this.ready=true;this.commands=[];this.bot={players:{},inventory:{items:()=>[]}}}
+ constructor(){super();this.profile='lab';this.owner='Player';this.ready=true;this.commands=[];this.bot={players:{},inventory:{items:()=>[]}}}
  position(){return {x:-36,y:60,z:-9}}
  command(c){this.emit('operator_command',c);this.commands.push(c)}
 }

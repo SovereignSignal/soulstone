@@ -6,7 +6,7 @@ import {coveredMoves} from '../src/companion/covered-moves.js'
 import {LocalPlanner,validateCovered} from '../src/companion/planner.js'
 import {COVERED_MOVES,COVERED_CALLS} from '../src/companion/continuity.js'
 const registry=minecraftData('1.21.4')
-// Family rehearsal, 16 October: walled in beside the arrival portal at the Nether hub, the wait
+// Play-world rehearsal, 16 October: walled in beside the arrival portal at the Nether hub, the wait
 // held "for daylight and a clear area", which never comes in the Nether, until "Resume is
 // required". Walled in on a trip, the bot digs a shaft and bores under cover instead.
 // A hut at 0,64,0: placed cobblestone walls and roof, netherrack everywhere else.
@@ -81,8 +81,8 @@ test('bore through a hut wall that is neither rock nor the bot\'s own is refused
  const sent=shaft.commands.find(x=>x.action==='bore');assert.ok(sent,acts(shaft).join(' '))
  assert.deepEqual([sent.goal.x,sent.goal.y,sent.goal.z,sent.goal.count],[20,61,0,6]);assert.ok(Array.isArray(sent.goal.protectedSites)&&sent.goal.protectedSites.length,JSON.stringify(sent.goal))
 })
-// Live, 16 October: the family seed's Nether arrival is on a fortress bridge of nether bricks, which
-// the family rule never digs, so the shaft is refused there. From the hut a bore is admitted when its
+// Live, 16 October: the play-world seed's Nether arrival is on a fortress bridge of nether bricks, which
+// the play-world rule never digs, so the shaft is refused there. From the hut a bore is admitted when its
 // first column is the bot's own wall or rock, or open air over a solid floor that is not hot.
 // Blaze death, 16 October 18:44Z: a covered bore from the hut on the bridge dug its own front wall into open
 // floored air; the cavity joined the fortress ground and the shelter failed open. Under cover a bore goes
@@ -298,7 +298,7 @@ test('restarted with a covered route saved, the wait is re-armed in it',async()=
  const path=join(mkdtempSync(join(tmpdir(),'mc-covered-')),'state.json')
  const covered={from:{x:0,y:64,z:0},at:{x:0,y:61,z:0},moves:[]}
  writeFileSync(path,JSON.stringify({profile:'covered-test',places:{},messages:[],projects:{},requestProgress:{id:'r',request:'blaze rods',status:'interrupted',feedback:[]},safety:{status:'burrowed',reason:'threat',retries:0,retreat:{shelterName:'hut',surface:{x:0,y:64,z:0}},covered}}))
- const r=new EventEmitter();Object.assign(r,{ready:false,profile:'covered-test',owner:'Sov',commands:[],command(c){this.commands.push(c)},position:()=>null})
+ const r=new EventEmitter();Object.assign(r,{ready:false,profile:'covered-test',owner:'Player',commands:[],command(c){this.commands.push(c)},position:()=>null})
  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},path)
  assert.equal(c.restoreBurrow,true);assert.deepEqual(c.safety.covered,covered)
 })
@@ -453,7 +453,7 @@ test('a trip hold that keeps killing through the port is not cut short by the bo
  assert.equal(kills,4,f.said.join(' | '));assert.ok(Date.now()-start>1200,'the kills ran past the bound');assert.deepEqual(f.events.filter(e=>e.type==='hold_bounded'),[])
 })
 
-// Review of the port-line gate, 16 October: off a trip (the family world's Overworld hut) nothing bounds a hold, so a
+// Review of the port-line gate, 16 October: off a trip (the play world's Overworld hut) nothing bounds a hold, so a
 // shooter no port line reaches must still count toward the port attempts and the leave rule, as a port that opened
 // and missed did: four times, then a strong bot with the shooter ten or more blocks off moves away. On a trip the same
 // shooter holds the hut quietly, and the trip's hold bound backs that up. A pit east of the hut, a skeleton low in it

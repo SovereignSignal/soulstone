@@ -109,7 +109,7 @@ test('falling health does not override the guard that keeps a hurt agent free to
  assert.equal(emergencyReason({...hurt,health:8,sheltered:true,recentDamageMs:500}),null,'already sheltered, it is not an interruption')
 })
 
-// Fresh-world test on pi3, 9 October: a provoked enderman took the bot from 13
+// Fresh-world test on lab-3, 9 October: a provoked enderman took the bot from 13
 // to 6 to dead in two seconds; as a `conditional` mob it set off nothing until
 // health fell to half. An enderman screams while it hunts a player (its
 // `creepy` flag), and that is the moment it is a threat, not the first hit.
@@ -185,7 +185,7 @@ test('in the Nether, burning out of lava and fire is no emergency of its own',as
  assert.equal(emergencyReason({...base,dimension:'overworld'}),FIRE_EMERGENCY,'in the Overworld water can still put it out')
 })
 
-// pi2, 10 October 20:33Z, on the food floor's first errand: at 1 health, hunger 10
+// lab-2, 10 October 20:33Z, on the food floor's first errand: at 1 health, hunger 10
 // and nothing carried, the health alarm called the bot back inside for a zombie in
 // the cave nine blocks below the base (10.5 away, out of sight, reach unknown). In
 // the base nothing raises health or hunger without food, so going in only waits for
@@ -207,7 +207,7 @@ test('hurt with no way to heal in place, out in Overworld daylight, the health a
  assert.equal(emergencyReason({...base,dimension:'the_nether'}),HEALTH_EMERGENCY,'no food to find in the Nether')
  assert.equal(emergencyReason({...base,openSky:false}),HEALTH_EMERGENCY,'under rock the food is not here')
 })
-// Family rehearsal, 16 October: walled in at the back exit's foot, one block of rock over a
+// Play-world rehearsal, 16 October: walled in at the back exit's foot, one block of rock over a
 // cave of three skeletons, a zombie and two creepers, every one sealed off and out of sight.
 // The rock floors kept the zombie at 2.2 and the creepers at 3.7 counting for good. Sealed and
 // still is the shelter's test: nothing in the shelter digs, and a sealed creeper never fuses.

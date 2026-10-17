@@ -29,7 +29,7 @@ test('outside the Overworld a bed is refused, and in the Nether so is making obs
 })
 
 test('in the Nether the daylight walk onto open ground is skipped',async()=>{
- class Runner extends EventEmitter{constructor(){super();this.profile='lab';this.owner='Sov';this.ready=true;this.commands=[];this.bot=bot('the_nether');this.bot.time.timeOfDay=6000}position(){return {x:0,y:70,z:0}}command(c){this.commands.push(c)}}
+ class Runner extends EventEmitter{constructor(){super();this.profile='lab';this.owner='Player';this.ready=true;this.commands=[];this.bot=bot('the_nether');this.bot.time.timeOfDay=6000}position(){return {x:0,y:70,z:0}}command(c){this.commands.push(c)}}
  const r=new Runner(),c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-nether-')),'state.json'))
  assert.equal(await c.leaveOnOpenGround(c.epoch,new AbortController().signal,r.bot,false),'skipped')
  assert.deepEqual(r.commands,[])

@@ -291,7 +291,7 @@ export async function wallIn(bot,task,{check,stage,progress}){
 // at eye level the bot sees down into a room whose fireballs all meet the wall below it.
 // An enderman is struck through the same port (enderman-stand.js): 2.9 tall, it cannot
 // follow through a 2-high wall into the hut, and the port must face it to meet its eyes.
-// 16 October: a hut leans on any wall already standing, and in the family world that can be a
+// 16 October: a hut leans on any wall already standing, and in the play world that can be a
 // player's. A side opens only through what the bot may break (natural.js): natural ground, or
 // a block it placed itself; a player's wall refuses that side, for a port and the plain exit.
 const PORT_MOBS=new Set([...SHOOTERS_ONLY,'enderman'])

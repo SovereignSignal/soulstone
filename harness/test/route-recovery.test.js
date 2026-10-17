@@ -171,7 +171,7 @@ test('a climb only succeeds if it reached ground it can walk off',async()=>{
 })
 
 test('a pit exit never digs through a saved build\'s footprint',()=>{
- // 3 October, family world: a pit escape beside the base dug up through the
+ // 3 October, play world: a pit escape beside the base dug up through the
  // base's own roof, and the cobblestone patch left the base failing inspection.
  const f=fixture();carrying(f.bot,8)
  f.bot.blockAt=p=>(p.x===0&&p.z===0&&p.y===68)?{position:p,name:'spruce_planks',boundingBox:'block'}:pit()(p)

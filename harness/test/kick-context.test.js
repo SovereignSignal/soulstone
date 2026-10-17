@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {Vec3} from 'vec3'
 import {kickContext} from '../src/kick-context.js'
 
-// Fresh-world tests on pi2 and pi3, 9 October: twice the server kicked the bot
+// Fresh-world tests on lab-2 and lab-3, 9 October: twice the server kicked the bot
 // for "floating too long" moments after it climbed out of its burrow. Its own
 // view at the kick is what tells a missing block under it from anything else.
 test('a kick records where the bot thought it stood, what it thought was under it, and its last placements',()=>{

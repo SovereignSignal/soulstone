@@ -154,7 +154,7 @@ async function openSealed(bot,site,{check,progress,stage,approach,settle,stairca
   try{await open(lid,true);opened.push(lid)}catch(error){check();progress(`Left the lid at ${key(lid)}: ${error.message}`)}
  }
  // Room to stand over the rim afterwards. Mining wants the bot within a block
- // and a half of the obsidian, and the standing cell is two away (family run 4,
+ // and a half of the obsidian, and the standing cell is two away (play-world run 4,
  // 6 October: the pocket at -651,43,-427 turned to obsidian and was skipped as
  // inaccessible, the rock over the rim cell leaving no head room there).
  const head=site.water.offset(0,1,0),hn=name(head)
@@ -169,8 +169,8 @@ async function openSealed(bot,site,{check,progress,stage,approach,settle,stairca
 // Obsidian the job may take. A pour turns one level of lava, so what it makes
 // lies flat; a ruined portal stands on netherrack with magma, crying obsidian
 // or gold about it. Obsidian joined across more than one level with none of
-// that against it is a frame somebody built (family run 6, 6 October: the job
-// mined seven blocks of a ruined portal, and would have mined a frame the kids
+// that against it is a frame somebody built (play-world run 6, 6 October: the job
+// mined seven blocks of a ruined portal, and would have mined a frame the players
 // built just the same). The whole joined piece is judged, since a frame's
 // bottom middle has air above it like any pool layer.
 const RUIN=new Set(['netherrack','magma_block','crying_obsidian','gold_block'])

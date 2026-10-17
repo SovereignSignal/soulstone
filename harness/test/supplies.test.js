@@ -40,7 +40,7 @@ test('runner skill dispatch reaches tool preparation and rejects unavailable ite
  await assert.rejects(()=>executeSkill(bot,{kind:'prepare',goal:{item:'iron_pickaxe',count:2}},{check(){},progress(){},stage(){}}),/tool available/)
 })
 
-// Family run 3, 5 October: the iron, stone and wooden pickaxes reached their
+// Play-world run 3, 5 October: the iron, stone and wooden pickaxes reached their
 // reserve at y 13 with no wood to make more, and the diamond one dug on. Family
 // run 4, 6 October: the same, 312 diamond uses in ten minutes. A player makes
 // pickaxes before the trip and packs sticks and a table to make more down there.

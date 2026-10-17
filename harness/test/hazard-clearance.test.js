@@ -87,7 +87,7 @@ test('time in which nothing could change does not spend the observation window',
  assert.equal(timedOut.status,'paused');assert.equal(timedOut.code,'clearance_timeout')
  assert.ok(timedOut.heldMs>0,'it reports how long it held')
 })
-// pi2, 10 October: at 1 health, hunger 10 and nothing to eat, the base's clearance
+// lab-2, 10 October: at 1 health, hunger 10 and nothing to eat, the base's clearance
 // asked for full health before letting the bot out. Inside, nothing raises health or
 // hunger without food, so the watch could never clear: every dawn hunt ended in a
 // ninety-second wait that timed out. Readiness is asked for only where waiting
@@ -101,7 +101,7 @@ test('a hurt, hungry bot with nothing to eat may leave the base for food in dayl
  assert.match(clearanceObservation(hurt({food:18}),{},'base').reason,/Health/,'at hunger 18 it heals by waiting')
  assert.match(clearanceObservation(hurt({health:20,food:12}),{},'base').reason,/shelter/,'hungry at full health with no food: go and get some')
 })
-// Family rehearsal, 16 October: a dark cave of permanent mobs under the base floor. The base
+// Play-world rehearsal, 16 October: a dark cave of permanent mobs under the base floor. The base
 // watch counted any hostile in its radius, sealed or not, while the door and the base hold
 // judged them by reach; the watch held until its window ended over mobs nothing could free.
 import minecraftData from 'minecraft-data'

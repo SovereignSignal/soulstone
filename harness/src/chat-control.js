@@ -71,8 +71,8 @@ export function attachChatControl(runner, bot) {
     } catch (error) { runner.say(error.message.slice(0, 150)) }
   })
 }
-// Idle company. A teammate with no job used to stand like a statue: Sov stood
-// beside it in the family world (4 October) and saw nothing happen. Now, with
+// Idle company. A teammate with no job used to stand like a statue: the owner stood
+// beside it in the play world (4 October) and saw nothing happen. Now, with
 // nothing running, it turns to look at the nearest player within LOOK_RANGE,
 // and it greets each player once per session when they join or first come
 // near, with one line on how to talk to it.
