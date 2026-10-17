@@ -458,6 +458,9 @@ export class Teammate extends EventEmitter {
           else{this.unsafeSignature={reason,key:this.safetyBlockKey(),at:Date.now()};this.runner.log?.('safety_unsafe',{reason,error:this.safety.error});this.persist()}
         }
       }
+      // Review of the blaze stand: a stand that ends with its firing port open (done, failed or cancelled) leaves it on the
+      // task (blaze-stand.js). The next command walls in first if those cells are still open (executeCommand).
+      if(e.type==='task_finished'&&e.task?.kind==='stand')this.standPort=Array.isArray(e.task.portOpen)&&e.task.portOpen.length?structuredClone(e.task.portOpen):null
       if(['task_started','task_finished'].includes(e.type)&&e.task?.goal?.project){this.projects.base=structuredClone(e.task.goal.project);this.persist()}
       if(['task_started','task_finished'].includes(e.type)&&e.task?.kind==='construct'&&e.task.goal?.name){this.projects[e.task.goal.name]={construction:structuredClone(e.task.goal),progress:structuredClone(e.task.progress||null),result:structuredClone(e.task.result||null),status:e.task.status,dimension:this.projects[e.task.goal.name]?.dimension||dimensionOf(runner.bot)||'overworld'};this.persist()}
       // Only a shelter build is the base. Any other build adopted it and wiped the
@@ -2231,6 +2234,15 @@ export class Teammate extends EventEmitter {
   async executeCommand(command, signal, started = () => {}) {
     const held=Teammate.prototype.sealedHoldRefusal.call(this,command);if(held)throw held
     await this.runner.waitForIdle?.(signal)
+    // A stand's port left open: once the stand has finished its own closing (waitForIdle), cells still open are walled in
+    // before anything else. Fire and the portal keep their own clocks, and a failed hut never blocks the command.
+    if(this.standPort&&!['stop','hut','douse','leave_portal'].includes(command.action)){
+      const bot=this.runner.bot,open=this.standPort.filter(c=>!fullCube(bot?.registry,bot?.blockAt?.(new Vec3(c.x,c.y,c.z))?.name));this.standPort=null
+      if(open.length){
+        this.say('My firing port is still open. Closing it first.')
+        try{await Teammate.prototype.executeCommand.call(this,{action:'hut',goal:{},timeoutMs:60000},signal)}catch(error){if(signal.aborted)throw error;this.runner.log?.('stand_port_unclosed',{reason:String(error.message).slice(0,120)})}
+      }
+    }
     const deferredDeparture=['acquire','prepare'].includes(command.action)&&insideBase(this.runner.bot,this.projects.base)
     // The checked door exit is for work. A safety action never walks out of a
     // shelter first: fleeing a creeper at the door used to open the door on it.

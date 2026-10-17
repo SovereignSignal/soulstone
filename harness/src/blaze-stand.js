@@ -34,9 +34,11 @@ import {validateStandGoal,standingIn,closePort} from './enderman-stand.js'
 // again, since a blaze that loses sight of the bot flies to where it last saw it. healMs: shut, waiting for the port's 16.
 // meleeNear: a melee mob this close to the port cell shuts it. digReach: the bot's own blocks in the port's line dug from
 // inside. settleMs: a rod's fall. spawnReach, spawnRise: a spawner's volume, 4 across and 1 up or down (vanilla).
-// closeWaitMs, closeTries: a mob in the port's cell (closePort).
+// closeWaitMs: one round of waiting on a mob in the port's cell (closePort). closeLimitMs: the close gives up after this long
+// at or over the trip's health; under it the close keeps going. finalCloseMs: the closing of a stand that ends, by its own
+// clock, since after a cancellation the runner's check throws (review of the stand).
 export const BLAZE_STAND={item:'blaze_rod',radius:SHOOT.radius,limitMs:600000,timeoutMs:600000,arrows:TRIP_ARROWS,emptyMs:120000,idleMs:20000,drawInMs:15000,drawIn:4,blinkMs:1500,healMs:60000,
- meleeNear:3,digReach:4.5,settleMs:1500,drawMs:SHOOT.drawMs,spawnReach:4,spawnRise:1,closeWaitMs:10000,closeTries:3,poll:50}
+ meleeNear:3,digReach:4.5,settleMs:1500,drawMs:SHOOT.drawMs,spawnReach:4,spawnRise:1,closeWaitMs:10000,closeLimitMs:60000,finalCloseMs:15000,poll:50}
 const key=p=>`${p.x},${p.y},${p.z}`
 const round=p=>({x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,z:Math.round(p.z*10)/10})
 const plural=(n,one,many)=>`${n} ${n===1?one:many}`
@@ -68,7 +70,10 @@ export function blazeStandRefusal(bot,o=BLAZE_STAND){
  if(spawner)return `${key(feet)} is inside the spawner's reach at ${key(spawner)} (${o.spawnReach} blocks across, ${o.spawnRise} up or down): a blaze could be made in the hut. Stand two above the blazes' floor, or more than ${o.spawnReach} blocks from the spawner`
  const near=blazes(bot,o.radius)
  if(!near.length)return `No blaze within ${o.radius} blocks`
- if(!near.some(b=>firingPort(bot,feet,{toward:column(b.position),shooter:'blaze'})))return 'No wall here opens toward a blaze: each faces away, or has lava, water or fire beside it, or a block I did not place'
+ const ports=near.map(b=>firingPort(bot,feet,{toward:column(b.position),shooter:'blaze'})).filter(Boolean)
+ if(!ports.length)return 'No wall here opens toward a blaze: each faces away, or has lava, water or fire beside it, or a block I did not place'
+ // Review of the stand: the port cell is a pocket a blaze's box can fit too.
+ if(ports.every(p=>spawnerOver(bot,p.cells[0],o))){const c=ports[0].cells[0];return `The port cell ${key(c)} is inside the spawner's reach at ${key(spawnerOver(bot,c,o))}: a blaze could be made in the port. Stand where the port is two above the blazes' floor`}
  const site=hutSite(bot);if(!site.ok)return 'No wall-in site here: '+site.reason
  return ''
 }
@@ -85,8 +90,7 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
  const eye=()=>bot.entity.position.offset(0,bot.entity.eyeHeight??1.62,0)
  let port=null,stopped=null,nextSwing=0
  // Blazes the bot shot at or struck: their deaths are its kills, and each kill's rod is judged a settle later.
- // ported: blazes struck in the port column, which are struck again only back inside it.
- const engaged=new Set(),ported=new Set(),pending=[],named=new Set()
+ const engaged=new Set(),pending=[],named=new Set()
  const died=e=>{if(e?.name==='blaze'&&engaged.has(e.id)&&e.position){record.kills++;pending.push({at:e.position.clone(),due:Date.now()+o.settleMs,had:rods()});persist()}}
  // A rod that came in is the inventory's; one still lying within 3 of the kill is named, with its cell, and left.
  const judge=(all=false)=>{
@@ -100,15 +104,13 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
  const inColumn=b=>{const c=portCell();return !!c&&Math.floor(b.position.x)===c.x&&Math.floor(b.position.z)===c.z}
  // A melee mob (hostile to the bot, not a shooter) near the port's cell: it shuts the port, and keeps it shut.
  const meleeNear=c=>{const centre=new Vec3(c.x+.5,c.y+.5,c.z+.5);return Object.values(bot.entities||{}).find(e=>e&&e!==bot.entity&&e.position&&e.name!=='blaze'&&!SHOOTERS_ONLY.has(e.name)&&hostileNow(bot,e)&&e.position.distanceTo(centre)<=o.meleeNear)||null}
- const hold=async item=>{if(bot.heldItem?.name!==item.name){await bot.equip(item,'hand');check()}}
+ const hold=async(item,chk=check)=>{if(bot.heldItem?.name!==item.name){await bot.equip(item,'hand');chk()}}
  // The sword (weaponFor: no sweep with a bystander near), aimed at its middle, one swing a cooldown.
- const strike=async b=>{
+ const strike=async(b,chk=check)=>{
   const weapon=weaponFor(bot,b);if(!weapon)return false
-  await hold(weapon)
-  await bot.lookAt(middle(b),true);check()
+  await hold(weapon,chk)
+  await bot.lookAt(middle(b),true);chk()
   if(Date.now()<nextSwing||bot.entities?.[b.id]!==b)return true
-  // Judged before the swing: the hit knocks it back out of the column.
-  if(inColumn(b))ported.add(b.id)
   engaged.add(b.id);bot.attack(b);record.swings++;nextSwing=Date.now()+(o.cooldownMs??(weapon.name.endsWith('_axe')?1300:700))
   return true
  }
@@ -124,20 +126,33 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
    record.arrows++;persist();return 'loosed'
   }catch(error){if(/^Holding fire|out of bow range/.test(error.message)){progress(error.message);return 'held'}throw error}
  }
- // A blaze in the port cannot be closed out, so while one stands there the close strikes it; the gate at 16 before each
- // open bounds this to one blaze's fight.
- const close=async()=>{
+ const eat=async(ctx,below)=>{
+  const food=survivalObservation(bot).carriedFood?.[0];if(!food||!(bot.food<below))return
+  try{await eatFood(bot,{kind:'eat',goal:{item:food.name,count:1}},ctx)}catch(error){ctx.check();ctx.progress(`Could not eat: ${String(error.message).slice(0,60)}`)}
+ }
+ // Nothing can be closed out of the port. While something stands in it (a blaze in the port, or a 1.4-wide hoglin on the
+ // ledge whose box reaches into the port cell), the close strikes whatever there is hostile to the bot within clear reach
+ // (combat.js portStrike, anyHostile), in place. A kill still settling is let land first, so its rod is not walled in. At
+ // or over the trip's health the close gives up after closeLimitMs and says why; under it there is nowhere better to be,
+ // so it keeps closing, eating when it can, and the bot never leaves the cell. ctx: the stand's context, or the bounded one
+ // the ending uses.
+ const close=async(ctx=context)=>{
   if(!port)return true
-  stage('walling')
-  const why=await closePort(bot,port.opened,context,o,{whileBlocked:async inside=>{const b=inside.find(e=>e.name==='blaze');if(b&&portStrike(bot,b))await strike(b)}})
-  if(!why){port=null;return true}
-  record.unclosed=why;return false
+  ctx.stage('walling')
+  for(const end=Date.now()+o.settleMs;pending.length&&bot.health>=TRIP_HEALTH&&Date.now()<end;){ctx.check();judge();await delay(o.poll)}
+  const until=Date.now()+o.closeLimitMs
+  for(let ate=0;;){
+   const why=await closePort(bot,port.opened,ctx,{...o,closeTries:1},{whileBlocked:async inside=>{const m=inside.find(e=>portStrike(bot,e,null,{anyHostile:true}));if(m)await strike(m,ctx.check)}})
+   if(!why){port=null;record.unclosed=null;delete task.portOpen;persist();return true}
+   record.unclosed=why
+   if(bot.health>=TRIP_HEALTH&&Date.now()>=until)return false
+   if(bot.health<TRIP_HEALTH&&Date.now()-ate>=30000){ate=Date.now();await eat(ctx,20)}
+  }
  }
  // Shut, the bot eats if it can and waits up to healMs for the port's health (portReady: 16, not burning, food 6).
  const heal=async()=>{
   stage('healing');progress(`Healing with the port shut (health ${Math.round(bot.health)})`)
-  const food=survivalObservation(bot).carriedFood?.[0]
-  if(food&&bot.food<18)try{await eatFood(bot,{kind:'eat',goal:{item:food.name,count:1}},context)}catch(error){check();progress(`Could not eat: ${String(error.message).slice(0,60)}`)}
+  await eat(context,18)
   for(const end=Date.now()+Math.min(o.healMs,Math.max(0,left()));Date.now()<end&&!portReady(bot).ready;){check();await delay(o.poll)}
   return portReady(bot).ready
  }
@@ -161,7 +176,8 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
    if(!plug)break
    await dig(new Vec3(plug.cell.x,plug.cell.y,plug.cell.z))
   }
-  if(mine(over))await dig(over)
+  // Not when the cell over the port is inside a spawner's volume: the dug column would be a pocket a blaze fits.
+  if(mine(over)&&!spawnerOver(bot,over,o))await dig(over)
   if(!AIR.has(bot.blockAt(over)?.name)||!AIR.has(bot.blockAt(ledge)?.name)||!fullCube(bot.registry,bot.blockAt(sill)?.name))return
   const m=hutMaterials(bot),material=m.find(i=>i.name==='cobblestone')??m[0];if(!material)return
   stage('preparing');progress(`Placing a ledge at ${key(ledge)} beyond the port`)
@@ -173,13 +189,14 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
  const choose=async()=>{
   const near=blazes(bot,o.radius)
   for(const b of near){const l=portSightline(bot,feet,b),k=l.side&&`${l.side[0]},${l.side[2]}`;if(k&&!prepared.has(k)){prepared.add(k);await prepare(l)}}
-  const lined=near.map(b=>({b,l:portSightline(bot,feet,b)})).filter(x=>x.l.status==='clear')
+  const lined=near.map(b=>({b,l:portSightline(bot,feet,b)})).filter(x=>x.l.status==='clear'&&!spawnerOver(bot,x.l.cells[0],o))
   const pick=lined.find(x=>AIR.has(bot.blockAt(x.l.cells[0].offset(0,1,0))?.name))??lined[0]
   return pick?{target:pick.b,side:pick.l.side,cells:pick.l.cells}:null
  }
- // The port held open. Each tick the nearest blaze with a line: in the port column within clear reach, the sword; knocked
- // out of it, watched until it is back inside (a kill there drops the rod beyond the wall); another within clear reach, the
- // sword; farther, one arrow. Ends 'count', 'time', 'arrows', 'hit', 'hurt', 'melee', 'idle' or 'blink'.
+ // The port held open. Each tick the nearest blaze with a line: in the port column within clear reach, the sword; within
+ // drawIn blocks outside it (knocked back out, or not yet in), watched until it comes into the column, since a kill there
+ // drops the rod beyond the wall (review of the stand); farther, one arrow.
+ // Ends 'count', 'time', 'arrows', 'hit', 'hurt', 'melee', 'idle' or 'blink'.
  const session=async()=>{
   let top=bot.health,lined=Date.now(),near=Date.now()
   for(;;){
@@ -196,9 +213,9 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
    lined=Date.now()
    if(seen.some(b=>b.position.distanceTo(bot.entity.position)<=o.drawIn))near=Date.now()
    else if(Date.now()-near>=o.drawInMs)return {end:'blink'}
-   const b=seen[0],reach=portStrike(bot,b)
-   if(reach&&(inColumn(b)||!ported.has(b.id))){if(!await strike(b))await bot.lookAt(middle(b),true)}
-   else if(ported.has(b.id)&&b.position.distanceTo(bot.entity.position)<=o.drawIn)await bot.lookAt(middle(b),true)
+   const b=seen[0]
+   if(inColumn(b)&&portStrike(bot,b,portCell())){if(!await strike(b))await bot.lookAt(middle(b),true)}
+   else if(b.position.distanceTo(bot.entity.position)<=o.drawIn)await bot.lookAt(middle(b),true)
    else if(await shoot(b,()=>top)==='hurt')return {end:'hit'}
    await delay(o.poll)
   }
@@ -228,7 +245,8 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
    if(blocks<needed){stopped=`not enough blocks to close the port again (${blocks} carried, ${needed} needed)`;break}
    stage('opening')
    port=await unwall(bot,{kind:'unhut',goal:{toward:column(choice.target.position),shooter:'blaze',side:{dx:choice.side[0],dz:choice.side[2]}}},context);check()
-   record.ports++;persist()
+   // On the task while it is open, so the controller walls in if the stand ends without closing it.
+   task.portOpen=structuredClone(port.opened);record.ports++;persist()
    const r=await session()
    if(!await close()){stopped=`could not close the port: ${record.unclosed}`;break}
    if(r.end==='time'){stopped=ranOut();break}
@@ -242,7 +260,11 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
   check();stopped=error.message
  }finally{
   bot.removeListener?.('entityDead',died)
-  if(port&&!record.unclosed)try{await close()}catch{}
+  // After a cancellation the runner's check and progress throw, so the closing runs on its own clock (finalCloseMs).
+  if(port&&!record.unclosed){
+   const end=Date.now()+o.finalCloseMs,quiet=m=>{try{progress(m)}catch{}}
+   try{await close({...context,check:()=>{if(Date.now()>end)throw new Error('the closing ran out of time')},progress:quiet})}catch{}
+  }
  }
  for(const end=Date.now()+o.settleMs;pending.length&&Date.now()<end;)await delay(o.poll)
  judge(true)

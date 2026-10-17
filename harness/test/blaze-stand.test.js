@@ -40,8 +40,8 @@ function fixture({feet=[-36,60,-9],blazes=[{at:[-35.5,61.5,-3.5]}],cells=[],own=
  let nextId=20,drawing=false
  const add=e=>{e.id=nextId++;e.uuid=`10000000-0000-0000-0000-0000000000${e.id}`;bot.entities[e.id]=e;return e}
  const blaze=({at,hits=2,dropAt=null})=>add({name:'blaze',type:'hostile',height:1.8,width:.6,position:new Vec3(...at),velocity:new Vec3(0,0,0),hits,dropAt})
- const kill=(t,drop=true)=>{delete bot.entities[t.id];bot.emit('entityDead',t);if(drop)add({name:'item',type:'object',position:(t.dropAt?new Vec3(...t.dropAt):t.position).clone(),getDroppedItem:()=>({name:'blaze_rod',count:1})})}
- const pickUp=()=>{const p=bot.entity.position;for(const e of Object.values(bot.entities))if(e.name==='item'&&Math.abs(e.position.x-p.x)<=1.425&&Math.abs(e.position.z-p.z)<=1.425&&e.position.y>=p.y-.75&&e.position.y<=p.y+2.3){const s=e.getDroppedItem();gain(s.name,s.count);delete bot.entities[e.id]}}
+ const kill=(t,drop=true)=>{delete bot.entities[t.id];bot.emit('entityDead',t);if(drop)add({name:'item',type:'object',position:(t.dropAt?new Vec3(...t.dropAt):t.position).clone(),pickupAt:Date.now()+(t.pickupDelay||0),getDroppedItem:()=>({name:'blaze_rod',count:1})})}
+ const pickUp=()=>{const p=bot.entity.position;for(const e of Object.values(bot.entities))if(e.name==='item'&&!(Date.now()<e.pickupAt)&&Math.abs(e.position.x-p.x)<=1.425&&Math.abs(e.position.z-p.z)<=1.425&&e.position.y>=p.y-.75&&e.position.y<=p.y+2.3){const s=e.getDroppedItem();gain(s.name,s.count);delete bot.entities[e.id]}}
  const blockAt=p=>{const c=p.floored(),n=name(c);return {name:n,position:c,boundingBox:registry.blocksByName[n]?.boundingBox,diggable:true}}
  Object.assign(bot,{registry,game:{dimension:'minecraft:'+dimension,gameMode:'survival',difficulty:'normal'},health,food,players:{},entities:{},time:{timeOfDay:6000},
   entity:{position:new Vec3(feet[0]+.5,feet[1],feet[2]+.5),onGround:true,height:1.8,width:.6,eyeHeight:1.62},
@@ -50,7 +50,9 @@ function fixture({feet=[-36,60,-9],blazes=[{at:[-35.5,61.5,-3.5]}],cells=[],own=
   async equip(item){bot.heldItem=item},
   // The server refuses a block inside a mob, as inside a player.
   async placeBlock(ref,face){const p=ref.position.plus(face)
-   if(Object.values(bot.entities).some(e=>e.name!=='item'&&Math.abs(e.position.x-(p.x+.5))<.8&&Math.abs(e.position.z-(p.z+.5))<.8&&e.position.y<p.y+1&&e.position.y+(e.height||1.8)>p.y))throw new Error('Block placement rejected: entity in the way')
+   if(Object.values(bot.entities).some(e=>e.name!=='item'&&Math.abs(e.position.x-(p.x+.5))<.5+(e.width??.6)/2&&Math.abs(e.position.z-(p.z+.5))<.5+(e.width??.6)/2&&e.position.y<p.y+1&&e.position.y+(e.height||1.8)>p.y))throw new Error('Block placement rejected: entity in the way')
+   // An item lying in the cell is walled in: lost to the bot.
+   for(const e of Object.values(bot.entities))if(e.name==='item'&&e.position.floored().equals(p)){delete bot.entities[e.id];log.events.push(['walled',key(p)])}
    log.events.push(['place',key(p),bot.health]);map.set(key(p),'cobblestone');inv[0].count--},
   async dig(block){log.events.push(['dig',key(block.position)]);map.set(key(block.position),'air');if(key(block.position)===PORT)log.onOpen?.()},
   tool:{async equipForBlock(){}},setControlState(){},clearControlStates(){},setQuickBarSlot(){},quickBarSlot:0,
@@ -58,7 +60,7 @@ function fixture({feet=[-36,60,-9],blazes=[{at:[-35.5,61.5,-3.5]}],cells=[],own=
   deactivateItem(){if(!drawing)return;drawing=false;inv[2].count--;log.shots++;log.events.push(['shot']);log.onShot?.(log.shots)},
   async look(){},
   async lookAt(p){const t=Object.values(bot.entities).find(e=>e.name==='blaze'&&Math.abs(e.position.x-p.x)<.01&&Math.abs(e.position.z-p.z)<.01);if(t&&!IN_COLUMN(t.position))log.outside++},
-  attack(t){log.swings.push({id:t.id,inside:IN_COLUMN(t.position)});log.events.push(['swing']);t.struck=(t.struck||0)+1;log.onSwing?.(t);if(t.struck>=t.hits)kill(t)},
+  attack(t){log.swings.push({id:t.id,inside:IN_COLUMN(t.position)});log.events.push(['swing']);t.struck=(t.struck||0)+1;log.onSwing?.(t);if(t.struck>=t.hits)kill(t,t.drops!==false)},
   pathfinder:{movements:null,setMovements(m){this.movements=m},setGoal(){},async goto(g){log.steps.push(key(g))}}})
  const ownBlocks=new OwnBlocks(null)
  ownBlocks.add(floor,'cobblestone','the_nether')
@@ -69,7 +71,7 @@ function fixture({feet=[-36,60,-9],blazes=[{at:[-35.5,61.5,-3.5]}],cells=[],own=
  const api={check(){},stage(){},progress(){},persist(){},movements:null}
  return {bot,map,inv,log,api,add,blaze,kill,stop:()=>clearInterval(timer)}
 }
-const fast={settleMs:60,poll:5,cooldownMs:0,drawMs:10,idleMs:400,drawInMs:2000,blinkMs:30,emptyMs:250,healMs:400,limitMs:4000,closeWaitMs:100,closeTries:2}
+const fast={settleMs:60,poll:5,cooldownMs:0,drawMs:10,idleMs:400,drawInMs:2000,blinkMs:30,emptyMs:250,healMs:400,limitMs:4000,closeWaitMs:100,closeTries:2,closeLimitMs:300,finalCloseMs:2000}
 const stand=async(f,count=1,options={})=>{try{return await blazeStand(f.bot,{kind:'stand',goal:validateStandGoal({item:'blaze_rod',count})},f.api,{...fast,...options})}finally{f.stop()}}
 const rods=f=>f.inv.find(i=>i.name==='blaze_rod')?.count||0
 const PORT='-36,61,-8'
@@ -85,6 +87,9 @@ test('stand for blaze_rod refuses a cell inside the spawner\'s volume and one wi
  const good=fixture();good.stop();assert.equal(blazeStandRefusal(good.bot),'')
  // A blaze straight overhead: no wall faces it.
  const above=fixture({blazes:[{at:[-35.5,66,-8.5]}]});above.stop();assert.match(blazeStandRefusal(above.bot),/No wall here opens toward a blaze/)
+ // Review of the stand: the port cell too. A spawner a block over the port's level takes the port cell into its reach.
+ const portIn=fixture({cells:[[-35,62,-8,'spawner']],blazes:[{at:[-35.5,61.5,-3.5]}]});portIn.stop()
+ assert.match(blazeStandRefusal(portIn.bot),/The port cell -36,61,-8 is inside the spawner's reach at -35,62,-8/)
  const none=fixture({blazes:[]});none.stop();assert.match(blazeStandRefusal(none.bot),/No blaze within 32 blocks/)
  const home=fixture({dimension:'overworld'});home.stop();assert.match(blazeStandRefusal(home.bot),/Nether only/)
  const short=fixture({arrows:15});short.stop();assert.match(blazeStandRefusal(short.bot),/Not on a kitted trip: 16 arrows \(carrying 15\)/)
@@ -158,8 +163,10 @@ test('a melee mob within 3 of the port cell closes it; one at 8 does not',async(
 })
 
 test('a rod on the sill counts from the inventory delta; one on the ledge is named in missed and the bot never moves',async()=>{
- const f=fixture({blazes:[{at:[-35.5,61.5,-2.5]},{at:[-35.5,61,-6.3]}]});let first=null
+ // The second is shot at range and dies knocked back onto the ledge.
+ const f=fixture({blazes:[{at:[-35.5,61.5,-2.5]},{at:[-35.5,61.5,-1.5]}]});let first=null
  f.log.onOpen=()=>{first??=Object.values(f.bot.entities).find(e=>e.name==='blaze');first.position=new Vec3(-35.5,61,-7.5)}
+ f.log.onShot=()=>{const b=Object.values(f.bot.entities).find(e=>e.name==='blaze'&&e!==first);if(b){b.position=new Vec3(-35.5,61,-6.3);f.kill(b)}}
  const r=await stand(f,2)
  assert.equal(r.kills,2);assert.equal(r.rods,1);assert.equal(r.count,1);assert.equal(r.partial,true);assert.equal(rods(f),1)
  assert.match(r.missed.join('; '),/1 blaze_rod at -36,61,-7/)
@@ -211,4 +218,64 @@ test('a blaze at the port does not interrupt a blaze stand; it still interrupts 
  assert.equal(await tick({kind:'goto'}),THREAT_INTERRUPTION)
  assert.equal(await tick({item:'ender_pearl'}),THREAT_INTERRUPTION,'a pearl stand is not fighting blazes')
  assert.equal(await tick({mob:'hoglin'}),THREAT_INTERRUPTION)
+})
+
+// Review of the stand: the sword strikes only in the port column. A blaze in reach beside it, never yet in the port, is
+// watched, not struck or shot: killed there its rod falls beyond the wall.
+test('a blaze in reach outside the port column is watched, not struck or shot, until it comes into the column',async()=>{
+ const f=fixture({blazes:[{at:[-35.5,61.5,-3.5]}]})
+ f.log.onOpen=()=>{const b=Object.values(f.bot.entities).find(e=>e.name==='blaze');b.position=new Vec3(-35.5,61,-6.3);setTimeout(()=>{b.position=new Vec3(-35.5,61,-7.5)},80)}
+ const r=await stand(f)
+ assert.equal(r.rods,1);assert.ok(f.log.swings.every(s=>s.inside),'no swing outside the column');assert.equal(f.log.shots,0,'no arrow at it')
+ assert.ok(f.log.outside>0,'it was watched while outside')
+})
+
+// Review of the stand: a 1.4-wide hoglin on the ledge stands in the port cell's box, and the server refuses the block. The
+// close waited it out and gave up with the port open while it hit the bot through it. Now any mob hostile to the bot that
+// holds the port is struck in place until the port closes, and under the trip line the close keeps going; the bot never leaves.
+test('a hoglin standing on the ledge during a close is struck until the port closes, under the trip line too, and the bot never moves',async()=>{
+ const f=fixture();let h=null
+ f.log.onShot=n=>{if(n===1){h=f.add({name:'hoglin',type:'hostile',height:1.4,width:1.4,position:new Vec3(-35.5,61,-6.4),hits:5,drops:false});f.bot.health=11}}
+ await assert.rejects(stand(f,1,{closeLimitMs:50}),/No blaze rod gained: 0 blazes killed, 1 port opened; health 11 is under 12/)
+ assert.equal(f.log.swings.filter(s=>s.id===h.id).length,5,'struck until it died');assert.equal(f.map.get(PORT),'cobblestone','the port closed')
+ assert.deepEqual(f.log.steps,[]);assert.deepEqual(f.bot.entity.position,new Vec3(-35.5,60,-8.5))
+})
+
+// Review of the stand: a cancellation made check() throw inside the closing in finally, which swallowed it and left the
+// port open. The closing there runs on its own bounded check, and the open port is on the task while it is open.
+test('a stand cancelled with the port open still closes it, on its own bounded check',async()=>{
+ const f=fixture();let cancelled=false,openOnTask=null
+ f.api.check=()=>{if(cancelled)throw new Error('skill interrupted')}
+ f.api.progress=()=>f.api.check()
+ const task={kind:'stand',goal:validateStandGoal({item:'blaze_rod',count:1})}
+ f.log.onShot=()=>{openOnTask=structuredClone(task.portOpen);cancelled=true}
+ await assert.rejects(blazeStand(f.bot,task,f.api,fast).finally(f.stop),/skill interrupted/)
+ assert.deepEqual(openOnTask,[{x:-36,y:61,z:-8}],'the open port is on the task');assert.equal(task.portOpen,undefined)
+ assert.equal(f.map.get(PORT),'cobblestone','the port closed')
+})
+
+// Review of the stand: a rod falling in the port's cell when the port shuts is walled in. The close waits for the kills
+// still settling.
+test('the port closes only after a kill in the port has had its rod picked up',async()=>{
+ const f=fixture()
+ f.log.onOpen=()=>{const b=Object.values(f.bot.entities).find(e=>e.name==='blaze');Object.assign(b,{position:new Vec3(-35.5,61,-7.5),hits:1,dropAt:[-35.5,61.2,-7.5],pickupDelay:40})}
+ f.log.onSwing=()=>{f.bot.health=15}
+ const r=await stand(f)
+ assert.equal(r.rods,1);assert.equal(at(f,'walled'),-1,'no rod walled in')
+})
+
+// Review of the stand: nothing in the controller read portOpen. After a stand that ended with its port open (cancelled,
+// failed or done), the next command waits for the stand to finish, and if the port's cells are still open walls in first.
+test('after a stand ends with its port open, the controller walls in before the next command',async()=>{
+ const run=async open=>{
+  const f=fixture();f.stop();if(!open)f.map.set(PORT,'cobblestone')
+  const r=Object.assign(new EventEmitter(),{profile:'stand',owner:'Sov',ready:true,connectionId:'one',bot:f.bot,commands:[],position:()=>({x:-36,y:60,z:-9}),log(){},waitForIdle:async()=>{}})
+  r.command=c=>{r.commands.push(c);if(c.action==='stop')return;const t=r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal};setTimeout(()=>{t.status='completed';t.result={receipt:c.action};r.emit('event',{type:'task_finished',task:t})},1)}
+  const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-blaze-port-')),'state.json'))
+  r.emit('event',{type:'task_finished',task:{id:'s',kind:'stand',status:'cancelled',goal:{item:'blaze_rod',count:1},portOpen:[{x:-36,y:61,z:-8}]}})
+  await c.executeCommand({action:'goto',goal:{x:-36,y:60,z:-9},timeoutMs:60000},new AbortController().signal)
+  c.cancel?.(true);return r.commands.map(x=>x.action).filter(x=>x!=='stop')
+ }
+ assert.deepEqual(await run(true),['hut','goto'])
+ assert.deepEqual(await run(false),['goto'],'a port already shut needs nothing')
 })
