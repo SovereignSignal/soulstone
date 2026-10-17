@@ -14,7 +14,7 @@ import {Teammate} from '../src/companion/controller.js'
 import {noteStill,stillCreeper,STILL_MS} from '../src/still-creeper.js'
 const registry=minecraftData('1.21.4')
 // Live, the play world, 17 October 15:59Z and 16:39Z: a pile of six creepers stood still for over a day
-// 13 to 14 blocks from the base door; every morning the shelter watch kept the bot in on them. the owner's rule:
+// 13 to 14 blocks from the base door; every morning the shelter watch kept the bot in on them. The owner's rule:
 // in daylight a creeper that has not moved and is 10 or more blocks off does not hold the door.
 const design=[]
 for(let x=0;x<4;x++)for(let z=0;z<4;z++)for(let y=0;y<3;y++)if((y===2||x===0||x===3||z===0||z===3)&&!(x===1&&z===0&&y<2))design.push({x,y,z,block:'cobblestone'})

@@ -54,7 +54,7 @@ export function inspectShelterSite(bot,origin,layout,{repair=false,support=null,
    if(repair&&layout.approach.includes(rel)&&clearable.has(b.name))remove.push(b.position.clone())
    else if(repair&&clear&&!layout.approach.includes(rel)&&clear(b))remove.push(b.position.clone())
    else if(own&&!layout.inside.includes(rel)&&own(b))remove.push(b.position.clone())
-   else throw new Error(`Shelter access obstructed by ${b.name} at ${key(b.position)}`)
+   else throw Object.assign(new Error(`Shelter access obstructed by ${b.name} at ${key(b.position)}`),{cell:b.position.clone()})
   }
  }
  return remove

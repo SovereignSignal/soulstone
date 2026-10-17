@@ -7,7 +7,7 @@ import {shelterLightBounds} from './lighting.js'
 import {survivalObservation,threatRadius,sealedOff,outOfReach,sealedStill,ROCK_FLOORS} from './survival.js'
 import {threatReach,threatRoutes} from './threat-reach.js'
 import {fillCell,solidCube,scaffoldItems,plainCube} from './scaffold.js'
-import {DoorAwareMovements} from './navigation.js'
+import {DoorAwareMovements,breakableWhileTravelling} from './navigation.js'
 import {inProtectedSite} from './primitives.js'
 import {projectFootprints} from './site-survey.js'
 import {climbOut} from './burrow.js'
@@ -36,7 +36,11 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
  const inspect=(repairing=false)=>{
   check()
   if(!leaving)return inspectRetreatShelter(bot,project,{occupants:true,...(repairing?{missing,own:mine}:{})})
-  try{return inspectRetreatShelter(bot,project,{occupants:false})}catch(error){damage=error.message;return null}
+  // Review of 403c76e, 17 October: leaving never dug them, so released by day the bot walked into its own hut wall.
+  // Leaving collects them too, and a solid block in the doorway or its approach that is neither its own nor
+  // ground the walk breaks refuses here, before the door opens, rather than as a walk into it.
+  try{return inspectRetreatShelter(bot,project,{occupants:false,...(repairing?{own:mine}:{})})}
+  catch(error){const b=error.cell&&bot.blockAt(error.cell);if(b?.boundingBox==='block'&&!breakableWhileTravelling(b,bot))throw error;damage=error.message;return null}
  }
  const door=o.plus(layout.door),inside=door.minus(layout.out),name=build.wood.replace('_log','_door')
  const halves=()=>[bot.blockAt(door),bot.blockAt(door.offset(0,1,0))]
@@ -50,7 +54,7 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
  const viaShaft=!leaving&&shaft&&Number.isFinite(project.backExit.bottom)&&!insideBase(bot,project)&&bot.entity.position.y<o.y&&Math.hypot(bot.entity.position.x-(shaft.x+.5),bot.entity.position.z-(shaft.z+.5))<=BACK_EXIT_ENTRANCE_REACH
  inspect(true);const keep=missing.length?assertRepairable(bot,missing):new Map()
  // Only the door path digs them: from inside, or by the back exit, the base is refused as before.
- if(mine.length&&(viaShaft||insideBase(bot,project)))throw obstructed(bot,mine[0])
+ if(mine.length&&(viaShaft||!leaving&&insideBase(bot,project)))throw obstructed(bot,mine[0])
  // The climb and the cap use any other block first, so the dirt is still there for the roof.
  const spare=()=>scaffoldItems(bot).find(i=>carried(bot,i.name)>(keep.get(i.name)||0))
  // What may be spent without touching the repair's blocks (review of 16 October: one bag for both).
@@ -124,6 +128,8 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
   return {item:'shelter',count:1,receipt:'sheltered_door_closed',position:{x:bot.entity.position.x,y:bot.entity.position.y,z:bot.entity.position.z},door:{position:door,closed:true},lighting,...(capped?{capped:true}:{}),...(repaired.length?{repaired}:{})}
  }
  if(mine.length)progress('Clearing my own blocks from the base door')
+ // Leaving, they are dug from inside through the open doorway.
+ if(leaving&&mine.length)await open(true)
  for(const c of mine.sort((a,b)=>b.y-a.y)){
   check();const b=bot.blockAt(c)
   if(AIR.has(b?.name))continue

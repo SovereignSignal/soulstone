@@ -40,3 +40,19 @@ test('the same cobblestone unrecorded, or recorded as another block, is a player
  await assert.rejects(retreatToShelter(changed.bot,changed.task,changed.api),/Shelter access obstructed by cobblestone at 1,64,-1/)
  assert.deepEqual(changed.dug,[])
 })
+// Review of 403c76e, 17 October: released by day from inside the base, leave_base never dug the bot's own
+// hut wall on the doorstep (leaving swallowed the obstruction as damage) and walked into it.
+test('leaving the base by a doorstep blocked by its own old cobblestone digs it through the open door and goes out',async()=>{
+ const b=base({record:'cobblestone'});b.bot.entity.position=new Vec3(1.5,64,1.5)
+ const r=await retreatToShelter(b.bot,{...b.task,kind:'leave_base'},b.api)
+ assert.equal(r.receipt,'left_base_door_closed');assert.equal(b.isOpen(),false)
+ assert.deepEqual(b.dug,['(1, 65, -1)','(1, 64, -1)'],'its two hut walls, top first')
+ assert.deepEqual(b.bot.entity.position,new Vec3(1.5,64,-1.5))
+})
+test('leaving by a doorstep blocked by cobblestone that is not its own refuses before the door opens',async()=>{
+ for(const record of [null,'dirt']){
+  const b=base({record});b.bot.entity.position=new Vec3(1.5,64,1.5)
+  await assert.rejects(retreatToShelter(b.bot,{...b.task,kind:'leave_base'},b.api),/^Error: Shelter access obstructed by cobblestone at 1,64,-1$/)
+  assert.deepEqual(b.dug,[]);assert.equal(b.isOpen(),false);assert.deepEqual(b.bot.entity.position,new Vec3(1.5,64,1.5))
+ }
+})
