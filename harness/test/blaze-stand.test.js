@@ -431,8 +431,20 @@ test('a side cell a hoglin stands in is waited on, not dug; past the close limit
  const g=r9({blazes:[...RESTING,{at:[-35.5,58,-8.5]}]})
  await assert.rejects(stand(g,1,{limitMs:1500}));assert.equal(at(g,'dig','-36,59,-9'),-1);assert.equal(g.bot.entity.position.y,60)
 })
-test('no sink while a blaze is in line, while one hovers above the sill, or with no ground within two below the floor',async()=>{
- for(const [name,o] of [['a blaze in line',{blazes:[...RESTING,{at:[-35.5,61.5,-3.5]}]}],['a blaze above the sill',{blazes:[...RESTING,{at:[-39.7,62.2,-10.3]}]}],
+// The R9 snapshot at 06:18Z: the platform's blazes resting below the sill, and one more at y 62.2 in the west cave, above the
+// bot's feet, behind the cave's rock with no line to it (r9-blazes.txt; the '?' block at -37,62,-9 in the R8 scan). Only
+// blazes resting in the spawner's box (4 across, the room's band of one up or down) ask for the sink; one elsewhere with no
+// line does not hold the stand up.
+const CAVE={at:[-39.7,62.2,-10.3]},CAVE_ROCK=[[-37,62,-9,'netherrack'],[-37,62,-10,'netherrack'],[-38,62,-9,'netherrack'],[-38,62,-10,'netherrack']]
+test('the R9 shape sinks: platform blazes resting below the sill and a cave blaze above with no line',async()=>{
+ const f=r9({blazes:[...RESTING,CAVE],cells:CAVE_ROCK});let south=null
+ f.log.onDig=c=>{if(c==='-36,59,-8'&&f.bot.entity.position.y===58){south??=Object.values(f.bot.entities).find(e=>e.name==='blaze'&&e.position.z>-6);if(south)south.position=new Vec3(-35.5,59,-7.5)}}
+ const r=await stand(f)
+ assert.deepEqual(r.sank,{from:{x:-36,y:60,z:-9},to:{x:-36,y:58,z:-9}});assert.equal(r.rods,1)
+})
+test('no sink while a blaze is in line, with no blaze resting in the spawner\'s box, or with no ground within two below the floor',async()=>{
+ for(const [name,o] of [['a blaze in line',{blazes:[...RESTING,{at:[-35.5,61.5,-3.5]}]}],['a platform blaze in line beside the cave one',{blazes:[...RESTING,CAVE,{at:[-35.5,61.5,-3.5]}],cells:CAVE_ROCK}],
+  ['only the cave blaze',{blazes:[CAVE],cells:CAVE_ROCK}],['only blazes in the corridor under the kerb, out of the box\'s band',{blazes:[{at:[-32.3,56.2,-10.7]},{at:[-32.3,56.2,-10.3]}]}],
   ['air three below the floor',{blazes:RESTING,cells:[[-36,57,-9,'air']]}]]){
   const f=r9(o);await stand(f,1,{limitMs:600}).catch(()=>{})
   assert.equal(at(f,'dig','-36,59,-9'),-1,name);assert.equal(f.bot.entity.position.y,60,name)

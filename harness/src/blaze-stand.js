@@ -11,7 +11,7 @@
 // by the ledge rises to the sill and from there pursues into the port.
 // Round two, after live rehearsal R9 (17 October 06:04Z to 06:19Z): the blazes rested on the platform floor two below the
 // hut, under its walls, and no line ran either way through a head port, so none ever targeted the bot. The stand now sinks
-// to their floor inside its own walls when every blaze rests below its window (sinkPlan, sink), the bot's own cell is no
+// to their floor inside its own walls when blazes rest below its window in the spawner's box and none is in line (sinkPlan, sink), the bot's own cell is no
 // longer refused for the spawner's reach, only a mob that fits the port closes it, and any blaze in reach is struck.
 // Unverified, round two section 6: acquisition needs eye-to-eye sight, a blaze's eye is 0.85 of its height, a spawn needs
 // room clear of every entity, a hoglin's or wither skeleton's reach does not cross a one-block wall, and Paper accepts a
@@ -230,7 +230,7 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
  // rested on that floor under its walls, eyes 2.1 below the bot's: through a head port no line either way inside 5 blocks,
  // so none ever targeted the bot. Standing on the floor, the eyes are level, and the head-high port's sill (the feet-level
  // wall) stays above both the blazes' fireball line and their resting bodies. The sink: with the port shut, no blaze in
- // line by the bow's or the eye's line, every loaded blaze's eye below the sill, a floor the bot may dig over air, and
+ // line by the bow's or the eye's line, a blaze resting below the sill in a spawner's box, a floor the bot may dig over air, and
  // solid ground one or two below that floor, the column under the hut is closed from inside (the four side cells at each
  // level between, each on any solid face it has, hut.js closeCells), the floor dug, and the bot lands on the ground inside
  // its own walls and roofs over (wallIn). Nothing opens the cavity: every side cell stands before the floor goes. A cell a
@@ -239,7 +239,11 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
  const sinkPlan=()=>{
   const near=blazes(bot,o.radius);if(!near.length)return null
   if(near.some(b=>portSightline(bot,feet,b,{skip}).status==='clear'||blazeEyeLine(bot,feet,b,{skip}).status==='clear'))return null
-  if(!near.every(b=>blazeEye(b).y<feet.y+1))return null
+  // Coordinator's decision on the R9 snapshot (06:18Z): a blaze in the west cave at y 62.2, above the bot with no line to
+  // it, held the stand up under "every blaze below the window". The sink asks only that some blaze rests below the sill
+  // inside a spawner's box (4 across, the room's band of one up or down, spawnerOver): the platform's blazes. A blaze
+  // elsewhere with no line neither asks for it nor holds it up; one in line still does (above).
+  if(!near.some(b=>blazeEye(b).y<feet.y+1&&spawnerOver(bot,b.position.floored(),o)))return null
   const floor=feet.offset(0,-1,0),fb=bot.blockAt(floor)
   if(!fullCube(bot.registry,fb?.name)||!(ownedNow(bot,fb)||breakable(bot,fb))||refuseDigCell(bot,floor,{role:'head',ownAnyAge:true}))return null
   let ground=null
