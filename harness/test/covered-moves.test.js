@@ -513,12 +513,17 @@ test('the stand\'s own open port is not a cavity breach: no stop, no hut, the re
  const result=await f.run()
  assert.equal(result.status,'handed_back',JSON.stringify(f.c.recoveryHistory));assert.deepEqual(acts(f),['stand'])
 })
-test('at a cell inside the spawner\'s reach the covered stand is refused with the stand\'s reason, and nothing is dispatched',async()=>{
- const seen=[];const f=fixture(async o=>{seen.push(o);return seen.length===1?standMove:wait});blazeBeside(f);f.cells.set('3,63,0','spawner')
- await f.run({budgetMs:60})
- assert.deepEqual(acts(f),[])
- assert.match(seen[0].stand.refusal,/inside the spawner's reach at 3,63,0/)
- assert.ok(seen[1]?.recovery.recentAttempts.some(a=>a.status==='rejected'&&/inside the spawner's reach at 3,63,0/.test(a.reason)),JSON.stringify(seen[1]?.recovery.recentAttempts))
+// Round two (live rehearsal R9, design section 4.1 rule 1): the spawner's reach no longer refuses the bot's own cell, since a
+// one-wide hut with the bot in it has no room for a spawned blaze. Refused for another reason (off the ground, no hut site),
+// the covered stand is refused with the stand's reason and nothing is dispatched, as before.
+test('the stand is admitted at a cell inside the spawner\'s reach when the hut cavity is the bot\'s own',async()=>{
+ const seen=[];const f=fixture(async o=>{seen.push(o);return standMove},{act:cmd=>cmd.action==='stand'?standReceipt:undefined});blazeBeside(f);f.cells.set('3,63,0','spawner')
+ const result=await f.run()
+ assert.equal(seen[0].stand.refusal,null,'the observation says a stand starts here');assert.deepEqual(acts(f),['stand']);assert.equal(result.status,'handed_back')
+ const off=[];const g=fixture(async o=>{off.push(o);return off.length===1?standMove:wait});blazeBeside(g);g.bot.entity.onGround=false
+ await g.run({budgetMs:60})
+ assert.deepEqual(acts(g),[]);assert.match(off[0].stand.refusal,/No wall-in site here: Not standing on solid ground/)
+ assert.ok(off[1]?.recovery.recentAttempts.some(a=>a.status==='rejected'&&/Not standing on solid ground/.test(a.reason)),JSON.stringify(off[1]?.recovery.recentAttempts))
 })
 test('the covered schema takes stand with no target and a count 0 to 8, and the prompt offers stand at a valid stand cell instead of done',async()=>{
  for(const ok of [standMove,{...standMove,count:0},{...standMove,count:8}])assert.deepEqual(validateCovered(ok),{...ok,target:null})
@@ -541,7 +546,7 @@ test('at a valid stand cell with a blaze in port line, a blaze rod request asks 
  assert.equal(calls,1,'one covered model call');assert.deepEqual(acts(f),['stand'])
 })
 test('off a stand cell, or on a request without blaze rods, a blaze in port line still holds the phase with no model call',async()=>{
- for(const [name,set] of [['inside the spawner\'s reach',f=>f.cells.set('3,63,0','spawner')],['an ender pearl request',f=>{f.c.requestProgress.request='ender pearls'}]]){
+ for(const [name,set] of [['off the ground',f=>{f.bot.entity.onGround=false}],['an ender pearl request',f=>{f.c.requestProgress.request='ender pearls'}]]){
   let calls=0;const f=fixture(async()=>{calls++;return standMove});blazeBeside(f,[6.5,64.2,.5]);set(f)
   const result=await f.run()
   assert.equal(result.status,'held',name);assert.match(result.reason,/in sight through a port/,name);assert.equal(calls,0,name);assert.deepEqual(acts(f),[],name)

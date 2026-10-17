@@ -55,31 +55,51 @@ const blazes=(bot,radius)=>Object.values(bot.entities||{}).filter(e=>e?.name==='
 const arrowsCarried=bot=>bot.inventory.items().filter(i=>i.name==='arrow').reduce((n,i)=>n+i.count,0)
 
 // A spawner places a mob within 4 blocks of itself across and one up or down, in any light for a blaze, wherever the
-// mob's box fits, and a pocket the bot stands in is such a box: the spawner whose volume holds these feet, or null.
+// mob's box fits clear of blocks and of every entity: the spawner whose volume holds this cell, or null.
 export function spawnerOver(bot,feet,o=BLAZE_STAND){
  for(let dy=-o.spawnRise;dy<=o.spawnRise;dy++)for(let dx=-o.spawnReach;dx<=o.spawnReach;dx++)for(let dz=-o.spawnReach;dz<=o.spawnReach;dz++){
   const c=feet.offset(dx,dy,dz);if(bot.blockAt(c)?.name==='spawner')return c
  }
  return null
 }
+// The hut's cavity beyond the bot's own two cells: a portal room's portal blocks (hut.js portalRoom). A plain hut has none.
+const SIDES=[[1,0],[-1,0],[0,1],[0,-1]],AROUND=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]
+function cavityBeyond(bot,feet,site){
+ if(!site?.portal)return []
+ const found=new Map(),todo=[feet,feet.offset(0,1,0)].flatMap(c=>SIDES.map(([dx,dz])=>c.offset(dx,0,dz)))
+ while(todo.length&&found.size<64){const c=todo.pop(),k=key(c);if(found.has(k)||bot.blockAt(c)?.name!=='nether_portal')continue;found.set(k,c);todo.push(...AROUND.map(([x,y,z])=>c.offset(x,y,z)))}
+ return [...found.values()]
+}
 // Why the stand cannot start here, or ''. A stand step is the request, so the trip is the Nether with the kit and the
-// trip's health (nether-trip.js); the cell comes on top: outside every spawner's volume, a wall that would open toward a
-// loaded blaze (hut.js firingPort: never beside lava, water or fire, nor through a block the bot did not place), and a hut.
+// trip's health (nether-trip.js); the cell comes on top: a wall that would open toward a loaded blaze (hut.js firingPort:
+// never beside lava, water or fire, nor through a block the bot did not place), and a hut.
+// Round two (live rehearsal R9, 17 October 06:16Z): the spawner's reach no longer refuses the bot's own cell or its port.
+// A spawned mob's box must clear every entity, and a one-wide hut with the bot's 0.6-wide box in it has no room for a
+// second one, so the only position that sees the resting blazes, level with them, was the one the rule forbade. An open
+// port cell in the reach is a blaze standing in the port with its rod due on the sill, which is what the stand waits for.
+// The rule stays for any other cavity cell, which only a portal room has: its portal blocks are a pocket a blaze fits.
 export function blazeStandRefusal(bot,o=BLAZE_STAND){
  if(!inNether(bot))return 'The stand for blaze rods is Nether only: blazes live in fortresses'
  const kit=tripKit(bot)
  if(!kit.ready)return `Not on a kitted trip: ${kit.missing.join(', ')} missing`
  if(!(bot.health>=TRIP_HEALTH))return `Not on a kitted trip: health ${Math.round(bot.health)} is under ${TRIP_HEALTH}`
- const feet=bot.entity.position.floored(),spawner=spawnerOver(bot,feet,o)
- if(spawner)return `${key(feet)} is inside the spawner's reach at ${key(spawner)} (${o.spawnReach} blocks across, ${o.spawnRise} up or down): a blaze could be made in the hut. Stand two above the blazes' floor, or more than ${o.spawnReach} blocks from the spawner`
+ const feet=bot.entity.position.floored()
  const near=blazes(bot,o.radius)
  if(!near.length)return `No blaze within ${o.radius} blocks`
  const ports=near.map(b=>firingPort(bot,feet,{toward:column(b.position),shooter:'blaze'})).filter(Boolean)
  if(!ports.length)return 'No wall here opens toward a blaze: each faces away, or has lava, water or fire beside it, or a block I did not place'
- // Review of the stand: the port cell is a pocket a blaze's box can fit too.
- if(ports.every(p=>spawnerOver(bot,p.cells[0],o))){const c=ports[0].cells[0];return `The port cell ${key(c)} is inside the spawner's reach at ${key(spawnerOver(bot,c,o))}: a blaze could be made in the port. Stand where the port is two above the blazes' floor`}
  const site=hutSite(bot);if(!site.ok)return 'No wall-in site here: '+site.reason
+ for(const c of cavityBeyond(bot,feet,site)){const spawner=spawnerOver(bot,c,o);if(spawner)return `The portal room's cell ${key(c)} is inside the spawner's reach at ${key(spawner)} (${o.spawnReach} blocks across, ${o.spawnRise} up or down): a blaze could be made in the room. Stand in a plain hut`}
  return ''
+}
+// Only a mob that fits a port column can come through it: narrower than a block and no taller than the open column (the
+// port cell, and the cell over it when that is air). Round two (section 4.1 rule 4; R9, 06:16 to 06:17Z, hoglins milling at
+// 2.5 to 3 blocks): a 1.4-wide hoglin or a 2.4-tall wither skeleton beside the port cannot reach through it. mineflayer reads
+// every magma cube as the registry's smallest (0.52), so a big one still counts: the safe side.
+export function fitsPort(bot,e,cell){
+ const size=bot.registry?.entitiesByName?.[e?.name],width=e?.width??size?.width??.6,height=e?.height??size?.height??1.8
+ const open=1+(AIR.has(bot.blockAt(new Vec3(cell.x,cell.y+1,cell.z))?.name)?1:0)
+ return width<1&&height<=open
 }
 
 export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},movements},options={}){
@@ -106,8 +126,9 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
  }
  const portCell=()=>port?.opened?.[0]??null
  const inColumn=b=>{const c=portCell();return !!c&&Math.floor(b.position.x)===c.x&&Math.floor(b.position.z)===c.z}
- // A melee mob (hostile to the bot, not a shooter) near the port's cell: it shuts the port, and keeps it shut.
- const meleeNear=c=>{const centre=new Vec3(c.x+.5,c.y+.5,c.z+.5);return Object.values(bot.entities||{}).find(e=>e&&e!==bot.entity&&e.position&&e.name!=='blaze'&&!SHOOTERS_ONLY.has(e.name)&&hostileNow(bot,e)&&e.position.distanceTo(centre)<=o.meleeNear)||null}
+ // A melee mob (hostile to the bot, not a shooter) that fits the port column (fitsPort), near the port's cell: it shuts the
+ // port, and keeps it shut.
+ const meleeNear=c=>{const centre=new Vec3(c.x+.5,c.y+.5,c.z+.5);return Object.values(bot.entities||{}).find(e=>e&&e!==bot.entity&&e.position&&e.name!=='blaze'&&!SHOOTERS_ONLY.has(e.name)&&hostileNow(bot,e)&&e.position.distanceTo(centre)<=o.meleeNear&&fitsPort(bot,e,c))||null}
  const hold=async(item,chk=check)=>{if(bot.heldItem?.name!==item.name){await bot.equip(item,'hand');chk()}}
  // The sword (weaponFor: no sweep with a bystander near), aimed at its middle, one swing a cooldown.
  const strike=async(b,chk=check)=>{
@@ -212,13 +233,14 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
  const choose=async()=>{
   const near=blazes(bot,o.radius)
   for(const b of near){const l=portSightline(bot,feet,b),k=l.side&&`${l.side[0]},${l.side[2]}`;if(k&&!prepared.has(k)){prepared.add(k);await prepare(l)}}
-  const lined=near.map(b=>({b,l:portSightline(bot,feet,b)})).filter(x=>x.l.status==='clear'&&!spawnerOver(bot,x.l.cells[0],o))
+  const lined=near.map(b=>({b,l:portSightline(bot,feet,b)})).filter(x=>x.l.status==='clear')
   const pick=lined.find(x=>AIR.has(bot.blockAt(x.l.cells[0].offset(0,1,0))?.name))??lined[0]
   return pick?{target:pick.b,side:pick.l.side,cells:pick.l.cells}:null
  }
- // The port held open. Each tick the nearest blaze with a line: in the port column within clear reach, the sword; within
- // drawIn blocks outside it (knocked back out, or not yet in), watched until it comes into the column, since a kill there
- // drops the rod beyond the wall (review of the stand); farther, one arrow.
+ // The port held open. Each tick: any blaze in line within clear reach (combat.js portStrike, 2.9 blocks) gets the sword,
+ // the one in the port column first, since only its rod falls on the sill. Round two (section 4.1 rule 5): at eye level a
+ // blaze at the wall melees the bot through the port, so one outside the column is struck too, and its rod beyond the wall
+ // goes to missed. Out of reach but within drawIn blocks, watched; farther, one arrow.
  // Ends 'count', 'time', 'arrows', 'hit', 'hurt', 'melee', 'idle' or 'blink'.
  const session=async()=>{
   let top=bot.health,lined=Date.now(),near=Date.now()
@@ -236,8 +258,8 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
    lined=Date.now()
    if(seen.some(b=>b.position.distanceTo(bot.entity.position)<=o.drawIn))near=Date.now()
    else if(Date.now()-near>=o.drawInMs)return {end:'blink'}
-   const b=seen[0]
-   if(inColumn(b)&&portStrike(bot,b,portCell())){if(!await strike(b))await bot.lookAt(middle(b),true)}
+   const reach=seen.filter(x=>portStrike(bot,x)),b=reach.find(inColumn)??reach[0]??seen[0]
+   if(reach.includes(b)){if(!await strike(b))await bot.lookAt(middle(b),true)}
    else if(b.position.distanceTo(bot.entity.position)<=o.drawIn)await bot.lookAt(middle(b),true)
    else if(await shoot(b,()=>top)==='hurt')return {end:'hit'}
    await delay(o.poll)

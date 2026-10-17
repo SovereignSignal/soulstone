@@ -95,8 +95,8 @@ export function clearStrike(bot,target){
  return observedSightline(bot,eye,aim).status==='clear'
 }
 // The sword through a hut's port (blaze-stand.js): a port mob hostile to the bot (PORT_STRIKE_MOBS), within 2.9 with a clear
-// strike, and, given the port's column {x,z}, standing in it. A blaze knocked a block out of the port is still in reach, but a
-// kill there drops its rod beyond the wall, so the stand waits for it to come back in. anyHostile: any mob hostile to the bot
+// strike, and, given the port's column {x,z}, standing in it. Round two of the stand strikes a blaze in reach wherever it is
+// (at eye level one at the wall melees the bot through the port), the column's first. anyHostile: any mob hostile to the bot
 // now (hostileNow), for a close the mob holds open (review of the stand: a hoglin on the ledge refuses the port's block).
 export function portStrike(bot,target,column=null,{anyHostile=false}={}){
  if(!(anyHostile?hostileNow(bot,target):PORT_STRIKE_MOBS.has(target?.name)&&hostileToBot(bot,target))||!knownPoint(target?.position)||!knownPoint(bot.entity?.position))return false

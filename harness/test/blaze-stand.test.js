@@ -78,22 +78,31 @@ const PORT='-36,61,-8'
 const at=(f,kind,cell)=>f.log.events.findIndex(e=>e[0]===kind&&(cell===undefined||e[1]===cell))
 const after=(f,i,kind,cell)=>{const j=f.log.events.slice(i+1).findIndex(e=>e[0]===kind&&(cell===undefined||e[1]===cell));return j<0?-1:i+1+j}
 
-test('stand for blaze_rod refuses a cell inside the spawner\'s volume and one with no port side toward a blaze',async()=>{
- // R8's pocket: feet -36,59,-8, beside the spawner and one above it.
- const pocket=fixture({feet:[-36,59,-8]});pocket.stop()
- assert.match(blazeStandRefusal(pocket.bot),/-36,59,-8 is inside the spawner's reach at -35,58,-8/)
- await assert.rejects(stand(fixture({feet:[-36,59,-8]})),/inside the spawner's reach/)
- // The step cell two above the platform is outside it.
+// Round two (live rehearsal R9, 17 October 06:16Z): a spawner makes a blaze only where its box fits clear of every entity
+// too, and a one-wide hut with the bot in it has no room for a second box, so the bot's own two cells are never a spawn
+// pocket. The refusal of a cell inside the spawner's reach forbade the one position that works, level with the blazes.
+test('the stand accepts a hut cell beside a spawner when the cavity is the bot\'s own two cells',async()=>{
+ // The design's cell: feet -36,58,-9 on the platform floor, the spawner its south-east diagonal at -35,58,-8.
+ const level=fixture({feet:[-36,58,-9],blazes:[{at:[-35.5,58,-5.5]}]});level.stop()
+ assert.equal(blazeStandRefusal(level.bot),'')
+ // R8's pocket beside the spawner and one above it, with a port toward the blaze, is accepted the same way.
+ const pocket=fixture({feet:[-36,59,-8]});pocket.stop();assert.equal(blazeStandRefusal(pocket.bot),'')
+ assert.equal(pocket.log.events.length,0,'nothing built by the judgement')
+ // A portal room's cavity takes the portal's own blocks too, a pocket a blaze fits: inside a spawner's reach it is refused.
+ const ground=[[-36,59,-8],[-36,59,-10],[-35,59,-9],[-38,59,-9]].map(c=>[...c,'netherrack'])
+ const portal=[[-37,59,-9,'obsidian'],[-37,62,-9,'obsidian'],[-37,60,-9,'nether_portal'],[-37,61,-9,'nether_portal']]
+ const room=fixture({cells:[...ground,...portal,[-38,61,-12,'spawner']]});room.stop()
+ assert.match(blazeStandRefusal(room.bot),/The portal room's cell -37,6[01],-9 is inside the spawner's reach at -38,61,-12/)
+ const clear=fixture({cells:[...ground,...portal]});clear.stop();assert.equal(blazeStandRefusal(clear.bot),'','a portal room away from a spawner is fine')
+})
+test('stand for blaze_rod refuses a cell with no port side toward a blaze, no blaze, no kit or the Overworld',async()=>{
  const good=fixture();good.stop();assert.equal(blazeStandRefusal(good.bot),'')
  // A blaze straight overhead: no wall faces it.
  const above=fixture({blazes:[{at:[-35.5,66,-8.5]}]});above.stop();assert.match(blazeStandRefusal(above.bot),/No wall here opens toward a blaze/)
- // Review of the stand: the port cell too. A spawner a block over the port's level takes the port cell into its reach.
- const portIn=fixture({cells:[[-35,62,-8,'spawner']],blazes:[{at:[-35.5,61.5,-3.5]}]});portIn.stop()
- assert.match(blazeStandRefusal(portIn.bot),/The port cell -36,61,-8 is inside the spawner's reach at -35,62,-8/)
  const none=fixture({blazes:[]});none.stop();assert.match(blazeStandRefusal(none.bot),/No blaze within 32 blocks/)
  const home=fixture({dimension:'overworld'});home.stop();assert.match(blazeStandRefusal(home.bot),/Nether only/)
  const short=fixture({arrows:15});short.stop();assert.match(blazeStandRefusal(short.bot),/Not on a kitted trip: 16 arrows \(carrying 15\)/)
- assert.equal(pocket.log.events.length,0,'nothing built where it refuses')
+ await assert.rejects(stand(fixture({blazes:[{at:[-35.5,66,-8.5]}]})),/No wall here opens toward a blaze/)
 })
 
 test('the stand digs its own blocks in the port\'s cone within reach and places the ledge before the first open',async()=>{
@@ -127,17 +136,6 @@ test('a blaze in line beyond reach gets an arrow; one in the port column gets th
  assert.equal(f.map.get(PORT),'cobblestone')
 })
 
-test('a blaze knocked out of the port is not struck until it is back inside',async()=>{
- const f=fixture({blazes:[{at:[-35.5,61.5,-3.5],hits:3}]})
- f.log.onOpen=()=>{const b=Object.values(f.bot.entities).find(e=>e.name==='blaze');if(b)b.position=new Vec3(-35.5,61,-7.5)}
- // Each hit knocks it a block out over the ledge, still in reach; it floats back a moment later.
- f.log.onSwing=t=>{if(t.struck<t.hits){t.position=new Vec3(-35.5,61,-6.2);setTimeout(()=>{t.position=new Vec3(-35.5,61,-7.5)},60)}}
- const r=await stand(f)
- assert.equal(r.rods,1)
- assert.equal(f.log.swings.length,3,'one swing a visit');assert.ok(f.log.swings.every(s=>s.inside),'never struck outside the port column')
- assert.ok(f.log.outside>0,'it was watched while outside')
-})
-
 test('a hit closes the port, the stand heals to 16 shut, and opens again',async()=>{
  const f=fixture()
  f.log.onShot=n=>{const b=Object.values(f.bot.entities).find(e=>e.name==='blaze');if(n===1){f.bot.health=14;setTimeout(()=>{f.bot.health=20},80)}else if(b){b.dropAt=[-35.5,61,-7.5];f.kill(b)}}
@@ -148,18 +146,25 @@ test('a hit closes the port, the stand heals to 16 shut, and opens again',async(
  assert.equal(f.log.events[close][2],14,'shut at 14 health')
 })
 
-test('a melee mob within 3 of the port cell closes it; one at 8 does not',async()=>{
- const hoglin=(f,at)=>f.add({name:'hoglin',type:'hostile',height:1.4,width:1.4,position:new Vec3(...at)})
- const near=fixture();let h=null
- near.log.onShot=n=>{if(n===1){h=hoglin(near,[-34.2,61,-6.2]);setTimeout(()=>{delete near.bot.entities[h.id]},150)}}
- const place=near.bot.placeBlock;let closedWithHoglin=false
- near.bot.placeBlock=async(ref,face)=>{await place(ref,face);if(h&&near.bot.entities[h.id]&&near.map.get(PORT)==='cobblestone')closedWithHoglin=true}
- await assert.rejects(stand(near,1,{limitMs:600}))
- assert.ok(closedWithHoglin,'the port shut with the hoglin beside it')
+// Round two (design of the blaze endgame, section 4.1 rule 4): only a mob that fits the port column can come through it. A
+// 1.4-wide hoglin or a 2.4-tall wither skeleton beside the port is watched, never a reason to close (R9, 06:16 to 06:17Z:
+// hoglins milling at 2.5 to 3 blocks); a magma cube (0.52 as mineflayer reads it) or a provoked piglin is.
+const mob=(f,name,at,o={})=>f.add({name,type:'hostile',...registrySize(name),position:new Vec3(...at),...o})
+const registrySize=name=>({width:registry.entitiesByName[name].width,height:registry.entitiesByName[name].height})
+test('a hoglin two blocks from the port does not close it; a magma cube does; a wither skeleton does not',async()=>{
+ for(const [name,closes] of [['hoglin',false],['magma_cube',true],['wither_skeleton',false]]){
+  const f=fixture();let m=null,closedWith=false
+  f.log.onShot=n=>{const b=Object.values(f.bot.entities).find(e=>e.name==='blaze');if(n===1)m=mob(f,name,[-35.5,60,-5.5]);if(n===3&&b){b.dropAt=[-35.5,61,-7.5];f.kill(b)}}
+  const place=f.bot.placeBlock;f.bot.placeBlock=async(ref,face)=>{await place(ref,face);if(m&&f.bot.entities[m.id]&&f.log.shots<3&&f.map.get(PORT)==='cobblestone')closedWith=true}
+  const r=await stand(f,1,{limitMs:closes?600:4000}).then(x=>x,e=>e)
+  assert.equal(closedWith,closes,`${name}: ${r?.message??JSON.stringify(r)}`)
+  if(!closes){assert.equal(r.rods,1,name);assert.equal(r.ports,1,`${name}: the port stayed open`)}
+ }
+ // A mob 8 blocks off never closes it, as before.
  const far=fixture()
- far.log.onShot=n=>{const b=Object.values(far.bot.entities).find(e=>e.name==='blaze');if(n===1)hoglin(far,[-35.5,58,.5]);if(n===3&&b){b.dropAt=[-35.5,61,-7.5];far.kill(b)}}
+ far.log.onShot=n=>{const b=Object.values(far.bot.entities).find(e=>e.name==='blaze');if(n===1)mob(far,'magma_cube',[-35.5,58,.5]);if(n===3&&b){b.dropAt=[-35.5,61,-7.5];far.kill(b)}}
  const r=await stand(far)
- assert.equal(r.rods,1);assert.equal(r.ports,1,'the port stayed open with a hoglin 8 blocks off')
+ assert.equal(r.rods,1);assert.equal(r.ports,1,'the port stayed open with a magma cube 8 blocks off')
 })
 
 test('a rod on the sill counts from the inventory delta; one on the ledge is named in missed and the bot never moves',async()=>{
@@ -191,9 +196,9 @@ test('the planner, the task store and the skill admit stand for 1 to 8 blaze rod
  assert.throws(()=>validatePlan({reply:'',steps:[{...step,count:9}]}),/stand/)
  assert.deepEqual(validateTaskGoal('stand',{item:'blaze_rod',count:4}),{item:'blaze_rod',count:4})
  assert.throws(()=>validateTaskGoal('stand',{item:'blaze_rod',count:0}),/1 to 8/)
- // The brief: stand for rods from outside the spawner's reach, and never bore down into the room.
+ // The brief: stand for rods at or above the blazes' floor, and never bore down into the room.
  const brief=readFileSync(new URL('../src/companion/survival-capabilities.txt',import.meta.url),'utf8')
- assert.match(brief,/^Action stand for blaze rods: name="", item="blaze_rod", count=1–8.*outside the spawner's reach.*never steps out.*partial means some rods, never none/m)
+ assert.match(brief,/^Action stand for blaze rods: name="", item="blaze_rod", count=1–8.*at or above the floor the blazes rest on.*any blaze within reach.*a hoglin or wither skeleton beside the port cannot reach through it.*never steps out.*partial means some rods, never none/m)
  const nether=brief.split('\n').find(l=>l.startsWith('THE NETHER'))
  assert.match(nether,/then stand for the rods\. Never bore down into the room/);assert.doesNotMatch(nether,/picking up rods between waves/)
  // The skill table sends a rod stand to the blaze stand, which refuses here outside the Nether.
@@ -220,14 +225,19 @@ test('a blaze at the port does not interrupt a blaze stand; it still interrupts 
  assert.equal(await tick({mob:'hoglin'}),THREAT_INTERRUPTION)
 })
 
-// Review of the stand: the sword strikes only in the port column. A blaze in reach beside it, never yet in the port, is
-// watched, not struck or shot: killed there its rod falls beyond the wall.
-test('a blaze in reach outside the port column is watched, not struck or shot, until it comes into the column',async()=>{
+// Round two (section 4.1 rule 5): at eye level a blaze at the wall melees the bot through the port, so waiting for it to come
+// into the column pays health for nothing. Any blaze within 2.9 with a clear strike is struck, the column's first; a kill
+// outside the column drops its rod beyond the wall, named in missed.
+test('a blaze at the wall within 2.9 outside the port column is struck; its rod outside is named in missed',async()=>{
  const f=fixture({blazes:[{at:[-35.5,61.5,-3.5]}]})
- f.log.onOpen=()=>{const b=Object.values(f.bot.entities).find(e=>e.name==='blaze');b.position=new Vec3(-35.5,61,-6.3);setTimeout(()=>{b.position=new Vec3(-35.5,61,-7.5)},80)}
- const r=await stand(f)
- assert.equal(r.rods,1);assert.ok(f.log.swings.every(s=>s.inside),'no swing outside the column');assert.equal(f.log.shots,0,'no arrow at it')
- assert.ok(f.log.outside>0,'it was watched while outside')
+ f.log.onOpen=()=>{const b=Object.values(f.bot.entities).find(e=>e.name==='blaze');b.position=new Vec3(-35.5,61,-6.3)}
+ await assert.rejects(stand(f),/No blaze rod gained: 1 blaze killed.*left behind: 1 blaze_rod at -36,61,-7 \(outside the port/)
+ assert.ok(f.log.swings.length>=2&&f.log.swings.every(s=>!s.inside),JSON.stringify(f.log.swings));assert.equal(f.log.shots,0,'no arrow at it')
+ // With one in the column and one outside, the column's is struck first.
+ const g=fixture({blazes:[{at:[-35.5,61.5,-3.5]},{at:[-35.5,61.5,-2.5]}]});let a=null,b=null
+ g.log.onOpen=()=>{[a,b]=Object.values(g.bot.entities).filter(e=>e.name==='blaze');a.position=new Vec3(-35.5,61,-6.3);b.position=new Vec3(-35.5,61,-7.5)}
+ const r=await stand(g)
+ assert.equal(r.rods,1);assert.equal(g.log.swings[0].id,b.id,'the one in the column first')
 })
 
 // Review of the stand: a 1.4-wide hoglin on the ledge stands in the port cell's box, and the server refuses the block. The
