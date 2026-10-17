@@ -594,3 +594,25 @@ test('after two answers that leave the stand unused at a valid stand cell, the s
  assert.equal(third.status,'handed_back');assert.ok(f.c.recoveryHistory.some(a=>/dispatched directly/.test(a.expectation||'')),JSON.stringify(f.c.recoveryHistory))
  assert.deepEqual(f.events.filter(e=>e.type==='stand_forced').map(e=>e.skips),[2],'the forced dispatch is logged')
 })
+
+// Live rehearsal R9b, 17 October 06:05:48Z: shut and healing after a fireball at the port, the bot burned 1 health a tick
+// with no fire block in or around the hut. The covered guard reads that as a burn, not a breach: the stand goes on. Alight
+// with fire in the hut's cavity, it stops the stand as a breach.
+const burningStand=(f,{fire=false}={})=>async(cmd,bot,m)=>{
+ if(cmd.action==='hut'){m.delete('0,64,0');bot.entity.metadata[0]=0;return {receipt:'walled_in',surface:{x:0,y:64,z:0}}}
+ if(cmd.action!=='stand')return
+ portOpenFor(f,false);bot.entity.metadata[0]=1;if(fire)m.set('0,64,0','fire')
+ for(let i=0;i<4;i++){await wait20(15);bot.health-=1}
+ bot.entity.metadata[0]=0;m.delete('0,64,0');return standReceipt
+}
+test('alight in a stand with its port shut and no fire in the hut, the burn ticks do not stop the stand',async()=>{
+ const f=fixture(async()=>standMove,{act:(...a)=>burningStand(f)(...a)});blazeBeside(f)
+ const result=await f.run()
+ assert.equal(result.status,'handed_back',JSON.stringify(result));assert.ok(!f.commands.some(x=>x.action==='stop'),acts(f).join(' '));assert.deepEqual(acts(f),['stand'])
+ assert.equal(f.bot.health,16)
+})
+test('alight in a stand with its port shut and fire in the hut\'s cavity, the stand is stopped',async()=>{
+ const f=fixture(async()=>standMove,{act:(...a)=>burningStand(f,{fire:true})(...a)});blazeBeside(f)
+ await f.run({budgetMs:200})
+ assert.ok(f.commands.some(x=>x.action==='stop'),acts(f).join(' '));assert.deepEqual(acts(f).slice(0,2),['stand','hut'])
+})

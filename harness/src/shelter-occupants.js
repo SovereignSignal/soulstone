@@ -64,3 +64,8 @@ export function inspectEmergencyShelter(bot,{limit=32}={}){
  assertNoHostileOccupants(bot,inside)
  return {verified:true,cells:inside.length,scope:'Observed closed cavity and loaded hostile occupants; rechecked while waiting'}
 }
+// Live rehearsal R9b, 17 October: shut in its hut after a fireball, the bot burned with no fire block anywhere near. A fall
+// in health there is a burn, not a breach, only while the shelter still verifies: closed, no hostile in it, and no fire,
+// soul fire or lava in or touching its cavity (the flood takes every cell that is not a full cube, so a fire or lava block
+// face to face with the cavity is in it and fails it). Whether the bot is alight is the caller's to judge.
+export function shelterHolds(bot,{limit=32}={}){try{inspectEmergencyShelter(bot,{limit});return true}catch{return false}}

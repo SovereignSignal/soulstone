@@ -323,3 +323,31 @@ test('a hit while healing with the port shut ends the stand at once, not after h
  const g=fixture({health:15});setTimeout(()=>{g.bot.health=11.5},40)
  const at=Date.now();await assert.rejects(stand(g,1,{healMs:5000,limitMs:20000}),/hit while healing with the port shut/);assert.ok(Date.now()-at<2000)
 })
+
+// Live rehearsal R9b, 17 October 06:05:48Z: a fireball hit the bot at the port, the stand closed it and healed shut, still
+// alight, with no fire block in or around the hut. Each burn tick took a health and the heal read the first as a hit
+// ("hit while healing with the port shut (health 17)"), ending the stand. Alight in a closed hut with no fire, lava or
+// soul fire in or touching its cavity, a fall is the burn; not alight, or with fire or lava there, it is a hit as before.
+// The burn starts as the heal does: two ticks of 1 from 15 alight, the flag clears, the last tick lands after it (as the
+// shelter wait has seen, controller.js observe), and health comes back to 20.
+const burnWhileHealing=(f,{alight=true,cell=null,block='fire'}={})=>{
+ f.api.stage=s=>{if(s!=='healing'||f.burnt)return;f.burnt=true;f.bot.entity.metadata={0:alight?1:0};if(cell)f.map.set(cell,block)
+  let n=0;const t=setInterval(()=>{n++
+   if(n<=2)f.bot.health-=1
+   else if(n===3)f.bot.entity.metadata={0:0}
+   else if(n===4)f.bot.health-=1
+   else{clearInterval(t);if(cell)f.map.set(cell,cell==='-36,60,-9'?'air':'cobblestone');f.bot.health=20}},30)}
+}
+test('alight in the shut hut with no fire or lava in or touching it, the burn ticks are not a hit: the stand heals and goes on',async()=>{
+ const f=fixture({health:15});burnWhileHealing(f)
+ f.log.onShot=()=>{const b=Object.values(f.bot.entities).find(e=>e.name==='blaze');if(b){b.dropAt=[-35.5,61,-7.5];f.kill(b)}}
+ const r=await stand(f,1,{healMs:5000,limitMs:20000})
+ assert.ok(f.burnt,'it healed alight');assert.equal(r.rods,1);assert.equal(r.ports,1);assert.match(r.stopped,/reached the count/)
+})
+test('the same fall not alight, or alight with fire or lava in or touching the hut\'s cavity, still ends the stand at once',async()=>{
+ for(const [name,o] of [['not alight',{alight:false}],['fire in the feet cell',{cell:'-36,60,-9'}],['soul fire in the feet cell',{cell:'-36,60,-9',block:'soul_fire'}],['lava in the wall beside the feet',{cell:'-35,60,-9',block:'lava'}]]){
+  const f=fixture({health:15});burnWhileHealing(f,o);const start=Date.now()
+  await assert.rejects(stand(f,1,{healMs:5000,limitMs:20000}),/hit while healing with the port shut \(health 14\)/,name)
+  assert.ok(f.burnt,name);assert.ok(Date.now()-start<2000,`${name}: took ${Date.now()-start} ms`)
+ }
+})

@@ -15,7 +15,8 @@ import {inNether} from './dimension.js'
 import {tripKit,TRIP_HEALTH,TRIP_ARROWS,PORT_HEALTH,portReady} from './nether-trip.js'
 import {hutSite,hutMaterials,wallIn,unwall,firingPort} from './hut.js'
 import {weaponFor,portStrike} from './combat.js'
-import {SHOOTERS_ONLY,hostileNow,survivalObservation,eatFood} from './survival.js'
+import {SHOOTERS_ONLY,hostileNow,survivalObservation,fireObservation,eatFood} from './survival.js'
+import {shelterHolds} from './shelter-occupants.js'
 import {shotLine} from './visibility.js'
 import {portSightline} from './burrow.js'
 import {looseArrow,SHOOT} from './archery.js'
@@ -36,9 +37,12 @@ import {validateStandGoal,standingIn,closePort} from './enderman-stand.js'
 // inside. settleMs: a rod's fall. spawnReach, spawnRise: a spawner's volume, 4 across and 1 up or down (vanilla).
 // closeWaitMs: one round of waiting on a mob in the port's cell (closePort). closeLimitMs: the close gives up after this long
 // at or over the trip's health; under it the close keeps going. finalCloseMs: the closing of a stand that ends, by its own
-// clock, since after a cancellation the runner's check throws (review of the stand).
+// clock, since after a cancellation the runner's check throws (review of the stand). burnMs: a fall this long after the bot
+// was last seen alight is still the burn's, as the shelter wait and the covered guard judge it (continuity.js BURN_MS: the
+// last tick can land after the flag clears). cavityCells: the closed cavity the heal verifies, up to a covered route's
+// (continuity.js COVERED_CELLS), since the stand may be walled in at a covered tunnel's end.
 export const BLAZE_STAND={item:'blaze_rod',radius:SHOOT.radius,limitMs:600000,timeoutMs:600000,arrows:TRIP_ARROWS,emptyMs:120000,idleMs:20000,drawInMs:15000,drawIn:4,blinkMs:1500,healMs:60000,
- meleeNear:3,digReach:4.5,settleMs:1500,drawMs:SHOOT.drawMs,spawnReach:4,spawnRise:1,closeWaitMs:10000,closeLimitMs:60000,finalCloseMs:15000,poll:50}
+ meleeNear:3,digReach:4.5,settleMs:1500,drawMs:SHOOT.drawMs,spawnReach:4,spawnRise:1,closeWaitMs:10000,closeLimitMs:60000,finalCloseMs:15000,burnMs:6000,cavityCells:256,poll:50}
 const key=p=>`${p.x},${p.y},${p.z}`
 const round=p=>({x:Math.round(p.x*10)/10,y:Math.round(p.y*10)/10,z:Math.round(p.z*10)/10})
 const plural=(n,one,many)=>`${n} ${n===1?one:many}`
@@ -157,10 +161,15 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
   await eat(context,18)
   // Review of the covered stand (17 October): a mob through a broken wall hit the bot for the whole wait. Health falling
   // while it heals, or under the trip's line, ends the wait at once: '' when ready, else why not.
-  let last=bot.health
+  // Live rehearsal R9b, 17 October 06:05:48Z: alight from a fireball at the port, the bot healed shut with no fire block in
+  // or around the hut, and the first burn tick ended the stand as a hit. A fall while alight (or within burnMs of it) in a
+  // hut that still holds, with no fire or lava in or touching its cavity (shelter-occupants.js shelterHolds), is the burn;
+  // not alight, or with the hut open or burning, it is a hit as before. The trip's line stops it either way.
+  let last=bot.health,alightAt=-Infinity
   for(const end=Date.now()+Math.min(o.healMs,Math.max(0,left()));Date.now()<end&&!portReady(bot).ready;){
    check()
-   if(bot.health<last)return `hit while healing with the port shut (health ${Math.round(bot.health)})`
+   if(fireObservation(bot).onFire===true)alightAt=Date.now()
+   if(bot.health<last&&!(Date.now()-alightAt<=o.burnMs&&shelterHolds(bot,{limit:o.cavityCells})))return `hit while healing with the port shut (health ${Math.round(bot.health)})`
    if(!(bot.health>=TRIP_HEALTH))return `health ${Math.round(bot.health)} is under ${TRIP_HEALTH} while healing`
    last=bot.health;await delay(o.poll)
   }
