@@ -323,6 +323,18 @@ test('the covered phase holds without a model call while a shooter is in sight t
  let calls=0;const f=fixture(async()=>{calls++;return {action:'bore',target:{x:20,y:64,z:0},count:6,expectation:'Bore'}});shooterEast(f)
  const result=await f.run();assert.equal(result.status,'held');assert.match(result.reason,/blaze/);assert.equal(calls,0);assert.deepEqual(acts(f),[])
 })
+// Run 8, 17 October 02:30:40Z: at the ten-minute hold bound the covered planner was due (hold_bounded, next
+// covered_planner), but atPort saw a blaze the watch would not shoot, the phase held with no model call, and
+// the trip ended with nothing gained. Under the bound the port shortcut does not answer for the planner.
+test('under the hold bound a shooter in sight through a port does not hold the phase: the planner is asked',async()=>{
+ const seen=[];const f=fixture(async o=>{seen.push(o);return {action:'done',target:null,count:0,expectation:'Home under cover'}});shooterEast(f)
+ const {atPort}=await import('../src/companion/covered-moves.js');assert.equal(atPort(f.bot)?.name,'blaze','the port sees the blaze')
+ const result=await f.run({holdBounded:{minutes:10}});assert.equal(result.status,'handed_back',JSON.stringify(result))
+ assert.equal(seen.length,1);assert.deepEqual(seen[0].holdBounded,{minutes:10});assert.equal(f.resumed.length,1)
+ // Its decision budget spent, the bound still asks no model: the gate holds.
+ const g=fixture(async o=>{seen.push(o);return wait});shooterEast(g);g.c.requestProgress.coveredCalls=COVERED_CALLS
+ const spent=await g.run({holdBounded:{minutes:10}});assert.equal(spent.status,'skipped');assert.match(spent.reason,/covered decisions asked/);assert.equal(seen.length,1)
+})
 test('with a covered route, a blaze in sight through the side port is shot from the port, and the hut closes it after',async()=>{
  const f=fixture(async()=>wait,{act:(cmd,bot)=>{if(cmd.action==='shoot'){delete bot.entities[7];return {receipt:'killed',shots:2,item:'blaze',at:{x:6.5,y:64,z:.5}}}if(cmd.action==='unhut')return {receipt:'unwalled',port:true,side:{dx:1,dz:0}};if(cmd.action==='hut')return {receipt:'walled_in',surface:{x:0,y:64,z:0}}}})
  shooterEast(f);inWait(f,{coveredMoves:false,burrowWait:{quietMs:50,limitMs:1500,patienceMs:50,relocateAfterMs:60000,watches:1}})

@@ -159,7 +159,10 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
    // Live, 18:43Z, 16 October: every bore under blazes was cancelled by the alarm within seconds, spending a model
    // call each time. A shooter the bow answers, in sight through a port the hut would open, is the port's (the
    // watch's firing-port branch): the phase holds without asking the model.
-   const shooter=atPort(bot);if(shooter){const reason=`a ${shooter.name.replaceAll('_',' ')} is in sight through a port; the port answers it`;journal('held',{reason});return {status:'held',reason}}
+   // Run 8, 17 October 02:30:40Z: at the hold bound that shortcut answered for the planner. atPort saw a blaze the
+   // watch would not shoot, the phase held with no model call, and the trip ended with nothing gained. The bound
+   // means the port has not answered it, so under holdBounded the planner is asked (its budget is the gate's).
+   const shooter=!holdBounded&&atPort(bot);if(shooter){const reason=`a ${shooter.name.replaceAll('_',' ')} is in sight through a port; the port answers it`;journal('held',{reason});return {status:'held',reason}}
    const before=decisionState(),sites=projectFootprints(c.projects,dimensionOf(bot)),f=feetOf(bot)
    let deepest=0,shaft=null;for(let n=1;n<=SHAFT_MAX;n++){const r=shaftRefusal(bot,n,sites);if(r){shaft=r;break}deepest=n}
    const snapshot=c.snapshot(),state=Object.fromEntries(['position','health','survival','tools','inventory'].map(k=>[k,snapshot[k]]))
