@@ -136,13 +136,15 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
  // or over the trip's health the close gives up after closeLimitMs and says why; under it there is nowhere better to be,
  // so it keeps closing, eating when it can, and the bot never leaves the cell. ctx: the stand's context, or the bounded one
  // the ending uses.
+ // The port's cells: the opened ones, or the chosen ones on the task when the opening was cut off inside unwall.
+ const portCells=()=>port?.opened??task.portOpen??null
  const close=async(ctx=context)=>{
-  if(!port)return true
+  if(!portCells())return true
   ctx.stage('walling')
   for(const end=Date.now()+o.settleMs;pending.length&&bot.health>=TRIP_HEALTH&&Date.now()<end;){ctx.check();judge();await delay(o.poll)}
   const until=Date.now()+o.closeLimitMs
   for(let ate=0;;){
-   const why=await closePort(bot,port.opened,ctx,{...o,closeTries:1},{whileBlocked:async inside=>{const m=inside.find(e=>portStrike(bot,e,null,{anyHostile:true}));if(m)await strike(m,ctx.check)}})
+   const why=await closePort(bot,portCells(),ctx,{...o,closeTries:1},{whileBlocked:async inside=>{const m=inside.find(e=>portStrike(bot,e,null,{anyHostile:true}));if(m)await strike(m,ctx.check)}})
    if(!why){port=null;record.unclosed=null;delete task.portOpen;persist();return true}
    record.unclosed=why
    if(bot.health>=TRIP_HEALTH&&Date.now()>=until)return false
@@ -243,9 +245,11 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
    const site=hutSite(bot),blocks=hutMaterials(bot).reduce((n,i)=>n+i.count,0),needed=site.ok?site.needed+choice.cells.filter(c=>fullCube(bot.registry,bot.blockAt(c)?.name)).length+1:null
    if(!site.ok){stopped=`no wall-in site to close the port again: ${site.reason}`;break}
    if(blocks<needed){stopped=`not enough blocks to close the port again (${blocks} carried, ${needed} needed)`;break}
+   // On the task before the dig (re-review of the stand): a cancellation inside unwall, after its dig, otherwise leaves the
+   // cell open with nothing recorded. The controller walls in if the stand ends without closing it.
+   task.portOpen=choice.cells.map(c=>({x:c.x,y:c.y,z:c.z}));persist()
    stage('opening')
    port=await unwall(bot,{kind:'unhut',goal:{toward:column(choice.target.position),shooter:'blaze',side:{dx:choice.side[0],dz:choice.side[2]}}},context);check()
-   // On the task while it is open, so the controller walls in if the stand ends without closing it.
    task.portOpen=structuredClone(port.opened);record.ports++;persist()
    const r=await session()
    if(!await close()){stopped=`could not close the port: ${record.unclosed}`;break}
@@ -261,7 +265,7 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
  }finally{
   bot.removeListener?.('entityDead',died)
   // After a cancellation the runner's check and progress throw, so the closing runs on its own clock (finalCloseMs).
-  if(port&&!record.unclosed){
+  if(portCells()&&!record.unclosed){
    const end=Date.now()+o.finalCloseMs,quiet=m=>{try{progress(m)}catch{}}
    try{await close({...context,check:()=>{if(Date.now()>end)throw new Error('the closing ran out of time')},progress:quiet})}catch{}
   }
@@ -269,9 +273,9 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
  for(const end=Date.now()+o.settleMs;pending.length&&Date.now()<end;)await delay(o.poll)
  judge(true)
  const gained=rods(),tally=`${plural(record.kills,'blaze','blazes')} killed, ${plural(record.ports,'port','ports')} opened`
- const open=port?{portOpen:port.opened,unclosed:record.unclosed}:record.unclosed?{unclosed:record.unclosed}:{}
+ const open=task.portOpen?{portOpen:task.portOpen,unclosed:record.unclosed}:record.unclosed?{unclosed:record.unclosed}:{}
  // A kill at range is no rod, but it frees the spawner for a blaze that may come to the port: said, never counted.
- if(!gained)throw new Error(`No blaze rod gained: ${tally}; ${stopped}${record.missed.length?`; left behind: ${record.missed.join('; ')}`:''}${record.kills?'; each kill frees the spawner for another blaze':''}${port?'; the port is still open':''}`)
+ if(!gained)throw new Error(`No blaze rod gained: ${tally}; ${stopped}${record.missed.length?`; left behind: ${record.missed.join('; ')}`:''}${record.kills?'; each kill frees the spawner for another blaze':''}${task.portOpen?'; the port is still open':''}`)
  return {receipt:'stand',item:o.item,count:gained,requested:goal.count,rods:gained,kills:record.kills,withoutRod:Math.max(0,record.kills-gained),ports:record.ports,cycles:record.cycles,arrows:record.arrows,arrowsLeft:arrowsCarried(bot),swings:record.swings,
-  partial:gained<goal.count,stopped,closed:!port&&!record.unclosed,position:round(bot.entity.position),...open,...(record.missed.length?{missed:record.missed}:{})}
+  partial:gained<goal.count,stopped,closed:!task.portOpen&&!record.unclosed,position:round(bot.entity.position),...open,...(record.missed.length?{missed:record.missed}:{})}
 }

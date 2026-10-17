@@ -270,7 +270,7 @@ test('after a stand ends with its port open, the controller walls in before the 
  const run=async open=>{
   const f=fixture();f.stop();if(!open)f.map.set(PORT,'cobblestone')
   const r=Object.assign(new EventEmitter(),{profile:'stand',owner:'Sov',ready:true,connectionId:'one',bot:f.bot,commands:[],position:()=>({x:-36,y:60,z:-9}),log(){},waitForIdle:async()=>{}})
-  r.command=c=>{r.commands.push(c);if(c.action==='stop')return;const t=r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal};setTimeout(()=>{t.status='completed';t.result={receipt:c.action};r.emit('event',{type:'task_finished',task:t})},1)}
+  r.command=c=>{r.commands.push(c);if(c.action==='stop')return;const t=r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal};setTimeout(()=>{if(c.action==='hut')f.map.set(PORT,'cobblestone');t.status='completed';t.result={receipt:c.action};r.emit('event',{type:'task_finished',task:t})},1)}
   const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-blaze-port-')),'state.json'))
   r.emit('event',{type:'task_finished',task:{id:'s',kind:'stand',status:'cancelled',goal:{item:'blaze_rod',count:1},portOpen:[{x:-36,y:61,z:-8}]}})
   await c.executeCommand({action:'goto',goal:{x:-36,y:60,z:-9},timeoutMs:60000},new AbortController().signal)
@@ -278,4 +278,36 @@ test('after a stand ends with its port open, the controller walls in before the 
  }
  assert.deepEqual(await run(true),['hut','goto'])
  assert.deepEqual(await run(false),['goto'],'a port already shut needs nothing')
+})
+
+// Re-review of the stand: a cancellation inside unwall, after the port's dig and before unwall returns, left the cell open
+// with no port recorded and nothing on the task. The chosen cells go on the task before the dig.
+test('a cancellation thrown inside unwall after the port is dug still closes the port',async()=>{
+ const f=fixture();let cancelled=false
+ f.api.check=()=>{if(cancelled)throw new Error('skill interrupted')}
+ f.api.progress=()=>f.api.check()
+ f.log.onOpen=()=>{cancelled=true}
+ const task={kind:'stand',goal:validateStandGoal({item:'blaze_rod',count:1})}
+ await assert.rejects(blazeStand(f.bot,task,f.api,fast).finally(f.stop),/skill interrupted/)
+ assert.ok(at(f,'dig',PORT)>=0,'the port was dug');assert.equal(f.map.get(PORT),'cobblestone','and closed again');assert.equal(task.portOpen,undefined)
+})
+
+// Re-review of the stand: a pre-command hut that failed only logged, and the command ran with the port open. It is tried
+// again after a short wait; still open, a command that moves or digs is refused, and the port stays recorded for the next.
+test('with a mob in the port cell the pre-command hut fails twice, the goto is refused and the port stays recorded',async()=>{
+ const f=fixture();f.stop()
+ const r=Object.assign(new EventEmitter(),{profile:'stand',owner:'Sov',ready:true,connectionId:'one',bot:f.bot,commands:[],position:()=>({x:-36,y:60,z:-9}),log(){},waitForIdle:async()=>{}})
+ r.command=c=>{r.commands.push(c);if(c.action==='stop')return;const t=r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal}
+  setTimeout(()=>{if(c.action==='hut'){t.status='failed';t.reason='Hut incomplete: -36,61,-8 occupied by a hoglin'}else{t.status='completed';t.result={receipt:c.action}}r.emit('event',{type:'task_finished',task:t})},1)}
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-blaze-port-')),'state.json'));c.standPortRetryMs=10
+ const said=[];c.say=m=>said.push(m)
+ r.emit('event',{type:'task_finished',task:{id:'s',kind:'stand',status:'cancelled',goal:{item:'blaze_rod',count:1},portOpen:[{x:-36,y:61,z:-8}]}})
+ const signal=new AbortController().signal
+ await assert.rejects(c.executeCommand({action:'goto',goal:{x:-36,y:60,z:-9},timeoutMs:60000},signal),/firing port is still open/)
+ assert.deepEqual(r.commands.map(x=>x.action).filter(x=>x!=='stop'),['hut','hut']);assert.deepEqual(c.standPort,[{x:-36,y:61,z:-8}])
+ assert.ok(said.some(m=>/cannot close my firing port yet/.test(m)),said.join(' | '))
+ // Shut by the next try, the command runs.
+ f.map.set(PORT,'cobblestone')
+ await c.executeCommand({action:'goto',goal:{x:-36,y:60,z:-9},timeoutMs:60000},signal);c.cancel?.(true)
+ assert.equal(r.commands.filter(x=>x.action!=='stop').at(-1).action,'goto');assert.equal(c.standPort,null)
 })

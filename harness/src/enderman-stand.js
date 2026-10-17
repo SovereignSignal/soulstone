@@ -9,7 +9,7 @@ import {setTimeout as delay} from 'node:timers/promises'
 import pathfinding from 'mineflayer-pathfinder'
 import {inNether} from './dimension.js'
 import {tripKit,TRIP_HEALTH} from './nether-trip.js'
-import {hutSite,wallIn,unwall} from './hut.js'
+import {hutSite,wallIn,unwall,firingPort} from './hut.js'
 import {aloneRefusal,weaponFor,meleeWeapon,clearStrike,DEFENSE_HEALTH} from './combat.js'
 import {survivalObservation,threatRadius} from './survival.js'
 import {killDrops,ATTACK_REACH,KILL_DROPS} from './primitives-world.js'
@@ -87,12 +87,13 @@ export async function enderStand(bot,task,{check,stage,progress,persist=()=>{},m
  const floor=DEFENSE_HEALTH.enderman
  let port=null,stopped=null
  const here=()=>bot.entity.position.floored()
- // A close that cannot finish says why rather than failing the pearls already won (closePort).
+ // A close that cannot finish says why rather than failing the pearls already won (closePort). The port's cells are the
+ // opened ones, or the planned ones on the task when the opening was cut off inside unwall.
  const close=async()=>{
-  if(!port)return true
+  const cells=port?.opened??task.portOpen;if(!cells)return true
   stage('walling')
-  const why=await closePort(bot,port.opened,context,o)
-  if(!why){port=null;return true}
+  const why=await closePort(bot,cells,context,o)
+  if(!why){port=null;delete task.portOpen;persist();return true}
   record.unclosed=why;return false
  }
  // One step, walked as the bow's covered step is: no digging, towering or placing, and the
@@ -134,7 +135,7 @@ export async function enderStand(bot,task,{check,stage,progress,persist=()=>{},m
   if(pearls()===had)miss('not picked up')
   if(here().equals(feet))return null
   const at=here();port=null
-  try{stage('walling');await wallIn(bot,{kind:'hut',goal:{}},context);check()}
+  try{stage('walling');await wallIn(bot,{kind:'hut',goal:{}},context);check();delete task.portOpen;persist()}
   catch(error){check();record.unclosed=`walling in at ${cell(at)}: ${error.message}`}
   return `Not back in the hut after the pearl: at ${cell(at)}; walled in where I stand`
  }
@@ -193,8 +194,13 @@ export async function enderStand(bot,task,{check,stage,progress,persist=()=>{},m
    if(!target){stopped=`no enderman left within ${o.radius} blocks`;break}
    if(crowding(bot,target,o).length){stage('waiting');await delay(Math.max(0,Math.min(o.crowdPollMs,left())));continue}
    stage('opening')
-   port=await unwall(bot,{kind:'unhut',goal:{toward:{x:Math.floor(target.position.x),z:Math.floor(target.position.z)},shooter:'enderman'}},context);check()
-   record.ports++;persist()
+   // The port's cells go on the task before the dig and come off when it closes (re-review of the blaze stand): a stand
+   // cancelled with its port open is walled in by the controller before its next command. The side planned here is the
+   // side unwall opens.
+   const toward={x:Math.floor(target.position.x),z:Math.floor(target.position.z)},planned=firingPort(bot,here(),{toward,shooter:'enderman'})
+   if(planned){task.portOpen=planned.cells.map(c=>({x:c.x,y:c.y,z:c.z}));persist()}
+   port=await unwall(bot,{kind:'unhut',goal:{toward,shooter:'enderman',...(planned?{side:{dx:planned.side[0],dz:planned.side[2]}}:{})}},context);check()
+   task.portOpen=structuredClone(port.opened);record.ports++;persist()
    const r=await duel(target)
    if(r.end==='killed'){record.kills++;persist();const strayed=await collect(r.where,feet);if(strayed){stopped=strayed;break}}
    if(!await close()){stopped=`could not close the port: ${record.unclosed}`;break}
@@ -206,10 +212,10 @@ export async function enderStand(bot,task,{check,stage,progress,persist=()=>{},m
   // A cancellation is the safety's to answer; any other failure still reports the pearls won.
   check();stopped=error.message
  }finally{
-  if(port&&!record.unclosed)try{await close()}catch{}
+  if((port||task.portOpen)&&!record.unclosed)try{await close()}catch{}
  }
  const gained=pearls(),tally=`${record.kills} ${record.kills===1?'enderman':'endermen'} killed, ${record.ports} ${record.ports===1?'port':'ports'} opened`
- const open=port?{portOpen:port.opened,unclosed:record.unclosed}:record.unclosed?{unclosed:record.unclosed}:{}
- if(!gained)throw new Error(`No ender pearl gained: ${tally}; ${stopped}${record.missed.length?`; left behind: ${record.missed.join('; ')}`:''}${port?'; the port is still open':''}`)
- return {receipt:'stand',item:o.item,count:gained,requested:goal.count,pearls:gained,kills:record.kills,ports:record.ports,crowds:record.crowds,partial:gained<goal.count,stopped,closed:!port&&!record.unclosed,position:round(bot.entity.position),...open,...(record.missed.length?{missed:record.missed}:{})}
+ const open=task.portOpen?{portOpen:task.portOpen,unclosed:record.unclosed}:record.unclosed?{unclosed:record.unclosed}:{}
+ if(!gained)throw new Error(`No ender pearl gained: ${tally}; ${stopped}${record.missed.length?`; left behind: ${record.missed.join('; ')}`:''}${task.portOpen?'; the port is still open':''}`)
+ return {receipt:'stand',item:o.item,count:gained,requested:goal.count,pearls:gained,kills:record.kills,ports:record.ports,crowds:record.crowds,partial:gained<goal.count,stopped,closed:!task.portOpen&&!record.unclosed,position:round(bot.entity.position),...open,...(record.missed.length?{missed:record.missed}:{})}
 }

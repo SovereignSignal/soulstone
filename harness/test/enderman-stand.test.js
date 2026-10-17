@@ -228,3 +228,21 @@ test('a lone screaming enderman in daylight is no reason to sprint to open groun
  const ender=await run('enderman');assert.equal(ender.r,'skipped');assert.deepEqual(ender.commands,[])
  const zombie=await run('zombie');assert.deepEqual(zombie.commands,['flee'])
 })
+
+// Re-review of the blaze stand: a pearl stand cancelled with its port open left it open, and nothing recorded it. The port's
+// cells go on the task before the dig and come off when it closes, so the controller walls in before the next command.
+test('a pearl stand cancelled with its port open leaves the port on the task, and the controller walls in before the next command',async()=>{
+ const f=fixture();let cancelled=false
+ f.api.check=()=>{if(cancelled)throw new Error('skill interrupted')}
+ f.api.progress=()=>f.api.check()
+ f.log.onSwing=()=>{cancelled=true}
+ const task={kind:'stand',goal:validateStandGoal({item:'ender_pearl',count:1})}
+ await assert.rejects(enderStand(f.bot,task,f.api,fast).finally(f.stop),/skill interrupted/)
+ assert.deepEqual(task.portOpen,[{x:1,y:65,z:0},{x:1,y:64,z:0}]);assert.equal(f.cells.get('1,65,0'),'air','left open')
+ const r=Object.assign(new EventEmitter(),{profile:'stand',owner:'Sov',ready:true,connectionId:'one',bot:f.bot,commands:[],position:()=>({x:0,y:64,z:0}),log(){},waitForIdle:async()=>{}})
+ r.command=c=>{r.commands.push(c);if(c.action==='stop')return;const t=r.task={id:String(r.commands.length),kind:c.action,status:'running',goal:c.goal};setTimeout(()=>{if(c.action==='hut')for(const k of ['1,64,0','1,65,0'])f.cells.set(k,'netherrack');t.status='completed';t.result={receipt:c.action};r.emit('event',{type:'task_finished',task:t})},1)}
+ const c=new Teammate(r,{model:'fake',plan:async()=>({reply:'',steps:[]})},join(mkdtempSync(join(tmpdir(),'mc-stand-port-')),'state.json'))
+ r.emit('event',{type:'task_finished',task:{...structuredClone(task),id:'s',status:'cancelled'}})
+ await c.executeCommand({action:'goto',goal:{x:0,y:64,z:0},timeoutMs:60000},new AbortController().signal);c.cancel?.(true)
+ assert.deepEqual(r.commands.map(x=>x.action).filter(x=>x!=='stop'),['hut','goto'])
+})

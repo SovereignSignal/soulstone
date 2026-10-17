@@ -29,6 +29,9 @@ const BURROW_WATCHES=4
 const PORTAL_ROOM_STANDOFF=6
 // The portal-first reach: a portal this close is stepped into rather than walked to (exitNow, shutIn, the own-tunnel cap).
 const PORTAL_AT_HAND=3
+// What may run while a stand's port is still open (executeCommand): the safety actions and the port cycle, none of them work
+// that walks off or digs away from the open port.
+const STAND_PORT_SAFE=new Set(['defend','flee','retreat','burrow','unburrow','climb','descend','surface','eat','unhut','shoot','seal_portal','use_portal'])
 const TUNNEL_HAZARDS=new Set(['lava','water','bubble_column',...FIRE_BLOCKS])
 // Whether the bot, in the Nether in a covered column of its tunnel, can hold there for this alarm: a threat, a hurt bot,
 // or flames from a fireball alone (re-review of c463b9a: they burn out in seconds whatever the bot does, and a walk of
@@ -2235,12 +2238,22 @@ export class Teammate extends EventEmitter {
     const held=Teammate.prototype.sealedHoldRefusal.call(this,command);if(held)throw held
     await this.runner.waitForIdle?.(signal)
     // A stand's port left open: once the stand has finished its own closing (waitForIdle), cells still open are walled in
-    // before anything else. Fire and the portal keep their own clocks, and a failed hut never blocks the command.
+    // before anything else. Fire and the portal keep their own clocks. A safety action gets one try and goes on whatever
+    // happens; work (anything that walks or digs) gets a second try after a short wait (re-review of the stand: a mob in
+    // the port refuses the block), and with the port still open it is refused and the port stays recorded for the next.
     if(this.standPort&&!['stop','hut','douse','leave_portal'].includes(command.action)){
-      const bot=this.runner.bot,open=this.standPort.filter(c=>!fullCube(bot?.registry,bot?.blockAt?.(new Vec3(c.x,c.y,c.z))?.name));this.standPort=null
-      if(open.length){
-        this.say('My firing port is still open. Closing it first.')
-        try{await Teammate.prototype.executeCommand.call(this,{action:'hut',goal:{},timeoutMs:60000},signal)}catch(error){if(signal.aborted)throw error;this.runner.log?.('stand_port_unclosed',{reason:String(error.message).slice(0,120)})}
+      const bot=this.runner.bot,open=()=>this.standPort.filter(c=>!fullCube(bot?.registry,bot?.blockAt?.(new Vec3(c.x,c.y,c.z))?.name))
+      const safety=STAND_PORT_SAFE.has(command.action)
+      if(open().length)this.say('My firing port is still open. Closing it first.')
+      for(let attempt=0;attempt<(safety?1:2)&&open().length;attempt++){
+        if(attempt){await delay(this.standPortRetryMs??2000);if(signal.aborted)throw new Error('Cancelled')}
+        try{await Teammate.prototype.executeCommand.call(this,{action:'hut',goal:{},timeoutMs:60000},signal)}catch(error){if(signal.aborted)throw error;this.runner.log?.('stand_port_unclosed',{attempt:attempt+1,reason:String(error.message).slice(0,120)})}
+      }
+      if(!open().length)this.standPort=null
+      else if(!safety){
+        // Children read this: plain and calm.
+        this.say('Something is in the way, so I cannot close my firing port yet. I am staying right here and will try again.')
+        throw new Error('My firing port is still open; staying in place until it closes')
       }
     }
     const deferredDeparture=['acquire','prepare'].includes(command.action)&&insideBase(this.runner.bot,this.projects.base)
