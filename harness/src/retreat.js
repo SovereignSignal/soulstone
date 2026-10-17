@@ -14,6 +14,7 @@ import {climbOut} from './burrow.js'
 import {refuseUnowned,ownedNow} from './natural.js'
 import {projectDimension,sameDimension} from './dimension.js'
 import {roofed} from './observations.js'
+import {stillCreeper} from './still-creeper.js'
 const {goals}=pathfinding
 export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
  const project=task.goal.project,build=project.build,o=new Vec3(build.origin.x,build.origin.y,build.origin.z),layout=shelterLayout(build.design)
@@ -260,7 +261,10 @@ export function pressingThreats(bot,project,near,released=null){
   }
  }
  if(released)released.push(...near.filter(t=>!outOfReach(t)&&sealedStill(t)))
- return near.filter(t=>!outOfReach(t)&&!sealedStill(t)).sort((a,b)=>a.distance-b.distance)
+ // Live, the play world, 17 October: a still creeper ten or more blocks from the bot and the doorstep, in daylight,
+ // does not hold the door (still-creeper.js).
+ const o=project?.build?.origin,step=o?(l=>new Vec3(o.x,o.y,o.z).plus(l.door).plus(l.out))(shelterLayout(project.build.design)):null
+ return near.filter(t=>!outOfReach(t)&&!sealedStill(t)&&!stillCreeper(bot,t,{cells:step?[step]:[]})).sort((a,b)=>a.distance-b.distance)
 }
 // Why the door stays shut, or null. One answer for every way out: the
 // automatic exit before work, the planner's own leave_base step, and the

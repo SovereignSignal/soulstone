@@ -187,6 +187,7 @@ import {burrowClearance,shelterExits,strongEnoughToLeave,portSightline,RELOCATE_
 import {roofed} from '../observations.js'
 import {inspectEmergencyShelter,cavityCells} from '../shelter-occupants.js'
 import {threatReach,threatRoutes} from '../threat-reach.js'
+import {noteStill,stillCreeper} from '../still-creeper.js'
 import {defenseDecision,combatClearance,DEFENDABLE_MOBS,meleeWeapon,corneredDecision,fightableAlone} from '../combat.js'
 import {ThreatJudge,harnessVerdict,wornArmour,forcedInterruption,gateVerdict,chooseResponse} from '../threat-judgement.js'
 import {projectFootprints} from '../site-survey.js'
@@ -353,6 +354,10 @@ export class Teammate extends EventEmitter {
         const tripRequest=this.requestProgress?.status==='running'||canResume(this.requestProgress)
         const walkOn=onTrip(runner.bot,tripRequest)?pressing.filter(t=>walkOnThreat(runner.bot,t,observation.nearbyThreats)):[]
         for(const t of walkOn)t.walkOn=true
+        // Live, the play world, 17 October: the creeper that stopped holding the door on standing still (still-creeper.js) does
+        // not send the bot back in once it is out. Stillness is tracked here every tick, so a watch that asks has the history.
+        noteStill(runner.bot)
+        for(const t of observation.nearbyThreats)if(stillCreeper(runner.bot,t))t.stillFar=true
         if(walkOn.length&&Date.now()-(this.walkOnLogAt||0)>=5000){this.walkOnLogAt=Date.now();runner.log?.('threat_walk_on',{threats:walkOn.map(t=>`${t.name}@${t.distance}/${t.verticalOffset}:${t.reach||'-'}${Number.isFinite(t.routeSteps)?'~'+t.routeSteps:Number.isFinite(t.routeAtLeast)?'>='+t.routeAtLeast:''}:${t.sightline?.status||'-'}`)})}
         // Night only matters where the sky is: asked when it is dark and there is no base.
         const underRock=!shelterAvailable&&Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500)&&roofed(runner.bot)

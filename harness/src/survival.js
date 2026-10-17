@@ -237,7 +237,9 @@ export function emergencyReason(observation){
  // in place; interrupting there only retreats into the room the bot is standing in.
  // A mob the tick marked walkOn (a lone fightable one out of sight on a Nether trip,
  // nether-trip.js; lab run 148, 15 October) is the trip's to walk on, not an interruption.
- if(observation.sheltered!==true&&observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&!t.walkOn&&t.distance<=threatRadius(t.name)&&!outOfReach(t)&&!cannotShootYet(t))||shotAt)return THREAT_INTERRUPTION
+ // Nor is one it marked stillFar: a still creeper ten or more blocks off in Overworld daylight
+ // (still-creeper.js; live, the play world, 17 October), or the bot is sent back in on leaving.
+ if(observation.sheltered!==true&&observation.difficulty&&observation.difficulty!=='peaceful'&&observation.nearbyThreats.some(t=>t.risk==='potential_hostile'&&!t.walkOn&&!t.stillFar&&t.distance<=threatRadius(t.name)&&!outOfReach(t)&&!cannotShootYet(t))||shotAt)return THREAT_INTERRUPTION
  // Out in the open after dusk with no built base: dig in before the crowd arrives.
  // Under rock there is no crowd arriving: trial 42 spent fifteen minutes of a
  // thirty-minute run waiting for a sunrise thirty-six blocks above it.

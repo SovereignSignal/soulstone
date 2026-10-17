@@ -18,6 +18,7 @@ import {roofed} from './observations.js'
 import {defenseDecision,armorPoints,HEAVY_ARMOR} from './combat.js'
 import {walkOnThreat} from './nether-trip.js'
 import {firingPort} from './hut.js'
+import {stillCreeper} from './still-creeper.js'
 const {goals}=pathfinding
 // Four deep keeps a creeper standing on the rim outside its three-block
 // trigger distance; the cap goes on the top cell so nothing can drop in.
@@ -318,7 +319,8 @@ export function burrowClearance(bot,{lingeredMs=0,patienceMs=CONFRONT_PATIENCE_M
  // On a trip the margin is the alarm's own radius: the trip fights what comes, so a hostile
  // that would not interrupt the work does not hold the bot in (lab run 142, 14 October:
  // kitted, a portal room, hoglins at fifteen that the alarm ignores, and no way out).
- let near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=(trip?threatRadius(t.name):RANGED.has(t.name)?24:16))
+ // Live, the play world, 17 October: nor a still creeper ten or more blocks from the bot and every exit, in daylight (still-creeper.js).
+ let near=(s.nearbyThreats||[]).filter(t=>t.risk==='potential_hostile'&&t.distance<=(trip?threatRadius(t.name):RANGED.has(t.name)?24:16)&&!stillCreeper(bot,t,{cells:exits||[]}))
  // On a trip a hut answers a shooter through its port, so the port line is asked once per shooter (lab run 166, 16 October).
  const portLine=canPort&&trip&&!!feet,lines=new Map()
  const throughPort=t=>{if(!portLine)return false;if(!lines.has(t))lines.set(t,portSightline(bot,feet,t).status==='clear');return lines.get(t)}
