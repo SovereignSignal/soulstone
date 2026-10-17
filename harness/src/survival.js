@@ -10,6 +10,11 @@ export const SAFE_FOODS=new Set(['beef','porkchop','mutton','rabbit','cod','salm
 const hostile=new Set(['zombie','zombie_villager','husk','drowned','skeleton','stray','bogged','wither_skeleton','creeper','spider','cave_spider','witch','slime','magma_cube','phantom','pillager','vindicator','evoker','vex','ravager','silverfish','endermite','blaze','ghast','hoglin','zoglin','piglin_brute','warden','breeze','creaking','guardian','elder_guardian','shulker','wither','ender_dragon'])
 const conditional=new Set(['enderman','piglin','zombified_piglin','wolf','bee','polar_bear','iron_golem'])
 export const isPotentialHostile=name=>hostile.has(name)
+// An adult piglin attacks any player wearing no golden armour; one piece worn anywhere calms it.
+// Live rehearsal, 17 October 01:17Z (Nether, Hard): in full iron and no gold, the bot bored on past
+// a piglin in its own tunnel and one hit took it from 12.6 to 4.9; the alarm counted nothing.
+const GOLDEN_ARMOUR=new Set(['golden_helmet','golden_chestplate','golden_leggings','golden_boots'])
+export const wearsGold=bot=>['head','torso','legs','feet'].some(slot=>{const i=bot?.getEquipmentDestSlot?.(slot);return Number.isInteger(i)&&GOLDEN_ARMOUR.has(bot.inventory?.slots?.[i]?.name)})
 // Mobs that attack from a distance. A pillager opens fire at about sixteen
 // blocks, so a ten-block interruption radius let it shoot the bot for six
 // blocks of approach without any response; one killed the agent that way.
@@ -122,7 +127,11 @@ export function survivalObservation(bot) {
  // (9 October) set off nothing until the bot was at half health, two seconds from dead.
  const creepy=bot?.registry?.entitiesByName?.enderman?.metadataKeys?.indexOf('creepy')??-1
  const screaming=e=>e.name==='enderman'&&creepy>=0&&e.metadata?.[creepy]===true
- const nearbyThreats=p?Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&e.position&&(hostile.has(e.name)||conditional.has(e.name))).map(e=>({name:e.name,distance:Math.round(e.position.distanceTo(p)*10)/10,position:{x:e.position.x,y:e.position.y,z:e.position.z},risk:!screaming(e)&&(conditional.has(e.name)||e.name==='spider'&&daylight)?'conditional':'potential_hostile'})).filter(e=>e.distance<=(FAR_SHOOTERS.has(e.name)?48:24)).sort((a,b)=>a.distance-b.distance).slice(0,16):[]
+ // A piglin with no gold on the bot is a melee threat, a baby never (it does not attack); an
+ // unknown age counts as an adult. Gold carried in the pack calms nothing.
+ const baby=bot?.registry?.entitiesByName?.piglin?.metadataKeys?.indexOf('baby')??-1,gold=wearsGold(bot)
+ const angry=e=>screaming(e)||e.name==='piglin'&&!gold&&!(baby>=0&&e.metadata?.[baby]===true)
+ const nearbyThreats=p?Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&e.position&&(hostile.has(e.name)||conditional.has(e.name))).map(e=>({name:e.name,distance:Math.round(e.position.distanceTo(p)*10)/10,position:{x:e.position.x,y:e.position.y,z:e.position.z},risk:!angry(e)&&(conditional.has(e.name)||e.name==='spider'&&daylight)?'conditional':'potential_hostile'})).filter(e=>e.distance<=(FAR_SHOOTERS.has(e.name)?48:24)).sort((a,b)=>a.distance-b.distance).slice(0,16):[]
  for(const t of nearbyThreats){t.verticalOffset=Math.round((t.position.y-p.y)*10)/10;t.sightline=observedSightline(bot,{x:p.x,y:p.y+(bot.entity.eyeHeight||1.62),z:p.z},{x:t.position.x,y:t.position.y+1,z:t.position.z})}
  // Farm animals within 32 blocks, so the planner hunts what is actually there.
  const nearbyAnimals=p?Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&e.position&&ANIMALS.has(e.name)).map(e=>({name:e.name,distance:Math.round(e.position.distanceTo(p)*10)/10})).filter(e=>e.distance<=32).sort((a,b)=>a.distance-b.distance).slice(0,12):[]
@@ -197,11 +206,12 @@ export function emergencyReason(observation){
  // every time it steps outside its own base traps it there at five health.
  const darkness=Number.isFinite(observation.timeOfDay)&&(observation.timeOfDay>=12500||observation.timeOfDay<500)
  // Health actually falling is the honest signal that something can be done,
- // and it needs no mob taxonomy. Enderman and piglin are `conditional`, so a
- // provoked one is invisible to hostileNear and could beat the agent below ten
- // with nothing firing. Reclassifying them would be worse: a passive enderman
- // is genuinely not a threat and the agent would flee every one it sees. This
- // also covers fire, lava and a mob the version added after this was written.
+ // and it needs no mob taxonomy. Enderman and piglin are `conditional` while calm
+ // (a piglin is calm only with gold worn, survivalObservation), so a provoked one
+ // is invisible to hostileNear and could beat the agent below ten with nothing
+ // firing. Reclassifying them would be worse: a passive enderman is genuinely not
+ // a threat and the agent would flee every one it sees. This also covers fire,
+ // lava and a mob the version added after this was written.
  const underAttack=Number.isFinite(observation.recentDamageMs)&&observation.recentDamageMs<=DAMAGE_WINDOW_MS
  // Hurt with no way to heal in place (nothing carried, hunger under the 18 that
  // regenerates), going in only waits for hostiles to leave, and a mob in a cave

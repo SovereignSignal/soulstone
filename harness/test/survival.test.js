@@ -121,6 +121,30 @@ test('an enderman that is screaming for the bot is a potential hostile; a calm o
  assert.equal(survivalObservation(bot(false)).nearbyThreats[0].risk,'conditional')
  assert.equal(survivalObservation(bot(true)).nearbyThreats[0].risk,'potential_hostile')
 })
+// Live rehearsal, 17 October 01:17Z (Nether, Hard): in full iron and no gold, the bot bored on past a piglin standing
+// in its own tunnel; it went from 12.6 to 4.9 in one hit and died 1.6 s later, while the health alarm logged
+// "counted":[] and nether_shelter nearestMelee 12.9. An adult piglin attacks any player wearing no golden armour.
+test('an adult piglin is a potential hostile unless the bot wears a piece of golden armour; a baby piglin never is',async()=>{
+ const {emergencyReason,THREAT_INTERRUPTION}=await import('../src/survival.js')
+ const registry=(await import('minecraft-data')).default('1.21.4')
+ const babyKey=registry.entitiesByName.piglin.metadataKeys.indexOf('baby')
+ const piglin=baby=>({name:'piglin',position:new Vec3(3,64,0),metadata:baby===undefined?undefined:Object.assign([],{[babyKey]:baby})})
+ const bot=({worn=['iron_helmet','iron_chestplate','iron_leggings','iron_boots'],baby}={})=>{
+  const slots=[];worn.forEach((n,i)=>{if(n)slots[5+i]={name:n}})
+  return {registry,entity:{position:new Vec3(0,64,0)},entities:{1:piglin(baby)},inventory:{items:()=>[],slots},getEquipmentDestSlot:s=>({head:5,torso:6,legs:7,feet:8})[s]}
+ }
+ const seen=opts=>survivalObservation(bot(opts)).nearbyThreats[0]
+ const alarm=t=>emergencyReason({gameMode:'survival',health:20,food:20,difficulty:'hard',dimension:'the_nether',timeOfDay:6000,sheltered:false,headSubmerged:false,oxygen:20,carriedFood:[],nearbyThreats:[{...t,sightline:{status:'clear'}}]})
+ const iron=seen();assert.equal(iron.distance,3);assert.equal(iron.risk,'potential_hostile','full iron, no gold');assert.equal(alarm(iron),THREAT_INTERRUPTION)
+ assert.equal(seen({baby:false}).risk,'potential_hostile','an adult by its flag')
+ const helmet=seen({worn:['golden_helmet','iron_chestplate','iron_leggings','iron_boots']});assert.equal(helmet.risk,'conditional','a golden helmet');assert.equal(alarm(helmet),null)
+ assert.equal(seen({worn:['iron_helmet','iron_chestplate','iron_leggings','golden_boots']}).risk,'conditional','golden boots')
+ assert.equal(seen({worn:[]}).risk,'potential_hostile','nothing worn')
+ assert.equal(seen({baby:true}).risk,'conditional','a baby piglin never attacks')
+ // Gold in the pack is not gold worn.
+ const packed=bot();packed.inventory.items=()=>[{name:'golden_helmet',count:1}];packed.inventory.slots[20]={name:'golden_helmet'}
+ assert.equal(survivalObservation(packed).nearbyThreats[0].risk,'potential_hostile')
+})
 
 test('a blaze hitting the bot from across the fortress raises the threat alarm',async()=>{
  const {emergencyReason,THREAT_INTERRUPTION,FIRE_EMERGENCY,HEALTH_EMERGENCY}=await import('../src/survival.js')
