@@ -319,8 +319,10 @@ function shooterEast(f){
  for(let x=2;x<9;x++)for(const y of [64,65,66])f.cells.set(`${x},${y},0`,'air')
  f.bot.entities={7:{id:7,uuid:'10000000-0000-0000-0000-000000000007',type:'mob',name:'blaze',height:1.8,position:new Vec3(6.5,64,.5),velocity:new Vec3(0,0,0)}}
 }
+// Review of the R9 fix: on a blaze rod request at a valid stand cell (this one is) the planner is asked and offered the stand
+// (below); the port's hold is for every other request and cell, so this request is not for rods.
 test('the covered phase holds without a model call while a shooter is in sight through a port',async()=>{
- let calls=0;const f=fixture(async()=>{calls++;return {action:'bore',target:{x:20,y:64,z:0},count:6,expectation:'Bore'}});shooterEast(f)
+ let calls=0;const f=fixture(async()=>{calls++;return {action:'bore',target:{x:20,y:64,z:0},count:6,expectation:'Bore'}});shooterEast(f);f.c.requestProgress.request='ender pearls'
  const result=await f.run();assert.equal(result.status,'held');assert.match(result.reason,/blaze/);assert.equal(calls,0);assert.deepEqual(acts(f),[])
 })
 // Run 8, 17 October 02:30:40Z: at the ten-minute hold bound the covered planner was due (hold_bounded, next
@@ -524,4 +526,22 @@ test('the covered schema takes stand with no target and a count 0 to 8, and the 
  assert.ok(format.properties.action.enum.includes('stand'))
  const brief=prompt.split('walled in on a Nether trip')[1]
  assert.match(brief,/stand \(/);assert.match(brief,/observation\.stand/);assert.ok(!/choose done: the planner calls stand/.test(brief),brief)
+})
+// Review of the R9 fix: at a stand cell with a blaze already in port sight, the atPort shortcut held the phase with no model
+// call, so the watch's port answered and the stand never ran: an endless port hold. On a blaze rod request at a valid stand
+// cell the planner is asked instead (the stand handles its own port); off a stand cell, or for anything else, atPort holds.
+test('at a valid stand cell with a blaze in port line, a blaze rod request asks the planner and dispatches the stand, never held',async()=>{
+ const {atPort}=await import('../src/companion/covered-moves.js')
+ let calls=0;const f=fixture(async()=>{calls++;return standMove},{act:cmd=>cmd.action==='stand'?standReceipt:undefined});blazeBeside(f,[6.5,64.2,.5])
+ assert.equal(atPort(f.bot)?.name,'blaze','the blaze is in port sight')
+ const result=await f.run()
+ assert.notEqual(result.status,'held',JSON.stringify(result));assert.equal(result.status,'handed_back')
+ assert.equal(calls,1,'one covered model call');assert.deepEqual(acts(f),['stand'])
+})
+test('off a stand cell, or on a request without blaze rods, a blaze in port line still holds the phase with no model call',async()=>{
+ for(const [name,set] of [['inside the spawner\'s reach',f=>f.cells.set('3,63,0','spawner')],['an ender pearl request',f=>{f.c.requestProgress.request='ender pearls'}]]){
+  let calls=0;const f=fixture(async()=>{calls++;return standMove});blazeBeside(f,[6.5,64.2,.5]);set(f)
+  const result=await f.run()
+  assert.equal(result.status,'held',name);assert.match(result.reason,/in sight through a port/,name);assert.equal(calls,0,name);assert.deepEqual(acts(f),[],name)
+ }
 })

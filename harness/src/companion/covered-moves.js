@@ -7,7 +7,7 @@
 // loop owns the bot while the model thinks, and a late answer never dispatches after Stop.
 import {setTimeout as delay} from 'node:timers/promises'
 import {Vec3} from 'vec3'
-import {COVERED_MOVES,COVERED_CELLS,COVERED_CALLS,COVERED_MS,BURN_MS,canResume,canContinueAfterSafety,continuationMark} from './continuity.js'
+import {COVERED_MOVES,COVERED_CELLS,COVERED_CALLS,COVERED_MS,BURN_MS,canResume,canContinueAfterSafety,continuationMark,wantedItems} from './continuity.js'
 import {inspectEmergencyShelter} from '../shelter-occupants.js'
 import {fullCube} from '../construction.js'
 import {survivalObservation,fireObservation,FIRE_BLOCKS} from '../survival.js'
@@ -174,7 +174,10 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
    // Run 8, 17 October 02:30:40Z: at the hold bound that shortcut answered for the planner. atPort saw a blaze the
    // watch would not shoot, the phase held with no model call, and the trip ended with nothing gained. The bound
    // means the port has not answered it, so under holdBounded the planner is asked (its budget is the gate's).
-   const shooter=!holdBounded&&atPort(bot);if(shooter){const reason=`a ${shooter.name.replaceAll('_',' ')} is in sight through a port; the port answers it`;journal('held',{reason});return {status:'held',reason}}
+   // Review of the R9 fix: at a stand cell on a blaze rod request that hold was endless, the port answering and the stand
+   // never run. There the planner is asked, and is offered the stand, which opens and closes its own port.
+   const standCell=(wantedItems(request,bot.registry).some(w=>w.item==='blaze_rod')||(request.pending||[]).some(s=>s?.action==='stand'&&s.item==='blaze_rod'))&&!blazeStandRefusal(bot)
+   const shooter=!holdBounded&&!standCell&&atPort(bot);if(shooter){const reason=`a ${shooter.name.replaceAll('_',' ')} is in sight through a port; the port answers it`;journal('held',{reason});return {status:'held',reason}}
    const before=decisionState(),sites=projectFootprints(c.projects,dimensionOf(bot)),f=feetOf(bot)
    let deepest=0,shaft=null;for(let n=1;n<=SHAFT_MAX;n++){const r=shaftRefusal(bot,n,sites);if(r){shaft=r;break}deepest=n}
    const snapshot=c.snapshot(),state=Object.fromEntries(['position','health','survival','tools','inventory'].map(k=>[k,snapshot[k]]))
