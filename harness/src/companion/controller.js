@@ -2273,7 +2273,9 @@ export class Teammate extends EventEmitter {
     if(this.slitOpen&&!keepsSlit)await Teammate.prototype.closeSlit.call(this,command,signal)
     const feetKey=()=>{const p=this.runner.bot?.entity?.position;return p?`${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`:null}
     const from=this.slitOpen&&keepsSlit&&!(command.action==='hut'&&command.goal?.close)?feetKey():null
-    const closeAfter=async()=>{if(from&&this.slitOpen&&!signal.aborted&&feetKey()!==from){try{await Teammate.prototype.closeSlit.call(this,command,signal,{after:true})}catch(error){this.runner.log?.('slit_unclosed',{after:command.action,reason:String(error.message).slice(0,120)})}}}
+    // Not after a stop (re-review, 17 October): a command a stop ended is the stop's, and the safety that sent it moves next.
+    let ended=null
+    const closeAfter=async()=>{if(from&&this.slitOpen&&!signal.aborted&&ended!=='cancelled'&&feetKey()!==from){try{await Teammate.prototype.closeSlit.call(this,command,signal,{after:true})}catch(error){this.runner.log?.('slit_unclosed',{after:command.action,reason:String(error.message).slice(0,120)})}}}
     const deferredDeparture=['acquire','prepare'].includes(command.action)&&insideBase(this.runner.bot,this.projects.base)
     // The checked door exit is for work. A safety action never walks out of a
     // shelter first: fleeing a creeper at the door used to open the door on it.
@@ -2284,7 +2286,7 @@ export class Teammate extends EventEmitter {
       let taskId
       const cleanup = () => { this.runner.off('event', handler); signal.removeEventListener('abort', onAbort) }
       const onAbort = () => { cleanup(); reject(new Error('Cancelled')) }
-      const handler = e => { if (e.type !== 'task_finished' || e.task?.id !== taskId) return; cleanup(); e.task.status === 'completed' ? resolve() : reject(new Error(e.task.reason || 'Task failed')) }
+      const handler = e => { if (e.type !== 'task_finished' || e.task?.id !== taskId) return; cleanup(); ended = e.task.status; e.task.status === 'completed' ? resolve() : reject(new Error(e.task.reason || 'Task failed')) }
       this.runner.on('event', handler); signal.addEventListener('abort', onAbort, { once: true })
       try { if (signal.aborted) return onAbort(); this.dispatch(command); taskId = this.runner.task.id;started(taskId) } catch (e) { cleanup(); reject(e) }
     })}finally{await closeAfter()}
@@ -2298,7 +2300,8 @@ export class Teammate extends EventEmitter {
     const bot=this.runner.bot,cellOf=c=>new Vec3(c.x,c.y,c.z),open=()=>(this.slitOpen||[]).filter(c=>!fullCube(bot?.registry,bot?.blockAt?.(cellOf(c))?.name))
     const eye=bot?.entity?.position?.offset(0,bot.entity.eyeHeight??1.62,0),far=open().filter(c=>!eye||cellOf(c).offset(.5,.5,.5).distanceTo(eye)>SLIT_REACH)
     if(far.length){this.runner.log?.('slit_left_open',{cells:far,action:command.action,reason:'out of reach'});this.slitOpen=this.slitOpen.filter(c=>!far.includes(c))}
-    const safety=after||STAND_PORT_SAFE.has(command.action)
+    // A hut is shelter (re-review, 17 October): a threat-driven hut stepping to its portal room gets one try and goes on.
+    const safety=after||command.action==='hut'||STAND_PORT_SAFE.has(command.action)
     if(open().length)this.say(after?'My slit in the tunnel wall is still open. Closing it now.':'My slit in the tunnel wall is still open. Closing it before I move.')
     for(let attempt=0;attempt<(safety?1:2)&&open().length;attempt++){
       if(attempt){await delay(this.standPortRetryMs??2000);if(signal.aborted)throw new Error('Cancelled')}

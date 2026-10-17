@@ -592,4 +592,5 @@ test('after two answers that leave the stand unused at a valid stand cell, the s
  const third=await f.run()
  assert.equal(calls,2,'no third model call');assert.deepEqual(acts(f),['stand']);assert.deepEqual(f.commands.find(x=>x.action==='stand').goal,{item:'blaze_rod',count:4})
  assert.equal(third.status,'handed_back');assert.ok(f.c.recoveryHistory.some(a=>/dispatched directly/.test(a.expectation||'')),JSON.stringify(f.c.recoveryHistory))
+ assert.deepEqual(f.events.filter(e=>e.type==='stand_forced').map(e=>e.skips),[2],'the forced dispatch is logged')
 })

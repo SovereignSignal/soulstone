@@ -534,3 +534,21 @@ test('more than eight open slit cells close in batches of eight',async()=>{
  assert.deepEqual(s.r.commands.filter(x=>x.action==='hut').map(x=>x.goal.close.length),[8,2]);assert.equal(s.acts().at(-1),'goto')
  for(const c of extra)assert.equal(s.w.cells.get(k(c.x,c.y,c.z)),'cobblestone',JSON.stringify(c))
 })
+
+// Re-review of the slit close (Sonnet, 17 October): a threat-driven hut that steps to its portal room is shelter, but the
+// close treated it as work, and after two failed tries for any reason but a mob or no blocks it refused: the bot would not
+// shelter in an emergency. A hut gets the safety actions' one try and goes on. And a kept command a stop ended is the stop's:
+// nothing is closed after it.
+test('a portal-room hut with a slit that will not close tries once and the hut runs',async()=>{
+ const s=await slitWorld(),plain=s.r.command,place=s.w.bot.placeBlock
+ s.w.bot.placeBlock=async(ref,face)=>{const p=ref.position.plus(face);if(SLIT.some(c=>c.x===p.x&&c.y===p.y&&c.z===p.z))throw new Error('Block placement rejected');return place(ref,face)}
+ s.r.command=c=>{if(!c.goal?.portalRoom)return plain(c);s.r.commands.push(c);const t=s.r.task={id:'p',kind:'hut',status:'completed',goal:c.goal,result:{receipt:'walled_in'}};setTimeout(()=>s.r.emit('event',{type:'task_finished',task:t}),1)}
+ await s.c.executeCommand({action:'hut',goal:{portalRoom:true},timeoutMs:60000},s.signal);s.c.cancel?.(true)
+ assert.deepEqual(s.r.commands.filter(x=>x.action!=='stop').map(x=>x.goal),[{close:SLIT},{portalRoom:true}])
+})
+test('a kept command that moved the bot and was ended by a stop closes nothing after it',async()=>{
+ const s=await slitWorld(),plain=s.r.command
+ s.r.command=c=>{if(c.action!=='leave_portal')return plain(c);s.r.commands.push(c);s.w.bot.entity.position=new Vec3(2.5,64,.5);const t=s.r.task={id:'l',kind:'leave_portal',status:'cancelled',reason:'operator stop',goal:{}};setTimeout(()=>s.r.emit('event',{type:'task_finished',task:t}),1)}
+ await assert.rejects(s.c.executeCommand({action:'leave_portal',goal:{},timeoutMs:60000},s.signal),/operator stop/);s.c.cancel?.(true)
+ assert.deepEqual(s.acts(),['leave_portal']);assert.deepEqual(shut(s.w),['air','air','air'])
+})

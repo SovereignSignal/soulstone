@@ -189,7 +189,7 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
    // rod request (wait or done, request.standSkips) are R9's loop starting again; the stand goes out with no model call.
    if(!standCell)request.standSkips=0
    let value
-   if(standCell&&(request.standSkips||0)>=2){request.standSkips=0;value={action:'stand',target:null,count:0,expectation:'The stand, dispatched directly after two answers that left it unused at a stand cell'}}
+   if(standCell&&(request.standSkips||0)>=2){trace('stand_forced',{round,skips:request.standSkips});request.standSkips=0;value={action:'stand',target:null,count:0,expectation:'The stand, dispatched directly after two answers that left it unused at a stand cell'}}
    else{
     request.coveredCalls=(request.coveredCalls||0)+1;c.persist()
     const abort=new AbortController(),combined=AbortSignal.any([signal,abort.signal]);let settled=false,error
