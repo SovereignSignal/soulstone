@@ -1044,3 +1044,15 @@ test('a climbing click lost with the hand left empty is made again with the bloc
  assert.equal(w.bot.blockAt(new Vec3(10,60,10)).name,'cobblestone')
  assert.deepEqual(clicks.filter(c=>!c.held),[],'no click with an empty hand')
 })
+
+// Live, family world, 17 October 16:04Z: the burrow beside the base door met cobblestone that was
+// not in the record at all and refused it, as it must. Its own cobblestone, of any age, digs (mayDig).
+import {OWN_TTL_MS} from '../src/natural.js'
+test('a burrow counts its own cobblestone below as diggable however old the record',()=>{
+ const own=world();own.inventory.push({name:'wooden_pickaxe',count:1})
+ own.bot.ownBlocks=new OwnBlocks(null)
+ for(const y of [62,63]){own.cells.set(new Vec3(10,y,10).toString(),'cobblestone');own.bot.ownBlocks.add(new Vec3(10,y,10),'cobblestone',null)}
+ for(const e of own.bot.ownBlocks.cells.values())e.at-=OWN_TTL_MS+60000
+ const r=burrowSite(own.bot);assert.equal(r.ok,true,r.reason);assert.equal(r.cells.length,4)
+ own.bot.ownBlocks=new OwnBlocks(null);assert.match(burrowSite(own.bot).reason,/cobblestone at 10,63,10 is not natural ground and not mine/,'unrecorded, a player\'s')
+})

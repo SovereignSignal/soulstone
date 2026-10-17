@@ -11,7 +11,7 @@ import {DoorAwareMovements} from './navigation.js'
 import {inProtectedSite} from './primitives.js'
 import {projectFootprints} from './site-survey.js'
 import {climbOut} from './burrow.js'
-import {refuseUnowned} from './natural.js'
+import {refuseUnowned,ownedNow} from './natural.js'
 import {projectDimension,sameDimension} from './dimension.js'
 import {roofed} from './observations.js'
 const {goals}=pathfinding
@@ -27,9 +27,14 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
  // base is the bot's own build: a few air cells of it are put back from inside with the door
  // shut, each with its design block, by placing only, before the strict inspection.
  const missing=[]
+ // Live, family world, 17 October 15:44Z: walled in the night before by its own hut beside the door,
+ // the bot was refused its own base at dusk by the hut's cobblestone, recorded 23 hours earlier. Its
+ // own blocks in the doorway and its approach, however old (ownedNow), are dug on the way in; a
+ // block the record does not hold under that name still refuses the base.
+ const mine=[]
  const inspect=(repairing=false)=>{
   check()
-  if(!leaving)return inspectRetreatShelter(bot,project,{occupants:true,...(repairing?{missing}:{})})
+  if(!leaving)return inspectRetreatShelter(bot,project,{occupants:true,...(repairing?{missing,own:mine}:{})})
   try{return inspectRetreatShelter(bot,project,{occupants:false})}catch(error){damage=error.message;return null}
  }
  const door=o.plus(layout.door),inside=door.minus(layout.out),name=build.wood.replace('_log','_door')
@@ -40,7 +45,11 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
  const open=async value=>{check();if(!valid())throw new Error('Retreat door missing or changed');if(halves().every(b=>b.getProperties().open===value))return;if(bot.entity.position.distanceTo(door.offset(.5,0,.5))>2.5)await walk(new goals.GoalLookAtBlock(door,bot.world,{reach:3}));check();await bot.unequip('hand');check();if(value&&leaving&&shelteredObservation(bot,project).passed){const threats=departureThreatObservation(bot,{base:project});if(threats.blocking.length)throw new Error('Departure blocked: a potential threat is on or near the door corridor; re-observe before leaving')}await bot.activateBlock(bot.blockAt(door));check();await settle(()=>valid()&&halves().every(b=>b.getProperties().open===value),'Retreat door state not confirmed')}
  const target=leaving?door.plus(layout.out.scaled(2)):inside
  if(leaving&&insideBase(bot,project)){const refusal=departureRefusal(bot,project);if(refusal)throw refusal}
+ const shaft=project.backExit?.cell
+ const viaShaft=!leaving&&shaft&&Number.isFinite(project.backExit.bottom)&&!insideBase(bot,project)&&bot.entity.position.y<o.y&&Math.hypot(bot.entity.position.x-(shaft.x+.5),bot.entity.position.z-(shaft.z+.5))<=BACK_EXIT_ENTRANCE_REACH
  inspect(true);const keep=missing.length?assertRepairable(bot,missing):new Map()
+ // Only the door path digs them: from inside, or by the back exit, the base is refused as before.
+ if(mine.length&&(viaShaft||insideBase(bot,project)))throw obstructed(bot,mine[0])
  // The climb and the cap use any other block first, so the dirt is still there for the roof.
  const spare=()=>scaffoldItems(bot).find(i=>carried(bot,i.name)>(keep.get(i.name)||0))
  // What may be spent without touching the repair's blocks (review of 16 October: one bag for both).
@@ -63,8 +72,7 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
  // (lab run 28, 3 October: one cell beside the column at y 57 the retreat took
  // the door path and the pathfinder could not walk to it). If the foot cannot
  // be reached, the door path below is tried as before.
- const shaft=project.backExit?.cell
- if(!leaving&&shaft&&Number.isFinite(project.backExit.bottom)&&!insideBase(bot,project)&&bot.entity.position.y<o.y&&Math.hypot(bot.entity.position.x-(shaft.x+.5),bot.entity.position.z-(shaft.z+.5))<=BACK_EXIT_ENTRANCE_REACH){
+ if(viaShaft){
   progress('Heading for the back exit to enter the base from below')
   const foot=new Vec3(shaft.x,project.backExit.bottom,shaft.z)
   // Underground the way to the foot may need a few blocks dug or pillared
@@ -114,6 +122,16 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
   const lighting=inspect()
   return {item:'shelter',count:1,receipt:'sheltered_door_closed',position:{x:bot.entity.position.x,y:bot.entity.position.y,z:bot.entity.position.z},door:{position:door,closed:true},lighting,...(capped?{capped:true}:{}),...(repaired.length?{repaired}:{})}
  }
+ if(mine.length)progress('Clearing my own blocks from the base door')
+ for(const c of mine.sort((a,b)=>b.y-a.y)){
+  check();const b=bot.blockAt(c)
+  if(AIR.has(b?.name))continue
+  if(!ownedNow(bot,b))throw obstructed(bot,c)
+  if(bot.entity.position.distanceTo(c.offset(.5,.5,.5))>4)await walk(new goals.GoalLookAtBlock(c,bot.world,{reach:4}))
+  check();if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(b,{requireHarvest:false,getFromChest:false})
+  check();await bot.dig(bot.blockAt(c));check()
+  if(!AIR.has(bot.blockAt(c)?.name))throw obstructed(bot,c)
+ }
  await open(true);await walk(new goals.GoalBlock(target.x,target.y,target.z));check()
  await settle(()=>bot.entity.onGround&&bot.entity.position.distanceTo(target.offset(.5,0,.5))<.85,'Retreat did not reach the interior')
  await open(false);await repair();const lighting=inspect()
@@ -123,6 +141,8 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
 // More missing than this is a rebuild, for the build skill, which restores ground too.
 export const BASE_REPAIR_LIMIT=4
 const AIR=new Set(['air','cave_air'])
+// inspectShelterSite's own refusal, word for word.
+const obstructed=(bot,c)=>new Error(`Shelter access obstructed by ${bot.blockAt(c)?.name||'unloaded'} at ${c.x},${c.y},${c.z}`)
 const carried=(bot,name)=>bot.inventory.items().filter(i=>i.name===name).reduce((n,i)=>n+i.count,0)
 // What putting the missing cells back takes, by design block. Short of it, the inspection's own
 // refusal and what the bag lacks, in words a child reading chat can act on.
@@ -136,7 +156,9 @@ export function assertRepairable(bot,missing){
 // `missing`, when given, collects design cells that read as air ({cell, block, found}) instead
 // of refusing, up to BASE_REPAIR_LIMIT; a foreign or unloaded block still refuses (as
 // inspectShelterSite's `support`). Without it the base is judged strictly, as before.
-export function inspectRetreatShelter(bot,project,{occupants=true,missing=null}={}){
+// `own`, when given, collects the doorway and approach cells holding the bot's own blocks of any
+// age, to be dug, instead of refusing.
+export function inspectRetreatShelter(bot,project,{occupants=true,missing=null,own=null}={}){
  if(!sameDimension(bot,project))throw new Error(`The base is in the ${projectDimension(project)}; go back through the portal to reach it`)
  const build=project.build,o=new Vec3(build.origin.x,build.origin.y,build.origin.z),layout=shelterLayout(build.design)
   for(const b of build.design){
@@ -149,7 +171,8 @@ export function inspectRetreatShelter(bot,project,{occupants=true,missing=null}=
   if(missing?.length>BASE_REPAIR_LIMIT)throw new Error(`Retreat shelter structure is missing or changed at ${missing[0].cell}: ${missing[0].found} (${missing.length} blocks gone; that is a rebuild)`)
   // Retreat needs the doorway and its two-cell centre approach; the
   // builder's wider construction clearance can overlap neighbouring builds.
-  inspectShelterSite(bot,o,shelterAccessLayout(layout),{shaft:project.backExit?.cell||null})
+  const dig=inspectShelterSite(bot,o,shelterAccessLayout(layout),{shaft:project.backExit?.cell||null,...(own?{own:b=>ownedNow(bot,b)}:{})})
+  if(own)own.push(...dig)
   const t=project.stations?.torch?.position;if(!t)throw new Error('Retreat shelter has no recorded light')
   const lighting=shelterLightBounds(bot,new Vec3(t.x,t.y,t.z),layout.inside.flatMap(p=>[o.plus(p),o.plus(p).offset(0,1,0)]))
   if(lighting.some(c=>c.lowerBound<8))throw new Error('Retreat shelter lighting cannot be established')

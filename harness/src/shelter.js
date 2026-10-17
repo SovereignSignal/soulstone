@@ -35,7 +35,11 @@ export const shelterAccessLayout=layout=>({...layout,approach:layout.approach.fi
 // `clear`, during a repair of the saved base: a predicate for blocks inside
 // the room or doorway that are foreign to it and may be dug (a pillar block a
 // climb left in the interior, 3 October). Without it they obstruct, as before.
-export function inspectShelterSite(bot,origin,layout,{repair=false,support=null,shaft=null,clear=null}={}) {
+// `own`, for the retreat: a predicate for blocks in the doorway and its approach
+// that are the bot's own, however old (natural.js ownedNow); they are returned to
+// be dug from outside instead of refusing the base. The room itself, and anything
+// else, still obstructs.
+export function inspectShelterSite(bot,origin,layout,{repair=false,support=null,shaft=null,clear=null,own=null}={}) {
  const remove=[]
  for(const rel of [...layout.inside,layout.door,...layout.approach]) {
   const p=origin.plus(rel),floor=bot.blockAt(p.offset(0,-1,0))
@@ -49,6 +53,7 @@ export function inspectShelterSite(bot,origin,layout,{repair=false,support=null,
    if(b.name==='air'||b.name==='torch'||b.name==='wall_torch'||b.name==='wall_torch'||rel===layout.door&&/_door$/.test(b.name)&&!b.name.startsWith('iron'))continue
    if(repair&&layout.approach.includes(rel)&&clearable.has(b.name))remove.push(b.position.clone())
    else if(repair&&clear&&!layout.approach.includes(rel)&&clear(b))remove.push(b.position.clone())
+   else if(own&&!layout.inside.includes(rel)&&own(b))remove.push(b.position.clone())
    else throw new Error(`Shelter access obstructed by ${b.name} at ${key(b.position)}`)
   }
  }
