@@ -4,7 +4,7 @@ import {accessSync,statSync,constants} from 'node:fs'
 import {tmpdir,homedir} from 'node:os'
 import {join,isAbsolute,delimiter,win32} from 'node:path'
 import {stopProcessTree} from './platform.js'
-export const subscriptionKinds = ['codex','claude']
+export const subscriptionKinds = ['codex','claude','muse']
 function executable(path) {
  try {accessSync(path,constants.X_OK);return statSync(path).isFile()}catch{return false}
 }
@@ -24,7 +24,8 @@ export function clientBinary(kind,{searchPath=process.env.PATH,canExecute=execut
   return found
  }
  const candidates = kind==='codex' ? ['/Applications/ChatGPT.app/Contents/Resources/codex','/Applications/Codex.app/Contents/Resources/codex',join(homedir(),'.local/bin/codex')]
- : [join(homedir(),'.local/bin/claude'),'/opt/homebrew/bin/claude']
+ : kind==='claude' ? [join(homedir(),'.local/bin/claude'),'/opt/homebrew/bin/claude']
+ : [join(homedir(),'.local/bin/muse'),'/opt/homebrew/bin/muse']
  candidates.push(`/opt/homebrew/bin/${kind}`,`/usr/local/bin/${kind}`)
  // Finder may omit shell PATH entries; standard install paths remain available.
  // Never search the current directory through empty or relative PATH entries.
@@ -36,7 +37,10 @@ export function clientBinary(kind,{searchPath=process.env.PATH,canExecute=execut
 export function subscriptionEnv(env=process.env) {
  // Never inherit API keys, provider overrides, current Codex task context or
  // third-party billing credentials. The official CLI owns its saved login.
- return Object.fromEntries(['HOME','USER','LOGNAME','PATH','TMPDIR','LANG','LC_ALL','SSL_CERT_FILE','USERPROFILE','APPDATA','LOCALAPPDATA','SystemRoot','SYSTEMROOT','WINDIR','TEMP','TMP','PATHEXT'].filter(k=>env[k]).map(k=>[k,env[k]]))
+ // XDG locations are paths, not credentials: Muse Code keeps its saved
+ // login and model catalog under them on Linux, so the child needs them to
+ // find the same login the interactive CLI uses. META_API_KEY stays out.
+ return Object.fromEntries(['HOME','USER','LOGNAME','PATH','TMPDIR','LANG','LC_ALL','SSL_CERT_FILE','XDG_CONFIG_HOME','XDG_DATA_HOME','USERPROFILE','APPDATA','LOCALAPPDATA','SystemRoot','SYSTEMROOT','WINDIR','TEMP','TMP','PATHEXT'].filter(k=>env[k]).map(k=>[k,env[k]]))
 }
 export const PLAN_TIMEOUT_MS=300000
 // The structured-output endpoint requires every object in a response schema to
@@ -73,8 +77,25 @@ export function runClient(binary,args,{cwd,input='',signal,timeout=120000}={}) {
   child.on('close',code=>{if(failed)stopProcessTree(child,{signal:'SIGKILL'});cleanup();if(failed)reject(new Error(signal?.aborted?'Cancelled':failed));else resolve({code,out,err})})
  })
 }
+export function museLoginPath({env=process.env,home=homedir()}={}) {
+ return join(env.XDG_CONFIG_HOME||join(home,'.config'),'muse','auth.json')
+}
+export function museExecArgs(model,{schemaPath,promptPath}={}) {
+ // One headless planning call: the empty preset carries no workspace tools,
+ // shell and writes are off as a second line, the prompt travels as a file
+ // (the capability brief outgrows comfortable argv), and the output schema
+ // shapes the final answer on stdout. No session log is persisted.
+ return ['exec','--provider','meta','--preset','empty','--model',model,'--output-schema',schemaPath,'--prompt-file',promptPath,'--no-session-log','--disable-shell','--disable-write','--disable-web-tools','--disable-reminders','--disable-request-user-input','--no-foreign-personal-context','--approval-mode','never','--max-model-steps','1']
+}
 export async function subscriptionStatus(kind) {
  try {
+  if(kind==='muse') {
+   // Muse Code has no status subcommand. A non-empty saved login plus an
+   // installed CLI is the preflight; a stale login fails the planning call
+   // itself, which reports it without any API fallback.
+   clientBinary(kind)
+   try {return {ready:statSync(museLoginPath()).size>2,message:'Sign in to Muse Code with muse login'}}catch{return {ready:false,message:'Sign in to Muse Code with muse login'}}
+  }
   const r=await runClient(clientBinary(kind),kind==='codex'?['login','status']:['auth','status'],{cwd:tmpdir(),timeout:10000})
   if(kind==='codex')return {ready:r.code===0&&/Logged in using ChatGPT/.test(r.out+r.err),message:'Sign in to Codex with ChatGPT'}
   const a=JSON.parse(r.out);return {ready:a.loggedIn===true&&a.authMethod==='claude.ai',message:'Sign in to Claude Code with your Claude subscription'}
@@ -90,6 +111,10 @@ export async function requestSubscriptionPlan(profile,messages,schema,signal) {
   if(profile.kind==='codex') {
    await writeFile(join(dir,'schema.json'),JSON.stringify(strictSchema(schema)),{mode:0o600})
    args=['exec','--ignore-user-config','--skip-git-repo-check','--ephemeral','--sandbox','read-only','--disable','shell_tool','--disable','apps','--disable','multi_agent','-c','web_search="disabled"','-c','project_doc_max_bytes=0','-c','features.skip_host_skill_discovery=true','-c','model_provider="openai"','-c','forced_login_method="chatgpt"','--model',profile.model,'--output-schema',join(dir,'schema.json'),'--output-last-message',join(dir,'result.json'),'--color','never','-']
+  } else if(profile.kind==='muse') {
+   await writeFile(join(dir,'schema.json'),JSON.stringify(strictSchema(schema)),{mode:0o600})
+   await writeFile(join(dir,'prompt.txt'),prompt,{mode:0o600})
+   args=museExecArgs(profile.model,{schemaPath:join(dir,'schema.json'),promptPath:join(dir,'prompt.txt')})
   } else {
    args=['--print','--safe-mode','--tools','','--strict-mcp-config','--mcp-config','{"mcpServers":{}}','--disable-slash-commands','--no-session-persistence','--output-format','json','--json-schema',JSON.stringify(schema),'--model',profile.model,'--permission-mode','dontAsk','--permission-prompts','none']
   }
@@ -100,6 +125,12 @@ export async function requestSubscriptionPlan(profile,messages,schema,signal) {
   const r=await runClient(clientBinary(profile.kind),args,{cwd:dir,input:prompt,signal,timeout:PLAN_TIMEOUT_MS})
   if(r.code!==0)throw new Error(`${profile.label} could not complete the request. Check CLI login, model access and subscription limits. No API fallback was attempted.`)
   if(profile.kind==='codex')return await readFile(join(dir,'result.json'),'utf8')
+  if(profile.kind==='muse') {
+   // With --output-schema the final answer on stdout is the JSON itself.
+   // Require it to parse here so a diagnostic line can never be executed
+   // downstream as a plan.
+   const out=r.out.trim();JSON.parse(out);return out
+  }
   const result=JSON.parse(r.out)
   if(result.is_error)throw new Error('Claude Code could not complete the request; check subscription limits')
   if(result.structured_output)return JSON.stringify(result.structured_output)

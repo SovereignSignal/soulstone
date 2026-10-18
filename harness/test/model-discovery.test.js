@@ -8,6 +8,7 @@ test('provider model lists retain real IDs and hide unavailable or malformed ent
  const choices=modelOptions([null,{model:'gpt-6-astra',displayName:'Astra',isDefault:true,inputModalities:['text']},{model:'hidden',hidden:true},{model:'image-only',inputModalities:['image']},{model:'bad model'},{model:'gpt-6-astra'}],'codex')
  assert.deepEqual(choices,[{id:'gpt-6-astra',label:'Astra',description:'',isDefault:true}])
  assert.equal(modelOptions([{value:'opus',displayName:'Opus'}],'claude')[0].id,'opus')
+ assert.deepEqual(modelOptions([{model_id:'muse-wonder-1.0',display_label:'muse-wonder-1.0',is_default:true,visibility:'visible'},{model_id:'muse-wonder-1.0-contributor',visibility:'hidden'}],'muse'),[{id:'muse-wonder-1.0',label:'muse-wonder-1.0',description:'',isDefault:true}])
  assert.throws(()=>modelOptions({},'codex'),/model list/)
 })
 test('Codex discovery initializes, paginates and never submits an inference turn',async()=>{
@@ -21,6 +22,19 @@ test('Claude discovery reads initialization metadata without a user prompt',asyn
 test('discovery failure and timeout never leak CLI stderr',async()=>{
  await assert.rejects(readCliMetadata(process.execPath,['-e','process.stderr.write("secret-token");process.exit(1)'],'codex'),e=>!e.message.includes('secret-token')&&/discovery failed/.test(e.message))
  await assert.rejects(readCliMetadata(process.execPath,['-e','setTimeout(()=>{},60000)'],'codex',{timeout:40}),/timed out/)
+})
+test('muse discovery reads the local model catalog and lists visible models only',async()=>{
+ const {mkdtempSync,writeFileSync}=await import('node:fs');const {tmpdir}=await import('node:os');const {join}=await import('node:path')
+ const dir=mkdtempSync(join(tmpdir(),'muse-catalog-'))
+ writeFileSync(join(dir,'meta.json'),JSON.stringify({rows:[{model_id:'muse-wonder-full-1.0',display_label:'muse-wonder-full-1.0',visibility:'visible'},{model_id:'muse-spark-1.3',display_label:'muse-spark-1.3',visibility:'visible'},{model_id:'muse-wonder-full-1.0-contributor',visibility:'hidden'}]}))
+ const signedIn=async()=>({ready:true,message:''})
+ const r=await discoverModels({kind:'muse'},{catalogDir:dir,status:signedIn})
+ assert.deepEqual(r.models.map(m=>m.id),['muse-wonder-full-1.0','muse-spark-1.3'])
+ assert.equal(r.source,'Muse subscription')
+ const empty=mkdtempSync(join(tmpdir(),'muse-catalog-empty-'))
+ const fallback=await discoverModels({kind:'muse'},{catalogDir:empty,status:signedIn})
+ await assert.rejects(discoverModels({kind:'muse'},{catalogDir:dir,status:async()=>({ready:false,message:'Sign in to Muse Code with muse login'})}),/muse login/)
+ assert.ok(fallback.models.some(m=>m.id==='muse-wonder-1.0'&&m.isDefault))
 })
 test('local provider discovery uses models metadata and rejects unsafe endpoints',async()=>{
  const paths=[],server=createServer((req,res)=>{paths.push(req.method+' '+req.url);res.setHeader('Content-Type','application/json');res.end(JSON.stringify({data:[{id:'local-test'}]}))});server.listen(0,'127.0.0.1');await once(server,'listening')

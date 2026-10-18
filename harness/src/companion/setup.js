@@ -33,7 +33,7 @@ export function validateSetup(value,{allowIncomplete=false}={}) {
   if (!['offline','microsoft'].includes(auth)) throw new Error('Choose a supported Minecraft login')
   if (!(allowIncomplete&&!username) && (auth==='offline' ? !/^[A-Za-z0-9_]{1,16}$/.test(username) : !username || username.length>254 || /[\s\x00-\x1f]/.test(username))) throw new Error('Enter a valid bot login')
   if (auth==='offline' && username && username.toLowerCase()===owner.toLowerCase()) throw new Error('The bot needs a different name from the player')
-  if (!['codex','claude'].includes(provider) || (!(allowIncomplete&&!model) && !/^[a-zA-Z0-9_.:/-]{1,160}$/.test(model))) throw new Error('Choose a subscription provider and exact model ID')
+  if (!['codex','claude','muse'].includes(provider) || (!(allowIncomplete&&!model) && !/^[a-zA-Z0-9_.:/-]{1,160}$/.test(model))) throw new Error('Choose a subscription provider and exact model ID')
   if(value.name!==undefined&&value.name!==null&&(typeof value.name!=='string'||value.name.trim().length>80||/[\x00-\x1f\x7f]/.test(value.name)))throw new Error('Use a world name of up to 80 characters')
   const world=value.id===undefined?{}:{id:text('id'),identity:worldIdentity(text('id'),value.identity)}
   return {...world,host,port,owner,username,auth,version,provider,model,...(minecraftAccountId?{minecraftAccountId}:{})}

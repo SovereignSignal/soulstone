@@ -24,8 +24,34 @@ test('subscription process reports failure without echoing secret stderr',async(
  assert.equal(result.code,2)
 })
 
+test('muse processes keep XDG locations but never inherit the Meta API key',()=>{
+ const env=subscriptionEnv({HOME:'/home/test',PATH:'/bin',XDG_CONFIG_HOME:'/home/test/cfg',XDG_DATA_HOME:'/home/test/data',META_API_KEY:'secret'})
+ assert.deepEqual(env,{HOME:'/home/test',PATH:'/bin',XDG_CONFIG_HOME:'/home/test/cfg',XDG_DATA_HOME:'/home/test/data'})
+})
+test('muse profiles need no API credentials and keep exact Muse model IDs',()=>{
+ for(const model of ['muse-wonder-1.0','muse-wonder-full-1.0','muse-spark-1.3']){
+  const p={id:'muse-sub',kind:'muse',label:'Muse subscription',model,url:'',maxTokens:4096}
+  assert.equal(validateProfile(p).model,model)
+  assert.equal(validateProfile(p).url,'')
+ }
+})
+test('muse login lives under the XDG config directory, defaulting to ~/.config',async()=>{
+ const {museLoginPath}=await import('../src/companion/subscriptions.js')
+ assert.equal(museLoginPath({env:{},home:'/home/test'}),'/home/test/.config/muse/auth.json')
+ assert.equal(museLoginPath({env:{XDG_CONFIG_HOME:'/cfg'},home:'/home/test'}),'/cfg/muse/auth.json')
+})
+test('muse planning runs headless with no tools, a prompt file and a strict output schema',async()=>{
+ const {museExecArgs}=await import('../src/companion/subscriptions.js')
+ const args=museExecArgs('muse-wonder-full-1.0',{schemaPath:'/tmp/x/schema.json',promptPath:'/tmp/x/prompt.txt'})
+ assert.equal(args[0],'exec')
+ for(const flag of ['--preset','--output-schema','--prompt-file','--model','--no-session-log','--disable-shell','--disable-write','--disable-web-tools','--disable-request-user-input','--max-model-steps'])assert.ok(args.includes(flag),flag)
+ assert.equal(args[args.indexOf('--preset')+1],'empty')
+ assert.equal(args[args.indexOf('--model')+1],'muse-wonder-full-1.0')
+ assert.equal(args[args.indexOf('--output-schema')+1],'/tmp/x/schema.json')
+ assert.equal(args[args.indexOf('--prompt-file')+1],'/tmp/x/prompt.txt')
+})
 test('subscription discovery supports standard package-manager installations without shell PATH',()=>{
- for(const kind of ['codex','claude']){
+ for(const kind of ['codex','claude','muse']){
   for(const binary of [`/opt/homebrew/bin/${kind}`,`/usr/local/bin/${kind}`]){
    assert.equal(clientBinary(kind,{searchPath:'',canExecute:path=>path===binary}),binary)
   }

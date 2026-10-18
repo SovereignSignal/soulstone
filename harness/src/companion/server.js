@@ -42,7 +42,7 @@ runner.inventoryResync=true
 if (runner.task?.kind !== 'follow' && ['running', 'paused'].includes(runner.task?.status)) runner.stop()
 const recorder = process.env.MC_RECORD_EPISODES === '0' ? null : new EpisodeRecorder(resolve('state/episodes'), message => console.error(message))
 const teammate = new Teammate(runner, new LocalPlanner({ model: process.env.MC_MODEL || 'minecraft-teammate', url: process.env.MC_MODEL_URL }), resolve('state/teammate.json'), recorder)
-const profiles = new ModelProfiles(resolve('state/models.json'), setup ? {id:'subscription-default',kind:setup.provider,label:setup.provider==='codex'?'Codex subscription':'Claude subscription',model:setup.model,url:'',maxTokens:4096} : {id:'local-default',kind:'local',label:'Local · LM Studio',model:teammate.planner.model,url:teammate.planner.url,maxTokens:4096})
+const profiles = new ModelProfiles(resolve('state/models.json'), setup ? {id:'subscription-default',kind:setup.provider,label:{codex:'Codex subscription',claude:'Claude subscription',muse:'Muse subscription'}[setup.provider]||'Claude subscription',model:setup.model,url:'',maxTokens:4096} : {id:'local-default',kind:'local',label:'Local · LM Studio',model:teammate.planner.model,url:teammate.planner.url,maxTokens:4096})
 teammate.planner.profiles = profiles
 // What the teammate says is said in the game too, and a line the owner addresses
 // to it in chat is a request like any typed into the companion.

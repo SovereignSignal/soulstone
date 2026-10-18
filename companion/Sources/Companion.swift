@@ -486,7 +486,7 @@ struct CompanionView: View {
     private var modelStatus: String {
         guard model.snapshot != nil else { return "Connect to the service to view the selected model." }
         let s=model.snapshot
-        let subscription = ["codex","claude"].contains(s?.providerKind ?? "")
+        let subscription = ["codex","claude","muse"].contains(s?.providerKind ?? "")
         let status = subscription ? (s?.modelReady == true ? "Subscription signed in" : "CLI sign-in needed") : s?.providerKind == "local" ? (s?.modelReady == true ? "Ready" : "Starting / offline") : (s?.modelReady == true ? "API key configured" : "API key needed")
         return [s?.modelLabel ?? "Local model", s?.model ?? "", status + " · local voice"].joined(separator:"\n")
     }

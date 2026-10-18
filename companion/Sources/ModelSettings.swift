@@ -3,7 +3,7 @@ import Security
 
 struct ModelProfile: Codable, Identifiable {
     var id: String; var kind: String; var label: String; var model: String; var url: String; var maxTokens: Int; var hasKey: Bool?
-    var subscription: Bool { ["codex","claude"].contains(kind) }
+    var subscription: Bool { ["codex","claude","muse"].contains(kind) }
     var keyAccount: String { id + "|" + kind + "|" + url }
     var body: [String:String] { ["id":id,"kind":kind,"label":label,"model":model,"url":url,"maxTokens":String(maxTokens)] }
     static var fresh: ModelProfile { .init(id:UUID().uuidString,kind:"codex",label:"Codex subscription",model:"",url:"",maxTokens:4096) }
@@ -74,13 +74,14 @@ struct ModelSettingsView:View {
                 TextField("Profile name",text:$profile.label)
                 Picker("Provider",selection:Binding(get:{profile.kind},set:{ kind in
                     profile.kind=kind;key=""
-                    if ["codex","claude"].contains(kind){profile.url="";return}
+                    if ["codex","claude","muse"].contains(kind){profile.url="";return}
                     if kind=="openai"{profile.url="https://api.openai.com/v1/responses"}
                     else if kind=="local"{profile.url="http://127.0.0.1:1234/v1/chat/completions"}
                     else {profile.url=""}
                 })) {
                     Text("Codex · ChatGPT subscription").tag("codex")
                     Text("Claude Code · Claude subscription").tag("claude")
+                    Text("Muse Code · Meta account").tag("muse")
                     Text("OpenAI · Responses API").tag("openai")
                     Text("OpenAI-compatible provider").tag("compatible")
                     Text("Local · LM Studio / compatible").tag("local")
@@ -97,7 +98,7 @@ struct ModelSettingsView:View {
             }
             if profile.subscription {
                 Text("Uses the installed official CLI and its saved subscription login. No API key or API fallback. Complex requests can use multiple planning calls from your subscription allowance; the CLI controls token usage. Conversation and observed game state are sent to the selected service. Tools are disabled; the Minecraft harness executes the plan. Saving makes no model call.").font(.caption).foregroundStyle(.secondary)
-                Text(profile.kind == "codex" ? "Login: codex login. Use ChatGPT sign-in." : "Login: claude auth login. Use your Claude subscription.").font(.caption)
+                Text(profile.kind == "codex" ? "Login: codex login. Use ChatGPT sign-in." : profile.kind == "muse" ? "Login: muse login. Use your Meta account." : "Login: claude auth login. Use your Claude subscription.").font(.caption)
             } else if profile.kind == "local" {
                 Text("Uses the model already loaded on this computer. Saving does not download or call a model.").font(.caption).foregroundStyle(.secondary)
             } else {

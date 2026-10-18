@@ -23,7 +23,7 @@ This source build uses the checkout and your installed Node runtime. Keep both w
 
 ## Connect your world and model
 
-1. Install and sign in to the **Codex CLI with ChatGPT**, or **Claude Code with a Claude subscription**. Select a model available to your account in SoulStone. The [setup guide](docs/SETUP.md#reasoning-provider) includes the login steps. Models use your selected provider's allowance; they are not included with SoulStone.
+1. Install and sign in to the **Codex CLI with ChatGPT**, **Claude Code with a Claude subscription**, or **Muse Code with a Meta account**. Select a model available to your account in SoulStone. The [setup guide](docs/SETUP.md#reasoning-provider) includes the login steps. Models use your selected provider's allowance; they are not included with SoulStone.
 2. In Minecraft Java, open a world and choose **Open to LAN → Start LAN World**. Keep the world open and note the displayed port.
 3. In SoulStone, choose **LAN on this Mac**, enter that port and your Java player name, and click **Check connection**. Leave Java version on `auto`. For another host or a dedicated server, follow [connections](companion/CONNECTIONS.md).
 4. Click **Link Minecraft account**, complete the Microsoft sign-in and verify the Java name shown. Playing beside the bot in one world requires two Minecraft identities. A solo bot can use your normal account when that identity is not already playing there.

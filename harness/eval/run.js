@@ -20,7 +20,7 @@ if(args['profiles-file']||args.profile){
   profile=validateProfile({id:'eval-local',kind:'local',label:'Explicit evaluation endpoint',url:args.endpoint,model:args.model,maxTokens:Number(args['max-tokens'])})
 }
 if(!args['dry-run']&&!profile)throw new Error('Select an explicit profile or local endpoint, or use --dry-run')
-if(profile&&!['local','codex','claude'].includes(profile.kind))throw new Error('Cloud API evaluation is disabled; this runner does not load API keys')
+if(profile&&!['local','codex','claude','muse'].includes(profile.kind))throw new Error('Cloud API evaluation is disabled; this runner does not load API keys')
 if(!args['dry-run']&&profile?.kind!=='local'&&!args['allow-subscription'])throw new Error('Subscription evaluation requires --allow-subscription and consumes subscription usage')
 const selected=cases.filter(c=>!args.case||args.case.includes(c.id))
 if(args.case?.some(id=>!cases.some(c=>c.id===id)))throw new Error('Unknown --case ID')

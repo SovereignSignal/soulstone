@@ -1,7 +1,7 @@
 import {spawn} from 'node:child_process'
 import {stopProcessTree} from './platform.js'
-import {mkdtemp,rm} from 'node:fs/promises'
-import {tmpdir} from 'node:os'
+import {mkdtemp,rm,readdir,readFile} from 'node:fs/promises'
+import {tmpdir,homedir} from 'node:os'
 import {join} from 'node:path'
 import {clientBinary,subscriptionEnv,subscriptionStatus} from './subscriptions.js'
 import {validateProfile} from './providers.js'
@@ -49,17 +49,41 @@ export function modelOptions(rows,kind) {
  const seen=new Set(),result=[]
  for(const row of rows.slice(0,500)){
   if(!row||typeof row!=='object')continue
-  const id=kind==='codex'?row.model:kind==='claude'?row.value:row.id
-  if(typeof id!=='string'||!/^[a-zA-Z0-9_.:/-]{1,160}$/.test(id)||row.hidden||seen.has(id))continue
+  const id=kind==='codex'?row.model:kind==='claude'?row.value:kind==='muse'?row.model_id:row.id
+  if(typeof id!=='string'||!/^[a-zA-Z0-9_.:/-]{1,160}$/.test(id)||row.hidden||row.visibility==='hidden'||seen.has(id))continue
   if(kind==='codex'&&Array.isArray(row.inputModalities)&&!row.inputModalities.includes('text'))continue
-  seen.add(id);result.push({id,label:String(row.displayName||row.name||id).slice(0,160),description:String(row.description||'').slice(0,400),isDefault:row.isDefault===true})
+  seen.add(id);result.push({id,label:String(row.displayName||row.display_label||row.name||id).slice(0,160),description:String(row.description||'').slice(0,400),isDefault:row.isDefault===true||row.is_default===true})
  }
  if(!result.length)throw new Error('No usable models were returned. Check provider access and refresh.')
  return result
 }
 
-export async function discoverModels(value) {
+// Muse Code caches the account's model catalog locally after sign-in. That
+// cache is metadata only and needs no inference turn to read. Before the
+// first sign-in refresh there may be no cache yet; the Muse models known at
+// this build are the fallback so setup can still offer a choice.
+export const museFallbackModels = [
+ {model_id:'muse-wonder-1.0',display_label:'muse-wonder-1.0',is_default:true,visibility:'visible'},
+ {model_id:'muse-wonder-full-1.0',display_label:'muse-wonder-full-1.0',visibility:'visible'},
+ {model_id:'muse-spark-1.3',display_label:'muse-spark-1.3',visibility:'visible'},
+]
+export function museCatalogDir({env=process.env,home=homedir()}={}) {
+ return join(env.XDG_DATA_HOME||join(home,'.local','share'),'muse','model-catalog')
+}
+export async function museCatalogRows(dir=museCatalogDir()) {
+ const rows=[]
+ for(const name of (await readdir(dir).catch(()=>[])).filter(n=>n.endsWith('.json')).slice(0,20)){
+  try {const v=JSON.parse(await readFile(join(dir,name),'utf8'));if(Array.isArray(v.rows))rows.push(...v.rows)}catch{}
+ }
+ return rows
+}
+export async function discoverModels(value,{catalogDir,status=subscriptionStatus}={}) {
  const {kind}=value||{}
+ if(kind==='muse'){
+  const s=await status(kind);if(!s.ready)throw new Error(s.message)
+  const rows=await museCatalogRows(catalogDir)
+  return {models:modelOptions(rows.length?rows:museFallbackModels,kind),source:'Muse subscription'}
+ }
  if(['codex','claude'].includes(kind)){
   const status=await subscriptionStatus(kind);if(!status.ready)throw new Error(status.message)
   const cwd=await mkdtemp(join(tmpdir(),'soulstone-models-'))

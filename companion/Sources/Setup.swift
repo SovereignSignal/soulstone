@@ -122,6 +122,7 @@ struct SetupView: View {
                                 Picker("Thinking provider",selection:$setup.provider) {
                                     Text("Codex subscription").tag("codex")
                                     Text("Claude subscription").tag("claude")
+                                    Text("Muse subscription").tag("muse")
                                 }.onChange(of:setup.provider) { _, _ in setup.model = "" }
                             }.textFieldStyle(.roundedBorder)
                             ProviderModelPicker(kind:setup.provider,endpoint:"",selection:$setup.model,valid:$modelValid) {

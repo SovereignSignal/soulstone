@@ -18,6 +18,7 @@ test('unfinished connections save without an account but remain invalid for runt
 test('setup rejects URL injection, invalid ports, same-player login and invalid providers',()=>{
  for(const change of [{host:'https://example.com'},{host:'host\nMC_PASSWORD=secret'},{port:0},{port:65536},{port:1.5},{username:'Player'},{owner:'bad name'},{version:'../state'},{auth:'unknown'},{provider:'unknown'},{model:'bad model'}])assert.throws(()=>validateSetup({...base,...change}))
  assert.equal(validateSetup({...base,host:' ::1 '}).host,'::1')
+ assert.equal(validateSetup({...base,provider:'muse',model:'muse-wonder-full-1.0'}).provider,'muse')
 })
 test('Microsoft login accepts account identifier without weakening offline names',()=>{
  const value={...base,auth:'microsoft',username:'bot@example.com'}

@@ -5,7 +5,7 @@ export function validateCommand(command,value) {
  if(!commands.has(command))throw new Error('Unknown app action')
  if(value!==undefined&&JSON.stringify(value).length>10000)throw new Error('App request too large')
  if(command==='message'&&(typeof value!=='string'||!value.trim()||value.length>2000))throw new Error('Say a short request first.')
- if(command==='models'&&!['codex','claude'].includes(value))throw new Error('Choose a thinking provider.')
+ if(command==='models'&&!['codex','claude','muse'].includes(value))throw new Error('Choose a thinking provider.')
  if(command==='mute'&&typeof value!=='boolean')throw new Error('Invalid sound setting')
  return value
 }

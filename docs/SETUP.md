@@ -36,7 +36,7 @@ This build records the checkout and Node locations. Keep them in place and launc
 
 ## Reasoning provider
 
-Choose one provider. You do not need to set up both. SoulStone's subscription profiles require subscription sign-in and do not silently fall back to a billed API account. Provider availability and your plan determine which models can be selected.
+Choose one provider. You do not need to set up more than one. SoulStone's subscription profiles require subscription sign-in and do not silently fall back to a billed API account. Provider availability and your plan determine which models can be selected.
 
 ### Codex with ChatGPT
 
@@ -59,6 +59,16 @@ claude auth status
 ```
 
 In SoulStone, choose **Claude subscription** and refresh the model list. Use a Claude subscription login for this profile. API/local profiles can be added later through **Models**.
+
+### Muse Code
+
+Install Muse Code, then sign in with your Meta account:
+
+```sh
+muse login
+```
+
+In SoulStone, choose **Muse subscription** and refresh the model list. SoulStone reads the model catalog Muse Code caches after sign-in and offers its Muse models (for example the Muse Wonder and Muse Spark families) without an API key or API fallback. API/local profiles can be added later through **Models**.
 
 ### When the app cannot find an installed CLI
 
