@@ -125,8 +125,11 @@ export function movementProfile(bot, { dig, protectedSites = [], wade = false })
     movement.exclusionAreasBreak.push(block => {
       if (!block?.position) return 100
       if (LIQUID.has(block.name) || GRAVITY.has(block.name) || protectedBlock(block.name)) return 100
-      // Only natural ground: never tunnel through something a player built.
-      if (block.boundingBox === 'block' && !breakable(bot, block)) return 100
+      // Only natural ground and the bot's own blocks of any age: never tunnel
+      // through something a player built. The any-age half is the bore-plug
+      // rule (mayDig): rehearsal R10's goto to the stand cell refused its own
+      // slit-close cobblestone once the two-hour record lapsed.
+      if (block.boundingBox === 'block' && !mayDig(bot, block)) return 100
       if (inProtectedSite(block.position, protectedSites)) return 100
       const above = bot.blockAt(block.position.offset(0, 1, 0))
       if (above && (LIQUID.has(above.name) || GRAVITY.has(above.name))) return 100
@@ -350,7 +353,7 @@ function exactRefusal(bot, cell, dig) {
     return `Nothing to stand on at ${key(cell)}: ${floor.name} below it. Place a block at ${key(cell.offset(0, -1, 0))} first, or choose a cell with a floor.`
   for (const q of [cell, cell.offset(0, 1, 0)]) {
     const b = bot.blockAt(q)
-    if (b && b.boundingBox === 'block' && !/_(door|fence_gate|trapdoor)$/.test(b.name) && !(dig ? breakable(bot, b) : breakableWhileTravelling(b, bot)))
+    if (b && b.boundingBox === 'block' && !/_(door|fence_gate|trapdoor)$/.test(b.name) && !(dig ? mayDig(bot, b) : breakableWhileTravelling(b, bot)))
       return `Cannot stand at ${key(cell)}: ${b.name} fills ${key(q)}${dig ? '' : ' and dig is false'}. Choose an open cell${dig ? '' : ', or goto with dig:true'}.`
   }
   return null

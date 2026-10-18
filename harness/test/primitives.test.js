@@ -828,3 +828,39 @@ test('a tunnel stops at a column with nothing under it instead of stepping into 
   assert.match(r.reason || '', /no floor under .* open space/)
   assert.ok(bot.entity.position.x < s.x + 3, `never stood over the hole: x ${bot.entity.position.x}`)
 })
+
+// Rehearsal R10, 17 October 08:21Z: goto exact with dig to the blaze-stand
+// cell -36,60,-9 refused in 100 ms ("runs into cobblestone 1 blocks ahead").
+// The cell held the bot's own cobblestone, sealed there by its own slit
+// close, but the digging walk judged it with breakable, whose own-block
+// record lapses after two hours.
+test('a digging goto may clear its own cobblestone of any age, and no one else\'s', async () => {
+  const { movementProfile } = await import('../src/primitives.js')
+  const { OwnBlocks, OWN_TTL_MS } = await import('../src/natural.js')
+  const cobble = (p) => ({ name: 'cobblestone', boundingBox: 'block', position: p, diggable: true, harvestTools: {} })
+  const bot = fakeBot({fills:[[1,64,0,cobble],[2,64,0,cobble]]})
+  bot.ownBlocks = new OwnBlocks(null)
+  bot.ownBlocks.add(new Vec3(1,64,0), 'cobblestone', null)
+  for (const e of bot.ownBlocks.cells.values()) e.at -= OWN_TTL_MS + 60000
+  const movement = movementProfile(bot, { dig: true })
+  const cost = (p) => movement.exclusionAreasBreak.reduce((n, f) => n + f(bot.blockAt(p)), 0)
+  assert.equal(cost(new Vec3(1,64,0)), 0, 'its own plug, older than the TTL, may be dug on an explicit digging goto')
+  assert.ok(cost(new Vec3(2,64,0)) >= 100, 'the same cobblestone unrecorded still refuses')
+})
+
+// Rehearsal R11, 18 October: with the digging walk fixed, goto exact to the
+// stand cell still refused up front ("cobblestone fills -36,60,-9"), because
+// the admission check judged the target with the same lapsed TTL record.
+test('an exact digging goto admits a target filled with its own cobblestone of any age', async () => {
+  const { OwnBlocks, OWN_TTL_MS } = await import('../src/natural.js')
+  const cobble = (p) => ({ name: 'cobblestone', boundingBox: 'block', position: p, diggable: true, harvestTools: {} })
+  const bot = fakeBot({fills:[[1,63,0,stone],[1,64,0,cobble]]})
+  bot.ownBlocks = new OwnBlocks(null)
+  bot.ownBlocks.add(new Vec3(1,64,0), 'cobblestone', null)
+  for (const e of bot.ownBlocks.cells.values()) e.at -= OWN_TTL_MS + 60000
+  const result = await gotoPosition(bot, {kind:'goto', goal:{x:1,y:64,z:0,dig:true,exact:true}}, deps())
+  assert.equal(result.receipt, 'arrived')
+  const stranger = fakeBot({fills:[[1,63,0,stone],[1,64,0,cobble]]})
+  stranger.ownBlocks = new OwnBlocks(null)
+  await assert.rejects(() => gotoPosition(stranger, {kind:'goto', goal:{x:1,y:64,z:0,dig:true,exact:true}}, deps()), /Cannot stand at/)
+})
