@@ -10,7 +10,7 @@ import {centreOn,DoorAwareMovements} from './navigation.js'
 import {SHOOTERS_ONLY,FIRE_BLOCKS} from './survival.js'
 import {hop} from './portal-guard.js'
 import {inNether} from './dimension.js'
-import {claimPlaced,breakable,ownedNow} from './natural.js'
+import {claimPlaced,claimWall,breakable,ownedNow} from './natural.js'
 import {plainFirst,holdToPlace} from './placement.js'
 import {weaponFor,portStrike} from './combat.js'
 import pathfinding from 'mineflayer-pathfinder'
@@ -189,6 +189,7 @@ async function placeCells(bot,placements,{check,progress,feet,materials=()=>hutM
   const {target,ref}=queue[n],last=n>=first
   check();assertNoHostileOccupants(bot,[feet,feet.offset(0,1,0)])
   if(solid(bot,bot.blockAt(target))){placed++;continue}
+  let used=null
   const occupant=occupying(bot,target)
   if(occupant&&!last){queue.push(queue[n]);continue}
   if(occupant){occupied.push({cell:key(target),name:occupant.name||occupant.type||'entity'});progress(`${key(target)} is occupied by ${occupant.name||'an entity'}; leaving it`);continue}
@@ -207,13 +208,14 @@ async function placeCells(bot,placements,{check,progress,feet,materials=()=>hutM
   for(let attempt=0;attempt<2&&!solid(bot,bot.blockAt(target));attempt++){
    const material=materials()[0]
    if(!material)break
+   used=material.name
    try{await holdToPlace(bot,material.name,check);await bot.placeBlock(reference,target.minus(at))}catch(error){check();progress(`Placement at ${key(target)} unconfirmed: ${String(error.message).slice(0,60)}`)}
    await settle(()=>solid(bot,bot.blockAt(target)),{check})
    // Lab run 147, 15 October: the alarm cancelled a crossing before its arrival hop, and
    // until the bot jumps the server ignores its placements. One hop, then the retry.
    if(!hopped&&inNether(bot)&&!solid(bot,bot.blockAt(target))){hopped=true;await hop(bot,{check});check()}
   }
-  if(solid(bot,bot.blockAt(target))){placed++;claimPlaced(bot,target)}
+  if(solid(bot,bot.blockAt(target))){placed++;claimWall(bot,target,used,false)}
  }
  return placed
 }

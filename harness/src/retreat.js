@@ -39,8 +39,30 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
   // Review of 403c76e, 17 October: leaving never dug them, so released by day the bot walked into its own hut wall.
   // Leaving collects them too, and a solid block in the doorway or its approach that is neither its own nor
   // ground the walk breaks refuses here, before the door opens, rather than as a walk into it.
-  try{return inspectRetreatShelter(bot,project,{occupants:false,...(repairing?{own:mine}:{})})}
+  try{
+   // Live, play world, 18 October 17:40Z: one missing roof block threw in the
+   // design loop before the own collection ran, so leaving never dug its
+   // interior hut wall and the walk out had no path. Leaving collects the
+   // gaps as damage instead, so its own blocks are still collected.
+   const gaps=[]
+   const result=inspectRetreatShelter(bot,project,{occupants:false,...(repairing?{own:mine,missing:gaps}:{})})
+   if(gaps.length)damage=`Retreat shelter structure is missing or changed at ${gaps[0].cell}: ${gaps[0].found}`
+   return result
+  }
   catch(error){const b=error.cell&&bot.blockAt(error.cell);if(b?.boundingBox==='block'&&!breakableWhileTravelling(b,bot))throw error;damage=error.message;return null}
+ }
+ const interior=new Set(layout.inside.flatMap(p=>[o.plus(p),o.plus(p).offset(0,1,0)]).map(c=>c.toString()))
+ const digOwn=async cells=>{
+  for(const c of [...cells].sort((a,b)=>b.y-a.y)){
+   check();const b=bot.blockAt(c)
+   if(AIR.has(b?.name))continue
+   if(!ownedNow(bot,b))throw obstructed(bot,c)
+   if(bot.entity.position.distanceTo(c.offset(.5,.5,.5))>4)await walk(new goals.GoalLookAtBlock(c,bot.world,{reach:4}))
+   check();if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(b,{requireHarvest:false,getFromChest:false})
+   check();const fresh=bot.blockAt(c);if(AIR.has(fresh?.name))continue;if(!ownedNow(bot,fresh))throw obstructed(bot,c)
+   await bot.dig(fresh);check()
+   if(!AIR.has(bot.blockAt(c)?.name))throw obstructed(bot,c)
+  }
  }
  const door=o.plus(layout.door),inside=door.minus(layout.out),name=build.wood.replace('_log','_door')
  const halves=()=>[bot.blockAt(door),bot.blockAt(door.offset(0,1,0))]
@@ -53,8 +75,12 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
  const shaft=project.backExit?.cell
  const viaShaft=!leaving&&shaft&&Number.isFinite(project.backExit.bottom)&&!insideBase(bot,project)&&bot.entity.position.y<o.y&&Math.hypot(bot.entity.position.x-(shaft.x+.5),bot.entity.position.z-(shaft.z+.5))<=BACK_EXIT_ENTRANCE_REACH
  inspect(true);const keep=missing.length?assertRepairable(bot,missing):new Map()
- // Only the door path digs them: from inside, or by the back exit, the base is refused as before.
- if(mine.length&&(viaShaft||!leaving&&insideBase(bot,project)))throw obstructed(bot,mine[0])
+ const insideMine=mine.filter(c=>interior.has(c.toString())),outsideMine=mine.filter(c=>!interior.has(c.toString()))
+ // Entering by the back exit still refuses them: the climb up the shaft has
+ // its own digging rules. Already inside, blocks outside the shut door keep
+ // the old refusal too: they are dug on the way in or out, never through it.
+ if(mine.length&&viaShaft)throw obstructed(bot,mine[0])
+ if(!leaving&&insideBase(bot,project)&&outsideMine.length)throw obstructed(bot,outsideMine[0])
  // The climb and the cap use any other block first, so the dirt is still there for the roof.
  const spare=()=>scaffoldItems(bot).find(i=>carried(bot,i.name)>(keep.get(i.name)||0))
  // What may be spent without touching the repair's blocks (review of 16 October: one bag for both).
@@ -111,6 +137,7 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
    if(keep.size&&have<levels)throw new Error(`Climbing the back exit takes ${levels} blocks and I have ${have} besides the ${[...keep].map(([name,n])=>`${n} ${name.replaceAll('_',' ')}`).join(' and ')} the base needs`)
    progress('Climbing the back exit to the base floor');await climbOut(bot,new Vec3(shaft.x,shaft.y,shaft.z),{check,stage:()=>{},progress},{material:spare});check()
   }
+  if(insideMine.length){progress('Clearing my own blocks from inside the base');await digOwn(insideMine)}
   await walk(new goals.GoalBlock(target.x,target.y,target.z));check()
   await settle(()=>bot.entity.onGround&&bot.entity.position.distanceTo(target.offset(.5,0,.5))<.85,'Retreat did not reach the interior')
   await open(false)
@@ -128,22 +155,46 @@ export async function retreatToShelter(bot,task,{check,walk,settle,progress}){
   return {item:'shelter',count:1,receipt:'sheltered_door_closed',position:{x:bot.entity.position.x,y:bot.entity.position.y,z:bot.entity.position.z},door:{position:door,closed:true},lighting,...(capped?{capped:true}:{}),...(repaired.length?{repaired}:{})}
  }
  if(mine.length)progress('Clearing my own blocks from the base door')
- // Leaving, they are dug from inside through the open doorway.
- if(leaving&&mine.length)await open(true)
- for(const c of mine.sort((a,b)=>b.y-a.y)){
-  check();const b=bot.blockAt(c)
-  if(AIR.has(b?.name))continue
-  if(!ownedNow(bot,b))throw obstructed(bot,c)
-  if(bot.entity.position.distanceTo(c.offset(.5,.5,.5))>4)await walk(new goals.GoalLookAtBlock(c,bot.world,{reach:4}))
-  check();if(bot.tool?.equipForBlock)await bot.tool.equipForBlock(b,{requireHarvest:false,getFromChest:false})
-  check();await bot.dig(bot.blockAt(c));check()
-  if(!AIR.has(bot.blockAt(c)?.name))throw obstructed(bot,c)
+ let capped=false
+ const mouth=[target,target.offset(0,1,0)],mouthMine=leaving?[]:insideMine.filter(c=>mouth.some(m=>m.equals(c))),deepMine=leaving?insideMine:insideMine.filter(c=>!mouthMine.includes(c))
+ if(leaving){
+  // Interior blocks first, with the door still shut; then open it and clear
+  // the doorway on the way out, as before.
+  await digOwn(insideMine)
+  if(outsideMine.length)await open(true)
+  await digOwn(outsideMine)
+ }else{
+  await digOwn(outsideMine)
  }
- await open(true);await walk(new goals.GoalBlock(target.x,target.y,target.z));check()
+ await open(true)
+ if(mouthMine.length){
+  // The mouth column itself is filled. It is the one-wide door's only
+  // orthogonal interior neighbour: every other column sits diagonal past
+  // the sealed corner, so there is no entering around it. Dig it from the
+  // doorway through the open door, then step in. A failed dig shuts the
+  // door again before the refusal travels.
+  try{await digOwn(mouthMine)}catch(error){await open(false).catch(()=>{});throw error}
+ }
+ await walk(new goals.GoalBlock(target.x,target.y,target.z));check()
  await settle(()=>bot.entity.onGround&&bot.entity.position.distanceTo(target.offset(.5,0,.5))<.85,'Retreat did not reach the interior')
- await open(false);await repair();const lighting=inspect()
+ await open(false)
+ // The deeper interior blocks are dug only once in: from outside the closed door is in the way.
+ if(!leaving&&deepMine.length){
+  progress('Clearing my own blocks from inside the base');await digOwn(deepMine)
+ }
+ // Digging the shaft's floor-level cell reopens the back exit; cap it as the
+ // inside branch does, so the base reads whole. Best effort only: the bot is
+ // already in behind a shut door, and the strict inspection below accepts an
+ // open shaft, so a cap with no spare block never fails this retreat.
+ if(!leaving&&shaft&&insideMine.some(c=>c.x===shaft.x&&c.y===shaft.y&&c.z===shaft.z)){
+  const floor=new Vec3(shaft.x,shaft.y-1,shaft.z)
+  if(solidCube(bot,bot.blockAt(floor))){capped=true;delete project.backExit.bottom}
+  else if(await fillCell(bot,floor,{check,progress,item:spare()??null})){capped=true;delete project.backExit.bottom}
+  else progress('The back exit is open in the floor; I have nothing to cap it with')
+ }
+ await repair();const lighting=inspect()
  if(!bot.entity.onGround||bot.entity.position.distanceTo(target.offset(.5,0,.5))>=.85)throw new Error('Door closure moved the bot away from the verified arrival point')
- return {item:'shelter',count:1,receipt:leaving?'left_base_door_closed':'sheltered_door_closed',position:{x:bot.entity.position.x,y:bot.entity.position.y,z:bot.entity.position.z},door:{position:door,closed:true},lighting,...(damage?{damage}:{}),...(repaired.length?{repaired}:{})}
+ return {item:'shelter',count:1,receipt:leaving?'left_base_door_closed':'sheltered_door_closed',position:{x:bot.entity.position.x,y:bot.entity.position.y,z:bot.entity.position.z},door:{position:door,closed:true},lighting,...(capped?{capped:true}:{}),...(damage?{damage}:{}),...(repaired.length?{repaired}:{})}
 }
 // More missing than this is a rebuild, for the build skill, which restores ground too.
 export const BASE_REPAIR_LIMIT=4
@@ -181,7 +232,7 @@ export function inspectRetreatShelter(bot,project,{occupants=true,missing=null,o
   const dig=inspectShelterSite(bot,o,shelterAccessLayout(layout),{shaft:project.backExit?.cell||null,...(own?{own:b=>ownedNow(bot,b)}:{})})
   if(own)own.push(...dig)
   const t=project.stations?.torch?.position;if(!t)throw new Error('Retreat shelter has no recorded light')
-  const lighting=shelterLightBounds(bot,new Vec3(t.x,t.y,t.z),layout.inside.flatMap(p=>[o.plus(p),o.plus(p).offset(0,1,0)]))
+  const lighting=shelterLightBounds(bot,new Vec3(t.x,t.y,t.z),layout.inside.flatMap(p=>[o.plus(p),o.plus(p).offset(0,1,0)]),{clear:new Set(dig.map(c=>c.toString()))})
   if(lighting.some(c=>c.lowerBound<8))throw new Error('Retreat shelter lighting cannot be established')
   if(occupants)assertNoHostileOccupants(bot,[...layout.inside,layout.door].flatMap(p=>Array.from({length:layout.roof},(_,y)=>o.plus(p).offset(0,y,0))))
   return lighting

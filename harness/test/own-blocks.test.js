@@ -91,3 +91,20 @@ test('a placement that lands late is claimed by the skill that saw it land, and 
  const realNow=Date.now;Date.now=()=>realNow()+PENDING_MS+1
  try{assert.equal(claimPlaced(bot,new Vec3(6,70,3)),false,'too long after the placement gave up')}finally{Date.now=realNow}
 })
+
+// Live, play world, 18 October: a hut column inside the bot's own base stood
+// with no own record at all (the pending claim never landed through the
+// bridge), and the retreat refused that column as a player's forever. The
+// placing skill's own evidence is stronger than the pending window: it saw
+// the cell non-solid, placed its material, and sees that block standing.
+import {claimWall} from '../src/natural.js'
+test('a wall the placing skill watched land is claimed from its own evidence, and nothing wider is',()=>{
+ const own=new OwnBlocks(null),world=new Map([['5,70,5','cobblestone'],['6,70,6','dirt']])
+ const bot={ownBlocks:own,game:{dimension:'minecraft:overworld'},entity:{position:new Vec3(0.5,70,0.5)},
+  blockAt:p=>({name:world.get(`${p.x},${p.y},${p.z}`)??'air',position:p.clone(),boundingBox:world.has(`${p.x},${p.y},${p.z}`)?'block':'empty'})}
+ assert.equal(claimWall(bot,new Vec3(5,70,5),'cobblestone',false),true,'empty before, its material standing: claimed with no pending entry')
+ assert.equal(own.entry(new Vec3(5,70,5),'overworld')?.name,'cobblestone')
+ assert.equal(claimWall(bot,new Vec3(6,70,6),'cobblestone',false),false,'a different block stands there: not claimed')
+ assert.equal(claimWall(bot,new Vec3(5,70,5),'cobblestone',true),false,'solid before the placement: not claimed')
+ assert.equal(own.entry(new Vec3(6,70,6),'overworld'),null)
+})

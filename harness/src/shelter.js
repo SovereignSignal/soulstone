@@ -35,10 +35,13 @@ export const shelterAccessLayout=layout=>({...layout,approach:layout.approach.fi
 // `clear`, during a repair of the saved base: a predicate for blocks inside
 // the room or doorway that are foreign to it and may be dug (a pillar block a
 // climb left in the interior, 3 October). Without it they obstruct, as before.
-// `own`, for the retreat: a predicate for blocks in the doorway and its approach
-// that are the bot's own, however old (natural.js ownedNow); they are returned to
-// be dug from outside instead of refusing the base. The room itself, and anything
-// else, still obstructs.
+// `own`, for the retreat: a predicate for blocks in the doorway, its approach
+// and the interior that are the bot's own, however old (natural.js ownedNow);
+// they are returned to be dug instead of refusing the base. The interior is
+// air by design, so a recorded own block there is the bot's own hut wall: live,
+// 18 October, the bot hutted while standing in its base and filled an interior
+// column (the back-exit shaft cell), which then refused its own base for good.
+// Anything the record does not hold under that name still obstructs.
 export function inspectShelterSite(bot,origin,layout,{repair=false,support=null,shaft=null,clear=null,own=null}={}) {
  const remove=[]
  for(const rel of [...layout.inside,layout.door,...layout.approach]) {
@@ -53,7 +56,7 @@ export function inspectShelterSite(bot,origin,layout,{repair=false,support=null,
    if(b.name==='air'||b.name==='torch'||b.name==='wall_torch'||b.name==='wall_torch'||rel===layout.door&&/_door$/.test(b.name)&&!b.name.startsWith('iron'))continue
    if(repair&&layout.approach.includes(rel)&&clearable.has(b.name))remove.push(b.position.clone())
    else if(repair&&clear&&!layout.approach.includes(rel)&&clear(b))remove.push(b.position.clone())
-   else if(own&&!layout.inside.includes(rel)&&own(b))remove.push(b.position.clone())
+   else if(own&&own(b))remove.push(b.position.clone())
    else throw Object.assign(new Error(`Shelter access obstructed by ${b.name} at ${key(b.position)}`),{cell:b.position.clone()})
   }
  }

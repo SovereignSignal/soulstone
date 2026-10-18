@@ -34,7 +34,10 @@ export function installLightReader(bot) {
 // unknown/non-air cells as opaque, ignore other sources and skylight, and never
 // label this calculation as measured light. The lab checks it against a fresh
 // independent server chunk snapshot after construction.
-export function shelterLightBounds(bot,source,cells) {
+// `clear`: cells already collected to be dug (the retreat's own hut blocks in
+// the interior) read as the air they are about to become; the strict
+// inspection after the dig re-verifies the real light.
+export function shelterLightBounds(bot,source,cells,{clear=new Set()}={}) {
  const allowed=new Map(cells.map(p=>[p.toString(),p])),levels=new Map()
  const emission=bot.registry.blocksByName.torch?.emitLight
  if(!['torch','wall_torch'].includes(bot.blockAt(source)?.name)||!Number.isInteger(emission))throw new Error('Torch light source not confirmed')
@@ -43,7 +46,7 @@ export function shelterLightBounds(bot,source,cells) {
   const p=queue[i],next=levels.get(p.toString())-1;if(next<=0)continue
   for(const [x,y,z] of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]){
    const q=p.offset(x,y,z),key=q.toString()
-   if(!allowed.has(key)||levels.has(key)||!['air','cave_air','torch','wall_torch'].includes(bot.blockAt(q)?.name))continue
+   if(!allowed.has(key)||levels.has(key)||!(['air','cave_air','torch','wall_torch'].includes(bot.blockAt(q)?.name)||clear.has(key)))continue
    levels.set(key,next);queue.push(q)
   }
  }

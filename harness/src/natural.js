@@ -83,6 +83,21 @@ export function trackOwnPlacements(bot,own){
 // placeBlock's answer, calls this once it sees the block: the hut's walls and
 // re-closed port, fillCell's scaffolding and plugs, the burrow's cap and climb.
 export const claimPlaced=(bot,cell)=>!!bot?.ownBlocks?.claim&&!!cell&&bot.ownBlocks.claim(cell,bot.blockAt?.(cell),dimensionOf(bot))
+// The placing skill's own evidence, for walls it builds cell by cell: it saw
+// the cell non-solid, placed this material, and sees that same block
+// standing. Live, play world, 18 October: a hut column inside the bot's own
+// base stood with no record at all (the pending claim never landed through
+// the bridge) and boxed the bot in as if a player had built it. The pending
+// claim runs first; this is its backstop, and it reaches no further than a
+// cell the skill itself watched fill with its own material.
+export const claimWall=(bot,cell,material,wasSolidBefore)=>{
+ if(wasSolidBefore||!material||!cell)return false
+ const b=bot.blockAt?.(cell)
+ if(!b||b.boundingBox!=='block'||b.name!==material)return false
+ if(claimPlaced(bot,cell))return true
+ bot?.ownBlocks?.add?.(cell,b.name,dimensionOf(bot))
+ return !!bot?.ownBlocks?.entry?.(cell,dimensionOf(bot))
+}
 // The hut's own walls, whatever their age: a hut can be held past OWN_TTL_MS (four watches and
 // a Resume) and must still open (review of 16 October). A cell whose block changes is forgotten
 // on its blockUpdate, so a player's replacement is not taken for the bot's.
