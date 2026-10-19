@@ -433,6 +433,22 @@ test('with every blaze resting below the sill and solid ground two below the flo
  assert.ok(at(f,'dig','-36,60,-8')>roof&&at(f,'place','-36,58,-7')>roof)
  assert.equal(f.map.get('-36,59,-8'),'cobblestone','closed at the end');assert.deepEqual(f.log.steps,[],'never walked')
 })
+test('ground three below the floor still sinks: the longest fall that cannot hurt, twelve side cells closed first',async()=>{
+ // Live rehearsal R21, 19 October: the tunnel level (feet 61, own floor 60)
+ // stands three above the platform (bricks at 57, standing room at 58), so
+ // the two-below-the-floor search found only air and the stand stayed blind
+ // at bow range for its whole ten minutes. A three-block fall cannot hurt.
+ const f=r9({blazes:RESTING,cells:[[-36,57,-9,'air']]})
+ let ringAtDig=null
+ // The two ring levels over the drop need placing; the ground level's sides
+ // are the fixture's own rock (netherrack to y 57), already solid.
+ const DEEP_RING=[59,58].flatMap(y=>[[-37,y,-9],[-35,y,-9],[-36,y,-10],[-36,y,-8]]).map(c=>c.join(','))
+ f.log.onDig=c=>{if(c==='-36,59,-9')ringAtDig=DEEP_RING.filter(r=>f.map.get(r)==='cobblestone')}
+ await stand(f,1,{limitMs:2500}).catch(()=>{})
+ assert.ok(at(f,'dig','-36,59,-9')>=0,'the floor was dug: '+JSON.stringify(f.log.events))
+ assert.deepEqual(ringAtDig?.sort(),[...DEEP_RING].sort(),'every side cell over the drop solid when the floor goes')
+ assert.equal(f.bot.entity.position.y,57,'landed three below where it stood')
+})
 test('a side cell a hoglin stands in is waited on, not dug; past the close limit the sink refuses with the cell named and the stand stays up',async()=>{
  const f=r9({blazes:RESTING});const said=[];f.api.progress=m=>said.push(m)
  f.add({name:'hoglin',type:'hostile',width:1.4,height:1.4,position:new Vec3(-37.2,58,-8.5)})
@@ -461,10 +477,10 @@ test('the R9 shape sinks: platform blazes resting below the sill and a cave blaz
  const r=await stand(f)
  assert.deepEqual(r.sank,{from:{x:-36,y:60,z:-9},to:{x:-36,y:58,z:-9}});assert.equal(r.rods,1)
 })
-test('no sink while a blaze is in line, with no blaze resting in the spawner\'s box, or with no ground within two below the floor',async()=>{
+test('no sink while a blaze is in line, with no blaze resting in the spawner\'s box, or with no ground within three below the floor',async()=>{
  for(const [name,o] of [['a blaze in line',{blazes:[...RESTING,{at:[-35.5,61.5,-3.5]}]}],['a platform blaze in line beside the cave one',{blazes:[...RESTING,CAVE,{at:[-35.5,61.5,-3.5]}],cells:CAVE_ROCK}],
   ['only the cave blaze',{blazes:[CAVE],cells:CAVE_ROCK}],['only blazes in the corridor under the kerb, out of the box\'s band',{blazes:[{at:[-32.3,56.2,-10.7]},{at:[-32.3,56.2,-10.3]}]}],
-  ['air three below the floor',{blazes:RESTING,cells:[[-36,57,-9,'air']]}]]){
+  ['air four below the floor',{blazes:RESTING,cells:[[-36,57,-9,'air'],[-36,56,-9,'air']]}]]){
   const f=r9(o);await stand(f,1,{limitMs:600}).catch(()=>{})
   assert.equal(at(f,'dig','-36,59,-9'),-1,name);assert.equal(f.bot.entity.position.y,60,name)
  }
@@ -517,7 +533,7 @@ test('a sink waiting on a side cell ends with the stand\'s time or under the tri
 test('a sink refused by its floor or its ground says which, once, and the stand stays up',async()=>{
  for(const [name,o,pattern] of [
   ['an undiggable floor',{blazes:RESTING,cells:[[-36,59,-9,'nether_bricks']]},/nether_bricks at -36,59,-9/],
-  ['no ground within two below the floor',{blazes:RESTING,cells:[[-36,57,-9,'air']]},/no solid ground/]]){
+  ['no ground within three below the floor',{blazes:RESTING,cells:[[-36,57,-9,'air'],[-36,56,-9,'air']]},/no solid ground/]]){
   const f=r9(o);const said=[];f.api.progress=m=>said.push(m)
   await stand(f,1,{limitMs:1200}).catch(()=>{})
   assert.ok(said.some(m=>pattern.test(m)),`${name}: ${said.join(' | ')}`)

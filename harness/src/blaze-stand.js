@@ -234,7 +234,8 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
  // so none ever targeted the bot. Standing on the floor, the eyes are level, and the head-high port's sill (the feet-level
  // wall) stays above both the blazes' fireball line and their resting bodies. The sink: with the port shut, no blaze in
  // line by the bow's or the eye's line, a blaze resting below the sill in a spawner's box, a floor the bot may dig over air, and
- // solid ground one or two below that floor, the column under the hut is closed from inside (the four side cells at each
+ // solid ground one to three below that floor (a three-block fall cannot hurt, and live rehearsal R21's tunnel level
+ // stands three above its platform), the column under the hut is closed from inside (the four side cells at each
  // level between, each on any solid face it has, hut.js closeCells), the floor dug, and the bot lands on the ground inside
  // its own walls and roofs over (wallIn). Nothing opens the cavity: every side cell stands before the floor goes. A cell a
  // mob stands in, or a mob in the column itself, is waited on, never dug toward; past closeLimitMs the sink is refused,
@@ -250,7 +251,7 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
   const floor=feet.offset(0,-1,0),fb=bot.blockAt(floor)
   if(!fullCube(bot.registry,fb?.name)||!(ownedNow(bot,fb)||breakable(bot,fb))||refuseDigCell(bot,floor,{role:'head',ownAnyAge:true}))return null
   let ground=null
-  for(let d=2;d<=3&&!ground;d++){const c=feet.offset(0,-d,0),b=bot.blockAt(c);if(fullCube(bot.registry,b?.name))ground=c;else if(!AIR.has(b?.name))return null}
+  for(let d=2;d<=4&&!ground;d++){const c=feet.offset(0,-d,0),b=bot.blockAt(c);if(fullCube(bot.registry,b?.name))ground=c;else if(!AIR.has(b?.name))return null}
   if(!ground||bot.blockAt(ground)?.name==='magma_block')return null
   const to=ground.offset(0,1,0),column=[],ring=[]
   for(let y=to.y;y<floor.y;y++)column.push(new Vec3(feet.x,y,feet.z))
@@ -271,8 +272,8 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
   const floor=feet.offset(0,-1,0),fb=bot.blockAt(floor)
   if(!fullCube(bot.registry,fb?.name))return `my floor at ${key(floor)} is ${fb?.name??'unloaded'}, not a full block to dig through`
   if(!(ownedNow(bot,fb)||breakable(bot,fb))||refuseDigCell(bot,floor,{role:'head',ownAnyAge:true}))return `my floor is ${fb.name} at ${key(floor)}, which I may not dig`
-  for(let d=2;d<=3;d++){const b=bot.blockAt(feet.offset(0,-d,0));if(fullCube(bot.registry,b?.name))return b?.name==='magma_block'?'the ground below my floor is magma':'';if(!AIR.has(b?.name))return `the ground below my floor is ${b?.name??'unloaded'}`}
-  return 'no solid ground within two below my floor'
+  for(let d=2;d<=4;d++){const b=bot.blockAt(feet.offset(0,-d,0));if(fullCube(bot.registry,b?.name))return b?.name==='magma_block'?'the ground below my floor is magma':'';if(!AIR.has(b?.name))return `the ground below my floor is ${b?.name??'unloaded'}`}
+  return 'no solid ground within three below my floor'
  }
  // '' once the bot stands walled in on the ground, else why it stayed.
  const sink=async plan=>{
