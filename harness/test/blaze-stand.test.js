@@ -508,3 +508,20 @@ test('a sink waiting on a side cell ends with the stand\'s time or under the tri
  await assert.rejects(stand(g,1,{limitMs:20000,closeLimitMs:20000}),/health 11 is under 12/);assert.ok(Date.now()-at2<2500,`took ${Date.now()-at2} ms`)
  assert.equal(g.bot.entity.position.y,60)
 })
+
+// Rehearsals R13 and R14 (18 October): stands at the tunnel level killed
+// blazes at bow range and left every rod outside the port, and nothing in
+// any receipt or progress line said why the sink never applied; its
+// geometry gates returned null in silence. A geometry refusal is durable
+// information, not a transient wait, so the stand now says it once.
+test('a sink refused by its floor or its ground says which, once, and the stand stays up',async()=>{
+ for(const [name,o,pattern] of [
+  ['an undiggable floor',{blazes:RESTING,cells:[[-36,59,-9,'nether_bricks']]},/nether_bricks at -36,59,-9/],
+  ['no ground within two below the floor',{blazes:RESTING,cells:[[-36,57,-9,'air']]},/no solid ground/]]){
+  const f=r9(o);const said=[];f.api.progress=m=>said.push(m)
+  await stand(f,1,{limitMs:1200}).catch(()=>{})
+  assert.ok(said.some(m=>pattern.test(m)),`${name}: ${said.join(' | ')}`)
+  assert.equal(said.filter(m=>pattern.test(m)).length,1,`${name}: said once`)
+  assert.equal(at(f,'dig','-36,59,-9'),-1,name);assert.equal(f.bot.entity.position.y,60,name)
+ }
+})

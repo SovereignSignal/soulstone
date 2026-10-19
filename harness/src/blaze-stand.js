@@ -257,6 +257,23 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
   for(let y=feet.y-1;y>=to.y;y--)for(const [dx,dz] of SIDES)ring.push(feet.offset(dx,y-feet.y,dz))
   return {from:feet,to,floor,column,ring}
  }
+ // Why no sink, when the reason is geometry rather than a transient wait.
+ // R13 and R14 (18 October) each ran out their ten minutes at tunnel level
+ // killing at bow range, every rod left outside the port, and nothing in
+ // any receipt said the sink had even been considered. The transient gates
+ // above (a blaze in line, none resting below) stay silent; a floor the
+ // bot may not dig, or no ground under it, will still be true on the next
+ // trip, so the stand says it once. Keep the gates in sinkPlan's order.
+ const sinkBlocker=()=>{
+  const near=blazes(bot,o.radius);if(!near.length)return ''
+  if(near.some(b=>portSightline(bot,feet,b,{skip}).status==='clear'||blazeEyeLine(bot,feet,b,{skip}).status==='clear'))return ''
+  if(!near.some(b=>blazeEye(b).y<feet.y+1&&spawnerOver(bot,b.position.floored(),o)))return ''
+  const floor=feet.offset(0,-1,0),fb=bot.blockAt(floor)
+  if(!fullCube(bot.registry,fb?.name))return `my floor at ${key(floor)} is ${fb?.name??'unloaded'}, not a full block to dig through`
+  if(!(ownedNow(bot,fb)||breakable(bot,fb))||refuseDigCell(bot,floor,{role:'head',ownAnyAge:true}))return `my floor is ${fb.name} at ${key(floor)}, which I may not dig`
+  for(let d=2;d<=3;d++){const b=bot.blockAt(feet.offset(0,-d,0));if(fullCube(bot.registry,b?.name))return b?.name==='magma_block'?'the ground below my floor is magma':'';if(!AIR.has(b?.name))return `the ground below my floor is ${b?.name??'unloaded'}`}
+  return 'no solid ground within two below my floor'
+ }
  // '' once the bot stands walled in on the ground, else why it stayed.
  const sink=async plan=>{
   const solid=c=>fullCube(bot.registry,bot.blockAt(c)?.name),missing=()=>plan.ring.filter(c=>!solid(c))
@@ -362,6 +379,7 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
    empty=null
    if(!portReady(bot).ready){const why=await heal();if(why){stopped=why;break}}
    const plan=!sank&&Date.now()-stayedAt>=o.sinkRetryMs&&sinkPlan()
+   if(!plan&&!sank&&Date.now()-stayedAt>=o.sinkRetryMs){const why=sinkBlocker();if(why){stayed=why;stayedAt=Date.now();progress(`I could not go down to the blazes (${why}). I am staying at this level.`)}}
    if(plan){
     const why=await sink(plan)
     // Players of any age read the bot's chat: plain, short, calm.
