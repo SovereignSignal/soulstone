@@ -95,6 +95,22 @@ test('every station and expedition action the planner may choose is one the runn
  assert.throws(()=>Runner.prototype.command.call({emit(){},skill(){}},{action:'dance',goal:{}}),/allowed actions/)
 })
 
+test('a reserved shaft cell that was never opened and cannot open is re-reserved on a sound column; an opened shaft is never moved',async()=>{
+ // Live rehearsal, 19 October: the reserved cell stood over an old burrow
+ // gallery ("No solid floor below" at its first cell) while every other
+ // interior column was solid, so a witch camping the door held the bot in.
+ const w=world();w.inventory.push({name:'cobblestone',count:4,type:registry.itemsByName.cobblestone.id})
+ w.cells.set(new Vec3(12,62,22).toString(),'air') // the reserved column's floor hangs over air
+ const project={...base(),backExit:{cell:{x:12,y:64,z:22}}}
+ const result=await tunnelOut(w.bot,{goal:{project}},api())
+ assert.deepEqual(result.cell,{x:11,y:64,z:22},'the next farthest sound column is reserved instead')
+ assert.deepEqual(project.backExit.cell,{x:11,y:64,z:22});assert.equal(project.backExit.bottom,64-BACK_EXIT_DEPTH)
+ assert.ok(w.dug.every(k=>k.startsWith('(11, ')),'only the new column was dug: '+w.dug.join(' '))
+ const opened=world();opened.cells.set(new Vec3(12,62,22).toString(),'air')
+ const p2={...base(),backExit:{cell:{x:12,y:64,z:22},bottom:56}}
+ await assert.rejects(tunnelOut(opened.bot,{goal:{project:p2}},api()),/No solid floor below/)
+ assert.deepEqual(p2.backExit.cell,{x:12,y:64,z:22},'a shaft that was really dug keeps its cell')
+})
 test('an open side beside the shaft is sealed with a carried block and the dig goes on; a cave of open sides stops it',async()=>{
  // Lab run 19, 3 October 00:57 UTC: the bot's earlier burrows left a gallery of
  // air two and three blocks under the base floor. The shaft met it at depth 2

@@ -2,20 +2,27 @@
 // so a camping creeper or the night does not hold the bot behind its one door.
 // Step 1 of the back-exit plan. The dig and the cap come next.
 import {shelterLayout} from './shelter.js'
-// The interior cell farthest from the door that no station stands on. Once
-// chosen it is kept, so the shaft is always the same hole.
-export function shaftCell(project){
+// The interior floor cells in shaft order: farthest from the door first, and
+// no station may stand on one.
+export function shaftCandidates(project){
  const build=project?.build
  if(!build?.design||!build.origin)throw new Error('A back exit needs a saved base')
- const kept=project.backExit?.cell
- if(kept)return {x:kept.x,y:kept.y,z:kept.z}
  const layout=shelterLayout(build.design),o=build.origin
  const taken=new Set(Object.values(project.stations||{}).map(s=>s?.position).filter(Boolean).map(p=>`${p.x},${p.z}`))
  const free=layout.inside.filter(c=>!taken.has(`${c.x+o.x},${c.z+o.z}`))
- if(!free.length)throw new Error('A back exit needs a free interior floor cell, and every one holds a station')
  const away=c=>Math.abs(c.x-layout.door.x)+Math.abs(c.z-layout.door.z)
  free.sort((a,b)=>away(b)-away(a)||a.x-b.x||a.z-b.z)
- return {x:free[0].x+o.x,y:o.y,z:free[0].z+o.z}
+ return free.map(c=>({x:c.x+o.x,y:o.y,z:c.z+o.z}))
+}
+// The interior cell farthest from the door that no station stands on. Once
+// chosen it is kept, so the shaft is always the same hole.
+export function shaftCell(project){
+ if(!project?.build?.design||!project.build.origin)throw new Error('A back exit needs a saved base')
+ const kept=project.backExit?.cell
+ if(kept)return {x:kept.x,y:kept.y,z:kept.z}
+ const candidates=shaftCandidates(project)
+ if(!candidates.length)throw new Error('A back exit needs a free interior floor cell, and every one holds a station')
+ return candidates[0]
 }
 import {Vec3} from 'vec3'
 import pathfinder from 'mineflayer-pathfinder'
@@ -52,7 +59,7 @@ export async function tunnelOut(bot,task,{check,stage,progress,persist=()=>{}}){
  check();const project=task.goal?.project
  if(!insideBase(bot,project))throw new Error('The back exit is opened from inside the base; use the door or retreat first')
  if(!bot.inventory.items().some(i=>/_pickaxe$/.test(i.name)))throw new Error('The back exit needs a pickaxe to open')
- const cell=shaftCell(project),top=new Vec3(cell.x,cell.y,cell.z)
+ let cell=shaftCell(project),top=new Vec3(cell.x,cell.y,cell.z)
  project.backExit={...(project.backExit||{}),cell};persist()
  // Cells already open count as dug: a back exit opened on an earlier trip and
  // never capped (test run 50, 4 October: "Cannot quarry through air") is
@@ -65,7 +72,21 @@ export async function tunnelOut(bot,task,{check,stage,progress,persist=()=>{}}){
   if(open(bot.blockAt(cell))){const below=bot.blockAt(cell.offset(0,-1,0));if(LIQUID.has(below?.name))return {ok:false,reason:`Liquid below ${key(cell)}`};if(open(below))return {ok:true}}
   return quarryColumn(bot,cell,options)
  }
- const under=top.offset(0,-1,0),first=columnOk(under,{top:true,through})
+ const firstCheck=c=>columnOk(new Vec3(c.x,c.y-1,c.z),{top:true,through})
+ let first=firstCheck(cell)
+ // A cell reserved but never opened is only a reservation. Live rehearsal,
+ // 19 October: the reserved column's floor hung over an old burrow gallery
+ // ("No solid floor below") while every other interior column was solid, and
+ // a witch camping the door held the bot in for good. Reserve the next sound
+ // column instead. A shaft with a recorded bottom was really dug: its cell
+ // never moves, and the refusal stands. Only the unsupported-floor refusal
+ // re-reserves: liquid or a block that may not be dug through (a chest, a
+ // player's build) still refuses at the reserved cell, as it always has.
+ if(!first.ok&&first.reason?.startsWith('No solid floor below')&&project.backExit?.bottom===undefined){
+  const next=shaftCandidates(project).find(c=>(c.x!==cell.x||c.z!==cell.z)&&firstCheck(c).ok)
+  if(next){progress(`The reserved back exit at ${key(top)} cannot open (${first.reason}); reserving ${next.x},${next.y},${next.z} instead`);cell=next;top=new Vec3(cell.x,cell.y,cell.z);project.backExit={...(project.backExit||{}),cell};persist();first=firstCheck(cell)}
+ }
+ const under=top.offset(0,-1,0)
  if(!first.ok)throw new Error(`Cannot open the back exit at ${key(under)}: ${first.reason}`)
  stage('tunnelling');progress(`Opening the back exit through the floor at ${key(top)}`)
  bot.pathfinder?.setGoal(null);bot.clearControlStates?.()
