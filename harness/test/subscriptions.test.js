@@ -50,6 +50,16 @@ test('muse planning runs headless with no tools, a prompt file and a strict outp
  assert.equal(args[args.indexOf('--output-schema')+1],'/tmp/x/schema.json')
  assert.equal(args[args.indexOf('--prompt-file')+1],'/tmp/x/prompt.txt')
 })
+test('a failed planning call names its kind of failure without echoing client output',async()=>{
+ const {planFailureReason}=await import('../src/companion/subscriptions.js')
+ assert.match(planFailureReason(1,'','API error 429: rate limit exceeded, resets 10pm'),/rate limit/)
+ assert.match(planFailureReason(1,"You've hit your weekly limit",''),/rate limit/)
+ assert.match(planFailureReason(1,'','Error: not logged in; run muse login'),/login/)
+ assert.match(planFailureReason(1,'','model muse-nope-0 not found'),/model/)
+ const other=planFailureReason(2,'','boom at /home/test/secret with token abc')
+ assert.match(other,/code 2/)
+ assert.ok(!other.includes('secret')&&!other.includes('abc'),other)
+})
 test('subscription discovery supports standard package-manager installations without shell PATH',()=>{
  for(const kind of ['codex','claude','muse']){
   for(const binary of [`/opt/homebrew/bin/${kind}`,`/usr/local/bin/${kind}`]){

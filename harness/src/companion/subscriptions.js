@@ -101,6 +101,18 @@ export async function subscriptionStatus(kind) {
   const a=JSON.parse(r.out);return {ready:a.loggedIn===true&&a.authMethod==='claude.ai',message:'Sign in to Claude Code with your Claude subscription'}
  } catch{return {ready:false,message:`The ${kind} subscription client is unavailable`}}
 }
+// One message for every failure blamed the login for a whole night of rate
+// limiting (19 October: both rehearsal bots stopped planning and every receipt
+// said "Check CLI login" while direct probes logged in fine). Name the kind of
+// failure from the client's own words, but never echo them: client output can
+// carry paths and tokens, and the reason lands in player-visible messages.
+export function planFailureReason(code,out='',err='') {
+ const text=`${err}\n${out}`
+ if(/\b429\b|rate.?limit|too many requests|quota|usage limit|weekly limit|hit your .*limit/i.test(text))return 'it reported a subscription or rate limit; wait for the limit to reset'
+ if(/\b401\b|unauthori[sz]ed|not logged in|please (log|sign) in|run \w+ login|login (expired|required)/i.test(text))return 'it reported a login problem; sign in to the CLI again'
+ if(/model[^\n]{0,40}(not found|unavailable|no access|does not exist)|\b404\b/i.test(text))return 'it reported the model is unavailable; check model access'
+ return `the client exited with code ${code}`
+}
 export async function requestSubscriptionPlan(profile,messages,schema,signal) {
  const status=await subscriptionStatus(profile.kind)
  if(!status.ready)throw new Error(status.message+'. API-key fallback is disabled.')
@@ -123,7 +135,7 @@ export async function requestSubscriptionPlan(profile,messages,schema,signal) {
   // client budget blanked a run outright: the request reported "Subscription
   // client timed out" at round zero and the agent stood still for an hour.
   const r=await runClient(clientBinary(profile.kind),args,{cwd:dir,input:prompt,signal,timeout:PLAN_TIMEOUT_MS})
-  if(r.code!==0)throw new Error(`${profile.label} could not complete the request. Check CLI login, model access and subscription limits. No API fallback was attempted.`)
+  if(r.code!==0)throw new Error(`${profile.label} could not complete the request: ${planFailureReason(r.code,r.out,r.err)}. No API fallback was attempted.`)
   if(profile.kind==='codex')return await readFile(join(dir,'result.json'),'utf8')
   if(profile.kind==='muse') {
    // With --output-schema the final answer on stdout is the JSON itself.
