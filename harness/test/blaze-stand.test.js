@@ -461,6 +461,18 @@ test('ground three below the floor still sinks: the longest fall that cannot hur
  assert.deepEqual(ringAtDig?.sort(),[...DEEP_RING].sort(),'every side cell over the drop solid when the floor goes')
  assert.equal(f.bot.entity.position.y,57,'landed three below where it stood')
 })
+// Live rehearsal, 20 October: at the spawner the sink refused both stands ("nether_brick_fence at
+// -37,59,-10 beside the column under me") while eight blazes died at bow range and their rods fell
+// outside the port. A fence in a ring cell already closes that level of the column (nothing walks
+// through it, and the ring cell over it still takes the bot's own block), so it is not an odd cell.
+test('a fortress fence in a ring cell does not refuse the sink; the column closes around it',async()=>{
+ const f=r9({blazes:RESTING,cells:[[-37,58,-9,'nether_brick_fence']]})
+ await stand(f,1,{limitMs:2500}).catch(()=>{})
+ assert.ok(at(f,'dig','-36,59,-9')>=0,'the floor was dug: '+JSON.stringify(f.log.events))
+ assert.equal(at(f,'place','-37,58,-9'),-1,'nothing placed into the fence cell')
+ assert.equal(f.map.get('-37,58,-9'),'nether_brick_fence','the fence stands')
+ assert.equal(f.bot.entity.position.y,58,'landed on the platform floor')
+})
 test('a side cell a hoglin stands in is waited on, not dug; past the close limit the sink refuses with the cell named and the stand stays up',async()=>{
  const f=r9({blazes:RESTING});const said=[];f.api.progress=m=>said.push(m)
  f.add({name:'hoglin',type:'hostile',width:1.4,height:1.4,position:new Vec3(-37.2,58,-8.5)})

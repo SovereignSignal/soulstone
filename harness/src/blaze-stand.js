@@ -279,7 +279,10 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
  }
  // '' once the bot stands walled in on the ground, else why it stayed.
  const sink=async plan=>{
-  const solid=c=>fullCube(bot.registry,bot.blockAt(c)?.name),missing=()=>plan.ring.filter(c=>!solid(c))
+  // A fence or wall standing in a ring cell closes that level of the column already: nothing walks
+  // through it, and the ring cell over it still takes the bot's own block (live, 20 October: a
+  // fortress fence beside the column refused every sink and the rods fell outside every port).
+  const solid=c=>{const n=bot.blockAt(c)?.name;return fullCube(bot.registry,n)||/(_fence|_wall)$/.test(n||'')},missing=()=>plan.ring.filter(c=>!solid(c))
   const odd=missing().find(c=>{const n=bot.blockAt(c)?.name;return !AIR.has(n)&&!FIRE_BLOCKS.has(n)})
   if(odd)return `${bot.blockAt(odd)?.name??'unloaded ground'} at ${key(odd)} beside the column under me`
   const carried=hutMaterials(bot).reduce((n,i)=>n+i.count,0),needed=missing().length+2
