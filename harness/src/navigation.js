@@ -10,7 +10,7 @@ const {Movements}=pathfinding
 // swallowed. Soft ground and leaves are what actually wall a walker in, so those
 // are breakable and nothing else is: never stone, never ore, never the base
 // furniture, never a door it should be opening.
-export const SOFT_GROUND=new Set(['grass_block','dirt','coarse_dirt','podzol','rooted_dirt','mud','sand','red_sand','gravel','clay','moss_block','snow_block','mycelium'])
+export const SOFT_GROUND=new Set(['grass_block','dirt','coarse_dirt','podzol','rooted_dirt','mud','sand','red_sand','gravel','clay','moss_block','snow_block','mycelium','soul_sand','soul_soil'])
 // And the bot's own placed blocks (run 76: stranded on its own cobblestone pillar).
 export function breakableWhileTravelling(block,bot=null){
  const name=block?.name||''

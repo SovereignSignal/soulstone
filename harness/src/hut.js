@@ -23,7 +23,13 @@ const SIDES=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]
 // "Cannot wall through fire at -37,61,-9", while the bot burned beside the open port. Fire and soul fire are replaceable in
 // vanilla (a block placed into the cell takes the fire's place) and go out to a punch (fire-safety.js, lab run 116), so a wall
 // cell holding one is walled: placeCells punches it out first. Lava and water still refuse the wall.
-const wallable=b=>REPLACEABLE.has(b.name)||FIRE_BLOCKS.has(b.name)
+// Live rehearsal, 20 October: interrupted on open crimson ground, the hut refused every wall cell
+// holding roots ("Cannot wall through crimson_roots") and the bot died unsheltered. Flora with no
+// collision box is replaceable the way grass is, in either world: judged by the block's own plant
+// material, not a list of names, so the next biome's growth walls the same. Signs and the like are
+// not plants and still refuse.
+const planty=(bot,b)=>String(b.material??(bot?.registry?.blocksByName?.[b.name]?.material||'')).split(';').includes('plant')
+const wallable=(bot,b)=>REPLACEABLE.has(b.name)||FIRE_BLOCKS.has(b.name)||(b.boundingBox==='empty'&&planty(bot,b))
 const solid=(bot,b)=>!!b&&fullCube(bot.registry,b.name)
 const key=p=>`${p.x},${p.y},${p.z}`
 const xyz=p=>({x:p.x,y:p.y,z:p.z})
@@ -92,7 +98,7 @@ function hutSiteAt(bot,feet,{facesOnly=false}={}){
  const room=portalRoom(bot,feet,{facesOnly})
  if(facesOnly&&!room)return {ok:false,reason:"Stand beside the portal's bottom row to seal it"}
  if(room){
-  for(const c of room){const b=bot.blockAt(c);if(!b)return {ok:false,reason:`Cell ${key(c)} is not observed`};if(!wallable(b)&&!solid(bot,b))return {ok:false,reason:`Cannot wall through ${b.name} at ${key(c)}`}}
+  for(const c of room){const b=bot.blockAt(c);if(!b)return {ok:false,reason:`Cell ${key(c)} is not observed`};if(!wallable(bot,b)&&!solid(bot,b))return {ok:false,reason:`Cannot wall through ${b.name} at ${key(c)}`}}
   // Every wall stands on the ground at foot level; the cells above hang off the ones below, and the roof off the helper.
   for(const c of room)if(c.y===feet.y&&!solid(bot,bot.blockAt(c))&&!solid(bot,bot.blockAt(c.offset(0,-1,0))))return {ok:false,reason:`No ground to build the wall on at ${key(c.offset(0,-1,0))}`}
   const needed=room.filter(c=>!solid(bot,bot.blockAt(c))).length
@@ -105,7 +111,7 @@ function hutSiteAt(bot,feet,{facesOnly=false}={}){
  // kitted, a hoglin at ten on a fortress walkway, "no ground to build the wall on", home).
  const footing=[]
  for(const [dx,dy,dz] of SIDES){
-  for(const level of [0,1]){const c=feet.offset(dx,level,dz),b=bot.blockAt(c);if(!b)return {ok:false,reason:`Cell ${key(c)} is not observed`};if(!wallable(b)&&!solid(bot,b))return {ok:false,reason:`Cannot wall through ${b.name} at ${key(c)}`}}
+  for(const level of [0,1]){const c=feet.offset(dx,level,dz),b=bot.blockAt(c);if(!b)return {ok:false,reason:`Cell ${key(c)} is not observed`};if(!wallable(bot,b)&&!solid(bot,b))return {ok:false,reason:`Cannot wall through ${b.name} at ${key(c)}`}}
   // A wall that already stands (a shaft, a cave nook) needs no ground under it.
   const under=feet.offset(dx,-1,dz),ground=bot.blockAt(under)
   if(!solid(bot,bot.blockAt(feet.offset(dx,0,dz)))&&!solid(bot,ground)){

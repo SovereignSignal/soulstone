@@ -43,6 +43,24 @@ test('a hut needs the blocks its own site is missing, solid ground around and ro
  const tree=world();tree.cells.set(new Vec3(10,66,10).toString(),'oak_log');assert.equal(hutSite(tree.bot).ok,true)
  const wall=world();wall.cells.set(new Vec3(11,64,10).toString(),'water');assert.match(hutSite(wall.bot).reason,/Cannot wall/)
 })
+// Live rehearsal, 20 October: interrupted on open crimson ground on the walk home, the hut refused
+// ("Cannot wall through crimson_roots") and the burrow refused the nylium underfoot, and the bot died
+// with no shelter it would use. Nether flora is replaceable like grass, nylium digs like netherrack.
+test('a hut walls through nether flora in its wall cells, and flora it has never been told about',()=>{
+ const roots=world();roots.cells.set(new Vec3(11,64,10).toString(),'crimson_roots');roots.cells.set(new Vec3(10,65,11).toString(),'warped_fungus');roots.cells.set(new Vec3(9,64,10).toString(),'nether_sprouts')
+ const site=hutSite(roots.bot);assert.equal(site.ok,true,site.reason)
+ const unlisted=world();unlisted.cells.set(new Vec3(11,64,10).toString(),'mangrove_propagule')
+ const site2=hutSite(unlisted.bot);assert.equal(site2.ok,true,site2.reason)
+ const sign=world();sign.cells.set(new Vec3(11,64,10).toString(),'oak_sign');assert.match(hutSite(sign.bot).reason,/Cannot wall through oak_sign/)
+})
+test('a burrow digs into nylium with a pickaxe, and into soul sand without one',()=>{
+ const nether=world();nether.bot.game.dimension='minecraft:the_nether';nether.inventory.push({name:'iron_pickaxe',count:1})
+ for(let y=60;y<=63;y++)nether.cells.set(new Vec3(10,y,10).toString(),'crimson_nylium')
+ const site=burrowSite(nether.bot);assert.equal(site.ok,true,site.reason);assert.equal(site.cells.length,4)
+ const souls=world();souls.bot.game.dimension='minecraft:the_nether';souls.inventory.length=0
+ for(let y=60;y<=63;y++)souls.cells.set(new Vec3(10,y,10).toString(),'soul_sand')
+ const soft=burrowSite(souls.bot);assert.equal(soft.ok,true,soft.reason)
+})
 test('walling in places eight walls, a helper and a roof from carried logs, then one side opens again',async()=>{
  const w=world()
  const result=await executeSkill(w.bot,{kind:'hut',goal:{}},api)

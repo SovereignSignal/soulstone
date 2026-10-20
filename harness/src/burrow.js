@@ -25,7 +25,10 @@ const {goals}=pathfinding
 export const BURROW_DEPTH=4
 export const BURROW_MIN_DEPTH=3
 // Cobblestone and cobbled deepslate are never natural: they pass only as the bot's own (mayDig below).
-const HARD=new Set(['stone','andesite','diorite','granite','tuff','deepslate','sandstone','red_sandstone','cobblestone','cobbled_deepslate','terracotta','netherrack'])
+// Nylium, blackstone and basalt joined 20 October: on crimson ground the burrow refused the block
+// underfoot ("Cannot dig crimson_nylium quickly") beside a hut that would not wall through the roots,
+// and the bot died with no shelter it would use. Each digs at netherrack's pace with a pickaxe.
+const HARD=new Set(['stone','andesite','diorite','granite','tuff','deepslate','sandstone','red_sandstone','cobblestone','cobbled_deepslate','terracotta','netherrack','crimson_nylium','warped_nylium','blackstone','basalt'])
 const LIQUID=new Set(['water','lava','bubble_column'])
 const GRAVITY=new Set(['sand','red_sand','gravel','suspicious_sand','suspicious_gravel'])
 const SIDES=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1]]
