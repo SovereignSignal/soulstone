@@ -7,6 +7,7 @@ import {recoveryState,recordRecovery} from './recovery-context.js'
 import {forcedInterruption} from '../threat-judgement.js'
 import {awaitClearance,openGroundClearance} from './hazard-clearance.js'
 import {recoveryContext} from './recovery-context.js'
+import {MODEL_DECISION_MS} from './continuity.js'
 
 export const recoverySchema={type:'object',additionalProperties:false,required:['action','expectation'],properties:{
  action:{type:'string',enum:['inspect','defend','flee','shelter','resume']},expectation:{type:'string'}}}
@@ -20,7 +21,7 @@ Use the actual objective, current feasibility and recent action outcomes. Repeat
 
 // Bounded pilot on the existing planner and executor. Returning fallback leaves
 // established safety responsible; it is never scored as model recovery.
-export async function adaptiveRecovery(c,epoch,signal,bot,{rounds=4,budgetMs=90000,decisionMs=25000,pollMs=100,quietMs=3000,clearanceMs=6500}={}){
+export async function adaptiveRecovery(c,epoch,signal,bot,{rounds=4,budgetMs=90000,decisionMs=MODEL_DECISION_MS,pollMs=100,quietMs=3000,clearanceMs=6500}={}){
  const started=Date.now(),deadline=started+budgetMs,connection=c.runner.connectionId
  const check=()=>{if(signal.aborted||c.epoch!==epoch||c.runner.bot!==bot||!c.runner.ready||c.runner.connectionId!==connection)throw new Error('Recovery cancelled or connection changed')}
  const trace=(type,data)=>c.runner.log?.(type,data)

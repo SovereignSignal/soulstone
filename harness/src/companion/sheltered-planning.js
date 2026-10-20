@@ -1,7 +1,7 @@
 import {setTimeout as delay} from 'node:timers/promises'
 import {berryObservation} from '../foraging.js'
 import {Vec3} from 'vec3'
-import {SHELTERED_CALLS} from './continuity.js'
+import {SHELTERED_CALLS,MODEL_DECISION_MS} from './continuity.js'
 import {inspectEmergencyShelter} from '../shelter-occupants.js'
 import {survivalObservation,RANGED} from '../survival.js'
 import {fullCube} from '../construction.js'
@@ -28,7 +28,7 @@ export function shelterDeparture(bot,retreat){
 
 // Deliberation is protected by an independent observation loop. The slow model
 // never owns the safety watch, and a late response cannot dispatch after Stop.
-export async function shelteredPlanning(c,epoch,signal,bot,{rounds=6,budgetMs=180000,decisionMs=30000,pollMs=100,waitMs=10000,quietMs=3000}={}){
+export async function shelteredPlanning(c,epoch,signal,bot,{rounds=6,budgetMs=180000,decisionMs=MODEL_DECISION_MS,pollMs=100,waitMs=10000,quietMs=3000}={}){
  const request=c.requestProgress,safety=c.safety,connection=c.runner.connectionId,deadline=Date.now()+budgetMs
  let health=bot.health
  const check=()=>{if(signal.aborted||c.epoch!==epoch||c.safety!==safety||c.requestProgress!==request||!c.runner.ready||c.runner.bot!==bot||c.runner.connectionId!==connection)throw new Error('Sheltered planning cancelled or context changed')}

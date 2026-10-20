@@ -7,7 +7,7 @@
 // loop owns the bot while the model thinks, and a late answer never dispatches after Stop.
 import {setTimeout as delay} from 'node:timers/promises'
 import {Vec3} from 'vec3'
-import {COVERED_MOVES,COVERED_CELLS,COVERED_CALLS,COVERED_MS,BURN_MS,canResume,canContinueAfterSafety,continuationMark,wantedItems} from './continuity.js'
+import {COVERED_MOVES,COVERED_CELLS,COVERED_CALLS,COVERED_MS,MODEL_DECISION_MS,BURN_MS,canResume,canContinueAfterSafety,continuationMark,wantedItems} from './continuity.js'
 import {inspectEmergencyShelter} from '../shelter-occupants.js'
 import {fullCube} from '../construction.js'
 import {survivalObservation,fireObservation,FIRE_BLOCKS} from '../survival.js'
@@ -143,7 +143,7 @@ export function atPort(bot){
 }
 const enclosureError=e=>/^Emergency shelter|^Shelter contains|liquid/i.test(e?.message||'')
 // holdBounded: {minutes} when the wait asks after a hold that gained nothing (controller.js waitInBurrow).
-export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*COVERED_MOVES,budgetMs=COVERED_MS,decisionMs=30000,pollMs=100,waitMs=10000,holdBounded=null}={}){
+export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*COVERED_MOVES,budgetMs=COVERED_MS,decisionMs=MODEL_DECISION_MS,pollMs=100,waitMs=10000,holdBounded=null}={}){
  const gate=coveredGate(c,bot,eligible);if(gate)return {status:'skipped',reason:gate}
  const request=c.requestProgress,safety=c.safety,connection=c.runner.connectionId,deadline=Date.now()+budgetMs
  let health=bot.health,refusals=0,burntAt=-Infinity
