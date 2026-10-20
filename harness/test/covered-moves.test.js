@@ -663,7 +663,7 @@ test('a covered move whose signal aborts while its task still runs stops that ta
 // than that, so the phase could never move and the hut looped. The per-decision wait's default must sit
 // inside the planner's own budget (PLAN_TIMEOUT_MS), not far under it.
 test('a covered decision slower than thirty seconds of poll time is still heard under the default wait',async()=>{
- assert.ok(MODEL_DECISION_MS>=120000,`MODEL_DECISION_MS=${MODEL_DECISION_MS}`)
+ assert.ok(MODEL_DECISION_MS>=240000,`MODEL_DECISION_MS=${MODEL_DECISION_MS}`)
  const slow=async()=>{await new Promise(r=>setTimeout(r,150));return {action:'done',target:null,count:0,expectation:'Hand back'}}
  const f=fixture(slow)
  const result=await coveredMoves(f.c,1,f.abort.signal,f.bot,{eligible:true,budgetMs:5000,pollMs:2,waitMs:5})

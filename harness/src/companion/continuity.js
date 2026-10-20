@@ -50,9 +50,11 @@ export const COVERED_MS=600000
 // One model decision inside a safety phase (covered moves, sheltered planning, adaptive recovery) may
 // take this long before the phase stops waiting on it. Live rehearsal, 20 October: at thirty seconds
 // every covered decision from a slower subscription planner was cut ("Covered decision budget
-// reached") and the phase could never move, though the planner call itself allows PLAN_TIMEOUT_MS.
-// Each phase's own budget still bounds the total; the deadline clamps the last wait.
-export const MODEL_DECISION_MS=180000
+// reached") and the phase could never move, though the planner call itself allows PLAN_TIMEOUT_MS;
+// at three minutes the same planner's slower calls were still cut on the egress that mattered. The
+// wait therefore sits just inside the planner call's own budget. Each phase's own budget still
+// bounds the total; the deadline clamps the last wait.
+export const MODEL_DECISION_MS=290000
 // Lab runs 99 to 101, 10 October: in a blaze-rod request the fights are the
 // work, and a fight is not a planned step, so the request stopped continuing
 // after two interruptions with rods being won. A criterion item gained (its
