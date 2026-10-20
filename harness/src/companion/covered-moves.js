@@ -130,6 +130,10 @@ function admit(c,bot,v,sites){
 export function sayEvery(c,key,text,ms=60000){const saidAt=c.saidAt??={},at=saidAt[key];if(at&&Date.now()-at<ms)return false;saidAt[key]=Date.now();c.say(text);return true}
 export async function coveredHandBack(c,bot,receipt=null){
  const request=c.requestProgress,safety=c.safety
+ // Handbacks at one cell with no covered move between are counted (coveredMoves refuses a third
+ // 'done' there); a handback with a move's receipt, and any executed move, start the count again.
+ if(receipt)delete request.coveredHandback
+ else{const at=xyz(feetOf(bot)),h=request.coveredHandback;request.coveredHandback={at,count:h&&h.at.x===at.x&&h.at.y===at.y&&h.at.z===at.z?h.count+1:1}}
  ;(request.safetyContinuations??=[]).push({requestId:request.id,connectionId:c.runner.connectionId,shelter:'covered_route',covered:structuredClone(safety.covered||{from:safety.retreat.surface,at:xyz(feetOf(bot)),moves:[]}),...(receipt?{receipt}:{}),resumeSerial:request.resumeSerial||0,...continuationMark(request)})
  ;(request.feedback??=[]).push({action:'safety_continuation',status:'completed',result:request.safetyContinuations.at(-1)})
  c.safety=null;c.activity='';c.phase='blocked';c.persist()
@@ -180,7 +184,12 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
    // never run. There the planner is asked, and is offered the stand, which opens and closes its own port.
    // Only a blaze is the stand's (Sonnet review, 17 October): any other shooter in port sight is still the port's.
    const standRefusal=blazeStandRefusal(bot)||null,standCell=!standRefusal&&(wantedItems(request,bot.registry).some(w=>w.item==='blaze_rod')||(request.pending||[]).some(s=>s?.action==='stand'&&s.item==='blaze_rod'))
-   const inSight=!holdBounded&&atPort(bot),shooter=inSight&&!(standCell&&inSight.name==='blaze')?inSight:null;if(shooter){const reason=`a ${shooter.name.replaceAll('_',' ')} is in sight through a port; the port answers it`;journal('held',{reason});return {status:'held',reason}}
+   // Live rehearsal, 20 October: the watch kept finding no shot through the port (its own cobble in
+   // the line, controller.js's port_held) while atPort still called the blaze in sight, so the phase
+   // held for a port that answers nothing and the planner was never asked. A freshly held port does
+   // not hold the phase.
+   const portStuck=!!c.portHeldKey&&Date.now()-(c.portHeldLogAt||0)<180000
+   const inSight=!holdBounded&&!portStuck&&atPort(bot),shooter=inSight&&!(standCell&&inSight.name==='blaze')?inSight:null;if(shooter){const reason=`a ${shooter.name.replaceAll('_',' ')} is in sight through a port; the port answers it`;journal('held',{reason});return {status:'held',reason}}
    const before=decisionState(),sites=projectFootprints(c.projects,dimensionOf(bot)),f=feetOf(bot)
    let deepest=0,shaft=null;for(let n=1;n<=SHAFT_MAX;n++){const r=shaftRefusal(bot,n,sites);if(r){shaft=r;break}deepest=n}
    const snapshot=c.snapshot(),state=Object.fromEntries(['position','health','survival','tools','inventory'].map(k=>[k,snapshot[k]]))
@@ -205,7 +214,14 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
     c.persist()
    }
    trace('covered_decision',{round,decision:value})
-   if(value.action==='done'){journal('completed',{expectation:value.expectation});return handBack(null)}
+   if(value.action==='done'){
+    // Live, 20 October: 'done' handed the request back, the alarm cancelled the first goto inside
+    // seconds, and the phase was asked again at the same cell round after round. Twice handed back
+    // at one cell with no covered move between, a third done only repeats that: it is refused and
+    // the model is asked again, with the refusal in its recovery context.
+    const hb=request.coveredHandback,at=xyz(feetOf(bot))
+    if(hb&&hb.count>=2&&hb.at.x===at.x&&hb.at.y===at.y&&hb.at.z===at.z){journal('rejected',{reason:`done refused: handed back ${hb.count} times at ${at.x},${at.y},${at.z} with no covered move between; the alarm stops the walk each time`,expectation:value.expectation});if(++refusals>=2)return {status:'held',reason:'done refused after repeated handbacks at this cell'};continue}
+    journal('completed',{expectation:value.expectation});return handBack(null)}
    if(value.action==='wait'){
     journal('held',{expectation:value.expectation})
     const earliest=Date.now()+waitMs
@@ -217,7 +233,7 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
    const move=admit(c,bot,value,sites)
    if(move.reason){journal('rejected',{reason:move.reason,expectation:value.expectation});if(++refusals>=2)return {status:'held',reason:move.reason};continue}
    // Saved before the move runs: a restart mid-bore re-arms the wait with the route's own cavity limit.
-   request.coveredMoves=(request.coveredMoves||0)+1;safety.covered??={from:structuredClone(safety.retreat.surface),at:xyz(feetOf(bot)),moves:[]};c.persist()
+   request.coveredMoves=(request.coveredMoves||0)+1;delete request.coveredHandback;safety.covered??={from:structuredClone(safety.retreat.surface),at:xyz(feetOf(bot)),moves:[]};c.persist()
    const moveAbort=new AbortController(),moveSignal=AbortSignal.any([signal,moveAbort.signal]);let failure=null,receipt
    // The stand opens its own port and judges its own hits, closing on one and under the port's health (blaze-stand.js):
    // while that port is open (task.portOpen) only a changed context or liquid stops it here. Review of the covered stand

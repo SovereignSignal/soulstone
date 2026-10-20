@@ -337,6 +337,26 @@ test('under the hold bound a shooter in sight through a port does not hold the p
  const g=fixture(async o=>{seen.push(o);return wait});shooterEast(g);g.c.requestProgress.coveredCalls=COVERED_CALLS
  const spent=await g.run({holdBounded:{minutes:10}});assert.equal(spent.status,'skipped');assert.match(spent.reason,/covered decisions asked/);assert.equal(seen.length,1)
 })
+// Live rehearsal, 20 October: pinned at the spawner hut for the best part of an hour, the port kept
+// sight of a blaze it could not actually shoot (the watch journalled the port held for no line), the
+// shortcut held the phase without asking, and handbacks died to the alarm within seconds. A port the
+// watch has just found no shot through is not answering anything: the planner is asked.
+test('a port the watch just held for no shot does not hold the covered phase: the planner is asked',async()=>{
+ let calls=0;const f=fixture(async()=>{calls++;return {action:'done',target:null,count:0,expectation:'Home'}});shooterEast(f);f.c.requestProgress.request='ender pearls'
+ f.c.portHeldKey='blaze:cobblestone:0';f.c.portHeldLogAt=Date.now()
+ const result=await f.run();assert.equal(result.status,'handed_back',JSON.stringify(result));assert.equal(calls,1)
+})
+// Live, same pin: 'done' handed the request back, the alarm cancelled the first goto inside seconds,
+// and the covered phase was asked again at the same cell, round after round. Two handbacks at one
+// cell with no covered move between and a third 'done' is refused, so the model must move under cover.
+test('a third done at the same cell after two handbacks there is refused; the model must move',async()=>{
+ const answers=[{action:'done',target:null,count:0,expectation:'Planner walks'},{action:'dig',target:{x:0,y:61,z:0},count:3,expectation:'A shaft to 61'},{action:'done',target:null,count:0,expectation:'Hand back'}]
+ let calls=0;const f=fixture(async()=>answers[Math.min(calls++,answers.length-1)]);f.c.requestProgress.request='ender pearls'
+ f.c.requestProgress.coveredHandback={at:{x:0,y:64,z:0},count:2}
+ const result=await f.run();assert.equal(result.status,'handed_back',JSON.stringify(result))
+ assert.equal(f.commands.filter(x=>x.action==='dig').length,1,acts(f).join(' '));assert.equal(calls,3)
+ assert.ok(f.c.recoveryHistory.some(r=>/handed back/.test(r.reason||'')),JSON.stringify(f.c.recoveryHistory))
+})
 test('with a covered route, a blaze in sight through the side port is shot from the port, and the hut closes it after',async()=>{
  const f=fixture(async()=>wait,{act:(cmd,bot)=>{if(cmd.action==='shoot'){delete bot.entities[7];return {receipt:'killed',shots:2,item:'blaze',at:{x:6.5,y:64,z:.5}}}if(cmd.action==='unhut')return {receipt:'unwalled',port:true,side:{dx:1,dz:0}};if(cmd.action==='hut')return {receipt:'walled_in',surface:{x:0,y:64,z:0}}}})
  shooterEast(f);inWait(f,{coveredMoves:false,burrowWait:{quietMs:50,limitMs:1500,patienceMs:50,relocateAfterMs:60000,watches:1}})
