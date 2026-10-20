@@ -42,14 +42,16 @@ import {validateStandGoal,standingIn,closePort} from './enderman-stand.js'
 // again, since a blaze that loses sight of the bot flies to where it last saw it. healMs: shut, waiting for the port's 16.
 // meleeNear: a melee mob this close to the port cell shuts it. digReach: the bot's own blocks in the port's line dug from
 // inside. settleMs: a rod's fall. spawnReach, spawnRise: a spawner's volume, 4 across and 1 up or down (vanilla).
-// closeWaitMs: one round of waiting on a mob in the port's cell (closePort). sinkRetryMs: a refused sink is tried
+// noLineMs: blazes loaded but none ever in a port line from this cell this long ends the stand naming the cell
+// (live, 20 October: a sunk cell with no line waited out the whole limit in silence). A sink attempt or a sink
+// itself restarts it, since the line is judged again at the new level. closeWaitMs: one round of waiting on a mob in the port's cell (closePort). sinkRetryMs: a refused sink is tried
 // again after this long, if its conditions still hold (review of the sink). closeLimitMs: the close gives up after this long
 // at or over the trip's health; under it the close keeps going. finalCloseMs: the closing of a stand that ends, by its own
 // clock, since after a cancellation the runner's check throws (review of the stand). burnMs: a fall this long after the bot
 // was last seen alight is still the burn's, as the shelter wait and the covered guard judge it (continuity.js BURN_MS: the
 // last tick can land after the flag clears). cavityCells: the closed cavity the heal verifies, up to a covered route's
 // (continuity.js COVERED_CELLS), since the stand may be walled in at a covered tunnel's end.
-export const BLAZE_STAND={item:'blaze_rod',radius:SHOOT.radius,limitMs:600000,timeoutMs:600000,arrows:TRIP_ARROWS,emptyMs:120000,idleMs:20000,drawInMs:15000,drawIn:4,blinkMs:1500,healMs:60000,
+export const BLAZE_STAND={item:'blaze_rod',radius:SHOOT.radius,limitMs:600000,timeoutMs:600000,arrows:TRIP_ARROWS,emptyMs:120000,noLineMs:120000,idleMs:20000,drawInMs:15000,drawIn:4,blinkMs:1500,healMs:60000,
  meleeNear:3,sinkRetryMs:180000,digReach:4.5,settleMs:1500,drawMs:SHOOT.drawMs,spawnReach:4,spawnRise:1,closeWaitMs:10000,closeLimitMs:60000,finalCloseMs:15000,burnMs:6000,cavityCells:256,poll:50}
 const key=p=>`${p.x},${p.y},${p.z}`
 const xyz=p=>({x:p.x,y:p.y,z:p.z})
@@ -363,7 +365,7 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
   }
  }
  bot.on('entityDead',died)
- let empty=null
+ let empty=null,noLine=null
  try{
   for(;;){
    check();judge()
@@ -382,7 +384,7 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
    const plan=!sank&&Date.now()-stayedAt>=o.sinkRetryMs&&sinkPlan()
    if(!plan&&!sank&&Date.now()-stayedAt>=o.sinkRetryMs){const why=sinkBlocker();if(why){stayed=why;stayedAt=Date.now();progress(`I could not go down to the blazes (${why}). I am staying at this level.`)}}
    if(plan){
-    const why=await sink(plan)
+    const why=await sink(plan);noLine=null
     // Players of any age read the bot's chat: plain, short, calm.
     if(why){stayed=why;stayedAt=Date.now();progress(`I could not go down to the blazes (${why}). I am staying at this level.`)}
     // Sunk, the new hut's helper is the old east wall over the east side cell: no blaze can stand in an east port, and the
@@ -391,7 +393,13 @@ export async function blazeStand(bot,task,{check,stage,progress,persist=()=>{},m
     continue
    }
    const choice=await choose();check()
-   if(!choice||meleeNear(choice.cells[0])){stage('waiting');await delay(o.poll);continue}
+   if(!choice){
+    noLine??=Date.now()
+    if(Date.now()-noLine>=o.noLineMs){stopped=`no port line to a blaze from ${key(feet)} for ${span(o.noLineMs)}`;break}
+    stage('waiting');await delay(o.poll);continue
+   }
+   noLine=null
+   if(meleeNear(choice.cells[0])){stage('waiting');await delay(o.poll);continue}
    // The port opens only with the blocks to wall in here again after it, and one to spare (controller.js's port rule).
    const site=hutSite(bot),blocks=hutMaterials(bot).reduce((n,i)=>n+i.count,0),needed=site.ok?site.needed+choice.cells.filter(c=>fullCube(bot.registry,bot.blockAt(c)?.name)).length+1:null
    if(!site.ok){stopped=`no wall-in site to close the port again: ${site.reason}`;break}

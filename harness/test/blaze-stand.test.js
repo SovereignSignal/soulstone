@@ -193,6 +193,18 @@ test('the stand stops at the count, at 15 arrows, at the time limit, and after t
  await assert.rejects(stand(gone),/No blaze rod gained: 1 blaze killed.*no blaze loaded within 32 blocks for/)
  assert.ok(BLAZE_STAND.emptyMs===120000&&BLAZE_STAND.limitMs===600000&&BLAZE_STAND.arrows===16)
 })
+// Live rehearsal, 20 October: sunk at a cell the spawner's blazes never had a port line to, the stand
+// waited out its whole ten minutes (0 kills, 0 ports) and the receipt only said the time ran out. A
+// loaded blaze with no line from this cell is a wrong-cell fact the planner can act on, so the stand
+// ends on its own no-line budget and names the cell, as the empty budget names an empty spawner.
+test('blazes loaded but never in a port line from this cell end the stand on the no-line budget, naming the cell',async()=>{
+ const f=fixture()
+ setTimeout(()=>{const b=Object.values(f.bot.entities).find(e=>e.name==='blaze');if(b)b.position=new Vec3(-35.5,56,-8.5)},50)
+ const at=Date.now()
+ await assert.rejects(stand(f,1,{noLineMs:250}),/No blaze rod gained: 0 blazes killed, .*no port line to a blaze from -36,60,-9 for/)
+ assert.ok(Date.now()-at<3000,'ended on the no-line budget, not the stand limit')
+ assert.equal(BLAZE_STAND.noLineMs,120000)
+})
 
 test('the planner, the task store and the skill admit stand for 1 to 8 blaze rods',async()=>{
  const step={action:'stand',name:'',item:'blaze_rod',count:4,design:[],target:null}
