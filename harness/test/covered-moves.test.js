@@ -357,6 +357,19 @@ test('a third done at the same cell after two handbacks there is refused; the mo
  assert.equal(f.commands.filter(x=>x.action==='dig').length,1,acts(f).join(' '));assert.equal(calls,3)
  assert.ok(f.c.recoveryHistory.some(r=>/handed back/.test(r.reason||'')),JSON.stringify(f.c.recoveryHistory))
 })
+// Live, same pin an hour on: the planner then bored for the portal and admission refused it for open
+// ground beyond the tunnel's closed end, where done is the designed handoff (the planner bores on,
+// alarm-guarded). Refusing that done too deadlocks the egress: an open-ground bore refusal at the
+// cell re-allows the handback the refusal itself names.
+test('an open-ground bore refusal at the cell re-allows done after repeated handbacks there',async()=>{
+ const answers=[{action:'bore',target:{x:20,y:64,z:0},count:6,expectation:'Bore east'},{action:'done',target:null,count:0,expectation:'Planner bores on'}]
+ let calls=0;const f=fixture(async()=>answers[Math.min(calls++,answers.length-1)]);f.c.requestProgress.request='ender pearls'
+ f.c.requestProgress.coveredHandback={at:{x:0,y:64,z:0},count:2}
+ f.cells.set('1,64,0','netherrack');f.cells.set('1,65,0','netherrack');f.cells.set('2,64,0','air');f.cells.set('2,65,0','air');f.cells.set('2,66,0','air')
+ const result=await f.run();assert.equal(result.status,'handed_back',JSON.stringify(result)+' '+JSON.stringify(f.c.recoveryHistory))
+ assert.equal(calls,2);assert.deepEqual(acts(f),[],'no move was dispatched')
+ assert.ok(f.c.recoveryHistory.some(r=>/open ground beyond/.test(r.reason||'')),JSON.stringify(f.c.recoveryHistory))
+})
 test('with a covered route, a blaze in sight through the side port is shot from the port, and the hut closes it after',async()=>{
  const f=fixture(async()=>wait,{act:(cmd,bot)=>{if(cmd.action==='shoot'){delete bot.entities[7];return {receipt:'killed',shots:2,item:'blaze',at:{x:6.5,y:64,z:.5}}}if(cmd.action==='unhut')return {receipt:'unwalled',port:true,side:{dx:1,dz:0}};if(cmd.action==='hut')return {receipt:'walled_in',surface:{x:0,y:64,z:0}}}})
  shooterEast(f);inWait(f,{coveredMoves:false,burrowWait:{quietMs:50,limitMs:1500,patienceMs:50,relocateAfterMs:60000,watches:1}})

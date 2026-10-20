@@ -90,7 +90,7 @@ function admit(c,bot,v,sites){
  for(const p of cells){
   const b=bot.blockAt(p)
   if(!b)return {reason:`${key(p)} is not loaded`}
-  if(AIR.has(b.name))return {reason:`open ground at ${key(p)}; under cover I bore through rock only, so the cover stays shut`}
+  if(AIR.has(b.name))return {open:true,reason:`open ground at ${key(p)}; under cover I bore through rock only, so the cover stays shut`}
   if(!fullCube(bot.registry,b.name)||hot(b)||GRAVITY.has(b.name)||!mayDig(bot,b))return {reason:`${b.name} at ${key(p)} is neither natural rock nor my own block; on rock dig a shaft first, then bore from its foot`}
   for(const [dx,dy,dz] of [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0]]){const q=p.offset(dx,dy,dz),n=bot.blockAt(q);if(!cells.some(o=>o.equals(q))&&hot(n))return {reason:`${n?.name??'unloaded ground'} beside the first column at ${key(q)}`}}
  }
@@ -106,7 +106,7 @@ function admit(c,bot,v,sites){
  // bore walks is read so, until the first all-rock column (bore digs that as rock, its skin sealed first); and the
  // walk ends closed: the column after its last is rock, or it is the end of the path, whose last skin has no front.
  const limit=Math.min(goal.count,path.length),cube=q=>{const b=bot.blockAt(q);return !!b&&fullCube(bot.registry,b.name)}
- const openGround=q=>({reason:`open ground beyond the wall at ${key(cells.at(-1))} (${bot.blockAt(q)?.name??'unloaded'} at ${key(q)}); under cover I bore through rock only. Done hands the bore to the planner, guarded by the alarm`})
+ const openGround=q=>({open:true,reason:`open ground beyond the wall at ${key(cells.at(-1))} (${bot.blockAt(q)?.name??'unloaded'} at ${key(q)}); under cover I bore through rock only. Done hands the bore to the planner, guarded by the alarm`})
  // A mob's box, not its floored feet: a 0.9-wide hoglin straddles into a column it does not stand in.
  const inCell=(e,q)=>{const w=(e.width??.6)/2+.5,h=e.height??1.8;return Math.abs(e.position.x-(q.x+.5))<w&&Math.abs(e.position.z-(q.z+.5))<w&&e.position.y<q.y+1&&e.position.y+h>q.y}
  const mobs=Object.values(bot.entities||{}).filter(e=>e!==bot.entity&&living(e)&&e?.position)
@@ -220,7 +220,11 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
     // at one cell with no covered move between, a third done only repeats that: it is refused and
     // the model is asked again, with the refusal in its recovery context.
     const hb=request.coveredHandback,at=xyz(feetOf(bot))
-    if(hb&&hb.count>=2&&hb.at.x===at.x&&hb.at.y===at.y&&hb.at.z===at.z){journal('rejected',{reason:`done refused: handed back ${hb.count} times at ${at.x},${at.y},${at.z} with no covered move between; the alarm stops the walk each time`,expectation:value.expectation});if(++refusals>=2)return {status:'held',reason:'done refused after repeated handbacks at this cell'};continue}
+    // Unless the covered way itself ended here: a bore refused for open ground names done as its
+    // handoff (the planner bores on, alarm-guarded), and refusing that done too deadlocks the
+    // egress (live, same pin). The bore refusal at this cell re-allows the handback.
+    const bo=request.coveredBoreOpen,boreEnds=bo&&bo.at.x===at.x&&bo.at.y===at.y&&bo.at.z===at.z
+    if(hb&&hb.count>=2&&hb.at.x===at.x&&hb.at.y===at.y&&hb.at.z===at.z&&!boreEnds){journal('rejected',{reason:`done refused: handed back ${hb.count} times at ${at.x},${at.y},${at.z} with no covered move between; the alarm stops the walk each time`,expectation:value.expectation});if(++refusals>=2)return {status:'held',reason:'done refused after repeated handbacks at this cell'};continue}
     journal('completed',{expectation:value.expectation});return handBack(null)}
    if(value.action==='wait'){
     journal('held',{expectation:value.expectation})
@@ -231,9 +235,9 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
    // Alight, or the trip ended while the model thought: no move starts.
    const still=coveredGate(c,bot,eligible);if(still){journal('held',{reason:still,expectation:value.expectation});return {status:'held',reason:still}}
    const move=admit(c,bot,value,sites)
-   if(move.reason){journal('rejected',{reason:move.reason,expectation:value.expectation});if(++refusals>=2)return {status:'held',reason:move.reason};continue}
+   if(move.reason){journal('rejected',{reason:move.reason,expectation:value.expectation});if(move.open){request.coveredBoreOpen={at:xyz(feetOf(bot))};c.persist()}if(++refusals>=2)return {status:'held',reason:move.reason};continue}
    // Saved before the move runs: a restart mid-bore re-arms the wait with the route's own cavity limit.
-   request.coveredMoves=(request.coveredMoves||0)+1;delete request.coveredHandback;safety.covered??={from:structuredClone(safety.retreat.surface),at:xyz(feetOf(bot)),moves:[]};c.persist()
+   request.coveredMoves=(request.coveredMoves||0)+1;delete request.coveredHandback;delete request.coveredBoreOpen;safety.covered??={from:structuredClone(safety.retreat.surface),at:xyz(feetOf(bot)),moves:[]};c.persist()
    const moveAbort=new AbortController(),moveSignal=AbortSignal.any([signal,moveAbort.signal]);let failure=null,receipt
    // The stand opens its own port and judges its own hits, closing on one and under the port's health (blaze-stand.js):
    // while that port is open (task.portOpen) only a changed context or liquid stops it here. Review of the covered stand
