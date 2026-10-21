@@ -151,6 +151,24 @@ test('cornered, the nearest mob in reach is fought whatever the count, down to t
  assert.equal(cornerWeapon(f.bot,f.target).name,'diamond_pickaxe');assert.equal(corneredDecision(f.bot).weapon,'diamond_pickaxe')
  f.target.position=new Vec3(6,64,0);second.position=new Vec3(0,64,6);assert.equal(corneredDecision(f.bot).engage,false,'nothing within four blocks is not cornered')
 })
+// Live rehearsal R26/R27, 21 October: a skeleton camped in the Nether portal hub with endermen beside
+// it. weaponFor excluded the iron sword (an enderman in sweep range), cornerWeapon's fallback picked
+// that same sword for its damage, and defend refused every swing ('Bystander entered sword sweep
+// range'): the cornered fight never landed a hit, every shelter refused, and the trip went home twice.
+// The cornered fallback keeps the bystander rule; a pickaxe has no sweep.
+test('cornered with a bystander in sweep range, the fallback takes the pickaxe, never the excluded sword, and the fight lands hits',async()=>{
+ const f=fixture();f.items.length=0
+ f.items.push({name:'iron_sword',count:1,maxDurability:250,durabilityUsed:0,slot:36},{name:'iron_pickaxe',count:1,maxDurability:250,durabilityUsed:0,slot:37})
+ f.bot.entities[8]={id:8,type:'player',position:new Vec3(1,64,1)}
+ assert.equal(cornerWeapon(f.bot,f.target).name,'iron_pickaxe')
+ assert.equal(corneredDecision(f.bot).weapon,'iron_pickaxe')
+ delete f.bot.entities[8]
+ assert.equal(cornerWeapon(f.bot,f.target).name,'iron_sword','no bystander: the sword is the cornered weapon again')
+ f.bot.entities[8]={id:8,type:'player',position:new Vec3(1,64,1)}
+ let attacks=0;f.bot.attack=e=>{attacks++;f.bot.emit('entityHurt',e);if(attacks===2)f.bot.emit('entityDead',e)}
+ const r=await defendAgainstMob(f.bot,{...f.task,goal:{...f.task.goal,cornered:true}},f.context)
+ assert.equal(r.weapon,'iron_pickaxe');assert.equal(r.attacks,2);assert.equal(r.receipt,'target_death_observed')
+})
 
 import {armorPoints,groupFightable,GROUP_ARMOR} from '../src/combat.js'
 test('in full iron the bot fights up to three zombies, husks or spiders, nearest first; skeletons, creepers and crowds still send it to shelter',()=>{

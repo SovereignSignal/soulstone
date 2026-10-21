@@ -111,7 +111,9 @@ export function portStrike(bot,target,column=null,{anyHostile=false}={}){
 export const CORNER_RANGE=4,CORNER_HEALTH=2
 const pickaxes={wooden_pickaxe:2,golden_pickaxe:2,stone_pickaxe:3,iron_pickaxe:4,diamond_pickaxe:5,netherite_pickaxe:6}
 export function cornerWeapon(bot,target){
- return weaponFor(bot,target)||bot.inventory.items().filter(i=>(weapons[i.name]||pickaxes[i.name])&&Number.isFinite(i.maxDurability)&&remainingDurability(i)>=4)
+ // The fallback keeps weaponFor's bystander rule (R26/R27, 21 October: it re-admitted the sword
+ // weaponFor had excluded for endermen in sweep range, and defend then refused every swing).
+ return weaponFor(bot,target)||bot.inventory.items().filter(i=>(weapons[i.name]||pickaxes[i.name])&&Number.isFinite(i.maxDurability)&&remainingDurability(i)>=4&&(!i.name.endsWith('_sword')||!swordBystander(bot,target)))
   .sort((a,b)=>(weapons[b.name]||pickaxes[b.name])-(weapons[a.name]||pickaxes[a.name]))[0]||null
 }
 export function corneredDecision(bot,{inPlace=false}={}){
