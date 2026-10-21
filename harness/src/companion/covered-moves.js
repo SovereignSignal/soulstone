@@ -60,6 +60,20 @@ export function shaftRefusal(bot,count,sites=[]){
  if(!u||!fullCube(bot.registry,u.name)||hot(u))return `${u?.name??'unloaded ground'} under the shaft foot at ${key(foot)}`
  return null
 }
+// Live rehearsal R25, 20 October: five stands sank correctly at z -15 to -13 instead of the named stand cell
+// -36,61,-10, each ended by the no-line budget, no rod gained. blazeStandRefusal is null at any wall facing a
+// blaze and the covered brief reads a null refusal as "choose stand", so a bot still travelling to its stand
+// cell stands wherever the alarm caught it. The plan's next step wins: while its first step (the step in
+// flight, else the first pending) is a bore, goto, travel or dig to a different cell, no stand starts here.
+const DESIGNATED_MOVES=new Set(['bore','goto','travel','dig'])
+export function designatedStandRefusal(request,feet){
+ const first=request?.inFlight?.step??request?.pending?.[0]
+ if(!first||!DESIGNATED_MOVES.has(first.action))return null
+ const t=first.target
+ if(!t||![t.x,t.y,t.z].every(Number.isFinite))return null
+ if(t.x===feet.x&&t.y===feet.y&&t.z===feet.z)return null
+ return `no stand at ${key(feet)}: the plan's next step is ${first.action} to ${key(t)}; move there first (bore or dig toward it under cover, or done to let the planner run it)`
+}
 // A move the harness lets through, as a command, or the reason it does not.
 function admit(c,bot,v,sites){
  const f=feetOf(bot)
@@ -68,6 +82,7 @@ function admit(c,bot,v,sites){
  // stand is a covered move: admitted where the stand would start (blaze-stand.js, its own reason otherwise), dispatched
  // from the hut, which it walls in and opens its own port from. Count 0 takes the request's stand count, or 4.
  if(v.action==='stand'){
+  const elsewhere=designatedStandRefusal(c.requestProgress,f);if(elsewhere)return {reason:elsewhere}
   const why=blazeStandRefusal(bot);if(why)return {reason:why}
   const asked=(c.requestProgress?.pending||[]).find(s=>s?.action==='stand'&&s.item==='blaze_rod')?.count
   const count=v.count>=1?v.count:Number.isInteger(asked)&&asked>=1&&asked<=STAND.max?asked:4
@@ -183,7 +198,11 @@ export async function coveredMoves(c,epoch,signal,bot,{eligible=false,rounds=2*C
    // Review of the R9 fix: at a stand cell on a blaze rod request that hold was endless, the port answering and the stand
    // never run. There the planner is asked, and is offered the stand, which opens and closes its own port.
    // Only a blaze is the stand's (Sonnet review, 17 October): any other shooter in port sight is still the port's.
-   const standRefusal=blazeStandRefusal(bot)||null,standCell=!standRefusal&&(wantedItems(request,bot.registry).some(w=>w.item==='blaze_rod')||(request.pending||[]).some(s=>s?.action==='stand'&&s.item==='blaze_rod'))
+   // A cell the plan is only passing through is no stand cell (R25): while its next step moves elsewhere the
+   // stand is refused in the observation, so the brief's "null refusal means stand" never fires, and the
+   // forced-stand backstop below cannot fire either (standCell is false).
+   const elsewhere=designatedStandRefusal(request,feetOf(bot))
+   const standRefusal=blazeStandRefusal(bot)||elsewhere,standCell=!standRefusal&&(wantedItems(request,bot.registry).some(w=>w.item==='blaze_rod')||(request.pending||[]).some(s=>s?.action==='stand'&&s.item==='blaze_rod'))
    // Live rehearsal, 20 October: the watch kept finding no shot through the port (its own cobble in
    // the line, controller.js's port_held) while atPort still called the blaze in sight, so the phase
    // held for a port that answers nothing and the planner was never asked. A freshly held port does

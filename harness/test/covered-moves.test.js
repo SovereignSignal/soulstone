@@ -633,6 +633,58 @@ test('after two answers that leave the stand unused at a valid stand cell, the s
  assert.deepEqual(f.events.filter(e=>e.type==='stand_forced').map(e=>e.skips),[2],'the forced dispatch is logged')
 })
 
+// Live rehearsal R25, 20 October: five stands all sank correctly and all at the wrong cells (z -15 to -13, down to
+// y 57), each ended by the no-line budget, no rod gained. The request named the stand cell -36,61,-10 and the
+// planner's plan still had the move to it first, but blazeStandRefusal is null at any wall facing a blaze and the
+// covered brief says a null refusal means choose stand, so every covered decision stood where it was. The plan's
+// next step wins: while its first step is a bore, goto, travel or dig to a different cell, no stand starts here,
+// the observation says so, admission refuses a stand anyway, and the forced-stand backstop cannot fire.
+test('while the plan\'s next step is a move to another cell, no stand starts here',async()=>{
+ const moves=[['bore',{action:'bore',name:'',count:6,target:{x:20,y:64,z:0}}],['goto',{action:'goto',name:'',count:0,target:{x:20,y:64,z:0,dig:true}}],
+  ['travel',{action:'travel',name:'',count:0,target:{x:-9,y:64,z:3}}],['dig',{action:'dig',name:'',count:3,target:{x:0,y:61,z:0}}]]
+ for(const [name,step] of moves){
+  const seen=[];const f=fixture(async o=>{seen.push(o);return seen.length===1?standMove:wait});blazeBeside(f)
+  if(name==='goto')f.c.requestProgress.inFlight={taskId:'t',step};else f.c.requestProgress.pending=[step]
+  await f.run({budgetMs:60})
+  assert.deepEqual(acts(f),[],name+': no stand dispatched')
+  assert.match(seen[0].stand.refusal,new RegExp(`next step is ${name} to ${step.target.x},${step.target.y},${step.target.z}`),name+': the observation refuses the stand')
+  assert.ok(seen[1]?.recovery.recentAttempts.some(a=>a.status==='rejected'&&/next step is/.test(a.reason)),name+': '+JSON.stringify(seen[1]?.recovery.recentAttempts))
+ }
+})
+test('the forced-stand backstop does not fire while the plan\'s next step moves elsewhere',async()=>{
+ let calls=0;const f=fixture(async()=>{calls++;return wait});blazeBeside(f)
+ f.c.requestProgress.pending=[{action:'bore',name:'',count:6,target:{x:20,y:64,z:0}}];f.c.requestProgress.standSkips=2
+ await f.run({budgetMs:60})
+ assert.equal(calls,1,'the planner is asked, not bypassed');assert.deepEqual(acts(f),[])
+ assert.deepEqual(f.events.filter(e=>e.type==='stand_forced'),[])
+})
+test('a move to the cell underfoot, a stand step first, or a non-move first step still admit the stand; once the move is no longer next, the gate lifts',async()=>{
+ for(const [name,pending] of [['goto here',[{action:'goto',name:'',count:0,target:{x:0,y:64,z:0,dig:false}}]],
+   ['stand first',[{action:'stand',name:'',item:'blaze_rod',count:2},{action:'bore',name:'',count:6,target:{x:20,y:64,z:0}}]],
+   ['eat first',[{action:'eat',name:'',count:1,item:'cooked_beef'}]]]){
+  const f=fixture(once(standMove,wait),{act:cmd=>cmd.action==='stand'?standReceipt:undefined});blazeBeside(f)
+  f.c.requestProgress.pending=pending
+  await f.run();assert.deepEqual(acts(f),['stand'],name+': '+JSON.stringify(f.c.recoveryHistory))
+ }
+ let calls=0;const f=fixture(async()=>{calls++;if(calls===2)f.c.requestProgress.pending=[{action:'stand',name:'',item:'blaze_rod',count:2}];return standMove},{act:cmd=>cmd.action==='stand'?standReceipt:undefined});blazeBeside(f)
+ f.c.requestProgress.pending=[{action:'bore',name:'',count:6,target:{x:20,y:64,z:0}}]
+ const result=await f.run()
+ assert.equal(result.status,'handed_back');assert.deepEqual(acts(f),['stand'],'the stand runs once the move is done');assert.equal(calls,2)
+})
+test('designatedStandRefusal reads only the plan\'s first step and only a move with a named different cell',async()=>{
+ const {designatedStandRefusal}=await import('../src/companion/covered-moves.js')
+ const feet={x:0,y:64,z:0}
+ assert.equal(designatedStandRefusal(null,feet),null)
+ assert.equal(designatedStandRefusal({},feet),null)
+ assert.equal(designatedStandRefusal({pending:[]},feet),null)
+ assert.equal(designatedStandRefusal({pending:[null,{action:'bore',target:{x:9,y:64,z:0}}]},feet),null,'a null head is no first step; the bore behind it is not next')
+ assert.equal(designatedStandRefusal({pending:[{action:'bore'}]},feet),null,'a move with no target names no cell')
+ assert.equal(designatedStandRefusal({pending:[{action:'bore',target:{x:0,y:64,z:0}}]},feet),null,'a move to this cell')
+ assert.equal(designatedStandRefusal({pending:[{action:'use_portal',target:{x:9,y:64,z:0}}]},feet),null,'use_portal is not a designated move')
+ assert.match(designatedStandRefusal({inFlight:{step:{action:'travel',target:{x:9,y:64,z:0}}}},feet),/travel to 9,64,0/)
+ assert.match(designatedStandRefusal({pending:[{action:'dig',target:{x:0,y:60,z:0}}]},feet),/dig to 0,60,0/)
+})
+
 // Live rehearsal R9b, 17 October 06:05:48Z: shut and healing after a fireball at the port, the bot burned 1 health a tick
 // with no fire block in or around the hut. The covered guard reads that as a burn, not a breach: the stand goes on. Alight
 // with fire in the hut's cavity, it stops the stand as a breach.
